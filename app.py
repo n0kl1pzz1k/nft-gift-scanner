@@ -7,7 +7,7 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="NFT Gift Scanner API", version="0.2.0")
+app = FastAPI(title="NFT Gift Scanner API", version="0.2.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,8 +33,6 @@ async def portals_get(path: str) -> dict:
         raise HTTPException(status_code=502, detail="Portals rejected the API key")
     if response.status_code == 403:
         raise HTTPException(status_code=502, detail="Portals API subscription or access is not active")
-    if response.status_code == 503:
-        raise HTTPException(status_code=503, detail="Portals market feed is temporarily unavailable")
     if response.is_error:
         raise HTTPException(status_code=502, detail=f"Portals API error: HTTP {response.status_code}")
     return response.json()
@@ -72,7 +70,11 @@ async def collections():
     if not os.getenv("PORTALS_API_KEY"):
         return {
             "items": [],
-            "sources": {"portals": "needs_api_key", "tonnel": "official_api_not_verified", "mrkt": "official_api_not_verified"},
+            "sources": {
+                "portals": "needs_api_key",
+                "tonnel": "official_api_not_verified",
+                "mrkt": "official_api_not_verified",
+            },
             "note": "Add PORTALS_API_KEY in Railway Variables to load official Portals market data.",
         }
 
@@ -104,13 +106,10 @@ async def collections():
 
     return {
         "items": items,
-        "sources": {"portals": "online", "tonnel": "official_api_not_verified", "mrkt": "official_api_not_verified"},
+        "sources": {
+            "portals": "online",
+            "tonnel": "official_api_not_verified",
+            "mrkt": "official_api_not_verified",
+        },
         "updated_at": int(time.time()),
     }
-
-
-@app.get("/api/market/activity")
-async def market_activity(limit: int = 20):
-    limit = max(1, min(limit, 20))
-    data = await cached_portals(f"/market/actions/?limit={limit}")
-    return {"items": data.get("actions", []), "source": "Portals"}
