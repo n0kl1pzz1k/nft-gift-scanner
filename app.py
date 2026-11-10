@@ -18,6 +18,10 @@ app.add_middleware(
 )
 
 PORTALS_BASE = "https://portal-market.com/partners"
+ALLOWED_PORTALS_PATHS = {
+    "/collections/preview?sort_by=name&sort_order=asc",
+    "/collections/floors",
+}
 _cache: dict[str, tuple[float, Any]] = {}
 CACHE_SECONDS = 30
 _request_lock = asyncio.Lock()
@@ -25,6 +29,9 @@ _last_request_at = 0.0
 
 
 async def portals_get(path: str) -> dict:
+    # Explicit allowlist: this service only calls documented GET market-data routes.
+    if path not in ALLOWED_PORTALS_PATHS:
+        raise HTTPException(status_code=400, detail="Portals route is not enabled")
     token = os.getenv("PORTALS_API_KEY", "").strip()
     if not token:
         raise HTTPException(status_code=503, detail="PORTALS_API_KEY is not configured")
@@ -68,7 +75,7 @@ async def status():
     return {
         "mode": "read_only",
         "sources": {
-            "portals": "configured" if os.getenv("PORTALS_API_KEY") else "needs_api_key",
+            "portals": "configured_read_only" if os.getenv("PORTALS_API_KEY", "").strip() else "needs_api_key",
             "tonnel": "official_api_not_verified",
             "mrkt": "official_api_not_verified",
         },
@@ -98,9 +105,18 @@ async def collections():
     except Exception:
         raise HTTPException(status_code=502, detail="Could not load Portals market data")
 
-    floor_map = floors.get("floorPrices", {}) if isinstance(floors, dict) else {}
+    if not isinstance(preview, dict) or not isinstance(floors, dict):
+        raise HTTPException(status_code=502, detail="Portals returned an unexpected response")
+    floor_map = floors.get("floorPrices", {})
+    if not isinstance(floor_map, dict):
+        floor_map = {}
+    collections_data = preview.get("collections", [])
+    if not isinstance(collections_data, list):
+        raise HTTPException(status_code=502, detail="Portals collections response is invalid")
     items = []
-    for item in preview.get("collections", []):
+    for item in collections_data:
+        if not isinstance(item, dict):
+            continue
         short_name = item.get("short_name")
         floor = floor_map.get(short_name, item.get("floor_price"))
         items.append({
@@ -117,7 +133,7 @@ async def collections():
     return {
         "items": items,
         "sources": {
-            "portals": "online",
+            "portals": "online_read_only",
             "tonnel": "official_api_not_verified",
             "mrkt": "official_api_not_verified",
         },
