@@ -1,6 +1,7 @@
 import os
 import asyncio
 import time
+import json
 from typing import Any
 
 import httpx
@@ -27,11 +28,18 @@ CACHE_SECONDS = 30
 _request_lock = asyncio.Lock()
 _last_request_at = 0.0
 
+TONNEL_LISTINGS_URL = "https://gifts2.tonnel.network/api/pageGifts"
+_tonnel_cache: dict[str, tuple[float, Any]] = {}
+_TONNEL_CACHE_SECONDS = 30
+_tonnel_lock = asyncio.Lock()
+_tonnel_last_request_at = 0.0
+_tonnel_runtime_status = "public_endpoint_not_checked"
+
 
 def source_status() -> dict[str, str]:
     return {
         "portals": "configured_read_only" if os.getenv("PORTALS_API_KEY", "").strip() else "needs_api_key",
-        "tonnel": "official_api_not_verified",
+        "tonnel": _tonnel_runtime_status,
         "mrkt": "official_api_not_verified",
     }
 
@@ -91,7 +99,7 @@ async def status():
         "sources": source_status(),
         "available_data": {
             "portals": ["collection_list", "collection_floor", "reported_24h_volume", "reported_supply", "listed_gift_catalog", "gift_price", "gift_attributes"],
-            "tonnel": [],
+            "tonnel": ["public_listings"] if _tonnel_runtime_status == "online_read_only" else [],
             "mrkt": [],
         },
         "cross_market_comparison": False,
@@ -230,4 +238,143 @@ async def gifts(
         "connected": True,
         "sources": {**source_status(), "portals": "online_read_only"},
         "updated_at": int(time.time()),
+    }
+
+
+
+def _extract_tonnel_items(payload: Any) -> list[dict]:
+    """Accept the list and common wrapper shapes returned by the public Tonnel listing endpoint."""
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        rows = None
+        for key in ("data", "items", "results", "gifts"):
+            candidate = payload.get(key)
+            if isinstance(candidate, list):
+                rows = candidate
+                break
+            if isinstance(candidate, dict):
+                for nested_key in ("items", "results", "gifts"):
+                    nested = candidate.get(nested_key)
+                    if isinstance(nested, list):
+                        rows = nested
+                        break
+            if rows is not None:
+                break
+        if rows is None:
+            rows = []
+    else:
+        raise HTTPException(status_code=502, detail="Tonnel returned an unexpected response")
+    return [row for row in rows if isinstance(row, dict)]
+
+
+async def _fetch_tonnel_page(page: int, limit: int, search: str | None) -> tuple[list[dict], Any]:
+    global _tonnel_last_request_at, _tonnel_runtime_status
+    cache_key = f"{page}:{limit}:{(search or '').strip().lower()}"
+    now = time.monotonic()
+    cached = _tonnel_cache.get(cache_key)
+    if cached and now - cached[0] < _TONNEL_CACHE_SECONDS:
+        return cached[1]
+
+    filters: dict[str, Any] = {
+        "price": {"$exists": True},
+        "refunded": {"$ne": True},
+        "buyer": {"$exists": False},
+        "export_at": {"$exists": True},
+        "asset": "TON",
+    }
+    term = (search or "").strip()
+    if term:
+        if term.isdigit():
+            filters["gift_num"] = int(term)
+        else:
+            filters["gift_name"] = term
+
+    body = {
+        "page": page,
+        "limit": limit,
+        "sort": json.dumps({"message_post_time": -1, "gift_id": -1}, separators=(",", ":")),
+        "filter": json.dumps(filters, ensure_ascii=False, separators=(",", ":")),
+        "price_range": None,
+        "user_auth": "",
+    }
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Origin": "https://market.tonnel.network",
+        "Referer": "https://market.tonnel.network/",
+        "User-Agent": "NFT-Gift-Scanner/1.0 (public read-only catalogue)",
+    }
+
+    async with _tonnel_lock:
+        wait = 1.5 - (time.monotonic() - _tonnel_last_request_at)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            response = await client.post(TONNEL_LISTINGS_URL, json=body, headers=headers)
+        _tonnel_last_request_at = time.monotonic()
+
+    if response.status_code == 429:
+        _tonnel_runtime_status = "rate_limited"
+        raise HTTPException(status_code=503, detail="Tonnel rate limit reached; retry later")
+    if response.status_code in (401, 403):
+        _tonnel_runtime_status = "public_access_unavailable"
+        raise HTTPException(status_code=503, detail="Tonnel did not allow public unauthenticated listing access")
+    if response.is_error:
+        _tonnel_runtime_status = "temporarily_unavailable"
+        raise HTTPException(status_code=502, detail=f"Tonnel returned HTTP {response.status_code}")
+    try:
+        payload = response.json()
+    except ValueError:
+        _tonnel_runtime_status = "temporarily_unavailable"
+        raise HTTPException(status_code=502, detail="Tonnel returned invalid JSON")
+
+    rows = _extract_tonnel_items(payload)
+    total_count = payload.get("total_count", payload.get("count", len(rows))) if isinstance(payload, dict) else len(rows)
+    _tonnel_runtime_status = "online_read_only"
+    result = (rows, total_count)
+    _tonnel_cache[cache_key] = (time.monotonic(), result)
+    return result
+
+
+@app.get("/api/tonnel/gifts")
+async def tonnel_gifts(
+    limit: int = Query(default=24, ge=1, le=30),
+    page: int = Query(default=1, ge=1, le=10000),
+    search: str | None = Query(default=None, max_length=80),
+):
+    """Public Tonnel listings only. No account auth, trading or anti-bot workarounds."""
+    rows, total_count = await _fetch_tonnel_page(page, limit, search)
+    items = []
+    for gift in rows:
+        model = gift.get("model")
+        backdrop = gift.get("backdrop")
+        symbol = gift.get("symbol")
+        attrs = []
+        if model:
+            attrs.append({"type": "Model", "value": model})
+        if backdrop:
+            attrs.append({"type": "Backdrop", "value": backdrop})
+        if symbol:
+            attrs.append({"type": "Symbol", "value": symbol})
+        items.append({
+            "id": gift.get("gift_id"),
+            "name": gift.get("name") or gift.get("gift_name") or "Telegram Gift",
+            "number": gift.get("gift_num"),
+            "image": gift.get("image") or gift.get("photo_url"),
+            "price": gift.get("price"),
+            "floor_price": None,
+            "attributes": attrs,
+            "status": gift.get("status") or "forsale",
+            "listed_at": gift.get("export_at") or gift.get("message_post_time"),
+            "source": "Tonnel",
+            "currency": gift.get("asset") or "TON",
+        })
+    return {
+        "items": items,
+        "total_count": total_count,
+        "connected": True,
+        "sources": {**source_status(), "tonnel": "online_read_only"},
+        "updated_at": int(time.time()),
+        "note": "Public listings only. Floor is not inferred from a partial listings page.",
     }
