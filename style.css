@@ -114,3 +114,23 @@ input,button{font-size:16px}
  body,.ambient-three,.float-asset,.float-gift,.brand-mark,.hero-art,.orbit-a,.orbit-b{animation:none!important}
  .reveal-target{opacity:1!important;transform:none!important;transition:none!important}
 }
+
+/* Collection detail is a dedicated app view, not an anchor-scroll section */
+body.collection-view-active .hero,
+body.collection-view-active .status-panel,
+body.collection-view-active .collections-section{display:none!important}
+body.collection-view-active .catalog-section{margin-top:24px;min-height:calc(100vh - 115px);animation:collection-enter .35s ease both}
+body.collection-view-active .market-tabs{position:sticky;top:8px;z-index:5;background:#111629ed;backdrop-filter:blur(20px)}
+@keyframes collection-enter{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.collection-filters{margin:14px 0 16px;padding:15px;border:1px solid #a78bfa38;border-radius:17px;background:linear-gradient(145deg,#211d3dce,#101a2bdc);box-shadow:0 12px 35px #0003}
+.filter-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;color:#dcd5ff;font-size:10px;font-weight:900;letter-spacing:.16em}
+.filter-clear{border:0;background:transparent;color:#a99aff;font:inherit;font-size:11px;cursor:pointer}
+.filter-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.filter-grid label{display:flex;flex-direction:column;gap:6px;min-width:0;color:#aab2d0;font-size:10px;font-weight:700}
+.filter-grid input,.filter-grid select{width:100%;min-width:0;height:40px;padding:0 10px;border:1px solid #aab1d32c;border-radius:10px;background:#0b1020;color:#f5f6ff;font:inherit;font-size:12px;outline:none}
+.filter-grid input:focus,.filter-grid select:focus{border-color:#a78bfa99;box-shadow:0 0 0 3px #a78bfa18}
+.filter-sort{grid-column:span 2}
+.filter-apply{align-self:end;min-height:40px;border:1px solid #b7a6ff66;border-radius:10px;background:linear-gradient(120deg,#8068d7,#338da7);color:#fff;font:inherit;font-size:12px;font-weight:900;cursor:pointer}
+.filter-hint{margin:10px 0 0;color:#7886aa;font-size:9px}
+.gift-rarity{color:#a9e8d1!important}
+@media(max-width:600px){.filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.filter-sort{grid-column:span 2}.filter-apply{grid-column:span 2}.collection-detail-toolbar{position:relative;z-index:2}}
