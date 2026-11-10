@@ -4,7 +4,7 @@ import time
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="NFT Gift Scanner API", version="0.3.0")
@@ -151,4 +151,80 @@ async def collections():
         },
         "updated_at": int(time.time()),
         "note": "These are Portals collection-level figures, not item-level listings or cross-market price matches.",
+    }
+
+
+@app.get("/api/gifts")
+async def gifts(
+    limit: int = Query(default=24, ge=1, le=40),
+    offset: int = Query(default=0, ge=0, le=10000),
+    search: str | None = Query(default=None, max_length=80),
+    collection_id: str | None = Query(default=None, max_length=64),
+):
+    """Read-only page of currently listed gifts from the documented Portals search endpoint."""
+    if not os.getenv("PORTALS_API_KEY", "").strip():
+        return {"items": [], "total_count": 0, "sources": source_status(), "updated_at": None}
+
+    params: dict[str, Any] = {"limit": limit, "offset": offset, "status": "listed"}
+    if search and search.strip():
+        params["search"] = search.strip()
+    if collection_id and collection_id.strip():
+        params["collection_id"] = collection_id.strip()
+
+    token = os.getenv("PORTALS_API_KEY", "").strip()
+    headers = {"Authorization": f"partners {token}"}
+    global _last_request_at
+    try:
+        async with _request_lock:
+            wait = 1.05 - (time.monotonic() - _last_request_at)
+            if wait > 0:
+                await asyncio.sleep(wait)
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(
+                    f"{PORTALS_BASE}/nfts/search",
+                    headers=headers,
+                    params=params,
+                )
+            _last_request_at = time.monotonic()
+        if response.status_code == 401:
+            raise HTTPException(status_code=502, detail="Portals rejected the API key")
+        if response.status_code == 429:
+            raise HTTPException(status_code=503, detail="Portals rate limit reached; retry shortly")
+        if response.status_code == 403:
+            raise HTTPException(status_code=502, detail="Portals API access is not active")
+        if response.is_error:
+            raise HTTPException(status_code=502, detail=f"Portals API error: HTTP {response.status_code}")
+        payload = response.json()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=502, detail="Could not load Portals gift listings")
+
+    results = payload.get("results", []) if isinstance(payload, dict) else []
+    if not isinstance(results, list):
+        raise HTTPException(status_code=502, detail="Portals gift search response is invalid")
+
+    items = []
+    for gift in results:
+        if not isinstance(gift, dict):
+            continue
+        items.append({
+            "id": gift.get("id"),
+            "name": gift.get("name"),
+            "number": gift.get("external_collection_number"),
+            "image": gift.get("photo_url"),
+            "price": gift.get("price"),
+            "floor_price": gift.get("floor_price"),
+            "attributes": gift.get("attributes", []),
+            "status": gift.get("status"),
+            "listed_at": gift.get("listed_at"),
+            "source": "Portals",
+            "currency": "GRAM",
+        })
+
+    return {
+        "items": items,
+        "total_count": payload.get("total_count", len(items)),
+        "sources": {**source_status(), "portals": "online_read_only"},
+        "updated_at": int(time.time()),
     }
