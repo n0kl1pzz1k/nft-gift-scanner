@@ -509,3 +509,51 @@ renderText=function(){nftOriginalRenderText();nftRenderProfile();nftRenderSaved(
 const nftOriginalRenderMarketTabs=renderMarketTabs;
 renderMarketTabs=function(){nftOriginalRenderMarketTabs();nftRenderProfile();};
 nftRenderSaved();nftRenderProfile();nftUpdateCounts();nftSetView("catalog");
+
+
+/* Extended documented Portals traits and status filters */
+Object.assign(collectionFilterState,{filter_by_models:"",filter_by_symbols:"",mint_status:"",statuses:""});
+function nftAddExtraFilters(panel){
+ const grid=panel&&panel.querySelector(".filter-grid");if(!grid)return;
+ const ru=lang==="ru";const status=grid.querySelector("#filter-status");
+ if(status&&!status.querySelector('option[value="withdrawn"]'))status.insertAdjacentHTML("beforeend",'<option value="withdrawn">'+(ru?"Снятые":"Withdrawn")+'</option><option value="auction">'+(ru?"Аукцион":"Auction")+'</option><option value="deleted">'+(ru?"Удалённые":"Deleted")+'</option>');
+ if(!grid.querySelector("#filter-model"))grid.insertAdjacentHTML("beforeend",'<label>'+(ru?"Модель":"Model")+'<input id="filter-model" type="text" value="'+escapeHtml(collectionFilterState.filter_by_models||"")+'" placeholder="'+(ru?"Название модели":"Model name")+'"></label><label>'+(ru?"Символ":"Symbol")+'<input id="filter-symbol" type="text" value="'+escapeHtml(collectionFilterState.filter_by_symbols||"")+'" placeholder="'+(ru?"Название символа":"Symbol name")+'"></label><label>'+(ru?"Статус минта":"Mint status")+'<select id="filter-mint-status"><option value="">'+(ru?"Любой":"Any")+'</option><option value="minted" '+(collectionFilterState.mint_status==="minted"?"selected":"")+'>'+(ru?"Заминичен":"Minted")+'</option><option value="not_minted" '+(collectionFilterState.mint_status==="not_minted"?"selected":"")+'>'+(ru?"Не заминичен":"Not minted")+'</option></select></label>');
+}
+const nftPrevEnsureGlobal=nftEnsureGlobalFilters;
+nftEnsureGlobalFilters=function(){nftPrevEnsureGlobal();nftAddExtraFilters(document.querySelector("#market-view .collection-filters"));};
+const nftPrevRenderWithTraits=renderGifts;
+renderGifts=function(data){nftPrevRenderWithTraits(data);if(activeMarket==="portals")nftAddExtraFilters(document.querySelector("#market-view .collection-filters"));};
+readCollectionFilters=function(){
+ const selected=$("filter-status")?.value||"";
+ collectionFilterState={
+  min_price:$("filter-min-price")?.value.trim()||"",
+  max_price:$("filter-max-price")?.value.trim()||"",
+  external_collection_number:$("filter-gift-number")?.value.trim()||"",
+  filter_by_backdrops:$("filter-backdrop")?.value||"",
+  filter_by_models:$("filter-model")?.value.trim()||"",
+  filter_by_symbols:$("filter-symbol")?.value.trim()||"",
+  mint_status:$("filter-mint-status")?.value||"",
+  statuses:["withdrawn","auction","deleted"].includes(selected)?selected:"",
+  sort_by:$("filter-sort")?.value||"listed_at desc",
+  status:["listed","unlisted"].includes(selected)?selected:""
+ };
+};
+currentCollectionParams=function(offset=0,searchTerm=""){
+ const params=new URLSearchParams({limit:"24",offset:String(offset)});
+ if(selectedCollection)params.set("collection_id",String(selectedCollection.id??selectedCollection.short_name));
+ if(searchTerm)params.set("search",searchTerm);
+ for(const key of ["min_price","max_price","external_collection_number","filter_by_backdrops","filter_by_models","filter_by_symbols","mint_status","statuses","sort_by","status"]){const value=collectionFilterState[key];if(value!==undefined&&value!==null&&String(value).trim())params.set(key,String(value).trim());}
+ return params;
+};
+nftLoadGlobal=async function(offset=0,append=false,term=""){
+ const t=copy[lang];try{
+  const params=new URLSearchParams({limit:"24",offset:String(offset)});
+  if(term)params.set("search",term);
+  for(const k of ["min_price","max_price","external_collection_number","filter_by_backdrops","filter_by_models","filter_by_symbols","mint_status","statuses","sort_by","status"]){const v=collectionFilterState[k];if(v)params.set(k,v);}
+  const response=await fetch(window.API_BASE+"/api/gifts?"+params.toString());const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||"HTTP "+response.status);
+  const page=Array.isArray(data.items)?data.items:[];
+  portalsGiftItems=append?portalsGiftItems.concat(page):page;
+  renderGifts({...data,items:portalsGiftItems,total_count:data.total_count??portalsGiftItems.length});
+ }catch(e){$("market-view").innerHTML='<p class="empty">'+escapeHtml(t.error)+' · '+escapeHtml(e.message||"")+'</p>';}
+};
