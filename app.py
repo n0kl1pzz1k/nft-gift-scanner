@@ -173,6 +173,10 @@ async def gifts(
     max_price: str | None = Query(default=None, max_length=32),
     external_collection_number: str | None = Query(default=None, max_length=16),
     filter_by_backdrops: str | None = Query(default=None, max_length=100),
+    filter_by_models: str | None = Query(default=None, max_length=100),
+    filter_by_symbols: str | None = Query(default=None, max_length=100),
+    mint_status: str | None = Query(default=None, max_length=16),
+    statuses: str | None = Query(default=None, max_length=100),
     sort_by: str | None = Query(default=None, max_length=40),
     status: str | None = Query(default=None, max_length=16),
 ):
@@ -200,6 +204,20 @@ async def gifts(
         params["external_collection_number"] = external_collection_number.strip()
     if filter_by_backdrops and filter_by_backdrops.strip():
         params["filter_by_backdrops"] = filter_by_backdrops.strip()
+    if filter_by_models and filter_by_models.strip():
+        params["filter_by_models"] = filter_by_models.strip()
+    if filter_by_symbols and filter_by_symbols.strip():
+        params["filter_by_symbols"] = filter_by_symbols.strip()
+    if mint_status:
+        if mint_status not in {"all", "minted", "not_minted"}:
+            raise HTTPException(status_code=422, detail="mint_status must be all, minted or not_minted")
+        params["mint_status"] = mint_status
+    if statuses and statuses.strip():
+        allowed_statuses = {"listed", "unlisted", "withdrawn", "auction", "deleted"}
+        requested_statuses = [value.strip() for value in statuses.split(",") if value.strip()]
+        if not requested_statuses or any(value not in allowed_statuses for value in requested_statuses):
+            raise HTTPException(status_code=422, detail="statuses contains an unsupported value")
+        params["statuses"] = ",".join(requested_statuses)
     allowed_sorts = {
         "listed_at desc", "price asc", "price desc",
         "external_collection_number asc", "external_collection_number desc",
