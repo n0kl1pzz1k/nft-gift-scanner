@@ -1,1 +1,2 @@
-// Public Railway API URL. Private API keys must stay in Railway Variables.\nwindow.API_BASE = "https://nft-gift-scanner-production.up.railway.app";\n
+// Public Railway API URL. Private API keys must stay in Railway Variables.
+window.API_BASE = "https://nft-gift-scanner-production.up.railway.app";
