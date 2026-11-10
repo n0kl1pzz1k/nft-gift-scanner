@@ -405,6 +405,8 @@ function nftSetView(view){
 }
 function nftRenderProfile(){
  const ru=lang==="ru";
+ const nav={ "nav-catalog":ru?"Каталог":"Catalogue","nav-collections":ru?"Коллекции":"Collections","nav-favorites":ru?"Избранное":"Saved","nav-profile":ru?"Профиль":"Profile","m-nav-catalog":ru?"Каталог":"Catalogue","m-nav-collections":ru?"Коллекции":"Collections","m-nav-favorites":ru?"Избранное":"Saved","m-nav-profile":ru?"Профиль":"Profile" };Object.entries(nav).forEach(([id,v])=>{if($(id))$(id).textContent=v;});
+ if($("nav-collection-count")&&$("collections-count"))$("nav-collection-count").textContent=$("collections-count").textContent;
  const text={
  "profile-guest":ru?"Гость":"Guest profile",
  "profile-description":ru?"Локальный профиль приложения. Авторизация и подключение кошелька не требуются.":"Local app preferences. No sign-in or wallet connection required.",
@@ -504,4 +506,6 @@ $("modal-favorite").addEventListener("click",()=>{if(!nftCurrentModal)return;nft
 $("profile-language").addEventListener("click",()=>{lang=lang==="ru"?"en":"ru";renderText();nftRenderProfile();});
 const nftOriginalRenderText=renderText;
 renderText=function(){nftOriginalRenderText();nftRenderProfile();nftRenderSaved();};
+const nftOriginalRenderMarketTabs=renderMarketTabs;
+renderMarketTabs=function(){nftOriginalRenderMarketTabs();nftRenderProfile();};
 nftRenderSaved();nftRenderProfile();nftUpdateCounts();nftSetView("catalog");
