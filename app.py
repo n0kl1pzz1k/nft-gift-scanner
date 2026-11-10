@@ -163,7 +163,7 @@ async def gifts(
 ):
     """Read-only page of currently listed gifts from the documented Portals search endpoint."""
     if not os.getenv("PORTALS_API_KEY", "").strip():
-        return {"items": [], "total_count": 0, "sources": source_status(), "updated_at": None}
+        return {"items": [], "total_count": 0, "connected": False, "sources": source_status(), "updated_at": None}
 
     params: dict[str, Any] = {"limit": limit, "offset": offset, "status": "listed"}
     if search and search.strip():
@@ -225,6 +225,7 @@ async def gifts(
     return {
         "items": items,
         "total_count": payload.get("total_count", len(items)),
+        "connected": True,
         "sources": {**source_status(), "portals": "online_read_only"},
         "updated_at": int(time.time()),
     }
