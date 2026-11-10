@@ -1,27 +1,28 @@
 # NFT Gift Scanner
 
-Telegram bot and bilingual Mini App for displaying public Telegram gift marketplace information.
+Telegram bot and bilingual Mini App for public, read-only Telegram gift marketplace information.
 
-## Current data sources
+## Current verified scope
 
-- **Portals**: the backend adapter uses only the documented GET routes for collection preview and collection floors. It does not expose purchase, sale, offer, wallet, transfer, withdrawal, or betting actions.
-- **Tonnel**: not connected. No official public API contract has been verified for this project.
-- **MRKT**: not connected. No official public API contract has been verified for this project.
+- **Portals**: optional adapter for documented GET collection-preview and collection-floor routes. Returned figures are collection-level data, not individual gift listings.
+- **Tonnel**: not connected. An official public read-only API contract has not been verified.
+- **MRKT**: not connected. An official public read-only API contract has not been verified.
+- Cross-market matching is disabled until all compared sources expose compatible, official public data.
 
-The Portals Partner API credential is powerful: Portals documents that the same key can authorize both read and write operations. Keep it server-side and do not add it to the Mini App or commit it to GitHub. This project itself allowlists only two GET market-data routes, but that does not change the permissions of the credential.
+## Safety and credentials
+
+The Portals Partner API credential may have broader permissions than read-only. Never place credentials in frontend code, GitHub, chat messages, or logs. The application allowlists only specific GET routes, but that does not reduce the credential's own permissions. Do not configure a credential unless an authorized adult/account owner has reviewed its permissions.
 
 ## Environment variables
 
-Set these in Railway Variables, never in source code:
-
-- `BOT_TOKEN` — Telegram bot token.
+- `BOT_TOKEN` — Telegram bot token, stored only in Railway Variables.
 - `PUBLIC_APP_URL` — public HTTPS Mini App URL.
-- `PORTALS_API_KEY` — optional Portals Partner API credential. The application only uses it for the two allowlisted GET market-data routes above.
+- `PORTALS_API_KEY` — optional server-side Portals credential; see the warning above.
 
 ## API
 
 - `GET /health` — backend health.
-- `GET /api/status` — current source connection states.
-- `GET /api/collections` — Portals collection preview and floor data, or an empty list with a clear status when no key is configured.
+- `GET /api/status` — source coverage and verified data capabilities.
+- `GET /api/collections` — Portals collection-level data or an honest empty result.
 
-All application endpoints are read-only. No buying, selling, transfers, withdrawals, offers, betting, or gambling endpoints are implemented.
+All application endpoints are read-only. No buying, selling, transfers, offers, or wallet actions are implemented.
