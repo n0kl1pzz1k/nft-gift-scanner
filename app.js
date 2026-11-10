@@ -106,7 +106,7 @@ function renderGifts(data){
     const image=gift.image?'<img loading="lazy" src="'+escapeHtml(gift.image)+'" alt="">':'<div class="placeholder">🎁</div>';
     const attrs=Array.isArray(gift.attributes)?gift.attributes.map(a=>[a.type||a.name,a.value||a.attribute_name].filter(Boolean).join(": ")).filter(Boolean).slice(0,3).join(" · "):"";
     return '<article class="gift-card">'+image+'<div class="gift-info"><b>'+escapeHtml(gift.name||"Telegram Gift")+'</b><span>'+t.giftNumber+' '+escapeHtml(gift.number??"—")+'</span><strong>'+t.giftPrice+': '+escapeHtml(gift.price??"—")+' GRAM</strong><small>'+t.giftFloor+': '+escapeHtml(gift.floor_price??"—")+' GRAM</small><small>'+escapeHtml(attrs)+'</small></div></article>';
-  }).join(""):'<p class="empty">'+(data.items?"":t.catalogWaiting)+'</p>';
+  }).join(""):'<p class="empty">'+(data.connected===false?t.catalogWaiting:t.giftEmpty)+'</p>';
 }
 async function searchGifts(){
   const term=$("gift-search").value.trim();
