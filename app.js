@@ -291,7 +291,8 @@ function openGiftDetails(index){
   $("modal-attributes").innerHTML=attrs.length?attrs.map(attr=>{
     const name=attr.type||attr.name||attr.attribute_type||"Attribute";
     const value=attr.value||attr.attribute_name||attr.name_value||"—";
-    return '<div class="attribute-chip"><small>'+escapeHtml(name)+'</small><b>'+escapeHtml(value)+'</b></div>';
+    const rarity=attr.rarity!==undefined&&attr.rarity!==null?'<small class="attribute-rarity">'+escapeHtml(copy[lang].rarityLabel)+': '+escapeHtml(attr.rarity)+'</small>':'';
+    return '<div class="attribute-chip"><small>'+escapeHtml(name)+'</small><b>'+escapeHtml(value)+'</b>'+rarity+'</div>';
   }).join(""):'<span class="note">'+escapeHtml(t.noAttributes)+'</span>';
   $("gift-modal").classList.add("open");
   $("gift-modal").setAttribute("aria-hidden","false");
