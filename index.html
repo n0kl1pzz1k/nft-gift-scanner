@@ -42,13 +42,41 @@
       <section class="collections" id="collections"><p class="empty">Ожидаем данные маркетплейса…</p></section>
       <p class="note data-note" id="data-note"></p>
     </section>
-    <section class="catalog-section">
-      <div class="section-head"><div><span class="section-kicker" id="catalog-kicker">PORTALS MARKET</span><h2 id="catalog-title">Каталог выставленных подарков</h2></div><div class="count-wrap"><strong id="gifts-count">—</strong><span id="gifts-count-label">ЛОТОВ</span></div></div>
-      <div class="catalog-toolbar"><input id="gift-search" type="search" placeholder="Поиск по названию или номеру"><button id="gift-search-button" type="button">Найти</button></div>
-      <p class="updated"><span class="update-dot"></span><span id="gifts-updated">Каталог ожидает подключения</span></p>
-      <section class="gift-grid" id="gift-grid"><p class="empty" id="gifts-empty">Каталог появится после подключения подтверждённого источника данных.</p></section>
-      <p class="note" id="catalog-note">Показываются только публичные объявления Portals. Кнопок покупки и действий с подарками нет.</p>
+    <section class="catalog-section" id="marketplaces">
+      <div class="section-head"><div><span class="section-kicker" id="catalog-kicker">MARKETPLACES</span><h2 id="catalog-title">Маркетплейсы</h2></div><div class="count-wrap"><strong id="gifts-count">—</strong><span id="gifts-count-label">ЛОТОВ</span></div></div>
+      <nav class="market-tabs" aria-label="Marketplaces">
+        <button class="market-tab active" type="button" data-market="portals"><span class="tab-mark portals-mark">P</span>Portals<span class="tab-state" id="tab-state-portals">...</span></button>
+        <button class="market-tab" type="button" data-market="tonnel"><span class="tab-mark tonnel-mark">T</span>Tonnel<span class="tab-state" id="tab-state-tonnel">...</span></button>
+        <button class="market-tab" type="button" data-market="mrkt"><span class="tab-mark mrkt-mark">M</span>MRKT<span class="tab-state" id="tab-state-mrkt">...</span></button>
+      </nav>
+      <div id="market-view">
+        <div class="catalog-toolbar"><input id="gift-search" type="search" placeholder="Поиск по названию или номеру"><button id="gift-search-button" type="button">Найти</button></div>
+        <p class="updated"><span class="update-dot"></span><span id="gifts-updated">Каталог ожидает подключения</span></p>
+        <section class="gift-grid" id="gift-grid"><p class="empty" id="gifts-empty">Каталог появится после подключения подтверждённого источника данных.</p></section>
+      </div>
+      <p class="note" id="catalog-note">Показываются только публичные объявления. Без торговых операций.</p>
     </section>
+    <div class="gift-modal" id="gift-modal" aria-hidden="true">
+      <div class="gift-modal-backdrop" data-close-modal="true"></div>
+      <article class="gift-modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <button class="modal-close" id="modal-close" type="button" aria-label="Close">×</button>
+        <div class="modal-image-wrap" id="modal-image-wrap"></div>
+        <div class="modal-content">
+          <span class="section-kicker" id="modal-source">PORTALS</span>
+          <h2 id="modal-title">Gift details</h2>
+          <div class="modal-number" id="modal-number"></div>
+          <div class="modal-metrics">
+            <div><small id="modal-price-label">Listing price</small><strong id="modal-price">—</strong></div>
+            <div><small id="modal-floor-label">Collection floor</small><strong id="modal-floor">—</strong></div>
+          </div>
+          <div class="modal-detail-row"><span id="modal-status-label">Status</span><b id="modal-status">—</b></div>
+          <div class="modal-detail-row"><span id="modal-date-label">Listed</span><b id="modal-date">—</b></div>
+          <h3 id="modal-attributes-title">Attributes</h3>
+          <div class="modal-attributes" id="modal-attributes"></div>
+          <p class="note" id="modal-note">Public listing details only. No transaction actions.</p>
+        </div>
+      </article>
+    </div>
     <footer><span class="footer-mark">✳ NFT GIFT SCANNER</span><span id="foot">Только чтение публичной информации. Без покупок, продаж, переводов и торговых сигналов.</span></footer>
   </main>
   <script src="app.js"></script>
