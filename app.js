@@ -11,7 +11,7 @@ const copy={
     dataNote:"Collection-level figures are not individual gift listings and cannot be compared across marketplaces.",
     updated:"Last response",never:"Not available",error:"Could not load marketplace data.",
     public:"Public data",readonly:"View only",nomoney:"No transactions",system:"SYSTEM",overview:"DATA OVERVIEW",count:"COLLECTIONS",live:"LIVE MONITOR",
-    catalog:"Marketplace listings",collectionKicker:"COLLECTION",viewCollection:"Open collection",backCollections:"← All collections",collectionLoading:"Loading gifts in this collection…",collectionEmpty:"No public listings were found in this collection.",loadMore:"Load more",loadingMore:"Loading…",lots:"LISTINGS",searchPlaceholder:"Search by gift name or number",searchButton:"Search",catalogWaiting:"Catalogue will appear when a verified data source is connected.",catalogNote:"Public listing information only. No purchase or gift-action buttons.",giftPrice:"Listing price",giftFloor:"Collection floor",giftNumber:"Gift #",giftEmpty:"No matching public listings were returned.",catalogUpdated:"Catalogue response",
+    catalog:"Marketplace listings",collectionKicker:"COLLECTION",viewCollection:"Open collection",backCollections:"← All collections",collectionLoading:"Loading gifts in this collection…",collectionEmpty:"No public listings were found in this collection.",loadMore:"Load more",loadingMore:"Loading…",lots:"LISTINGS",filters:"FILTERS",minPrice:"Min price · GRAM",maxPrice:"Max price · GRAM",giftNumberFilter:"Gift number",backdropFilter:"Backdrop colour",allBackdrops:"All backdrops",sortLabel:"Sort by",sortRecent:"Recently listed",sortPriceLow:"Price: low to high",sortPriceHigh:"Price: high to low",sortNumberLow:"Number: low to high",sortNumberHigh:"Number: high to low",sortRarityLow:"Model rarity: ascending",sortRarityHigh:"Model rarity: descending",applyFilters:"Apply filters",clearFilters:"Clear",rarityLabel:"Rarity",searchPlaceholder:"Search by gift name or number",searchButton:"Search",catalogWaiting:"Catalogue will appear when a verified data source is connected.",catalogNote:"Public listing information only. No purchase or gift-action buttons.",giftPrice:"Listing price",giftFloor:"Collection floor",giftNumber:"Gift #",giftEmpty:"No matching public listings were returned.",catalogUpdated:"Catalogue response",
     connected:"CONNECTED",pending:"NOT CONNECTED",details:"View details",status:"Listing status",listed:"Listed",attributes:"Attributes",noAttributes:"No public attributes supplied",detailNote:"Public listing details only. No transaction actions.",marketUnavailable:"This marketplace is not connected yet.",marketReasonTonnel:"Tonnel public listings are requested without account authentication. If the marketplace refuses public access, the app will show that honestly; no anti-bot bypass is used.",marketReasonMrkt:"MRKT currently requires account-linked Telegram authorization. This app does not collect Telegram sessions or API credentials.",marketTonnelError:"Tonnel public listings are temporarily unavailable or the source refused the request.",notConnected:"Not connected",modalClose:"Close"
   },
   ru:{
@@ -26,7 +26,7 @@ const copy={
     dataNote:"Показатели коллекций — не объявления отдельных подарков и не основание для сравнения цен между маркетами.",
     updated:"Последний ответ",never:"Нет данных",error:"Не удалось загрузить данные маркетплейсов.",
     public:"Публичные данные",readonly:"Только просмотр",nomoney:"Без транзакций",system:"СИСТЕМА",overview:"ОБЗОР ДАННЫХ",count:"КОЛЛЕКЦИЙ",live:"LIVE МОНИТОРИНГ",
-    catalog:"Объявления маркетплейсов",collectionKicker:"КОЛЛЕКЦИЯ",viewCollection:"Открыть коллекцию",backCollections:"← Все коллекции",collectionLoading:"Загружаем подарки этой коллекции…",collectionEmpty:"В этой коллекции не найдено публичных объявлений.",loadMore:"Показать ещё",loadingMore:"Загружаем…",lots:"ЛОТОВ",searchPlaceholder:"Поиск по названию или номеру",searchButton:"Найти",catalogWaiting:"Каталог появится после подключения подтверждённого источника данных.",catalogNote:"Только публичная информация об объявлениях. Без торговых действий.",giftPrice:"Цена объявления",giftFloor:"Флор коллекции",giftNumber:"Подарок №",giftEmpty:"По этому запросу публичных объявлений не найдено.",catalogUpdated:"Ответ каталога",
+    catalog:"Объявления маркетплейсов",collectionKicker:"КОЛЛЕКЦИЯ",viewCollection:"Открыть коллекцию",backCollections:"← Все коллекции",collectionLoading:"Загружаем подарки этой коллекции…",collectionEmpty:"В этой коллекции не найдено публичных объявлений.",loadMore:"Показать ещё",loadingMore:"Загружаем…",lots:"ЛОТОВ",filters:"ФИЛЬТРЫ",minPrice:"Цена от · GRAM",maxPrice:"Цена до · GRAM",giftNumberFilter:"Номер NFT",backdropFilter:"Цвет фона",allBackdrops:"Все фоны",sortLabel:"Сортировка",sortRecent:"Сначала новые",sortPriceLow:"Цена: сначала дешевле",sortPriceHigh:"Цена: сначала дороже",sortNumberLow:"Номер: по возрастанию",sortNumberHigh:"Номер: по убыванию",sortRarityLow:"Редкость модели: по возрастанию",sortRarityHigh:"Редкость модели: по убыванию",applyFilters:"Применить фильтры",clearFilters:"Сбросить",rarityLabel:"Редкость",searchPlaceholder:"Поиск по названию или номеру",searchButton:"Найти",catalogWaiting:"Каталог появится после подключения подтверждённого источника данных.",catalogNote:"Только публичная информация об объявлениях. Без торговых действий.",giftPrice:"Цена объявления",giftFloor:"Флор коллекции",giftNumber:"Подарок №",giftEmpty:"По этому запросу публичных объявлений не найдено.",catalogUpdated:"Ответ каталога",
     connected:"ПОДКЛЮЧЁН",pending:"НЕ ПОДКЛЮЧЁН",details:"Подробнее",status:"Статус объявления",listed:"Выставлен",attributes:"Атрибуты",noAttributes:"Источник не передал публичные атрибуты",detailNote:"Только публичная информация об объявлении. Без торговых операций.",marketUnavailable:"Этот маркетплейс пока не подключён.",marketReasonTonnel:"Публичные объявления Tonnel запрашиваются без авторизации аккаунта. Если площадка не разрешит публичный доступ, приложение честно покажет это. Обход антибот-защиты не используется.",marketReasonMrkt:"Сейчас MRKT требует авторизацию, связанную с Telegram-аккаунтом. Приложение не собирает Telegram-сессии и API-ключи.",marketTonnelError:"Публичные объявления Tonnel временно недоступны или источник отклонил запрос.",notConnected:"Не подключён",modalClose:"Закрыть"
   }
 };
@@ -41,6 +41,7 @@ let selectedCollection=null;
 let selectedCollectionItems=[];
 let selectedCollectionTotal=0;
 let collectionLoadingMore=false;
+let collectionFilterState={min_price:"",max_price:"",external_collection_number:"",filter_by_backdrops:"",sort_by:"listed_at desc"};
 const $=id=>document.getElementById(id);
 const escapeHtml=value=>String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function renderText(){
@@ -153,13 +154,17 @@ function renderGifts(data){
   if(selectedCollection){selectedCollectionItems=items;selectedCollectionTotal=Number(data.total_count??items.length)||items.length;}
   $("gifts-count").textContent=data.total_count??items.length;
   $("gifts-updated").textContent=t.catalogUpdated+": "+formatTime(data.updated_at);
+  const backdrops=[...new Set(items.flatMap(g=>Array.isArray(g.attributes)?g.attributes.filter(a=>String(a.type||a.name||"").toLowerCase()==="backdrop").map(a=>a.value||a.attribute_name).filter(Boolean):[]))].sort((a,b)=>String(a).localeCompare(String(b)));
+  if(collectionFilterState.filter_by_backdrops&&!backdrops.includes(collectionFilterState.filter_by_backdrops)) backdrops.unshift(collectionFilterState.filter_by_backdrops);
   const backButton=selectedCollection?'<div class="collection-detail-toolbar"><button class="back-collections" type="button" data-back-collections>'+escapeHtml(t.backCollections)+'</button><span>'+escapeHtml(selectedCollection.name||"")+'</span></div>':"";
+  const filters=selectedCollection?'<section class="collection-filters"><div class="filter-heading"><span>'+escapeHtml(t.filters)+'</span><button type="button" class="filter-clear" data-clear-filters>'+escapeHtml(t.clearFilters)+'</button></div><div class="filter-grid"><label>'+escapeHtml(t.minPrice)+'<input inputmode="decimal" id="filter-min-price" type="number" min="0" step="any" value="'+escapeHtml(collectionFilterState.min_price)+'" placeholder="0"></label><label>'+escapeHtml(t.maxPrice)+'<input inputmode="decimal" id="filter-max-price" type="number" min="0" step="any" value="'+escapeHtml(collectionFilterState.max_price)+'" placeholder="—"></label><label>'+escapeHtml(t.giftNumberFilter)+'<input inputmode="numeric" id="filter-gift-number" type="text" value="'+escapeHtml(collectionFilterState.external_collection_number)+'" placeholder="№"></label><label>'+escapeHtml(t.backdropFilter)+'<select id="filter-backdrop"><option value="">'+escapeHtml(t.allBackdrops)+'</option>'+backdrops.map(v=>'<option value="'+escapeHtml(v)+'" '+(v===collectionFilterState.filter_by_backdrops?'selected':'')+'>'+escapeHtml(v)+'</option>').join("")+'</select></label><label class="filter-sort">'+escapeHtml(t.sortLabel)+'<select id="filter-sort"><option value="listed_at desc">'+escapeHtml(t.sortRecent)+'</option><option value="price asc" '+(collectionFilterState.sort_by==="price asc"?'selected':'')+'>'+escapeHtml(t.sortPriceLow)+'</option><option value="price desc" '+(collectionFilterState.sort_by==="price desc"?'selected':'')+'>'+escapeHtml(t.sortPriceHigh)+'</option><option value="external_collection_number asc" '+(collectionFilterState.sort_by==="external_collection_number asc"?'selected':'')+'>'+escapeHtml(t.sortNumberLow)+'</option><option value="external_collection_number desc" '+(collectionFilterState.sort_by==="external_collection_number desc"?'selected':'')+'>'+escapeHtml(t.sortNumberHigh)+'</option><option value="model_rarity asc" '+(collectionFilterState.sort_by==="model_rarity asc"?'selected':'')+'>'+escapeHtml(t.sortRarityLow)+'</option><option value="model_rarity desc" '+(collectionFilterState.sort_by==="model_rarity desc"?'selected':'')+'>'+escapeHtml(t.sortRarityHigh)+'</option></select></label><button class="filter-apply" type="button" data-apply-filters>'+escapeHtml(t.applyFilters)+'</button></div><p class="filter-hint">Portals API · '+escapeHtml(t.rarityLabel)+' / model rarity sorting</p></section>':"";
   const emptyText=selectedCollection?t.collectionEmpty:(data.connected===false?t.catalogWaiting:t.giftEmpty);
   const moreButton=selectedCollection&&items.length<selectedCollectionTotal?'<button class="load-more-gifts" type="button" data-load-more-gifts>'+escapeHtml(t.loadMore)+'</button>':"";
-  $("market-view").innerHTML=backButton+'<div class="catalog-toolbar"><input id="gift-search" type="search" placeholder="'+escapeHtml(t.searchPlaceholder)+'" value="'+escapeHtml($("gift-search")?.value||"")+'"><button id="gift-search-button" type="button">'+escapeHtml(t.searchButton)+'</button></div><p class="updated"><span class="update-dot"></span><span id="gifts-updated">'+escapeHtml(t.catalogUpdated)+': '+escapeHtml(formatTime(data.updated_at))+'</span></p><section class="gift-grid" id="gift-grid">'+(items.length?items.map((gift,index)=>{
+  $("market-view").innerHTML=backButton+filters+'<div class="catalog-toolbar"><input id="gift-search" type="search" placeholder="'+escapeHtml(t.searchPlaceholder)+'" value="'+escapeHtml($("gift-search")?.value||"")+'"><button id="gift-search-button" type="button">'+escapeHtml(t.searchButton)+'</button></div><p class="updated"><span class="update-dot"></span><span id="gifts-updated">'+escapeHtml(t.catalogUpdated)+': '+escapeHtml(formatTime(data.updated_at))+'</span></p><section class="gift-grid" id="gift-grid">'+(items.length?items.map((gift,index)=>{
     const image=gift.image?'<img loading="lazy" src="'+escapeHtml(gift.image)+'" alt="">':'<div class="placeholder">🎁</div>';
     const attrs=Array.isArray(gift.attributes)?gift.attributes.map(a=>[a.type||a.name,a.value||a.attribute_name].filter(Boolean).join(": ")).filter(Boolean).slice(0,3).join(" · "):"";
-    return '<article class="gift-card" role="button" tabindex="0" data-gift-index="'+index+'" aria-label="'+escapeHtml((gift.name||"Telegram Gift")+" "+t.details)+'">'+image+'<div class="gift-info"><b>'+escapeHtml(gift.name||"Telegram Gift")+'</b><span>'+t.giftNumber+' '+escapeHtml(gift.number??"—")+'</span><strong>'+t.giftPrice+': '+escapeHtml(gift.price??"—")+' '+escapeHtml(gift.currency||"GRAM")+'</strong><small>'+t.giftFloor+': '+escapeHtml(gift.floor_price??"—")+' '+escapeHtml(gift.currency||"GRAM")+'</small><small>'+escapeHtml(attrs)+'</small><span class="gift-details-hint">'+t.details+' ↗</span></div></article>';
+    const rarity=Array.isArray(gift.attributes)?gift.attributes.map(a=>a.rarity!==undefined&&a.rarity!==null?String(a.type||a.name||"")+" "+t.rarityLabel+": "+String(a.rarity):"").filter(Boolean).slice(0,2).join(" · "):"";
+    return '<article class="gift-card" role="button" tabindex="0" data-gift-index="'+index+'" aria-label="'+escapeHtml((gift.name||"Telegram Gift")+" "+t.details)+'">'+image+'<div class="gift-info"><b>'+escapeHtml(gift.name||"Telegram Gift")+'</b><span>'+t.giftNumber+' '+escapeHtml(gift.number??"—")+'</span><strong>'+t.giftPrice+': '+escapeHtml(gift.price??"—")+' '+escapeHtml(gift.currency||"GRAM")+'</strong><small>'+t.giftFloor+': '+escapeHtml(gift.floor_price??"—")+' '+escapeHtml(gift.currency||"GRAM")+'</small><small>'+escapeHtml(attrs)+'</small>'+(rarity?'<small class="gift-rarity">'+escapeHtml(rarity)+'</small>':'')+'<span class="gift-details-hint">'+t.details+' ↗</span></div></article>';
   }).join(""):'<p class="empty">'+emptyText+'</p>')+'</section>'+moreButton;
   $("gift-search-button").onclick=searchGifts;
   $("gift-search").addEventListener("keydown",e=>{if(e.key==="Enter")searchGifts()});
@@ -184,25 +189,38 @@ async function loadTonnelGifts(search=""){
     renderUnavailableMarket("tonnel");
   }
 }
+function currentCollectionParams(offset=0,searchTerm=""){
+  const params=new URLSearchParams({limit:"24",offset:String(offset),collection_id:String(selectedCollection.id??selectedCollection.short_name)});
+  if(searchTerm) params.set("search",searchTerm);
+  for(const key of ["min_price","max_price","external_collection_number","filter_by_backdrops","sort_by"]){
+    const value=collectionFilterState[key];
+    if(value!==undefined&&value!==null&&String(value).trim()) params.set(key,String(value).trim());
+  }
+  return params;
+}
 async function searchGifts(){
   const term=$("gift-search").value.trim();
   const t=copy[lang];
-  $("gift-grid").innerHTML='<p class="empty">'+t.checking+'</p>';
-  if(activeMarket==="tonnel"){
-    await loadTonnelGifts(term);
-    return;
-  }
+  if(activeMarket==="tonnel"){await loadTonnelGifts(term);return;}
   if(activeMarket!=="portals") return;
+  if(selectedCollection){await loadCollectionGifts(0,false,term);return;}
+  $("gift-grid").innerHTML='<p class="empty">'+t.checking+'</p>';
   try{
-    const params=new URLSearchParams({limit:"24",offset:"0",search:term});
-    if(selectedCollection) params.set("collection_id",String(selectedCollection.id??selectedCollection.short_name??""));
-    const response=await fetch(window.API_BASE+"/api/gifts?"+params.toString());
+    const response=await fetch(window.API_BASE+"/api/gifts?"+new URLSearchParams({limit:"24",offset:"0",search:term}).toString());
     if(!response.ok) throw new Error("Catalog unavailable");
     const data=await response.json();
-    if(selectedCollection){selectedCollectionItems=Array.isArray(data.items)?data.items:[];selectedCollectionTotal=Number(data.total_count??selectedCollectionItems.length)||selectedCollectionItems.length;}
-    else portalsGiftItems=Array.isArray(data.items)?data.items:[];
+    portalsGiftItems=Array.isArray(data.items)?data.items:[];
     renderGifts(data);
   }catch(e){$("gift-grid").innerHTML='<p class="empty">'+t.error+'</p>';}
+}
+function readCollectionFilters(){
+  collectionFilterState={
+    min_price:$("filter-min-price")?.value.trim()||"",
+    max_price:$("filter-max-price")?.value.trim()||"",
+    external_collection_number:$("filter-gift-number")?.value.trim()||"",
+    filter_by_backdrops:$("filter-backdrop")?.value||"",
+    sort_by:$("filter-sort")?.value||"listed_at desc"
+  };
 }
 function openCollection(index){
   const collection=collectionItems[index];
@@ -213,26 +231,25 @@ function openCollection(index){
   selectedCollectionItems=[];
   selectedCollectionTotal=0;
   collectionLoadingMore=false;
+  collectionFilterState={min_price:"",max_price:"",external_collection_number:"",filter_by_backdrops:"",sort_by:"listed_at desc"};
+  document.body.classList.add("collection-view-active");
   activeMarket="portals";
   $("catalog-title").textContent=collection.name||copy[lang].catalog;
   $("catalog-kicker").textContent=copy[lang].collectionKicker;
   renderMarketTabs();
   $("gifts-count").textContent="…";
   $("market-view").innerHTML='<div class="collection-detail-toolbar"><button class="back-collections" type="button" data-back-collections>'+escapeHtml(copy[lang].backCollections)+'</button><span>'+escapeHtml(collection.name||"")+'</span></div><p class="empty">'+escapeHtml(copy[lang].collectionLoading)+'</p>';
-  $("marketplaces").scrollIntoView({behavior:"smooth",block:"start"});
+  window.scrollTo({top:0,behavior:"instant"});
   loadCollectionGifts(0,false,"");
 }
 async function loadCollectionGifts(offset=0,append=false,searchTerm=""){
   if(!selectedCollection) return;
   const t=copy[lang];
-  const collectionId=selectedCollection.id??selectedCollection.short_name;
   collectionLoadingMore=true;
   const moreButton=document.querySelector("[data-load-more-gifts]");
   if(moreButton){moreButton.disabled=true;moreButton.textContent=t.loadingMore;}
   try{
-    const params=new URLSearchParams({limit:"24",offset:String(offset),collection_id:String(collectionId)});
-    if(searchTerm) params.set("search",searchTerm);
-    const response=await fetch(window.API_BASE+"/api/gifts?"+params.toString());
+    const response=await fetch(window.API_BASE+"/api/gifts?"+currentCollectionParams(offset,searchTerm).toString());
     const data=await response.json();
     if(!response.ok) throw new Error(data.detail||"Could not load collection listings");
     const page=Array.isArray(data.items)?data.items:[];
@@ -250,12 +267,13 @@ function loadMoreCollectionGifts(){
 }
 function closeCollection(){
   selectedCollection=null;
+  document.body.classList.remove("collection-view-active");
   selectedCollectionItems=[];
   selectedCollectionTotal=0;
   $("catalog-title").textContent=copy[lang].catalog;
   $("catalog-kicker").textContent="MARKETPLACES";
   renderGifts({items:portalsGiftItems,total_count:portalsGiftItems.length,connected:sourceStates.portals!=="needs_api_key"});
-  document.querySelector(".collections-section")?.scrollIntoView({behavior:"smooth",block:"start"});
+  window.scrollTo({top:0,behavior:"instant"});
 }
 function openGiftDetails(index){
   const gift=giftItems[index];
@@ -294,6 +312,8 @@ $("collections").addEventListener("keydown",event=>{
   if(card&&(event.key==="Enter"||event.key===" ")){event.preventDefault();openCollection(Number(card.dataset.collectionIndex));}
 });
 $("market-view").addEventListener("click",event=>{
+  if(event.target.closest("[data-apply-filters]")){readCollectionFilters();loadCollectionGifts(0,false,$("gift-search")?.value.trim()||"");return;}
+  if(event.target.closest("[data-clear-filters]")){collectionFilterState={min_price:"",max_price:"",external_collection_number:"",filter_by_backdrops:"",sort_by:"listed_at desc"};loadCollectionGifts(0,false,$("gift-search")?.value.trim()||"");return;}
   if(event.target.closest("[data-back-collections]")){closeCollection();return;}
   if(event.target.closest("[data-load-more-gifts]")){loadMoreCollectionGifts();return;}
   const card=event.target.closest("[data-gift-index]");
