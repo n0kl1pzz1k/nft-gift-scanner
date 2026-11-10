@@ -258,7 +258,7 @@ async function loadCollectionGifts(offset=0,append=false,searchTerm=""){
     selectedCollectionTotal=Number(data.total_count??selectedCollectionItems.length)||selectedCollectionItems.length;
     renderGifts({...data,items:selectedCollectionItems,total_count:selectedCollectionTotal});
   }catch(error){
-    $("market-view").innerHTML='<div class="collection-detail-toolbar"><button class="back-collections" type="button" data-back-collections>'+escapeHtml(t.backCollections)+'</button><span>'+escapeHtml(selectedCollection.name||"")+'</span></div><p class="empty">'+escapeHtml(t.error)+'</p>';
+    $("market-view").innerHTML='<div class="collection-detail-toolbar"><button class="back-collections" type="button" data-back-collections>'+escapeHtml(t.backCollections)+'</button><span>'+escapeHtml(selectedCollection.name||"")+'</span></div><p class="empty">'+escapeHtml(t.error)+' · '+escapeHtml(error.message||"") +'</p>';
   }finally{collectionLoadingMore=false;}
 }
 function loadMoreCollectionGifts(){
