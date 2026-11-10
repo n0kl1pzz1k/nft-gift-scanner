@@ -460,6 +460,7 @@ async function nftLoadGlobal(offset=0,append=false,term=""){
 const nftOriginalRenderGifts=renderGifts;
 renderGifts=function(data){
  nftOriginalRenderGifts(data);
+ if($("gift-search-button"))$("gift-search-button").onclick=searchGifts;
  if(activeMarket==="portals"){
   const cards=document.querySelectorAll("#gift-grid .gift-card");
   cards.forEach((card,i)=>{if(card.querySelector("[data-nft-heart]"))return;const g=giftItems[i];if(!g)return;const b=document.createElement("button");b.type="button";b.className="favorite-toggle"+(nftIsSaved(g)?" is-saved":"");b.dataset.nftHeart=String(i);b.setAttribute("aria-label",nftIsSaved(g)?"Saved":"Save");b.textContent=nftIsSaved(g)?"♥":"♡";card.appendChild(b);});
@@ -494,6 +495,7 @@ $("market-view").addEventListener("click",event=>{
   nftLoadGlobal(0,false,$("gift-search")?$("gift-search").value.trim():"");
  }
 },true);
+$("favorites-grid").addEventListener("keydown",event=>{const card=event.target.closest("[data-saved-open]");if(card&&(event.key==="Enter"||event.key===" ")){event.preventDefault();giftItems=nftSavedItems;openGiftDetails(Number(card.dataset.savedOpen));}});
 $("favorites-grid").addEventListener("click",event=>{
  const remove=event.target.closest("[data-saved-remove]");if(remove){event.preventDefault();event.stopImmediatePropagation();const g=nftSavedItems[Number(remove.dataset.savedRemove)];if(g)nftToggleSaved(g);return;}
  const card=event.target.closest("[data-saved-open]");if(card){giftItems=nftSavedItems;openGiftDetails(Number(card.dataset.savedOpen));}
