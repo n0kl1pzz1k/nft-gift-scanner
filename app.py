@@ -90,7 +90,7 @@ async def status():
         "mode": "read_only",
         "sources": source_status(),
         "available_data": {
-            "portals": ["collection_list", "collection_floor", "reported_24h_volume", "reported_supply"],
+            "portals": ["collection_list", "collection_floor", "reported_24h_volume", "reported_supply", "listed_gift_catalog", "gift_price", "gift_attributes"],
             "tonnel": [],
             "mrkt": [],
         },
@@ -200,7 +200,9 @@ async def gifts(
     except Exception:
         raise HTTPException(status_code=502, detail="Could not load Portals gift listings")
 
-    results = payload.get("results", []) if isinstance(payload, dict) else []
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=502, detail="Portals gift search response is invalid")
+    results = payload.get("results", [])
     if not isinstance(results, list):
         raise HTTPException(status_code=502, detail="Portals gift search response is invalid")
 
