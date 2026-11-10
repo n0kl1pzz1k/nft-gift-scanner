@@ -227,7 +227,7 @@ async function loadCollectionGifts(offset=0,append=false,searchTerm=""){
   const t=copy[lang];
   const collectionId=selectedCollection.id??selectedCollection.short_name;
   collectionLoadingMore=true;
-  const moreButton=$("[data-load-more-gifts]");
+  const moreButton=document.querySelector("[data-load-more-gifts]");
   if(moreButton){moreButton.disabled=true;moreButton.textContent=t.loadingMore;}
   try{
     const params=new URLSearchParams({limit:"24",offset:String(offset),collection_id:String(collectionId)});
