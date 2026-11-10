@@ -33,6 +33,7 @@ const copy={
 let lang="ru";
 let activeMarket="portals";
 let giftItems=[];
+let portalsGiftItems=[];
 let tonnelGiftItems=[];
 let sourceStates={};
 const $=id=>document.getElementById(id);
@@ -70,7 +71,7 @@ function renderText(){
   renderMarketTabs();
   if(activeMarket==="tonnel"&&sourceStates.tonnel==="online_read_only") renderGifts({items:tonnelGiftItems,total_count:tonnelGiftItems.length,connected:true});
   else if(activeMarket!=="portals") renderUnavailableMarket(activeMarket);
-  else renderGifts({items:giftItems,total_count:giftItems.length,connected:sourceStates.portals!=="needs_api_key"});
+  else renderGifts({items:portalsGiftItems,total_count:portalsGiftItems.length,connected:sourceStates.portals!=="needs_api_key"});
 }
 function sourceLabel(name,state,kind,letter){
   const t=copy[lang];
@@ -125,7 +126,8 @@ async function load(){
       const image=item.image?'<img loading="lazy" src="'+escapeHtml(item.image)+'" alt="">':'<div class="placeholder">✦</div>';
       return '<article class="collection-card">'+image+'<div class="card-info"><b>'+escapeHtml(item.name)+'</b><span>'+t.floor+': <strong>'+escapeHtml(item.floor_price??"—")+'</strong></span><span>'+t.volume+': '+escapeHtml(item.day_volume??"—")+'</span><span>'+t.supply+': '+escapeHtml(item.supply??"—")+'</span><small>'+escapeHtml(item.source||"")+'</small></div></article>';
     }).join(""):'<p class="empty">'+t.noData+'</p>';
-    giftItems=Array.isArray(gifts.items)?gifts.items:[];
+    portalsGiftItems=Array.isArray(gifts.items)?gifts.items:[];
+    giftItems=portalsGiftItems;
     renderMarketTabs();
     if(activeMarket==="portals") renderGifts(gifts);
     else renderUnavailableMarket(activeMarket);
@@ -182,7 +184,9 @@ async function searchGifts(){
   try{
     const response=await fetch(window.API_BASE+"/api/gifts?limit=24&offset=0&search="+encodeURIComponent(term));
     if(!response.ok) throw new Error("Catalog unavailable");
-    renderGifts(await response.json());
+    const data=await response.json();
+    portalsGiftItems=Array.isArray(data.items)?data.items:[];
+    renderGifts(data);
   }catch(e){$("gift-grid").innerHTML='<p class="empty">'+t.error+'</p>';}
 }
 function openGiftDetails(index){
@@ -224,7 +228,7 @@ $("market-view").addEventListener("keydown",event=>{
 document.querySelectorAll(".market-tab").forEach(button=>button.addEventListener("click",()=>{
   activeMarket=button.dataset.market;
   renderMarketTabs();
-  if(activeMarket==="portals") renderGifts({items:giftItems,total_count:giftItems.length,connected:sourceStates.portals!=="needs_api_key"});
+  if(activeMarket==="portals") renderGifts({items:portalsGiftItems,total_count:portalsGiftItems.length,connected:sourceStates.portals!=="needs_api_key"});
   else if(activeMarket==="tonnel"){
     if(sourceStates.tonnel==="online_read_only") renderGifts({items:tonnelGiftItems,total_count:tonnelGiftItems.length,connected:true});
     else loadTonnelGifts();
