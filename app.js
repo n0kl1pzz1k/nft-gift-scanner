@@ -255,6 +255,7 @@ function closeCollection(){
   $("catalog-title").textContent=copy[lang].catalog;
   $("catalog-kicker").textContent="MARKETPLACES";
   renderGifts({items:portalsGiftItems,total_count:portalsGiftItems.length,connected:sourceStates.portals!=="needs_api_key"});
+  document.querySelector(".collections-section")?.scrollIntoView({behavior:"smooth",block:"start"});
 }
 function openGiftDetails(index){
   const gift=giftItems[index];
