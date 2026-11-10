@@ -1,13 +1,27 @@
-# NFT Gift Scanner — starter
+# NFT Gift Scanner
 
-This is a simple starter for a Telegram bot and bilingual Mini App.
+Telegram bot and bilingual Mini App for displaying public Telegram gift marketplace information.
 
-## Deploy
-- Railway: deploy this repository as a service; start command `uvicorn app:app --host 0.0.0.0 --port $PORT`; add `BOT_TOKEN` and `PUBLIC_APP_URL` as Railway Variables.
-- Run the bot as a separate Railway worker using `python bot.py`.
-- Netlify: deploy this repository with publish directory `.` (or connect GitHub and set publish directory to `.`).
+## Current data sources
 
-Update `config.js` with the public HTTPS Railway backend URL after deployment.
+- **Portals**: the backend adapter uses only the documented GET routes for collection preview and collection floors. It does not expose purchase, sale, offer, wallet, transfer, withdrawal, or betting actions.
+- **Tonnel**: not connected. No official public API contract has been verified for this project.
+- **MRKT**: not connected. No official public API contract has been verified for this project.
 
-## Security and scope
-Never commit `.env`, Telegram bot tokens, or marketplace keys. Telegram Bot API cannot observe every user's private gift-upgrade event. Marketplace adapters are not enabled until official read-only schemas and authorized credentials are confirmed. Getgems private Gift API access must not be assumed. No buying, selling, transfers, betting, or gambling endpoints are used.
+The Portals Partner API credential is powerful: Portals documents that the same key can authorize both read and write operations. Keep it server-side and do not add it to the Mini App or commit it to GitHub. This project itself allowlists only two GET market-data routes, but that does not change the permissions of the credential.
+
+## Environment variables
+
+Set these in Railway Variables, never in source code:
+
+- `BOT_TOKEN` — Telegram bot token.
+- `PUBLIC_APP_URL` — public HTTPS Mini App URL.
+- `PORTALS_API_KEY` — optional Portals Partner API credential. The application only uses it for the two allowlisted GET market-data routes above.
+
+## API
+
+- `GET /health` — backend health.
+- `GET /api/status` — current source connection states.
+- `GET /api/collections` — Portals collection preview and floor data, or an empty list with a clear status when no key is configured.
+
+All application endpoints are read-only. No buying, selling, transfers, withdrawals, offers, betting, or gambling endpoints are implemented.
