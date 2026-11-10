@@ -103,7 +103,7 @@ async def status():
             "mrkt": [],
         },
         "cross_market_comparison": False,
-        "note": "Only verified source data is displayed. Cross-market comparisons stay disabled until official read-only data access is verified for each marketplace.",
+        "note": "Portals uses documented read-only routes. Tonnel uses an experimental unofficial public-listings endpoint and may be unavailable. MRKT remains unconnected. Cross-market comparisons stay disabled.",
     }
 
 
@@ -248,21 +248,26 @@ def _extract_tonnel_items(payload: Any) -> list[dict]:
         rows = payload
     elif isinstance(payload, dict):
         rows = None
+        found_list = False
         for key in ("data", "items", "results", "gifts"):
             candidate = payload.get(key)
             if isinstance(candidate, list):
                 rows = candidate
+                found_list = True
                 break
             if isinstance(candidate, dict):
                 for nested_key in ("items", "results", "gifts"):
                     nested = candidate.get(nested_key)
                     if isinstance(nested, list):
                         rows = nested
+                        found_list = True
                         break
             if rows is not None:
                 break
         if rows is None:
             rows = []
+        if not found_list:
+            raise HTTPException(status_code=502, detail="Tonnel response format was not recognized")
     else:
         raise HTTPException(status_code=502, detail="Tonnel returned an unexpected response")
     return [row for row in rows if isinstance(row, dict)]
