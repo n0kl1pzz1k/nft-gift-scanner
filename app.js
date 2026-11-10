@@ -56,8 +56,8 @@ function renderText(){
   $("catalog-kicker").textContent="MARKETPLACES";
   $("catalog-title").textContent=t.catalog;
   $("gifts-count-label").textContent=t.lots;
-  $("gift-search").placeholder=t.searchPlaceholder;
-  $("gift-search-button").textContent=t.searchButton;
+  if($("gift-search")) $("gift-search").placeholder=t.searchPlaceholder;
+  if($("gift-search-button")) $("gift-search-button").textContent=t.searchButton;
   $("catalog-note").textContent=t.catalogNote;
   $("modal-price-label").textContent=t.giftPrice;
   $("modal-floor-label").textContent=t.giftFloor;
