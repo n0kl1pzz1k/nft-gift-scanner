@@ -1,32 +1,48 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#10131b"><title>NFT Gift Scanner</title>
+  <meta name="theme-color" content="#090b16"><title>NFT Gift Scanner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <script src="config.js"></script>
 </head>
 <body>
+  <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+  <div class="floating-art" aria-hidden="true">
+    <span class="float-gift gift-one">🎁</span><span class="float-gift gift-two">🐸</span>
+    <span class="float-gift gift-three">🧢</span><span class="float-gift gift-four">💎</span>
+    <span class="float-logo logo-portals">P</span><span class="float-logo logo-tonnel">T</span>
+    <span class="float-logo logo-mrkt">M</span><span class="float-gift gift-five">🌹</span>
+  </div>
   <main class="wrap">
-    <header><div class="brand">✦ NFT Gift Scanner</div><button id="lang">RU</button></header>
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="NFT Gift Scanner home"><span class="brand-mark">✳</span><span>NFT <b>GIFT SCANNER</b><small>TELEGRAM MARKET INTELLIGENCE</small></span></a>
+      <div class="top-actions"><span class="live-label"><i></i><span id="live-label">LIVE MONITOR</span></span><button id="lang" class="lang-btn">EN</button></div>
+    </header>
     <section class="hero">
-      <p class="eyebrow" id="eyebrow">READ-ONLY MARKET MONITOR</p>
-      <h1 id="heading">Telegram gifts, market data in one place.</h1>
-      <p id="sub">Verified public collection data and marketplace coverage.</p>
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="eyebrow-line"></span><span id="eyebrow">МОНИТОРИНГ РЫНКА · ТОЛЬКО ЧТЕНИЕ</span></p>
+        <h1 id="heading">Весь рынок Telegram-подарков <em>в одном месте.</em></h1>
+        <p class="hero-sub" id="sub">Коллекции, публичные показатели и состояние маркетплейсов — без лишнего шума.</p>
+        <div class="hero-tags"><span>✦ <span id="tag-public">Публичные данные</span></span><span>◈ <span id="tag-readonly">Только просмотр</span></span><span>⌁ <span id="tag-nomoney">Без транзакций</span></span></div>
+      </div>
+      <div class="hero-art" aria-hidden="true"><div class="orbit orbit-a"></div><div class="orbit orbit-b"></div><div class="hero-gift gift-main">🐸</div><div class="mini-gift mini-a">🎁</div><div class="mini-gift mini-b">🧢</div><div class="mini-gift mini-c">💎</div><div class="art-caption">TELEGRAM<br><b>COLLECTIBLES</b></div></div>
     </section>
-    <section class="status">
-      <div><span class="dot"></span><b id="api-title">Backend status</b></div>
-      <p id="api-status">Checking connection…</p>
+    <section class="status-panel">
+      <div class="panel-heading"><div><span class="section-kicker" id="connection-kicker">СИСТЕМА</span><h2 id="api-title">Статус подключения</h2></div><span class="status-pill"><i></i><span id="api-status">Проверяем соединение…</span></span></div>
       <div class="sources" id="sources"></div>
-      <p class="note" id="coverage-note"></p>
+      <p class="note coverage-note" id="coverage-note"></p>
     </section>
-    <section class="section-head"><h2 id="collections-title">Portals collections</h2><span id="collections-count">—</span></section>
-    <p class="updated" id="updated">Last response: not available</p>
-    <section class="collections" id="collections">
-      <p class="empty">Waiting for marketplace data…</p>
+    <section class="collections-section">
+      <div class="section-head"><div><span class="section-kicker" id="collections-kicker">ОБЗОР ДАННЫХ</span><h2 id="collections-title">Коллекции Portals</h2></div><div class="count-wrap"><strong id="collections-count">—</strong><span id="count-label">КОЛЛЕКЦИЙ</span></div></div>
+      <p class="updated"><span class="update-dot"></span><span id="updated">Последний ответ: нет данных</span></p>
+      <section class="collections" id="collections"><p class="empty">Ожидаем данные маркетплейса…</p></section>
+      <p class="note data-note" id="data-note"></p>
     </section>
-    <p class="note" id="data-note"></p>
-    <footer id="foot">Read-only public information.</footer>
+    <footer><span class="footer-mark">✳ NFT GIFT SCANNER</span><span id="foot">Только чтение публичной информации. Без покупок, продаж, переводов и торговых сигналов.</span></footer>
   </main>
   <script src="app.js"></script>
 </body></html>
