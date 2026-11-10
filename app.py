@@ -7,7 +7,7 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="NFT Gift Scanner API", version="0.2.1")
+app = FastAPI(title="NFT Gift Scanner API", version="0.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,8 +28,16 @@ _request_lock = asyncio.Lock()
 _last_request_at = 0.0
 
 
+def source_status() -> dict[str, str]:
+    return {
+        "portals": "configured_read_only" if os.getenv("PORTALS_API_KEY", "").strip() else "needs_api_key",
+        "tonnel": "official_api_not_verified",
+        "mrkt": "official_api_not_verified",
+    }
+
+
 async def portals_get(path: str) -> dict:
-    # Explicit allowlist: this service only calls documented GET market-data routes.
+    # Only explicitly allowlisted, read-only market-data GET routes are enabled.
     if path not in ALLOWED_PORTALS_PATHS:
         raise HTTPException(status_code=400, detail="Portals route is not enabled")
     token = os.getenv("PORTALS_API_KEY", "").strip()
@@ -52,7 +60,13 @@ async def portals_get(path: str) -> dict:
         raise HTTPException(status_code=502, detail="Portals API subscription or access is not active")
     if response.is_error:
         raise HTTPException(status_code=502, detail=f"Portals API error: HTTP {response.status_code}")
-    return response.json()
+    try:
+        payload = response.json()
+    except ValueError:
+        raise HTTPException(status_code=502, detail="Portals returned invalid JSON")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=502, detail="Portals returned an unexpected response")
+    return payload
 
 
 async def cached_portals(path: str) -> dict:
@@ -61,7 +75,7 @@ async def cached_portals(path: str) -> dict:
     if cached and now - cached[0] < CACHE_SECONDS:
         return cached[1]
     data = await portals_get(path)
-    _cache[path] = (now, data)
+    _cache[path] = (time.monotonic(), data)
     return data
 
 
@@ -74,11 +88,14 @@ async def health():
 async def status():
     return {
         "mode": "read_only",
-        "sources": {
-            "portals": "configured_read_only" if os.getenv("PORTALS_API_KEY", "").strip() else "needs_api_key",
-            "tonnel": "official_api_not_verified",
-            "mrkt": "official_api_not_verified",
+        "sources": source_status(),
+        "available_data": {
+            "portals": ["collection_list", "collection_floor", "reported_24h_volume", "reported_supply"],
+            "tonnel": [],
+            "mrkt": [],
         },
+        "cross_market_comparison": False,
+        "note": "Only verified source data is displayed. Cross-market comparisons stay disabled until official read-only data access is verified for each marketplace.",
     }
 
 
@@ -87,12 +104,9 @@ async def collections():
     if not os.getenv("PORTALS_API_KEY", "").strip():
         return {
             "items": [],
-            "sources": {
-                "portals": "needs_api_key",
-                "tonnel": "official_api_not_verified",
-                "mrkt": "official_api_not_verified",
-            },
-            "note": "Add PORTALS_API_KEY in Railway Variables to load official Portals market data.",
+            "sources": source_status(),
+            "updated_at": None,
+            "note": "Portals data is not connected. No market values are fabricated.",
         }
 
     try:
@@ -105,14 +119,13 @@ async def collections():
     except Exception:
         raise HTTPException(status_code=502, detail="Could not load Portals market data")
 
-    if not isinstance(preview, dict) or not isinstance(floors, dict):
-        raise HTTPException(status_code=502, detail="Portals returned an unexpected response")
     floor_map = floors.get("floorPrices", {})
     if not isinstance(floor_map, dict):
         floor_map = {}
     collections_data = preview.get("collections", [])
     if not isinstance(collections_data, list):
         raise HTTPException(status_code=502, detail="Portals collections response is invalid")
+
     items = []
     for item in collections_data:
         if not isinstance(item, dict):
@@ -133,9 +146,9 @@ async def collections():
     return {
         "items": items,
         "sources": {
+            **source_status(),
             "portals": "online_read_only",
-            "tonnel": "official_api_not_verified",
-            "mrkt": "official_api_not_verified",
         },
         "updated_at": int(time.time()),
+        "note": "These are Portals collection-level figures, not item-level listings or cross-market price matches.",
     }
