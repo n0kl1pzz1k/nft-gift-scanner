@@ -174,12 +174,13 @@ async def gifts(
     external_collection_number: str | None = Query(default=None, max_length=16),
     filter_by_backdrops: str | None = Query(default=None, max_length=100),
     sort_by: str | None = Query(default=None, max_length=40),
+    status: str | None = Query(default=None, max_length=16),
 ):
     """Read-only page of currently listed gifts from the documented Portals search endpoint."""
     if not os.getenv("PORTALS_API_KEY", "").strip():
         return {"items": [], "total_count": 0, "connected": False, "sources": source_status(), "updated_at": None}
 
-    params: dict[str, Any] = {"limit": limit, "offset": offset, "status": "listed"}
+    params: dict[str, Any] = {"limit": limit, "offset": offset}
     if search and search.strip():
         params["search"] = search.strip()
     if collection_id and collection_id.strip():
@@ -208,6 +209,10 @@ async def gifts(
         if sort_by not in allowed_sorts:
             raise HTTPException(status_code=422, detail="Unsupported sort_by value")
         params["sort_by"] = sort_by
+    if status:
+        if status not in {"listed", "unlisted"}:
+            raise HTTPException(status_code=422, detail="status must be listed or unlisted")
+        params["status"] = status
 
     token = os.getenv("PORTALS_API_KEY", "").strip()
     headers = {"Authorization": f"partners {token}"}
