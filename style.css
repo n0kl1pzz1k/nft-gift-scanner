@@ -61,3 +61,56 @@ body.modal-open{overflow:hidden}
 .back-collections:hover{background:#8b72e433}
 .load-more-gifts{display:block;margin:18px auto 0;border:1px solid #a78bfa66;border-radius:12px;background:linear-gradient(135deg,#8068d7,#3d9caf);color:#fff;padding:11px 20px;font:inherit;font-size:12px;font-weight:800;cursor:pointer}
 .load-more-gifts:disabled{opacity:.65;cursor:wait}
+
+/* Immersive visual layer */
+:root{--bg:#070914}
+html{scroll-behavior:smooth;scroll-padding-top:18px}
+body{background:radial-gradient(ellipse at 12% 12%,#35236a66 0,transparent 35%),radial-gradient(ellipse at 88% 38%,#07566b55 0,transparent 34%),radial-gradient(ellipse at 50% 100%,#3a164455 0,transparent 38%),#070914;background-size:140% 140%;animation:background-drift 24s ease-in-out infinite alternate;overscroll-behavior-y:contain;touch-action:pan-y}
+@keyframes background-drift{0%{background-position:0% 0%,100% 20%,50% 100%,0 0}100%{background-position:35% 15%,65% 45%,60% 80%,0 0}}
+.ambient{z-index:0;opacity:.2;filter:blur(110px);animation:ambient-drift 18s ease-in-out infinite alternate}
+.ambient-three{position:fixed;z-index:0;width:300px;height:300px;border-radius:50%;background:#d44a9d;right:18%;bottom:-170px;filter:blur(100px);opacity:.15;pointer-events:none;animation:ambient-drift 22s ease-in-out infinite alternate-reverse}
+@keyframes ambient-drift{from{transform:translate3d(-18px,-10px,0) scale(.9)}to{transform:translate3d(35px,28px,0) scale(1.18)}}
+.floating-art{z-index:0;mask-image:linear-gradient(to bottom,black 0%,black 72%,transparent 100%);perspective:900px}
+.float-asset{position:absolute;display:block;object-fit:cover;opacity:.13;filter:saturate(1.15) drop-shadow(0 18px 40px #0008);animation:asset-drift 16s ease-in-out infinite;will-change:transform}
+.asset-portals{width:clamp(86px,13vw,170px);height:clamp(86px,13vw,170px);left:4%;top:21%;border-radius:26%;transform:rotate(-13deg)}
+.asset-tonnel{width:clamp(90px,12vw,148px);height:clamp(90px,12vw,148px);left:37%;top:68%;border-radius:30%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:linear-gradient(145deg,#b6f5fa,#367e9d 60%,#18294b);color:#092032;box-shadow:0 15px 55px #45cce955;transform:rotate(12deg)}
+.asset-tonnel b{font-size:clamp(34px,5vw,64px);line-height:1;font-weight:900}
+.asset-tonnel small{font-size:8px;font-weight:900;letter-spacing:.16em}
+.asset-mrkt{width:clamp(90px,12vw,150px);height:clamp(90px,12vw,150px);right:5%;top:13%;border-radius:28%;transform:rotate(11deg)}
+.asset-pepe{width:clamp(110px,16vw,190px);height:clamp(110px,16vw,190px);right:8%;top:57%;border-radius:28%;transform:rotate(-10deg);object-position:center}
+.asset-gram{width:clamp(88px,11vw,140px);height:clamp(88px,11vw,140px);left:12%;bottom:5%;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:linear-gradient(145deg,#f4f6ff,#8b9bb8 60%,#394a68);color:#10172a;box-shadow:0 15px 50px #8b9bb844;transform:rotate(9deg)}
+.asset-gram b{font-size:clamp(35px,5vw,58px);line-height:1}
+.asset-gram small{font-size:9px;font-weight:900;letter-spacing:.2em}
+@keyframes asset-drift{0%,100%{translate:0 0;rotate:0deg}50%{translate:0 -20px;rotate:4deg}}
+.float-gift{opacity:.13;filter:drop-shadow(0 8px 20px #0008);animation:gift-drift 11s ease-in-out infinite}
+.gift-one{animation-delay:-2s}.gift-two{animation-delay:-5s}.gift-three{animation-delay:-7s}.gift-four{animation-delay:-3s}
+@keyframes gift-drift{0%,100%{translate:0 0;rotate:-10deg}50%{translate:10px -24px;rotate:8deg}}
+.scroll-progress{position:fixed;z-index:50;top:0;left:0;width:0;height:3px;background:linear-gradient(90deg,#8b72e4,#62e4ed,#ff8fc8);box-shadow:0 0 14px #8b72e488;pointer-events:none}
+.wrap{z-index:1}
+.topbar,.hero,.status-panel,.collections-section,.catalog-section,footer{position:relative}
+.status-panel,.collection-card,.gift-card,.market-tabs{backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.status-panel{background:linear-gradient(125deg,#211d3de8,#101a2be8);box-shadow:0 22px 75px #0005,0 0 0 1px #ffffff05 inset}
+.collection-card,.gift-card{background:linear-gradient(145deg,#252544d9,#111a2cde);border-color:#c4b6ff20}
+.collection-card:hover,.gift-card:hover,.gift-card:focus-visible{box-shadow:0 18px 44px #0006,0 0 28px #8b72e422}
+.brand-mark{animation:brand-pulse 5s ease-in-out infinite}
+@keyframes brand-pulse{0%,100%{box-shadow:0 8px 30px #8b70ff35}50%{box-shadow:0 8px 38px #5bd8ed66,0 0 0 7px #9b7bff0c}}
+.hero-art{animation:hero-orbit 18s ease-in-out infinite alternate}
+@keyframes hero-orbit{from{transform:translateY(0) rotate(-2deg)}to{transform:translateY(-9px) rotate(3deg)}}
+.orbit-a,.orbit-b{animation:orbit-spin 28s linear infinite}
+.orbit-b{animation-direction:reverse;animation-duration:36s}
+@keyframes orbit-spin{to{rotate:360deg}}
+.reveal-target{opacity:0;transform:translateY(24px) scale(.99);transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1)}
+.reveal-target.is-revealed{opacity:1;transform:translateY(0) scale(1)}
+.collection-card.reveal-target,.gift-card.reveal-target{transition-delay:var(--reveal-delay,0ms)}
+button,.market-tab,.collection-card,.gift-card{ -webkit-tap-highlight-color:transparent}
+button:active,.market-tab:active,.collection-card:active,.gift-card:active{transform:scale(.985)}
+input,button{font-size:16px}
+@media(max-width:760px){
+ .floating-art{opacity:.72}.asset-portals{left:-24px;top:23%}.asset-tonnel{left:12%;top:65%}.asset-mrkt{right:-25px;top:18%}.asset-pepe{right:-18px;top:54%;width:120px;height:120px}.asset-gram{left:-24px;bottom:8%;width:88px;height:88px}
+ .hero-art{animation:none}
+ .reveal-target{transform:translateY(16px)}
+}
+@media(prefers-reduced-motion:reduce){
+ body,.ambient-three,.float-asset,.float-gift,.brand-mark,.hero-art,.orbit-a,.orbit-b{animation:none!important}
+ .reveal-target{opacity:1!important;transform:none!important;transition:none!important}
+}
