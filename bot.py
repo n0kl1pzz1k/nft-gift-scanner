@@ -3,6 +3,8 @@ import os
 
 import httpx
 from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message, WebAppInfo, ReplyKeyboardMarkup, KeyboardButton
 from dotenv import load_dotenv
@@ -22,7 +24,7 @@ def is_admin(message: Message) -> bool:
 async def main():
     if not TOKEN:
         raise RuntimeError("Set BOT_TOKEN in Railway Variables; never commit it.")
-    bot = Bot(TOKEN)
+    bot = Bot(TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
 
     @dp.message(Command("myid"))
