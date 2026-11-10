@@ -84,7 +84,7 @@ async def status():
 
 @app.get("/api/collections")
 async def collections():
-    if not os.getenv("PORTALS_API_KEY"):
+    if not os.getenv("PORTALS_API_KEY", "").strip():
         return {
             "items": [],
             "sources": {
