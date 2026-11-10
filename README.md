@@ -28,6 +28,8 @@ The Portals Partner API credential may have broader permissions than read-only. 
 - `GET /api/collections` — Portals collection-level data or an honest empty result.
 - `GET /api/gifts` — public listed-gift catalogue with optional `search` and `collection_id` filters; pagination is limited to 40 results per request.
 
+The Mini App includes marketplace tabs for Portals, Tonnel and MRKT. Portals displays verified listing data when configured; Tonnel and MRKT show an explicit not-connected state until official public read-only APIs are verified. Selecting a Portals listing opens an informational detail panel with available public attributes, price, floor and listing timestamp. No transaction controls are present.
+
 The Telegram bot provides `/myid` for a user to view their own numeric Telegram ID, plus `/admin` and `/admin_status` restricted to the single `ADMIN_TELEGRAM_ID`. The admin panel reports service/source status only; it does not expose trading or wallet actions. Configure the ID in Railway Variables, never in source code.
 
 All application endpoints are read-only. No buying, selling, transfers, offers, or wallet actions are implemented.
