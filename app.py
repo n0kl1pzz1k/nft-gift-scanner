@@ -2,6 +2,7 @@ import os
 import asyncio
 import time
 import json
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -168,6 +169,11 @@ async def gifts(
     offset: int = Query(default=0, ge=0, le=10000),
     search: str | None = Query(default=None, max_length=80),
     collection_id: str | None = Query(default=None, max_length=64),
+    min_price: str | None = Query(default=None, max_length=32),
+    max_price: str | None = Query(default=None, max_length=32),
+    external_collection_number: str | None = Query(default=None, max_length=16),
+    filter_by_backdrops: str | None = Query(default=None, max_length=100),
+    sort_by: str | None = Query(default=None, max_length=40),
 ):
     """Read-only page of currently listed gifts from the documented Portals search endpoint."""
     if not os.getenv("PORTALS_API_KEY", "").strip():
@@ -178,6 +184,30 @@ async def gifts(
         params["search"] = search.strip()
     if collection_id and collection_id.strip():
         params["collection_id"] = collection_id.strip()
+    for key, value in (("min_price", min_price), ("max_price", max_price)):
+        if value and value.strip():
+            try:
+                amount = Decimal(value.strip())
+                if not amount.is_finite() or amount < 0:
+                    raise InvalidOperation
+            except (InvalidOperation, ValueError):
+                raise HTTPException(status_code=422, detail=f"{key} must be a non-negative decimal")
+            params[key] = value.strip()
+    if external_collection_number and external_collection_number.strip():
+        if not external_collection_number.strip().isdigit():
+            raise HTTPException(status_code=422, detail="external_collection_number must contain digits only")
+        params["external_collection_number"] = external_collection_number.strip()
+    if filter_by_backdrops and filter_by_backdrops.strip():
+        params["filter_by_backdrops"] = filter_by_backdrops.strip()
+    allowed_sorts = {
+        "listed_at desc", "price asc", "price desc",
+        "external_collection_number asc", "external_collection_number desc",
+        "model_rarity asc", "model_rarity desc", "name asc", "name desc",
+    }
+    if sort_by:
+        if sort_by not in allowed_sorts:
+            raise HTTPException(status_code=422, detail="Unsupported sort_by value")
+        params["sort_by"] = sort_by
 
     token = os.getenv("PORTALS_API_KEY", "").strip()
     headers = {"Authorization": f"partners {token}"}
@@ -222,6 +252,7 @@ async def gifts(
             "id": gift.get("id"),
             "name": gift.get("name"),
             "number": gift.get("external_collection_number"),
+            "collection_id": gift.get("collection_id"),
             "image": gift.get("photo_url"),
             "price": gift.get("price"),
             "floor_price": gift.get("floor_price"),
