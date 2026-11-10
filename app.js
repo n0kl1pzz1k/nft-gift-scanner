@@ -374,3 +374,132 @@ function setupMotionAndViewport(){
 
 setupMotionAndViewport();
 renderText();load();
+
+
+/* Application navigation, local saved list and full catalogue filters */
+const NFT_FAVORITES_KEY="nft-gift-scanner:saved:v1";
+let nftSavedItems=[];
+let nftCurrentModal=null;
+try{nftSavedItems=JSON.parse(localStorage.getItem(NFT_FAVORITES_KEY)||"[]");if(!Array.isArray(nftSavedItems))nftSavedItems=[];}catch(e){nftSavedItems=[];}
+function nftKey(g){return String(g&&g.id!=null?g.id:[g&&g.source,g&&g.collection_id,g&&g.name,g&&g.number].join("|"));}
+function nftIsSaved(g){return nftSavedItems.some(x=>nftKey(x)===nftKey(g));}
+function nftSave(){try{localStorage.setItem(NFT_FAVORITES_KEY,JSON.stringify(nftSavedItems));}catch(e){}}
+function nftUpdateCounts(){const n=String(nftSavedItems.length);["nav-favorite-count","favorites-count"].forEach(id=>{if($(id))$(id).textContent=n;});}
+function nftToggleSaved(g){if(!g)return;if(nftIsSaved(g))nftSavedItems=nftSavedItems.filter(x=>nftKey(x)!==nftKey(g));else nftSavedItems.push(g);nftSave();nftRenderSaved();nftUpdateCounts();}
+function nftRenderSaved(){
+ const grid=$("favorites-grid");if(!grid)return;const t=copy[lang];
+ if($("favorites-title"))$("favorites-title").textContent=lang==="ru"?"Избранное":"Saved gifts";
+ if($("favorites-description"))$("favorites-description").textContent=lang==="ru"?"Сохранённые карточки хранятся только в этом браузере.":"Saved cards are stored in this browser only.";
+ if($("favorites-count-label"))$("favorites-count-label").textContent=lang==="ru"?"СОХРАНЕНО":"SAVED";
+ nftUpdateCounts();
+ if(!nftSavedItems.length){grid.innerHTML='<p class="empty">'+(lang==="ru"?"Пока ничего не сохранено. Нажми на сердечко в карточке NFT.":"Nothing saved yet. Tap the heart on any NFT card.")+'</p>';return;}
+ grid.innerHTML=nftSavedItems.map((g,i)=>'<article class="gift-card" role="button" tabindex="0" data-saved-open="'+i+'">'+(g.image?'<img loading="lazy" src="'+escapeHtml(g.image)+'" alt="">':'<div class="placeholder">🎁</div>')+'<button class="favorite-toggle is-saved" type="button" data-saved-remove="'+i+'" aria-label="Remove">×</button><div class="gift-info"><b>'+escapeHtml(g.name||"Telegram Gift")+'</b><span>'+escapeHtml(lang==="ru"?"Подарок №":"Gift #")+' '+escapeHtml(g.number??"—")+'</span><strong>'+escapeHtml(g.price??"—")+' '+escapeHtml(g.currency||"GRAM")+'</strong><small>'+escapeHtml(g.source||"Portals")+'</small></div></article>').join("");
+}
+function nftSetView(view){
+ const w=$("workspace");if(w)w.dataset.view=view;
+ document.querySelectorAll("[data-view]").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
+ const names={catalog:lang==="ru"?"КАТАЛОГ ПОДАРКОВ":"GIFT CATALOG",collections:lang==="ru"?"КОЛЛЕКЦИИ":"COLLECTIONS",favorites:lang==="ru"?"ИЗБРАННОЕ":"SAVED GIFTS",profile:lang==="ru"?"ПРОФИЛЬ":"PROFILE"};
+ if($("page-context"))$("page-context").textContent=names[view]||names.catalog;
+ if(view==="favorites")nftRenderSaved();
+ window.scrollTo({top:0,behavior:"instant"});
+}
+function nftRenderProfile(){
+ const ru=lang==="ru";
+ const text={
+ "profile-guest":ru?"Гость":"Guest profile",
+ "profile-description":ru?"Локальный профиль приложения. Авторизация и подключение кошелька не требуются.":"Local app preferences. No sign-in or wallet connection required.",
+ "profile-settings":ru?"НАСТРОЙКИ":"SETTINGS",
+ "profile-language-title":ru?"Язык интерфейса":"Interface language",
+ "profile-language-description":ru?"Переключение русского и английского языка.":"Switch between Russian and English.",
+ "profile-data":ru?"ИСТОЧНИКИ ДАННЫХ":"DATA SOURCES",
+ "profile-data-title":ru?"Подключённые маркетплейсы":"Connected marketplaces",
+ "profile-data-description":ru?"Показываем только публичные сведения, которые реально возвращают источники.":"Only public information actually returned by connected sources is displayed.",
+ "profile-privacy":ru?"ПРИВАТНОСТЬ":"PRIVACY",
+ "profile-privacy-title":ru?"Режим только просмотра":"Read-only mode",
+ "profile-privacy-description":ru?"Нет покупок, продаж, переводов, ставок, кошельковых действий или сбора Telegram-сессий.":"No purchases, sales, transfers, bids, wallet actions or Telegram session collection.",
+ "workspace-label":ru?"РАБОЧЕЕ ПРОСТРАНСТВО":"WORKSPACE",
+ "readonly-title":ru?"Режим просмотра":"View-only mode",
+ "readonly-subtitle":ru?"Публичные данные · без покупок":"Public data · no purchases"
+ };
+ Object.entries(text).forEach(([id,v])=>{if($(id))$(id).textContent=v;});
+ if($("profile-language"))$("profile-language").textContent=ru?"Переключить язык · EN":"Switch language · RU";
+ if($("profile-sources"))$("profile-sources").innerHTML=["portals","tonnel","mrkt"].map(k=>'<span><b>'+k.toUpperCase()+'</b><small>'+escapeHtml(sourceStates[k]||"unknown")+'</small></span>').join("");
+}
+function nftBackdropOptions(){
+ const vals=[...new Set((giftItems||[]).flatMap(g=>(Array.isArray(g.attributes)?g.attributes:[]).filter(a=>String(a.type||a.name||"").toLowerCase()==="backdrop").map(a=>a.value||a.attribute_name).filter(Boolean)))].sort();
+ return vals.map(v=>'<option value="'+escapeHtml(v)+'" '+(v===collectionFilterState.filter_by_backdrops?'selected':'')+'>'+escapeHtml(v)+'</option>').join("");
+}
+function nftEnsureGlobalFilters(){
+ if(selectedCollection||activeMarket!=="portals")return;
+ const view=$("market-view");if(!view||view.querySelector(".collection-filters"))return;
+ const t=copy[lang];
+ const panel=document.createElement("section");panel.className="collection-filters";
+ panel.innerHTML='<div class="filter-heading"><span>'+(lang==="ru"?"ФИЛЬТРЫ КАТАЛОГА":"CATALOG FILTERS")+'</span><button type="button" class="filter-clear" data-clear-filters>'+(lang==="ru"?"Сбросить":"Clear")+'</button></div><div class="filter-grid"><label>'+t.minPrice+'<input id="filter-min-price" inputmode="decimal" type="number" min="0" step="any" value="'+escapeHtml(collectionFilterState.min_price)+'" placeholder="0"></label><label>'+t.maxPrice+'<input id="filter-max-price" inputmode="decimal" type="number" min="0" step="any" value="'+escapeHtml(collectionFilterState.max_price)+'" placeholder="—"></label><label>'+t.giftNumberFilter+'<input id="filter-gift-number" inputmode="numeric" type="text" value="'+escapeHtml(collectionFilterState.external_collection_number)+'" placeholder="№"></label><label>'+t.backdropFilter+'<select id="filter-backdrop"><option value="">'+t.allBackdrops+'</option>'+nftBackdropOptions()+'</select></label><label>'+t.statusFilter+'<select id="filter-status"><option value="">'+t.allStatuses+'</option><option value="listed" '+(collectionFilterState.status==="listed"?"selected":"")+'>'+t.listedOnly+'</option><option value="unlisted" '+(collectionFilterState.status==="unlisted"?"selected":"")+'>'+t.unlistedOnly+'</option></select></label><label class="filter-sort">'+t.sortLabel+'<select id="filter-sort"><option value="listed_at desc">'+t.sortRecent+'</option><option value="price asc" '+(collectionFilterState.sort_by==="price asc"?"selected":"")+'>'+t.sortPriceLow+'</option><option value="price desc" '+(collectionFilterState.sort_by==="price desc"?"selected":"")+'>'+t.sortPriceHigh+'</option><option value="external_collection_number asc" '+(collectionFilterState.sort_by==="external_collection_number asc"?"selected":"")+'>'+t.sortNumberLow+'</option><option value="external_collection_number desc" '+(collectionFilterState.sort_by==="external_collection_number desc"?"selected":"")+'>'+t.sortNumberHigh+'</option><option value="model_rarity asc" '+(collectionFilterState.sort_by==="model_rarity asc"?"selected":"")+'>'+t.sortRarityLow+'</option><option value="model_rarity desc" '+(collectionFilterState.sort_by==="model_rarity desc"?"selected":"")+'>'+t.sortRarityHigh+'</option></select></label><button class="filter-apply" type="button" data-apply-filters>'+(lang==="ru"?"Применить":"Apply filters")+'</button></div><p class="filter-hint">'+(lang==="ru"?"Фоны формируются по атрибутам загруженных карточек. Редкость доступна как сортировка, если её передаёт источник.":"Backdrop choices come from loaded card attributes. Rarity sorting depends on source-provided data.")+'</p>';
+ const toolbar=view.querySelector(".catalog-toolbar");if(toolbar)view.insertBefore(panel,toolbar);else view.prepend(panel);
+}
+function nftEnsureGlobalMore(){
+ if(selectedCollection||activeMarket!=="portals")return;
+ const grid=$("gift-grid");if(!grid)return;
+ const total=Number($("gifts-count")&&$("gifts-count").textContent)||0;
+ let button=$("global-load-more");
+ if(portalsGiftItems.length<total){if(!button){button=document.createElement("button");button.id="global-load-more";button.className="load-more-gifts";button.type="button";button.textContent=lang==="ru"?"Показать ещё":"Load more";grid.after(button);}}
+ else if(button)button.remove();
+}
+async function nftLoadGlobal(offset=0,append=false,term=""){
+ const t=copy[lang];try{
+  const params=new URLSearchParams({limit:"24",offset:String(offset)});
+  if(term)params.set("search",term);
+  for(const k of ["min_price","max_price","external_collection_number","filter_by_backdrops","sort_by","status"]){const v=collectionFilterState[k];if(v)params.set(k,v);}
+  const response=await fetch(window.API_BASE+"/api/gifts?"+params.toString());const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||"HTTP "+response.status);
+  const page=Array.isArray(data.items)?data.items:[];
+  portalsGiftItems=append?portalsGiftItems.concat(page):page;
+  renderGifts({...data,items:portalsGiftItems,total_count:data.total_count??portalsGiftItems.length});
+ }catch(e){$("market-view").innerHTML='<p class="empty">'+escapeHtml(t.error)+' · '+escapeHtml(e.message||"")+'</p>';}
+}
+const nftOriginalRenderGifts=renderGifts;
+renderGifts=function(data){
+ nftOriginalRenderGifts(data);
+ if(activeMarket==="portals"){
+  const cards=document.querySelectorAll("#gift-grid .gift-card");
+  cards.forEach((card,i)=>{if(card.querySelector("[data-nft-heart]"))return;const g=giftItems[i];if(!g)return;const b=document.createElement("button");b.type="button";b.className="favorite-toggle"+(nftIsSaved(g)?" is-saved":"");b.dataset.nftHeart=String(i);b.setAttribute("aria-label",nftIsSaved(g)?"Saved":"Save");b.textContent=nftIsSaved(g)?"♥":"♡";card.appendChild(b);});
+  if(!selectedCollection)nftEnsureGlobalFilters();
+  nftEnsureGlobalMore();
+ }
+};
+const nftOriginalOpenDetails=openGiftDetails;
+openGiftDetails=function(index){nftCurrentModal=giftItems[index]||null;nftOriginalOpenDetails(index);if($("modal-favorite")){$("modal-favorite").classList.toggle("is-saved",nftIsSaved(nftCurrentModal));$("modal-favorite").textContent=(nftIsSaved(nftCurrentModal)?"♥ ":"♡ ")+(lang==="ru"?(nftIsSaved(nftCurrentModal)?"Сохранено":"В избранное"):(nftIsSaved(nftCurrentModal)?"Saved":"Save to saved"));}};
+const nftOriginalOpenCollection=openCollection;
+openCollection=function(index){nftSetView("catalog");nftOriginalOpenCollection(index);};
+const nftOriginalCloseCollection=closeCollection;
+closeCollection=function(){nftOriginalCloseCollection();nftSetView("collections");};
+const nftOriginalSearchGifts=searchGifts;
+searchGifts=async function(){if(activeMarket==="tonnel")return nftOriginalSearchGifts();if(selectedCollection)return nftOriginalSearchGifts();return nftLoadGlobal(0,false,$("gift-search")?$("gift-search").value.trim():"");};
+document.querySelectorAll("[data-view]").forEach(button=>button.addEventListener("click",()=>{
+ const view=button.dataset.view;
+ if(selectedCollection&&view!=="catalog"){nftOriginalCloseCollection();}
+ nftSetView(view);
+}));
+$("market-view").addEventListener("click",event=>{
+ const heart=event.target.closest("[data-nft-heart]");
+ if(heart){event.preventDefault();event.stopImmediatePropagation();const g=giftItems[Number(heart.dataset.nftHeart)];nftToggleSaved(g);heart.classList.toggle("is-saved",nftIsSaved(g));heart.textContent=nftIsSaved(g)?"♥":"♡";return;}
+ const more=event.target.closest("#global-load-more");
+ if(more){event.preventDefault();event.stopImmediatePropagation();more.disabled=true;more.textContent=lang==="ru"?"Загружаем…":"Loading…";nftLoadGlobal(portalsGiftItems.length,true,$("gift-search")?$("gift-search").value.trim():"");return;}
+ const apply=event.target.closest("[data-apply-filters]");
+ const clear=event.target.closest("[data-clear-filters]");
+ if((apply||clear)&&!selectedCollection&&activeMarket==="portals"){
+  event.preventDefault();event.stopImmediatePropagation();
+  if(clear)collectionFilterState={min_price:"",max_price:"",external_collection_number:"",filter_by_backdrops:"",sort_by:"listed_at desc",status:""};
+  else readCollectionFilters();
+  nftLoadGlobal(0,false,$("gift-search")?$("gift-search").value.trim():"");
+ }
+},true);
+$("favorites-grid").addEventListener("click",event=>{
+ const remove=event.target.closest("[data-saved-remove]");if(remove){event.preventDefault();event.stopImmediatePropagation();const g=nftSavedItems[Number(remove.dataset.savedRemove)];if(g)nftToggleSaved(g);return;}
+ const card=event.target.closest("[data-saved-open]");if(card){giftItems=nftSavedItems;openGiftDetails(Number(card.dataset.savedOpen));}
+});
+$("modal-favorite").addEventListener("click",()=>{if(!nftCurrentModal)return;nftToggleSaved(nftCurrentModal);$("modal-favorite").classList.toggle("is-saved",nftIsSaved(nftCurrentModal));$("modal-favorite").textContent=(nftIsSaved(nftCurrentModal)?"♥ ":"♡ ")+(lang==="ru"?(nftIsSaved(nftCurrentModal)?"Сохранено":"В избранное"):(nftIsSaved(nftCurrentModal)?"Saved":"Save to saved"));});
+$("profile-language").addEventListener("click",()=>{lang=lang==="ru"?"en":"ru";renderText();nftRenderProfile();});
+const nftOriginalRenderText=renderText;
+renderText=function(){nftOriginalRenderText();nftRenderProfile();nftRenderSaved();};
+nftRenderSaved();nftRenderProfile();nftUpdateCounts();nftSetView("catalog");
