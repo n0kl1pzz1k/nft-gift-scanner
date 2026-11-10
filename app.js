@@ -1,0 +1,6 @@
+const copy={en:{eyebrow:"READ-ONLY MARKET MONITOR",heading:"Telegram gifts, market data in one place.",sub:"Public collections, floor prices and marketplace activity.",api:"Backend status",wait:"Checking connection…",foot:"No automatic buying, selling or transfers. Private API access is never assumed."},ru:{eyebrow:"МОНИТОРИНГ РЫНКА · READ-ONLY",heading:"Подарки Telegram и рыночные данные в одном месте.",sub:"Публичные коллекции, floor и активность маркетплейсов.",api:"Статус backend",wait:"Проверяем соединение…",foot:"Без автоматических покупок, продаж и переводов. Закрытый API не считается доступным без разрешения."}};
+let lang="en";const $=id=>document.getElementById(id);
+function render(){Object.entries(copy[lang]).forEach(([k,v])=>{const el=$(k);if(el)el.textContent=v});$("lang").textContent=lang==="en"?"RU":"EN"}
+$("lang").onclick=()=>{lang=lang==="en"?"ru":"en";render()};
+async function check(){try{if(!window.API_BASE||window.API_BASE.includes("YOUR-"))throw Error("not configured");const r=await fetch(window.API_BASE+"/health");if(!r.ok)throw Error("HTTP "+r.status);const d=await r.json();$("api-status").textContent="Online · "+d.status;$("api-status").style.color="#7bd8a2"}catch(e){$("api-status").textContent="Not connected yet · configure Railway URL"}}
+render();check();

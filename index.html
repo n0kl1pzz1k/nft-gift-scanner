@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#10131b"><title>NFT Gift Scanner</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
+</head>
+<body>
+  <main class="wrap">
+    <header><div class="brand">✦ NFT Gift Scanner</div><button id="lang">RU</button></header>
+    <section class="hero">
+      <p class="eyebrow" id="eyebrow">READ-ONLY MARKET MONITOR</p>
+      <h1 id="heading">Telegram gifts, market data in one place.</h1>
+      <p id="sub">Public collections, floor prices and marketplace activity.</p>
+    </section>
+    <section class="status">
+      <div><span class="dot"></span><b id="api-title">Backend status</b></div>
+      <p id="api-status">Checking connection…</p>
+    </section>
+    <section class="grid">
+      <article><small id="c1">COLLECTIONS</small><strong>—</strong><p id="c1s">Waiting for data source</p></article>
+      <article><small id="c2">FLOOR</small><strong>—</strong><p id="c2s">Read-only market data</p></article>
+      <article><small id="c3">ACTIVITY</small><strong>—</strong><p id="c3s">Public events only</p></article>
+    </section>
+    <footer id="foot">No automatic buying, selling or transfers. Private API access is never assumed.</footer>
+  </main>
+  <script src="app.js"></script>
+</body></html>
