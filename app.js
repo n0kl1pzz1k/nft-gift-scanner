@@ -11,7 +11,8 @@ const copy={
     dataNote:"Collection-level figures are not individual gift listings and cannot be compared across marketplaces.",
     updated:"Last response",never:"Not available",error:"Could not load marketplace data.",
     public:"Public data",readonly:"View only",nomoney:"No transactions",system:"SYSTEM",overview:"DATA OVERVIEW",count:"COLLECTIONS",live:"LIVE MONITOR",
-    catalog:"Listed gift catalogue",lots:"LISTINGS",searchPlaceholder:"Search by gift name or number",searchButton:"Search",catalogWaiting:"Catalogue will appear when a verified data source is connected.",catalogNote:"Only public Portals listings. No purchase or gift-action buttons.",giftPrice:"Listing price",giftFloor:"Collection floor",giftNumber:"Gift #",giftEmpty:"No matching public listings were returned.",catalogUpdated:"Catalogue response"
+    catalog:"Marketplace listings",lots:"LISTINGS",searchPlaceholder:"Search by gift name or number",searchButton:"Search",catalogWaiting:"Catalogue will appear when a verified data source is connected.",catalogNote:"Public listing information only. No purchase or gift-action buttons.",giftPrice:"Listing price",giftFloor:"Collection floor",giftNumber:"Gift #",giftEmpty:"No matching public listings were returned.",catalogUpdated:"Catalogue response",
+    connected:"CONNECTED",pending:"NOT CONNECTED",details:"View details",status:"Listing status",listed:"Listed",attributes:"Attributes",noAttributes:"No public attributes supplied",detailNote:"Public listing details only. No transaction actions.",marketUnavailable:"This marketplace is not connected yet.",marketReasonTonnel:"An official public read-only marketplace API has not been verified. No listings are fabricated.",marketReasonMrkt:"An official public read-only marketplace API has not been verified. No listings are fabricated.",notConnected:"Not connected",modalClose:"Close"
   },
   ru:{
     eyebrow:"МОНИТОРИНГ РЫНКА · ТОЛЬКО ЧТЕНИЕ",heading:"Весь рынок Telegram-подарков <em>в одном месте.</em>",sub:"Коллекции, публичные показатели и состояние маркетплейсов — без лишнего шума.",
@@ -25,10 +26,14 @@ const copy={
     dataNote:"Показатели коллекций — не объявления отдельных подарков и не основание для сравнения цен между маркетами.",
     updated:"Последний ответ",never:"Нет данных",error:"Не удалось загрузить данные маркетплейсов.",
     public:"Публичные данные",readonly:"Только просмотр",nomoney:"Без транзакций",system:"СИСТЕМА",overview:"ОБЗОР ДАННЫХ",count:"КОЛЛЕКЦИЙ",live:"LIVE МОНИТОРИНГ",
-    catalog:"Каталог выставленных подарков",lots:"ЛОТОВ",searchPlaceholder:"Поиск по названию или номеру",searchButton:"Найти",catalogWaiting:"Каталог появится после подключения подтверждённого источника данных.",catalogNote:"Только публичные объявления Portals. Без кнопок покупки и действий с подарками.",giftPrice:"Цена объявления",giftFloor:"Флор коллекции",giftNumber:"Подарок №",giftEmpty:"По этому запросу публичных объявлений не найдено.",catalogUpdated:"Ответ каталога"
+    catalog:"Объявления маркетплейсов",lots:"ЛОТОВ",searchPlaceholder:"Поиск по названию или номеру",searchButton:"Найти",catalogWaiting:"Каталог появится после подключения подтверждённого источника данных.",catalogNote:"Только публичная информация об объявлениях. Без торговых действий.",giftPrice:"Цена объявления",giftFloor:"Флор коллекции",giftNumber:"Подарок №",giftEmpty:"По этому запросу публичных объявлений не найдено.",catalogUpdated:"Ответ каталога",
+    connected:"ПОДКЛЮЧЁН",pending:"НЕ ПОДКЛЮЧЁН",details:"Подробнее",status:"Статус объявления",listed:"Выставлен",attributes:"Атрибуты",noAttributes:"Источник не передал публичные атрибуты",detailNote:"Только публичная информация об объявлении. Без торговых операций.",marketUnavailable:"Этот маркетплейс пока не подключён.",marketReasonTonnel:"Официальный публичный read-only API маркетплейса пока не подтверждён. Объявления не выдумываем.",marketReasonMrkt:"Официальный публичный read-only API маркетплейса пока не подтверждён. Объявления не выдумываем.",notConnected:"Не подключён",modalClose:"Закрыть"
   }
 };
 let lang="ru";
+let activeMarket="portals";
+let giftItems=[];
+let sourceStates={};
 const $=id=>document.getElementById(id);
 const escapeHtml=value=>String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function renderText(){
@@ -48,13 +53,22 @@ function renderText(){
   $("collections-kicker").textContent=t.overview;
   $("count-label").textContent=t.count;
   $("live-label").textContent=t.live;
-  $("catalog-kicker").textContent="PORTALS MARKET";
+  $("catalog-kicker").textContent="MARKETPLACES";
   $("catalog-title").textContent=t.catalog;
   $("gifts-count-label").textContent=t.lots;
   $("gift-search").placeholder=t.searchPlaceholder;
   $("gift-search-button").textContent=t.searchButton;
   $("catalog-note").textContent=t.catalogNote;
+  $("modal-price-label").textContent=t.giftPrice;
+  $("modal-floor-label").textContent=t.giftFloor;
+  $("modal-status-label").textContent=t.status;
+  $("modal-date-label").textContent=t.listed;
+  $("modal-attributes-title").textContent=t.attributes;
+  $("modal-note").textContent=t.detailNote;
   $("lang").textContent=lang==="en"?"RU":"EN";
+  renderMarketTabs();
+  if(activeMarket!=="portals") renderUnavailableMarket(activeMarket);
+  else renderGifts({items:giftItems,total_count:giftItems.length,connected:sourceStates.portals!=="needs_api_key"});
 }
 function sourceLabel(name,state,kind,letter){
   const t=copy[lang];
@@ -66,7 +80,26 @@ function sourceLabel(name,state,kind,letter){
 }
 function formatTime(value){
   if(!value) return copy[lang].never;
-  return new Date(value*1000).toLocaleString(lang==="ru"?"ru-RU":"en-GB");
+  const date=typeof value==="number"?new Date(value*1000):new Date(value);
+  return Number.isNaN(date.getTime())?String(value):date.toLocaleString(lang==="ru"?"ru-RU":"en-GB");
+}
+function renderMarketTabs(){
+  const t=copy[lang];
+  document.querySelectorAll(".market-tab").forEach(button=>{
+    const market=button.dataset.market;
+    button.classList.toggle("active",market===activeMarket);
+    const state=sourceStates[market]||"official_api_not_verified";
+    const connected=market==="portals"&&(state==="online_read_only"||state==="configured_read_only"||state==="online");
+    $("tab-state-"+market).textContent=connected?t.connected:t.pending;
+    $("tab-state-"+market).classList.toggle("is-connected",connected);
+  });
+}
+function renderUnavailableMarket(market){
+  const t=copy[lang];
+  const reason=market==="tonnel"?t.marketReasonTonnel:t.marketReasonMrkt;
+  $("gifts-count").textContent="—";
+  $("gifts-updated").textContent=t.notConnected;
+  $("market-view").innerHTML='<div class="market-empty"><div class="market-empty-icon">'+(market==="tonnel"?"T":"M")+'</div><h3>'+escapeHtml(t.marketUnavailable)+'</h3><p>'+escapeHtml(reason)+'</p></div>';
 }
 async function load(){
   const t=copy[lang];
@@ -80,7 +113,8 @@ async function load(){
     const status=await statusRes.json();
     const data=await dataRes.json();
     const gifts=giftsRes.ok?await giftsRes.json():{items:[],total_count:0};
-    const s={...(status.sources||{}),...(data.sources||{})};
+    sourceStates={...(status.sources||{}),...(data.sources||{})};
+    const s={...sourceStates};
     $("sources").innerHTML=sourceLabel(t.portals,s.portals,"portals","P")+sourceLabel(t.tonnel,s.tonnel,"tonnel","T")+sourceLabel(t.mrkt,s.mrkt,"mrkt","M");
     const items=Array.isArray(data.items)?data.items:[];
     $("collections-count").textContent=items.length;
@@ -89,26 +123,33 @@ async function load(){
       const image=item.image?'<img loading="lazy" src="'+escapeHtml(item.image)+'" alt="">':'<div class="placeholder">✦</div>';
       return '<article class="collection-card">'+image+'<div class="card-info"><b>'+escapeHtml(item.name)+'</b><span>'+t.floor+': <strong>'+escapeHtml(item.floor_price??"—")+'</strong></span><span>'+t.volume+': '+escapeHtml(item.day_volume??"—")+'</span><span>'+t.supply+': '+escapeHtml(item.supply??"—")+'</span><small>'+escapeHtml(item.source||"")+'</small></div></article>';
     }).join(""):'<p class="empty">'+t.noData+'</p>';
-    renderGifts(gifts);
+    giftItems=Array.isArray(gifts.items)?gifts.items:[];
+    renderMarketTabs();
+    if(activeMarket==="portals") renderGifts(gifts);
+    else renderUnavailableMarket(activeMarket);
   }catch(e){
     $("api-status").textContent=t.offline;
     $("collections-count").textContent="—";
     $("updated").textContent=t.updated+": "+t.never;
     $("collections").innerHTML='<p class="empty">'+t.error+'</p>';
-    $("gift-grid").innerHTML='<p class="empty">'+t.error+'</p>';
+    $("market-view").innerHTML='<p class="empty">'+t.error+'</p>';
   }
 }
 function renderGifts(data){
   const t=copy[lang], items=Array.isArray(data.items)?data.items:[];
+  giftItems=items;
   $("gifts-count").textContent=data.total_count??items.length;
   $("gifts-updated").textContent=t.catalogUpdated+": "+formatTime(data.updated_at);
-  $("gift-grid").innerHTML=items.length?items.map(gift=>{
+  $("market-view").innerHTML='<div class="catalog-toolbar"><input id="gift-search" type="search" placeholder="'+escapeHtml(t.searchPlaceholder)+'" value="'+escapeHtml($("gift-search")?.value||"")+'"><button id="gift-search-button" type="button">'+escapeHtml(t.searchButton)+'</button></div><p class="updated"><span class="update-dot"></span><span id="gifts-updated">'+escapeHtml(t.catalogUpdated)+': '+escapeHtml(formatTime(data.updated_at))+'</span></p><section class="gift-grid" id="gift-grid">'+(items.length?items.map((gift,index)=>{
     const image=gift.image?'<img loading="lazy" src="'+escapeHtml(gift.image)+'" alt="">':'<div class="placeholder">🎁</div>';
     const attrs=Array.isArray(gift.attributes)?gift.attributes.map(a=>[a.type||a.name,a.value||a.attribute_name].filter(Boolean).join(": ")).filter(Boolean).slice(0,3).join(" · "):"";
-    return '<article class="gift-card">'+image+'<div class="gift-info"><b>'+escapeHtml(gift.name||"Telegram Gift")+'</b><span>'+t.giftNumber+' '+escapeHtml(gift.number??"—")+'</span><strong>'+t.giftPrice+': '+escapeHtml(gift.price??"—")+' GRAM</strong><small>'+t.giftFloor+': '+escapeHtml(gift.floor_price??"—")+' GRAM</small><small>'+escapeHtml(attrs)+'</small></div></article>';
-  }).join(""):'<p class="empty">'+(data.connected===false?t.catalogWaiting:t.giftEmpty)+'</p>';
+    return '<article class="gift-card" role="button" tabindex="0" data-gift-index="'+index+'" aria-label="'+escapeHtml((gift.name||"Telegram Gift")+" "+t.details)+'">'+image+'<div class="gift-info"><b>'+escapeHtml(gift.name||"Telegram Gift")+'</b><span>'+t.giftNumber+' '+escapeHtml(gift.number??"—")+'</span><strong>'+t.giftPrice+': '+escapeHtml(gift.price??"—")+' '+escapeHtml(gift.currency||"GRAM")+'</strong><small>'+t.giftFloor+': '+escapeHtml(gift.floor_price??"—")+' '+escapeHtml(gift.currency||"GRAM")+'</small><small>'+escapeHtml(attrs)+'</small><span class="gift-details-hint">'+t.details+' ↗</span></div></article>';
+  }).join(""):'<p class="empty">'+(data.connected===false?t.catalogWaiting:t.giftEmpty)+'</p>')+'</section>';
+  $("gift-search-button").onclick=searchGifts;
+  $("gift-search").addEventListener("keydown",e=>{if(e.key==="Enter")searchGifts()});
 }
 async function searchGifts(){
+  if(activeMarket!=="portals") return;
   const term=$("gift-search").value.trim();
   const t=copy[lang];
   $("gift-grid").innerHTML='<p class="empty">'+t.checking+'</p>';
@@ -118,7 +159,50 @@ async function searchGifts(){
     renderGifts(await response.json());
   }catch(e){$("gift-grid").innerHTML='<p class="empty">'+t.error+'</p>';}
 }
-$("gift-search-button").onclick=searchGifts;
-$("gift-search").addEventListener("keydown",e=>{if(e.key==="Enter")searchGifts()});
-$("lang").onclick=()=>{lang=lang==="ru"?"en":"ru";renderText();load()};
+function openGiftDetails(index){
+  const gift=giftItems[index];
+  if(!gift) return;
+  const t=copy[lang];
+  $("modal-source").textContent=gift.source||"PORTALS";
+  $("modal-title").textContent=gift.name||"Telegram Gift";
+  $("modal-number").textContent=t.giftNumber+" "+(gift.number??"—");
+  $("modal-price").textContent=(gift.price??"—")+" "+(gift.currency||"GRAM");
+  $("modal-floor").textContent=(gift.floor_price??"—")+" "+(gift.currency||"GRAM");
+  $("modal-status").textContent=gift.status||"—";
+  $("modal-date").textContent=formatTime(gift.listed_at);
+  $("modal-image-wrap").innerHTML=gift.image?'<img src="'+escapeHtml(gift.image)+'" alt="'+escapeHtml(gift.name||"Gift")+'">':'<div class="modal-placeholder">🎁</div>';
+  const attrs=Array.isArray(gift.attributes)?gift.attributes:[];
+  $("modal-attributes").innerHTML=attrs.length?attrs.map(attr=>{
+    const name=attr.type||attr.name||attr.attribute_type||"Attribute";
+    const value=attr.value||attr.attribute_name||attr.name_value||"—";
+    return '<div class="attribute-chip"><small>'+escapeHtml(name)+'</small><b>'+escapeHtml(value)+'</b></div>';
+  }).join(""):'<span class="note">'+escapeHtml(t.noAttributes)+'</span>';
+  $("gift-modal").classList.add("open");
+  $("gift-modal").setAttribute("aria-hidden","false");
+  document.body.classList.add("modal-open");
+  $("modal-close").focus();
+}
+function closeGiftDetails(){
+  $("gift-modal").classList.remove("open");
+  $("gift-modal").setAttribute("aria-hidden","true");
+  document.body.classList.remove("modal-open");
+}
+$("market-view").addEventListener("click",event=>{
+  const card=event.target.closest("[data-gift-index]");
+  if(card) openGiftDetails(Number(card.dataset.giftIndex));
+});
+$("market-view").addEventListener("keydown",event=>{
+  const card=event.target.closest("[data-gift-index]");
+  if(card&&(event.key==="Enter"||event.key===" ")){event.preventDefault();openGiftDetails(Number(card.dataset.giftIndex));}
+});
+document.querySelectorAll(".market-tab").forEach(button=>button.addEventListener("click",()=>{
+  activeMarket=button.dataset.market;
+  renderMarketTabs();
+  if(activeMarket==="portals") renderGifts({items:giftItems,total_count:giftItems.length,connected:sourceStates.portals!=="needs_api_key"});
+  else renderUnavailableMarket(activeMarket);
+}));
+$("modal-close").addEventListener("click",closeGiftDetails);
+$("gift-modal").addEventListener("click",event=>{if(event.target.dataset.closeModal==="true")closeGiftDetails()});
+document.addEventListener("keydown",event=>{if(event.key==="Escape"&&$("gift-modal").classList.contains("open"))closeGiftDetails()});
+$("lang").onclick=()=>{lang=lang==="ru"?"en":"ru";renderText();};
 renderText();load();
