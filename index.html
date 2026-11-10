@@ -1,87 +1,98 @@
 <!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#090b16"><title>NFT Gift Scanner</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
-  <script src="config.js"></script>
+  <link rel="stylesheet" href="style.css"><script src="config.js"></script>
 </head>
 <body>
   <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div><div class="ambient ambient-three"></div>
-  <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
-  <div class="floating-art" aria-hidden="true">
-    <img class="float-asset asset-portals" src="https://static2.tgstat.ru/channels/_0/a2/a2bb889ae1b33ba0912de87a33273b22.jpg" alt="">
-    <span class="float-asset asset-tonnel"><b>T</b><small>TONNEL</small></span>
-    <img class="float-asset asset-mrkt" src="https://mrktxyz.com/logo.png" alt="">
-    <img class="float-asset asset-pepe" src="https://img.gazeta.ru/files3/940/21916940/64-pic4_zoom-1500x1500-81694.jpg" alt="">
-    <span class="float-asset asset-gram"><b>◈</b><small>GRAM</small></span>
-    <span class="float-gift gift-one">🎁</span><span class="float-gift gift-two">💎</span>
-    <span class="float-gift gift-three">🧢</span><span class="float-gift gift-four">🌹</span>
-  </div>
-  <main class="wrap">
-    <header class="topbar">
-      <a class="brand" href="#" aria-label="NFT Gift Scanner home"><span class="brand-mark">✳</span><span>NFT <b>GIFT SCANNER</b><small>TELEGRAM MARKET INTELLIGENCE</small></span></a>
-      <div class="top-actions"><span class="live-label"><i></i><span id="live-label">LIVE MONITOR</span></span><button id="lang" class="lang-btn">EN</button></div>
-    </header>
-    <section class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow"><span class="eyebrow-line"></span><span id="eyebrow">МОНИТОРИНГ РЫНКА · ТОЛЬКО ЧТЕНИЕ</span></p>
-        <h1 id="heading">Весь рынок Telegram-подарков <em>в одном месте.</em></h1>
-        <p class="hero-sub" id="sub">Коллекции, публичные показатели и состояние маркетплейсов — без лишнего шума.</p>
-        <div class="hero-tags"><span>✦ <span id="tag-public">Публичные данные</span></span><span>◈ <span id="tag-readonly">Только просмотр</span></span><span>⌁ <span id="tag-nomoney">Без транзакций</span></span></div>
-      </div>
-      <div class="hero-art" aria-hidden="true"><div class="orbit orbit-a"></div><div class="orbit orbit-b"></div><div class="hero-gift gift-main">🐸</div><div class="mini-gift mini-a">🎁</div><div class="mini-gift mini-b">🧢</div><div class="mini-gift mini-c">💎</div><div class="art-caption">TELEGRAM<br><b>COLLECTIBLES</b></div></div>
-    </section>
-    <section class="status-panel">
-      <div class="panel-heading"><div><span class="section-kicker" id="connection-kicker">СИСТЕМА</span><h2 id="api-title">Статус подключения</h2></div><span class="status-pill"><i></i><span id="api-status">Проверяем соединение…</span></span></div>
-      <div class="sources" id="sources"></div>
-      <p class="note coverage-note" id="coverage-note"></p>
-    </section>
-    <section class="collections-section">
-      <div class="section-head"><div><span class="section-kicker" id="collections-kicker">ОБЗОР ДАННЫХ</span><h2 id="collections-title">Коллекции Portals</h2></div><div class="count-wrap"><strong id="collections-count">—</strong><span id="count-label">КОЛЛЕКЦИЙ</span></div></div>
-      <p class="updated"><span class="update-dot"></span><span id="updated">Последний ответ: нет данных</span></p>
-      <section class="collections" id="collections"><p class="empty">Ожидаем данные маркетплейса…</p></section>
-      <p class="note data-note" id="data-note"></p>
-    </section>
-    <section class="catalog-section" id="marketplaces">
-      <div class="section-head"><div><span class="section-kicker" id="catalog-kicker">MARKETPLACES</span><h2 id="catalog-title">Маркетплейсы</h2></div><div class="count-wrap"><strong id="gifts-count">—</strong><span id="gifts-count-label">ЛОТОВ</span></div></div>
-      <nav class="market-tabs" aria-label="Marketplaces">
-        <button class="market-tab active" type="button" data-market="portals"><span class="tab-mark portals-mark">P</span>Portals<span class="tab-state" id="tab-state-portals">...</span></button>
-        <button class="market-tab" type="button" data-market="tonnel"><span class="tab-mark tonnel-mark">T</span>Tonnel<span class="tab-state" id="tab-state-tonnel">...</span></button>
-        <button class="market-tab" type="button" data-market="mrkt"><span class="tab-mark mrkt-mark">M</span>MRKT<span class="tab-state" id="tab-state-mrkt">...</span></button>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#" aria-label="NFT Gift Scanner"><span class="brand-mark">✳</span><span>NFT <b>GIFT SCANNER</b><small>MARKET INTELLIGENCE</small></span></a>
+      <div class="sidebar-caption" id="workspace-label">РАБОЧЕЕ ПРОСТРАНСТВО</div>
+      <nav class="primary-nav" aria-label="Main navigation">
+        <button class="nav-item active" type="button" data-view="catalog"><span class="nav-icon">▦</span><span id="nav-catalog">Каталог</span></button>
+        <button class="nav-item" type="button" data-view="collections"><span class="nav-icon">▤</span><span id="nav-collections">Коллекции</span><span class="nav-count" id="nav-collection-count">—</span></button>
+        <button class="nav-item" type="button" data-view="favorites"><span class="nav-icon">♡</span><span id="nav-favorites">Избранное</span><span class="nav-count" id="nav-favorite-count">0</span></button>
+        <button class="nav-item" type="button" data-view="profile"><span class="nav-icon">◉</span><span id="nav-profile">Профиль</span></button>
       </nav>
-      <div id="market-view">
-        <div class="catalog-toolbar"><input id="gift-search" type="search" placeholder="Поиск по названию или номеру"><button id="gift-search-button" type="button">Найти</button></div>
-        <p class="updated"><span class="update-dot"></span><span id="gifts-updated">Каталог ожидает подключения</span></p>
-        <section class="gift-grid" id="gift-grid"><p class="empty" id="gifts-empty">Каталог появится после подключения подтверждённого источника данных.</p></section>
+      <div class="sidebar-bottom">
+        <div class="readonly-card"><span class="readonly-icon">◈</span><div><b id="readonly-title">Режим просмотра</b><small id="readonly-subtitle">Публичные данные · без покупок</small></div></div>
+        <div class="sidebar-version">NFT GIFT SCANNER <span>v1.0</span></div>
       </div>
-      <p class="note" id="catalog-note">Показываются только публичные объявления. Без торговых операций.</p>
-    </section>
-    <div class="gift-modal" id="gift-modal" aria-hidden="true">
-      <div class="gift-modal-backdrop" data-close-modal="true"></div>
-      <article class="gift-modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-        <button class="modal-close" id="modal-close" type="button" aria-label="Close">×</button>
-        <div class="modal-image-wrap" id="modal-image-wrap"></div>
-        <div class="modal-content">
-          <span class="section-kicker" id="modal-source">PORTALS</span>
-          <h2 id="modal-title">Gift details</h2>
-          <div class="modal-number" id="modal-number"></div>
-          <div class="modal-metrics">
-            <div><small id="modal-price-label">Listing price</small><strong id="modal-price">—</strong></div>
-            <div><small id="modal-floor-label">Collection floor</small><strong id="modal-floor">—</strong></div>
-          </div>
-          <div class="modal-detail-row"><span id="modal-status-label">Status</span><b id="modal-status">—</b></div>
-          <div class="modal-detail-row"><span id="modal-date-label">Listed</span><b id="modal-date">—</b></div>
-          <h3 id="modal-attributes-title">Attributes</h3>
-          <div class="modal-attributes" id="modal-attributes"></div>
-          <p class="note" id="modal-note">Public listing details only. No transaction actions.</p>
+    </aside>
+    <main class="workspace" id="workspace" data-view="catalog">
+      <header class="topbar">
+        <div class="topbar-context"><span class="live-dot"></span><span id="page-context">КАТАЛОГ ПОДАРКОВ</span><span class="topbar-divider">/</span><span id="api-status">Проверяем соединение…</span></div>
+        <div class="top-actions"><span class="live-label"><i></i><span id="live-label">LIVE MONITOR</span></span><button id="lang" class="lang-btn" type="button">EN</button></div>
+      </header>
+      <section class="hero">
+        <div class="hero-copy"><p class="eyebrow"><span class="eyebrow-line"></span><span id="eyebrow">МОНИТОРИНГ РЫНКА · ТОЛЬКО ЧТЕНИЕ</span></p><h1 id="heading">Весь рынок Telegram-подарков <em>в одном месте.</em></h1><p class="hero-sub" id="sub">Коллекции, публичные показатели и состояние маркетплейсов.</p><div class="hero-tags"><span>✦ <span id="tag-public">Публичные данные</span></span><span>◈ <span id="tag-readonly">Только просмотр</span></span><span>⌁ <span id="tag-nomoney">Без транзакций</span></span></div></div>
+        <div class="hero-art" aria-hidden="true"><div class="orbit orbit-a"></div><div class="orbit orbit-b"></div><div class="hero-gift gift-main">🐸</div><div class="mini-gift mini-a">🎁</div><div class="mini-gift mini-b">🧢</div><div class="mini-gift mini-c">💎</div></div>
+      </section>
+      <section class="status-panel" id="status-panel">
+        <div class="panel-heading"><div><span class="section-kicker" id="connection-kicker">СИСТЕМА</span><h2 id="api-title">Статус подключения</h2></div><span class="status-pill"><i></i><span id="status-summary">READ ONLY</span></span></div>
+        <div class="sources" id="sources"></div><p class="note coverage-note" id="coverage-note"></p>
+      </section>
+      <section class="collections-section page-section" id="collections-section">
+        <div class="section-head"><div><span class="section-kicker" id="collections-kicker">ОБЗОР ДАННЫХ</span><h2 id="collections-title">Коллекции Portals</h2></div><div class="count-wrap"><strong id="collections-count">—</strong><span id="count-label">КОЛЛЕКЦИЙ</span></div></div>
+        <p class="updated"><span class="update-dot"></span><span id="updated">Последний ответ: нет данных</span></p>
+        <section class="collections" id="collections"><p class="empty">Ожидаем данные маркетплейса…</p></section><p class="note data-note" id="data-note"></p>
+      </section>
+      <section class="catalog-section page-section" id="catalog-section">
+        <div class="section-head"><div><span class="section-kicker" id="catalog-kicker">MARKETPLACE</span><h2 id="catalog-title">Каталог NFT-подарков</h2></div><div class="count-wrap"><strong id="gifts-count">—</strong><span id="gifts-count-label">ЛОТОВ</span></div></div>
+        <nav class="market-tabs" aria-label="Marketplaces">
+          <button class="market-tab active" type="button" data-market="portals"><span class="tab-mark portals-mark">P</span>Portals<span class="tab-state" id="tab-state-portals">...</span></button>
+          <button class="market-tab" type="button" data-market="tonnel"><span class="tab-mark tonnel-mark">T</span>Tonnel<span class="tab-state" id="tab-state-tonnel">...</span></button>
+          <button class="market-tab" type="button" data-market="mrkt"><span class="tab-mark mrkt-mark">M</span>MRKT<span class="tab-state" id="tab-state-mrkt">...</span></button>
+        </nav>
+        <div id="market-view">
+          <div class="catalog-toolbar"><input id="gift-search" type="search" placeholder="Поиск по названию или номеру"><button id="gift-search-button" type="button">Найти</button></div>
+          <p class="updated"><span class="update-dot"></span><span id="gifts-updated">Каталог ожидает подключения</span></p>
+          <section class="gift-grid" id="gift-grid"><p class="empty" id="gifts-empty">Каталог появится после подключения источника данных.</p></section>
         </div>
-      </article>
-    </div>
-    <footer><span class="footer-mark">✳ NFT GIFT SCANNER</span><span id="foot">Только чтение публичной информации. Без покупок, продаж, переводов и торговых сигналов.</span></footer>
-  </main>
+        <p class="note" id="catalog-note">Только публичные данные. Без торговых действий.</p>
+      </section>
+      <section class="favorites-section page-section" id="favorites-section">
+        <div class="section-head"><div><span class="section-kicker">PERSONAL LIST</span><h2 id="favorites-title">Избранное</h2></div><div class="count-wrap"><strong id="favorites-count">0</strong><span id="favorites-count-label">СОХРАНЕНО</span></div></div>
+        <p class="note" id="favorites-description">Сохранённые карточки хранятся только в этом браузере.</p>
+        <section class="gift-grid" id="favorites-grid"><p class="empty">Пока ничего не сохранено.</p></section>
+      </section>
+      <section class="profile-section page-section" id="profile-section">
+        <div class="section-head"><div><span class="section-kicker">ACCOUNT & PREFERENCES</span><h2 id="profile-title">Профиль</h2></div></div>
+        <div class="profile-grid">
+          <article class="profile-card profile-main-card"><div class="profile-avatar">✳</div><div><b id="profile-guest">Гость</b><p id="profile-description">Локальный профиль приложения. Авторизация и подключение кошелька не требуются.</p></div></article>
+          <article class="profile-card"><span class="profile-card-kicker" id="profile-settings">НАСТРОЙКИ</span><b id="profile-language-title">Язык интерфейса</b><p id="profile-language-description">Переключение русского и английского языка.</p><button class="profile-action" id="profile-language" type="button">Переключить язык · EN</button></article>
+          <article class="profile-card"><span class="profile-card-kicker" id="profile-data">ДАННЫЕ</span><b id="profile-data-title">Источники данных</b><p id="profile-data-description">Показываем только публичные сведения, которые реально возвращают подключённые площадки.</p><div id="profile-sources" class="profile-source-list"></div></article>
+          <article class="profile-card"><span class="profile-card-kicker" id="profile-privacy">ПРИВАТНОСТЬ</span><b id="profile-privacy-title">Безопасный режим</b><p id="profile-privacy-description">Нет покупок, продаж, переводов, ставок, кошельковых действий или сбора Telegram-сессий.</p></article>
+        </div>
+      </section>
+      <footer><span class="footer-mark">✳ NFT GIFT SCANNER</span><span id="foot">Только просмотр публичной информации. Без покупок, продаж и переводов.</span></footer>
+    </main>
+  </div>
+  <nav class="mobile-nav" aria-label="Main navigation">
+    <button class="nav-item active" type="button" data-view="catalog"><span class="nav-icon">▦</span><span id="m-nav-catalog">Каталог</span></button>
+    <button class="nav-item" type="button" data-view="collections"><span class="nav-icon">▤</span><span id="m-nav-collections">Коллекции</span></button>
+    <button class="nav-item" type="button" data-view="favorites"><span class="nav-icon">♡</span><span id="m-nav-favorites">Избранное</span></button>
+    <button class="nav-item" type="button" data-view="profile"><span class="nav-icon">◉</span><span id="m-nav-profile">Профиль</span></button>
+  </nav>
+  <div class="gift-modal" id="gift-modal" aria-hidden="true">
+    <div class="gift-modal-backdrop" data-close-modal="true"></div>
+    <article class="gift-modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <button class="modal-close" id="modal-close" type="button" aria-label="Close">×</button>
+      <div class="modal-image-wrap" id="modal-image-wrap"></div>
+      <div class="modal-content"><span class="section-kicker" id="modal-source">PORTALS</span><h2 id="modal-title">Gift details</h2><div class="modal-number" id="modal-number"></div>
+        <div class="modal-metrics"><div><small id="modal-price-label">Listing price</small><strong id="modal-price">—</strong></div><div><small id="modal-floor-label">Collection floor</small><strong id="modal-floor">—</strong></div></div>
+        <div class="modal-detail-row"><span id="modal-status-label">Status</span><b id="modal-status">—</b></div><div class="modal-detail-row"><span id="modal-date-label">Listed</span><b id="modal-date">—</b></div>
+        <h3 id="modal-attributes-title">Attributes</h3><div class="modal-attributes" id="modal-attributes"></div>
+        <button class="modal-favorite" id="modal-favorite" type="button">♡ <span id="modal-favorite-label">В избранное</span></button>
+        <p class="note" id="modal-note">Публичная информация. Без торговых операций.</p>
+      </div>
+    </article>
+  </div>
   <script src="app.js"></script>
 </body></html>
