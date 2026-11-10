@@ -12,7 +12,7 @@ const copy={
     updated:"Last response",never:"Not available",error:"Could not load marketplace data.",
     public:"Public data",readonly:"View only",nomoney:"No transactions",system:"SYSTEM",overview:"DATA OVERVIEW",count:"COLLECTIONS",live:"LIVE MONITOR",
     catalog:"Marketplace listings",lots:"LISTINGS",searchPlaceholder:"Search by gift name or number",searchButton:"Search",catalogWaiting:"Catalogue will appear when a verified data source is connected.",catalogNote:"Public listing information only. No purchase or gift-action buttons.",giftPrice:"Listing price",giftFloor:"Collection floor",giftNumber:"Gift #",giftEmpty:"No matching public listings were returned.",catalogUpdated:"Catalogue response",
-    connected:"CONNECTED",pending:"NOT CONNECTED",details:"View details",status:"Listing status",listed:"Listed",attributes:"Attributes",noAttributes:"No public attributes supplied",detailNote:"Public listing details only. No transaction actions.",marketUnavailable:"This marketplace is not connected yet.",marketReasonTonnel:"An official public read-only marketplace API has not been verified. No listings are fabricated.",marketReasonMrkt:"An official public read-only marketplace API has not been verified. No listings are fabricated.",notConnected:"Not connected",modalClose:"Close"
+    connected:"CONNECTED",pending:"NOT CONNECTED",details:"View details",status:"Listing status",listed:"Listed",attributes:"Attributes",noAttributes:"No public attributes supplied",detailNote:"Public listing details only. No transaction actions.",marketUnavailable:"This marketplace is not connected yet.",marketReasonTonnel:"Tonnel public listings are requested without account authentication. If the marketplace refuses public access, the app will show that honestly; no anti-bot bypass is used.",marketReasonMrkt:"MRKT currently requires account-linked Telegram authorization. This app does not collect Telegram sessions or API credentials.",marketTonnelError:"Tonnel public listings are temporarily unavailable or the source refused the request.",notConnected:"Not connected",modalClose:"Close"
   },
   ru:{
     eyebrow:"МОНИТОРИНГ РЫНКА · ТОЛЬКО ЧТЕНИЕ",heading:"Весь рынок Telegram-подарков <em>в одном месте.</em>",sub:"Коллекции, публичные показатели и состояние маркетплейсов — без лишнего шума.",
@@ -22,17 +22,18 @@ const copy={
     portals:"Portals",tonnel:"Tonnel",mrkt:"MRKT",needsKey:"Доступ не настроен",
     unavailable:"Официальный read-only API не подтверждён",configured:"Доступ настроен · только разрешённые GET-запросы",
     sourceOnline:"Источник ответил",floor:"Флор коллекции",volume:"Объём за 24 ч (по данным источника)",supply:"Количество выпущенных",
-    sourceNote:"Сейчас доступны только агрегированные данные коллекций Portals. Tonnel и MRKT не подключены до подтверждения официального read-only доступа.",
+    sourceNote:"Данные коллекций Portals и публичные объявления Tonnel запрашиваются только для просмотра. MRKT пока не подключён: безопасный публичный read-only доступ не подтверждён.",
     dataNote:"Показатели коллекций — не объявления отдельных подарков и не основание для сравнения цен между маркетами.",
     updated:"Последний ответ",never:"Нет данных",error:"Не удалось загрузить данные маркетплейсов.",
     public:"Публичные данные",readonly:"Только просмотр",nomoney:"Без транзакций",system:"СИСТЕМА",overview:"ОБЗОР ДАННЫХ",count:"КОЛЛЕКЦИЙ",live:"LIVE МОНИТОРИНГ",
     catalog:"Объявления маркетплейсов",lots:"ЛОТОВ",searchPlaceholder:"Поиск по названию или номеру",searchButton:"Найти",catalogWaiting:"Каталог появится после подключения подтверждённого источника данных.",catalogNote:"Только публичная информация об объявлениях. Без торговых действий.",giftPrice:"Цена объявления",giftFloor:"Флор коллекции",giftNumber:"Подарок №",giftEmpty:"По этому запросу публичных объявлений не найдено.",catalogUpdated:"Ответ каталога",
-    connected:"ПОДКЛЮЧЁН",pending:"НЕ ПОДКЛЮЧЁН",details:"Подробнее",status:"Статус объявления",listed:"Выставлен",attributes:"Атрибуты",noAttributes:"Источник не передал публичные атрибуты",detailNote:"Только публичная информация об объявлении. Без торговых операций.",marketUnavailable:"Этот маркетплейс пока не подключён.",marketReasonTonnel:"Официальный публичный read-only API маркетплейса пока не подтверждён. Объявления не выдумываем.",marketReasonMrkt:"Официальный публичный read-only API маркетплейса пока не подтверждён. Объявления не выдумываем.",notConnected:"Не подключён",modalClose:"Закрыть"
+    connected:"ПОДКЛЮЧЁН",pending:"НЕ ПОДКЛЮЧЁН",details:"Подробнее",status:"Статус объявления",listed:"Выставлен",attributes:"Атрибуты",noAttributes:"Источник не передал публичные атрибуты",detailNote:"Только публичная информация об объявлении. Без торговых операций.",marketUnavailable:"Этот маркетплейс пока не подключён.",marketReasonTonnel:"Публичные объявления Tonnel запрашиваются без авторизации аккаунта. Если площадка не разрешит публичный доступ, приложение честно покажет это. Обход антибот-защиты не используется.",marketReasonMrkt:"Сейчас MRKT требует авторизацию, связанную с Telegram-аккаунтом. Приложение не собирает Telegram-сессии и API-ключи.",marketTonnelError:"Публичные объявления Tonnel временно недоступны или источник отклонил запрос.",notConnected:"Не подключён",modalClose:"Закрыть"
   }
 };
 let lang="ru";
 let activeMarket="portals";
 let giftItems=[];
+let tonnelGiftItems=[];
 let sourceStates={};
 const $=id=>document.getElementById(id);
 const escapeHtml=value=>String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -67,7 +68,8 @@ function renderText(){
   $("modal-note").textContent=t.detailNote;
   $("lang").textContent=lang==="en"?"RU":"EN";
   renderMarketTabs();
-  if(activeMarket!=="portals") renderUnavailableMarket(activeMarket);
+  if(activeMarket==="tonnel"&&sourceStates.tonnel==="online_read_only") renderGifts({items:tonnelGiftItems,total_count:tonnelGiftItems.length,connected:true});
+  else if(activeMarket!=="portals") renderUnavailableMarket(activeMarket);
   else renderGifts({items:giftItems,total_count:giftItems.length,connected:sourceStates.portals!=="needs_api_key"});
 }
 function sourceLabel(name,state,kind,letter){
@@ -89,14 +91,14 @@ function renderMarketTabs(){
     const market=button.dataset.market;
     button.classList.toggle("active",market===activeMarket);
     const state=sourceStates[market]||"official_api_not_verified";
-    const connected=market==="portals"&&(state==="online_read_only"||state==="configured_read_only"||state==="online");
+    const connected=state==="online_read_only"||(market==="portals"&&(state==="configured_read_only"||state==="online"));
     $("tab-state-"+market).textContent=connected?t.connected:t.pending;
     $("tab-state-"+market).classList.toggle("is-connected",connected);
   });
 }
 function renderUnavailableMarket(market){
   const t=copy[lang];
-  const reason=market==="tonnel"?t.marketReasonTonnel:t.marketReasonMrkt;
+  const reason=market==="tonnel"?(sourceStates.tonnel==="rate_limited"||sourceStates.tonnel==="temporarily_unavailable"||sourceStates.tonnel==="public_access_unavailable"?t.marketTonnelError:t.marketReasonTonnel):t.marketReasonMrkt;
   $("gifts-count").textContent="—";
   $("gifts-updated").textContent=t.notConnected;
   $("market-view").innerHTML='<div class="market-empty"><div class="market-empty-icon">'+(market==="tonnel"?"T":"M")+'</div><h3>'+escapeHtml(t.marketUnavailable)+'</h3><p>'+escapeHtml(reason)+'</p></div>';
@@ -148,11 +150,35 @@ function renderGifts(data){
   $("gift-search-button").onclick=searchGifts;
   $("gift-search").addEventListener("keydown",e=>{if(e.key==="Enter")searchGifts()});
 }
+async function loadTonnelGifts(search=""){
+  const t=copy[lang];
+  $("gifts-count").textContent="…";
+  $("gifts-updated").textContent=t.checking;
+  $("market-view").innerHTML='<p class="empty">'+t.checking+'</p>';
+  try{
+    const response=await fetch(window.API_BASE+"/api/tonnel/gifts?limit=24&page=1&search="+encodeURIComponent(search));
+    const data=await response.json();
+    if(!response.ok) throw new Error(data.detail||"Tonnel unavailable");
+    tonnelGiftItems=Array.isArray(data.items)?data.items:[];
+    sourceStates.tonnel="online_read_only";
+    renderMarketTabs();
+    renderGifts(data);
+  }catch(e){
+    const message=String(e.message||"");
+    sourceStates.tonnel=message.toLowerCase().includes("rate limit")?"rate_limited":message.toLowerCase().includes("public unauthenticated")?"public_access_unavailable":"temporarily_unavailable";
+    renderMarketTabs();
+    renderUnavailableMarket("tonnel");
+  }
+}
 async function searchGifts(){
-  if(activeMarket!=="portals") return;
   const term=$("gift-search").value.trim();
   const t=copy[lang];
   $("gift-grid").innerHTML='<p class="empty">'+t.checking+'</p>';
+  if(activeMarket==="tonnel"){
+    await loadTonnelGifts(term);
+    return;
+  }
+  if(activeMarket!=="portals") return;
   try{
     const response=await fetch(window.API_BASE+"/api/gifts?limit=24&offset=0&search="+encodeURIComponent(term));
     if(!response.ok) throw new Error("Catalog unavailable");
@@ -199,7 +225,10 @@ document.querySelectorAll(".market-tab").forEach(button=>button.addEventListener
   activeMarket=button.dataset.market;
   renderMarketTabs();
   if(activeMarket==="portals") renderGifts({items:giftItems,total_count:giftItems.length,connected:sourceStates.portals!=="needs_api_key"});
-  else renderUnavailableMarket(activeMarket);
+  else if(activeMarket==="tonnel"){
+    if(sourceStates.tonnel==="online_read_only") renderGifts({items:tonnelGiftItems,total_count:tonnelGiftItems.length,connected:true});
+    else loadTonnelGifts();
+  }else renderUnavailableMarket(activeMarket);
 }));
 $("modal-close").addEventListener("click",closeGiftDetails);
 $("gift-modal").addEventListener("click",event=>{if(event.target.dataset.closeModal==="true")closeGiftDetails()});
