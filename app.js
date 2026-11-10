@@ -14,6 +14,7 @@ const copy={
     mrkt:"MRKT",
     needsKey:"API key needed",
     unavailable:"Official API not verified",
+    configured:"Configured · read-only mode",
     online:"Online",
     floor:"Floor",
     volume:"24h volume",
@@ -35,6 +36,7 @@ const copy={
     mrkt:"MRKT",
     needsKey:"Нужен API-ключ",
     unavailable:"Официальный API не подтверждён",
+    configured:"Настроен · режим чтения",
     online:"В сети",
     floor:"Флор",
     volume:"Объём за 24 ч",
@@ -52,7 +54,7 @@ function renderText(){
 }
 function sourceLabel(name,state){
   const t=copy[lang];
-  const label=state==="online"?t.online:state==="needs_api_key"?t.needsKey:t.unavailable;
+  const label=(state==="online"||state==="online_read_only")?t.online:state==="configured_read_only"?t.configured:state==="needs_api_key"?t.needsKey:t.unavailable;
   return '<span class="source"><b>'+name+'</b><small>'+label+'</small></span>';
 }
 async function load(){
@@ -68,7 +70,7 @@ async function load(){
     const status=await statusRes.json();
     if(!dataRes.ok) throw new Error("Marketplace API unavailable");
     const data=await dataRes.json();
-    const s=status.sources||{};
+    const s={...(status.sources||{}),...(data.sources||{})};
     $("sources").innerHTML=
       sourceLabel(t.portals,s.portals)+
       sourceLabel(t.tonnel,s.tonnel)+
