@@ -319,4 +319,36 @@ $("modal-close").addEventListener("click",closeGiftDetails);
 $("gift-modal").addEventListener("click",event=>{if(event.target.dataset.closeModal==="true")closeGiftDetails()});
 document.addEventListener("keydown",event=>{if(event.key==="Escape"&&$("gift-modal").classList.contains("open"))closeGiftDetails()});
 $("lang").onclick=()=>{lang=lang==="ru"?"en":"ru";renderText();};
+
+function setupMotionAndViewport(){
+  const reduced=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reveal=(root=document)=>{
+    const nodes=root.querySelectorAll(".topbar,.hero,.status-panel,.collections-section,.catalog-section,footer,.collection-card,.gift-card,.source");
+    nodes.forEach((node,index)=>{
+      if(node.classList.contains("reveal-target")) return;
+      node.classList.add("reveal-target");
+      if(node.matches(".collection-card,.gift-card,.source")) node.style.setProperty("--reveal-delay",Math.min(index%6,5)*55+"ms");
+      if(!("IntersectionObserver" in window)||reduced){node.classList.add("is-revealed");return;}
+      observer.observe(node);
+    });
+  };
+  const observer=("IntersectionObserver" in window)?new IntersectionObserver(entries=>{
+    entries.forEach(entry=>{if(entry.isIntersecting){entry.target.classList.add("is-revealed");observer.unobserve(entry.target);}});
+  },{threshold:.08,rootMargin:"0px 0px -35px 0px"}):null;
+  reveal();
+  if("MutationObserver" in window){
+    const mutations=new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(node=>{if(node.nodeType===1)reveal(node);})));
+    mutations.observe(document.body,{childList:true,subtree:true});
+  }
+  const progress=$("scroll-progress");
+  let ticking=false;
+  const updateProgress=()=>{if(!progress)return;const max=document.documentElement.scrollHeight-window.innerHeight;progress.style.width=(max>0?Math.min(100,window.scrollY/max*100):0)+"%";ticking=false;};
+  window.addEventListener("scroll",()=>{if(!ticking){ticking=true;window.requestAnimationFrame(updateProgress);}},{passive:true});
+  updateProgress();
+  // Prevent accidental pinch zoom inside the mini app as requested.
+  document.addEventListener("gesturestart",event=>event.preventDefault(),{passive:false});
+  document.addEventListener("touchmove",event=>{if(event.touches&&event.touches.length>1)event.preventDefault();},{passive:false});
+}
+
+setupMotionAndViewport();
 renderText();load();
