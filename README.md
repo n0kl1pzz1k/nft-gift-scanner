@@ -26,7 +26,8 @@ The Portals Partner API credential may have broader permissions than read-only. 
 - `GET /health` — backend health.
 - `GET /api/status` — source coverage and verified data capabilities.
 - `GET /api/collections` — Portals collection-level data or an honest empty result.
-- `GET /api/gifts` — Portals listed-gift catalogue with optional `search` and `collection_id` filters; pagination is limited to 40 results per request.
+- `GET /api/gifts` — Portals listed-gift catalogue with `search`, `collection_id`, `min_price`, `max_price`, `external_collection_number`, `filter_by_backdrops`, and documented `sort_by` filters (including model-rarity sorting); pagination is limited to 40 results per request.
+- The Mini App opens a dedicated collection view with price, gift-number, backdrop and sort controls. Backdrop choices are discovered from attributes returned by loaded listings; the API does not currently expose a separate complete backdrop-facets endpoint.
 - `GET /api/tonnel/gifts` — experimental public Tonnel listing catalogue with optional `search`, `page` and `limit` (maximum 30). Requests are unauthenticated and read-only; floor prices are not inferred from a partial page.
 
 The Mini App includes marketplace tabs for Portals, Tonnel and MRKT. Portals displays listing data when configured. Tonnel attempts to load public listings without account authentication; if the unofficial endpoint refuses the request, the tab shows an unavailable state. MRKT remains unconnected because the currently suggested client requires Telegram-linked authorization. Selecting a Portals listing opens an informational detail panel with available public attributes, price, floor and listing timestamp. No transaction controls are present.
