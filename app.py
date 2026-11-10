@@ -20,6 +20,8 @@ app.add_middleware(
 PORTALS_BASE = "https://portal-market.com/partners"
 _cache: dict[str, tuple[float, Any]] = {}
 CACHE_SECONDS = 30
+_request_lock = asyncio.Lock()
+_last_request_at = 0.0
 
 
 async def portals_get(path: str) -> dict:
@@ -27,10 +29,18 @@ async def portals_get(path: str) -> dict:
     if not token:
         raise HTTPException(status_code=503, detail="PORTALS_API_KEY is not configured")
     headers = {"Authorization": f"partners {token}"}
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.get(f"{PORTALS_BASE}{path}", headers=headers)
+    global _last_request_at
+    async with _request_lock:
+        wait = 1.05 - (time.monotonic() - _last_request_at)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(f"{PORTALS_BASE}{path}", headers=headers)
+        _last_request_at = time.monotonic()
     if response.status_code == 401:
         raise HTTPException(status_code=502, detail="Portals rejected the API key")
+    if response.status_code == 429:
+        raise HTTPException(status_code=503, detail="Portals rate limit reached; retry shortly")
     if response.status_code == 403:
         raise HTTPException(status_code=502, detail="Portals API subscription or access is not active")
     if response.is_error:
