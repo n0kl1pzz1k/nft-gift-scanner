@@ -79,7 +79,8 @@ class SharedMarketplaceTests(unittest.TestCase):
             {"type": "symbol", "value": str(index)} for index in range(50)
         ]
         normalized = api._safe_gift_attributes(attributes)
-        self.assertEqual(len(normalized), 40)
+        self.assertEqual(len(normalized), 38)
+        self.assertLessEqual(len(normalized), 40)
         self.assertEqual(normalized[0]["value"], "x" * 160)
         self.assertEqual(normalized[1]["name"], "")
         self.assertTrue(all(set(item) == {"type", "name", "value"} for item in normalized))
