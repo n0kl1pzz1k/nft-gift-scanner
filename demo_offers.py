@@ -220,6 +220,8 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
     @router.get("/offers")
     async def list_offers(
         status: str = Query(default="all", pattern="^(pending|accepted|declined|withdrawn|all)$"),
+        limit: int = Query(default=100, ge=1, le=200),
+        offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
@@ -230,13 +232,17 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             where = f"({where}) AND f.status = ?"
             values.append(status)
         with _db() as conn:
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM demo_offers f JOIN demo_orders o ON o.id = f.order_id WHERE {where}",
+                values,
+            ).fetchone()[0]
             rows = conn.execute(f"""
                 SELECT f.*, o.title AS order_title, o.user_id AS order_owner_id,
                        o.owner_name AS order_owner_name, o.status AS order_status
                 FROM demo_offers f JOIN demo_orders o ON o.id = f.order_id
-                WHERE {where} ORDER BY f.created_at DESC LIMIT 200
-            """, values).fetchall()
-        return {"items": [_offer_dict(row, user_id) for row in rows]}
+                WHERE {where} ORDER BY f.created_at DESC, f.id DESC LIMIT ? OFFSET ?
+            """, (*values, limit, offset)).fetchall()
+        return {"items": [_offer_dict(row, user_id) for row in rows], "total": total, "limit": limit, "offset": offset}
 
     @router.patch("/offers/{offer_id}")
     async def update_offer(offer_id: str, payload: OfferAction,
