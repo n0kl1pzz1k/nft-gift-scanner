@@ -329,7 +329,10 @@ async def status():
             "delivery": "server_to_app_api",
             "cache": "server_memory_cache",
             "refresh_interval_seconds": _refresh_interval_seconds(),
-            "persistent_history": False,
+            "persistent_history": True,
+            "history_kind": "portals_metadata_snapshots",
+            "history_limit_per_gift": 50,
+            "history_requires_persistent_volume_for_deploys": True,
         },
         "demo_marketplace": {
             "enabled": True,
