@@ -61,15 +61,15 @@ def create_dispatcher() -> Dispatcher:
         raw_name = message.from_user.first_name if message.from_user else "друг"
         first_name = html.escape(raw_name)
         text = (
-            f"✨ <b>GIFT RADAR</b> — добро пожаловать, {first_name}!\\n\\n"
-            "Твой навигатор по Telegram-подаркам.\\n\\n"
-            "🎁 <b>Маркет</b> — каталог Portals, карточки подарков и поиск.\\n"
-            "⭐ <b>Избранное</b> — сохраняй интересные экземпляры в своём профиле.\\n"
-            "🧾 <b>Ордера</b> — общая лента демонстрационных заявок.\\n"
-            "👤 <b>Профиль</b> — Telegram-аккаунт и настройки.\\n\\n"
+            f"✨ <b>GIFT RADAR</b> — добро пожаловать, {first_name}!\n\n"
+            "Твой навигатор по Telegram-подаркам.\n\n"
+            "🎁 <b>Маркет</b> — каталог Portals, карточки подарков и поиск.\n"
+            "⭐ <b>Избранное</b> — сохраняй интересные экземпляры в своём профиле.\n"
+            "🧾 <b>Ордера</b> — общая лента демонстрационных заявок.\n"
+            "👤 <b>Профиль</b> — Telegram-аккаунт и настройки.\n\n"
             "Каталог получает данные из Portals в режиме просмотра. "
             "Ордера и суммы в текущей версии — демонстрационные; "
-            "платежи, вывод средств и операции с кошельками не выполняются.\\n\\n"
+            "платежи, вывод средств и операции с кошельками не выполняются.\n\n"
             "<b>Открывай Mini App кнопкой ниже.</b>"
         )
         buttons = []
@@ -98,10 +98,10 @@ def create_dispatcher() -> Dispatcher:
     @dp.message(Command("help"))
     async def help_command(message: Message):
         await message.answer(
-            "🤖 <b>GIFT RADAR — помощь</b>\\n\\n"
-            "/start — приветствие и запуск Mini App\\n"
-            "/help — эта справка\\n"
-            "/myid — показать твой Telegram ID\\n\\n"
+            "🤖 <b>GIFT RADAR — помощь</b>\n\n"
+            "/start — приветствие и запуск Mini App\n"
+            "/help — эта справка\n"
+            "/myid — показать твой Telegram ID\n\n"
             "Если Mini App не открывается, обнови Telegram и попробуй /start ещё раз."
         )
 
