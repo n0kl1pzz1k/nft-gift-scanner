@@ -495,7 +495,7 @@ $("market-view").addEventListener("click",event=>{
  if((apply||clear)&&!selectedCollection&&activeMarket==="portals"){
   event.preventDefault();event.stopImmediatePropagation();
   if(clear)collectionFilterState={min_price:"",max_price:"",external_collection_number:"",filter_by_backdrops:"",sort_by:"listed_at desc",status:""};
-  else readCollectionFilters();
+  else if(!readCollectionFilters())return;
   nftLoadGlobal(0,false,$("gift-search")?$("gift-search").value.trim():"");
  }
 },true);
@@ -558,4 +558,65 @@ nftLoadGlobal=async function(offset=0,append=false,term=""){
   portalsGiftItems=append?portalsGiftItems.concat(page):page;
   renderGifts({...data,items:portalsGiftItems,total_count:data.total_count??portalsGiftItems.length});
  }catch(e){$("market-view").innerHTML='<p class="empty">'+escapeHtml(t.error)+' · '+escapeHtml(e.message||"")+'</p>';}
+};
+
+
+// Unified Portals filter controls for both the global catalogue and collection pages.
+// Every control maps to a parameter accepted by the read-only /api/gifts endpoint.
+function nftAddExtraFilters(panel){
+  const grid=panel&&panel.querySelector(".filter-grid");
+  if(!grid)return;
+  const ru=lang==="ru";
+  const status=grid.querySelector("#filter-status");
+  if(status&&!status.querySelector('option[value="withdrawn"]')){
+    status.insertAdjacentHTML("beforeend",
+      '<option value="withdrawn">'+(ru?"Снятые с продажи":"Withdrawn")+'</option>'+
+      '<option value="auction">'+(ru?"Аукцион":"Auction")+'</option>'+
+      '<option value="deleted">'+(ru?"Удалённые":"Deleted")+'</option>');
+  }
+  if(!grid.querySelector("#filter-model")){
+    grid.insertAdjacentHTML("beforeend",
+      '<label>'+(ru?"Модель":"Model")+
+      '<input id="filter-model" type="search" autocomplete="off" value="'+escapeHtml(collectionFilterState.filter_by_models||"")+'" placeholder="'+(ru?"Например, Plush Pepe":"e.g. Plush Pepe")+'"></label>'+
+      '<label>'+(ru?"Символ":"Symbol")+
+      '<input id="filter-symbol" type="search" autocomplete="off" value="'+escapeHtml(collectionFilterState.filter_by_symbols||"")+'" placeholder="'+(ru?"Название символа":"Symbol name")+'"></label>'+
+      '<label>'+(ru?"Статус минта":"Mint status")+
+      '<select id="filter-mint-status"><option value="">'+(ru?"Любой статус":"Any status")+'</option>'+
+      '<option value="minted" '+(collectionFilterState.mint_status==="minted"?"selected":"")+'>'+(ru?"Заминичен":"Minted")+'</option>'+
+      '<option value="not_minted" '+(collectionFilterState.mint_status==="not_minted"?"selected":"")+'>'+(ru?"Не заминичен":"Not minted")+'</option></select></label>');
+  }
+}
+const nftEnsureGlobalFiltersBase=nftEnsureGlobalFilters;
+nftEnsureGlobalFilters=function(){
+  nftEnsureGlobalFiltersBase();
+  nftAddExtraFilters(document.querySelector("#market-view .collection-filters"));
+};
+const nftRenderGiftsBeforeUnifiedFilters=renderGifts;
+renderGifts=function(data){
+  nftRenderGiftsBeforeUnifiedFilters(data);
+  if(activeMarket==="portals")nftAddExtraFilters(document.querySelector("#market-view .collection-filters"));
+};
+readCollectionFilters=function(){
+  const selected=$("filter-status")?.value||"";
+  const min=$("filter-min-price")?.value.trim()||"";
+  const max=$("filter-max-price")?.value.trim()||"";
+  if(min&&max&&Number(min)>Number(max)){
+    $("filter-max-price").setCustomValidity(lang==="ru"?"Максимальная цена должна быть не меньше минимальной":"Maximum price must be greater than or equal to minimum price");
+    $("filter-max-price").reportValidity();
+    return false;
+  }
+  $("filter-max-price")?.setCustomValidity("");
+  collectionFilterState={
+    min_price:min,
+    max_price:max,
+    external_collection_number:$("filter-gift-number")?.value.trim()||"",
+    filter_by_backdrops:$("filter-backdrop")?.value||"",
+    filter_by_models:$("filter-model")?.value.trim()||"",
+    filter_by_symbols:$("filter-symbol")?.value.trim()||"",
+    mint_status:$("filter-mint-status")?.value||"",
+    statuses:["withdrawn","auction","deleted"].includes(selected)?selected:"",
+    sort_by:$("filter-sort")?.value||"listed_at desc",
+    status:["listed","unlisted"].includes(selected)?selected:""
+  };
+  return true;
 };
