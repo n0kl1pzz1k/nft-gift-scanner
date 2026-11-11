@@ -2,11 +2,15 @@ import os
 import asyncio
 import time
 import json
+import hmac
+import hashlib
+from urllib.parse import parse_qsl
+from pydantic import BaseModel
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="NFT Gift Scanner API", version="0.3.0")
@@ -28,6 +32,105 @@ _cache: dict[str, tuple[float, Any]] = {}
 CACHE_SECONDS = 30
 _request_lock = asyncio.Lock()
 _last_request_at = 0.0
+
+
+
+class TelegramAuthRequest(BaseModel):
+    init_data: str
+
+
+class MarketplaceSettingRequest(BaseModel):
+    enabled: bool
+
+
+# Runtime controls are deliberately limited to read-only market visibility.
+# For durable configuration across deploys, set ADMIN_TELEGRAM_IDS in Railway.
+_marketplace_visibility = {"portals": True, "tonnel": True, "mrkt": False}
+
+
+def _admin_ids() -> set[str]:
+    raw = os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", ""))
+    return {part.strip() for part in raw.split(",") if part.strip().isdigit()}
+
+
+def _verify_telegram_init_data(init_data: str) -> dict:
+    bot_token = os.getenv("BOT_TOKEN", "").strip()
+    if not bot_token:
+        raise HTTPException(status_code=503, detail="Telegram authentication is not configured")
+    if not init_data or len(init_data) > 8192:
+        raise HTTPException(status_code=401, detail="Missing or invalid Telegram initData")
+    try:
+        pairs = parse_qsl(init_data, keep_blank_values=True, strict_parsing=True)
+        values = dict(pairs)
+        received_hash = values.pop("hash", "")
+        if not received_hash or len(values) != len(pairs) - 1:
+            raise ValueError("Invalid initData fields")
+        check_string = "\n".join(f"{key}={value}" for key, value in sorted(values.items()))
+        secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
+        expected_hash = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected_hash, received_hash):
+            raise ValueError("Invalid Telegram signature")
+        auth_date = int(values.get("auth_date", "0"))
+        if auth_date <= 0 or abs(int(time.time()) - auth_date) > 86400:
+            raise ValueError("Expired Telegram initData")
+        user = json.loads(values.get("user", "{}"))
+        if not isinstance(user, dict) or not str(user.get("id", "")).isdigit():
+            raise ValueError("Telegram user is missing")
+        return user
+    except (ValueError, TypeError, json.JSONDecodeError):
+        raise HTTPException(status_code=401, detail="Telegram authentication failed; reopen the Mini App")
+
+
+def _require_admin(init_data: str | None) -> dict:
+    if not init_data:
+        raise HTTPException(status_code=401, detail="Telegram Mini App authentication required")
+    user = _verify_telegram_init_data(init_data)
+    if str(user["id"]) not in _admin_ids():
+        raise HTTPException(status_code=403, detail="Administrator access only")
+    return user
+
+
+@app.post("/api/auth/telegram")
+async def telegram_auth(payload: TelegramAuthRequest):
+    user = _verify_telegram_init_data(payload.init_data)
+    is_admin = str(user["id"]) in _admin_ids()
+    return {
+        "authenticated": True,
+        "is_admin": is_admin,
+        "user": {
+            "id": str(user["id"]),
+            "first_name": user.get("first_name", ""),
+            "username": user.get("username", ""),
+            "photo_url": user.get("photo_url", ""),
+        },
+    }
+
+
+@app.get("/api/admin/overview")
+async def admin_overview(x_telegram_init_data: str | None = Header(default=None)):
+    user = _require_admin(x_telegram_init_data)
+    return {
+        "admin": {"id": str(user["id"]), "first_name": user.get("first_name", ""), "username": user.get("username", "")},
+        "mode": "read_only",
+        "sources": source_status(),
+        "marketplace_visibility": dict(_marketplace_visibility),
+        "settings_persistence": "runtime_only_resets_on_backend_restart",
+    }
+
+
+@app.post("/api/admin/marketplaces/{market}")
+async def admin_set_marketplace(
+    market: str,
+    payload: MarketplaceSettingRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    _require_admin(x_telegram_init_data)
+    if market not in _marketplace_visibility:
+        raise HTTPException(status_code=404, detail="Unknown marketplace")
+    _marketplace_visibility[market] = bool(payload.enabled)
+    return {"market": market, "enabled": _marketplace_visibility[market]}
+
+
 
 TONNEL_LISTINGS_URL = "https://gifts2.tonnel.network/api/pageGifts"
 _tonnel_cache: dict[str, tuple[float, Any]] = {}
@@ -103,6 +206,7 @@ async def status():
             "tonnel": ["public_listings"] if _tonnel_runtime_status == "online_read_only" else [],
             "mrkt": [],
         },
+        "marketplace_visibility": dict(_marketplace_visibility),
         "cross_market_comparison": False,
         "note": "Portals uses documented read-only routes. Tonnel uses an experimental public-listings endpoint and may be unavailable. MRKT remains unconnected because the available integration instructions require account-linked Telegram authorization.",
     }
@@ -181,6 +285,8 @@ async def gifts(
     status: str | None = Query(default=None, max_length=16),
 ):
     """Read-only page of currently listed gifts from the documented Portals search endpoint."""
+    if not _marketplace_visibility["portals"]:
+        raise HTTPException(status_code=503, detail="Portals catalogue is temporarily disabled by the administrator")
     if not os.getenv("PORTALS_API_KEY", "").strip():
         return {"items": [], "total_count": 0, "connected": False, "sources": source_status(), "updated_at": None}
 
@@ -403,6 +509,8 @@ async def tonnel_gifts(
     search: str | None = Query(default=None, max_length=80),
 ):
     """Public Tonnel listings only. No account auth, trading or anti-bot workarounds."""
+    if not _marketplace_visibility["tonnel"]:
+        raise HTTPException(status_code=503, detail="Tonnel catalogue is temporarily disabled by the administrator")
     rows, total_count = await _fetch_tonnel_page(page, limit, search)
     items = []
     for gift in rows:
