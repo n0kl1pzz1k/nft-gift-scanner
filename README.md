@@ -8,6 +8,8 @@ Telegram bot and bilingual Mini App for public, read-only Telegram gift marketpl
 - **Tonnel**: preferred read-only listings adapter through the Swift Gifts Partner API when `SWIFTGIFTS_API_KEY` is configured. Without that key, the app falls back to the experimental public `POST /api/pageGifts` endpoint with empty `user_auth`; this fallback uses ordinary HTTP only and does not use account sessions, TLS impersonation, proxies or anti-bot workarounds.
 - **MRKT**: read-only listings adapter through the Swift Gifts Partner API. It does not use MRKT account sessions, Telegram-linked credentials or user authorization tokens.
 - **Swift Gifts**: third-party partner aggregator, not an official MRKT or Tonnel API. It can return listings from both providers via `POST /api/aggregator`. The backend sends `receiver: 0`, discards all returned `options` fields (including any transaction payload), caches results and throttles requests. Partial provider coverage is surfaced rather than represented as a complete feed.
+- **Gift Changes API**: public beta feed of gift/model/symbol/backdrop metadata changes. It is displayed separately from marketplace listings and does not imply that a gift is listed.
+- **TG Gifts daily dataset**: public daily collection-floor history, cached for one hour and displayed with the required CC BY 4.0 attribution. It is historical reference data, not a live marketplace feed.
 - Cross-market matching and transaction actions remain disabled.
 
 ## Safety and credentials
@@ -39,8 +41,10 @@ The Mini App does not contain marketplace data or fabricate listings. It request
 - The Mini App opens a dedicated collection view with all NFT statuses by default, plus optional listed/unlisted, price, gift-number, backdrop and sort controls. Backdrop choices are discovered from attributes returned by loaded listings; the API does not currently expose a separate complete backdrop-facets endpoint.
 - `GET /api/tonnel/gifts` — Swift partner-backed public Tonnel listings when configured; otherwise the experimental unauthenticated fallback. Supports `search`, `page` and `limit`.
 - `GET /api/mrkt/gifts` — public MRKT listings through the Swift partner aggregator when `SWIFTGIFTS_API_KEY` is configured. Supports `search`, `page` and `limit`.
+- `GET /api/reference/gift-changes` — beta public metadata-change feed; supports `limit` and optional `since`.
+- `GET /api/reference/daily-floors` — public TG Gifts daily historical floor dataset with attribution and licence metadata.
 
-The Mini App includes marketplace tabs for Portals, Tonnel and MRKT. Portals displays listing data when configured. Tonnel attempts to load public listings without account authentication; if the unofficial endpoint refuses the request, the tab shows an unavailable state. MRKT remains unconnected because the currently suggested client requires Telegram-linked authorization. Selecting a Portals listing opens an informational detail panel with available public attributes, price, floor and listing timestamp. No transaction controls are present.
+The Mini App includes marketplace tabs for Portals, Tonnel and MRKT, plus a separate public gift-metadata updates feed. Daily historical floor data is available through the reference API and is not presented as real-time listings. Portals displays listing data when configured. Tonnel attempts to load public listings without account authentication; if the unofficial endpoint refuses the request, the tab shows an unavailable state. MRKT remains unconnected because the currently suggested client requires Telegram-linked authorization. Selecting a Portals listing opens an informational detail panel with available public attributes, price, floor and listing timestamp. No transaction controls are present.
 
 The Telegram bot provides `/myid` for a user to view their own numeric Telegram ID, plus `/admin` and `/admin_status` restricted to the single `ADMIN_TELEGRAM_ID`. The admin panel reports service/source status only; it does not expose trading or wallet actions. Configure the ID in Railway Variables, never in source code.
 
