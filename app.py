@@ -19,8 +19,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["GET"],
-    allow_headers=["*"],
+    # The Mini App reads public data with GET and verifies Telegram identity
+    # with POST. Keep CORS aligned with the actual read-only/auth API surface.
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Telegram-Init-Data"],
 )
 
 PORTALS_BASE = "https://portal-market.com/partners"
