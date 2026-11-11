@@ -436,6 +436,61 @@ class SharedMarketplaceTests(unittest.TestCase):
         )
 
 
+    def test_account_notifications_are_private_and_read_state_persists(self):
+        headers_a = {"X-Telegram-Init-Data": "user-a"}
+        headers_b = {"X-Telegram-Init-Data": "user-b"}
+        created = self.client.post(
+            "/api/marketplace/orders", headers=headers_a,
+            json={"kind": "listing", "title": "Gift Radar test", "price": "3", "currency": "TON"},
+        )
+        order_id = created.json()["item"]["id"]
+        offered = self.client.post(
+            "/api/marketplace/offers", headers=headers_b,
+            json={"order_id": order_id, "amount": "2.5"},
+        )
+        self.assertEqual(offered.status_code, 201)
+
+        owner_feed = self.client.get("/api/marketplace/notifications", headers=headers_a)
+        self.assertEqual(owner_feed.status_code, 200)
+        self.assertEqual(owner_feed.json()["unread_count"], 1)
+        self.assertEqual(owner_feed.json()["items"][0]["type"], "offer_received")
+        notification_id = owner_feed.json()["items"][0]["id"]
+
+        sender_feed = self.client.get("/api/marketplace/notifications", headers=headers_b)
+        self.assertEqual(sender_feed.json()["items"], [])
+        forbidden = self.client.patch(
+            f"/api/marketplace/notifications/{notification_id}/read", headers=headers_b,
+        )
+        self.assertEqual(forbidden.status_code, 404)
+
+        marked = self.client.patch(
+            f"/api/marketplace/notifications/{notification_id}/read", headers=headers_a,
+        )
+        self.assertEqual(marked.status_code, 200)
+        self.assertEqual(
+            self.client.get("/api/marketplace/notifications", headers=headers_a).json()["unread_count"],
+            0,
+        )
+
+        offer_id = offered.json()["item"]["id"]
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer_id}", headers=headers_a,
+            json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200)
+        sender_feed = self.client.get("/api/marketplace/notifications", headers=headers_b)
+        self.assertEqual(sender_feed.json()["items"][0]["type"], "offer_accepted")
+        stats = self.client.get("/api/marketplace/account/stats", headers=headers_b)
+        self.assertEqual(stats.status_code, 200)
+        self.assertEqual(stats.json()["simulated_deals"], 1)
+        self.assertEqual(stats.json()["unread_notifications"], 1)
+        self.assertTrue(stats.json()["simulation_only"])
+
+    def test_account_stats_require_verified_telegram_session(self):
+        response = self.client.get("/api/marketplace/account/stats")
+        self.assertEqual(response.status_code, 401)
+
+
 
 class PortalsReadOnlyClientTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
