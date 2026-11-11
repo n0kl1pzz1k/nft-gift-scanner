@@ -44,6 +44,13 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.db_patch.stop()
         self.temp_dir.cleanup()
 
+    def test_initdata_replay_protection_is_independent_of_query_parameter_order(self):
+        signature = "a" * 64
+        first = "auth_date=123&user=%7B%7D&hash=" + signature
+        reordered = "hash=" + signature + "&auth_date=123&user=%7B%7D"
+        self.assertTrue(marketplace.consume_telegram_init_data(first, "101"))
+        self.assertFalse(marketplace.consume_telegram_init_data(reordered, "101"))
+
     def test_telegram_auth_persists_and_updates_user_profile(self):
         first = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
         self.assertEqual(first.status_code, 200)
