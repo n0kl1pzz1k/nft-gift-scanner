@@ -444,8 +444,12 @@ function nftEnsureGlobalMore(){
  const grid=$("gift-grid");if(!grid)return;
  const total=Number($("gifts-count")&&$("gifts-count").textContent)||0;
  let button=$("global-load-more");
- if(portalsGiftItems.length<total){if(!button){button=document.createElement("button");button.id="global-load-more";button.className="load-more-gifts";button.type="button";button.textContent=lang==="ru"?"Показать ещё":"Load more";grid.after(button);}}
- else if(button)button.remove();
+ if(portalsGiftItems.length<total){
+  if(!button){button=document.createElement("button");button.id="global-load-more";button.className="load-more-gifts";button.type="button";grid.after(button);}
+  button.disabled=false;
+  button.textContent=lang==="ru"?"Показать ещё":"Load more";
+  button.hidden=false;
+ }else if(button)button.remove();
 }
 async function nftLoadGlobal(offset=0,append=false,term=""){
  const t=copy[lang];try{
