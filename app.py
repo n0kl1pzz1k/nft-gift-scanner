@@ -14,7 +14,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, get_app_setting, init_marketplace_db, set_app_setting, upsert_telegram_user
+from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, get_app_setting, init_marketplace_db, set_app_setting, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update
 from demo_offers import create_demo_offers_router, init_demo_offers_db
 from catalog_store import get_catalogue_history, get_catalogue_item, search_catalogue_items, upsert_catalogue_items
 
@@ -206,6 +206,26 @@ async def telegram_auth(payload: TelegramAuthRequest):
         "user": profile,
     }
 
+@app.get("/api/auth/sessions")
+async def telegram_sessions(x_telegram_init_data: str | None = Header(default=None)):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    return {"items": list_telegram_sessions(str(user["id"]), x_telegram_init_data)}
+
+
+@app.post("/api/auth/logout")
+async def telegram_logout(x_telegram_init_data: str | None = Header(default=None)):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    revoked = revoke_telegram_session(x_telegram_init_data or "")
+    return {"authenticated": False, "revoked": revoked, "user_id": str(user["id"])}
+
+
+@app.post("/api/auth/logout-all")
+async def telegram_logout_all(x_telegram_init_data: str | None = Header(default=None)):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    revoked_count = revoke_all_telegram_sessions(str(user["id"]))
+    return {"revoked_sessions": revoked_count}
+
+
 @app.get("/api/admin/overview")
 async def admin_overview(x_telegram_init_data: str | None = Header(default=None)):
     user = _require_admin(x_telegram_init_data)
@@ -341,15 +361,42 @@ async def telegram_webhook(
         or not hmac.compare_digest(x_telegram_bot_api_secret_token, _telegram_webhook_secret)
     ):
         raise HTTPException(status_code=403, detail="Invalid Telegram webhook secret")
+
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > 1_048_576:
+                raise HTTPException(status_code=413, detail="Telegram update is too large")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid content length")
+    raw_body = await request.body()
+    if len(raw_body) > 1_048_576:
+        raise HTTPException(status_code=413, detail="Telegram update is too large")
+    try:
+        payload = json.loads(raw_body)
+        if not isinstance(payload, dict):
+            raise ValueError("Update must be an object")
+        update_id = payload.get("update_id")
+        if isinstance(update_id, bool) or not isinstance(update_id, int) or update_id < 0:
+            raise ValueError("Invalid update_id")
+    except (ValueError, TypeError, json.JSONDecodeError):
+        raise HTTPException(status_code=400, detail="Invalid Telegram update")
+
+    claim = claim_telegram_update(update_id, payload)
+    if claim == "conflict":
+        raise HTTPException(status_code=409, detail="Telegram update ID payload conflict")
+    if claim in {"processed", "in_progress"}:
+        return {"ok": True, "duplicate": True}
+
     from aiogram.types import Update
     try:
-        payload = await request.json()
         update = Update.model_validate(payload, context={"bot": _telegram_bot})
         await _telegram_dispatcher.feed_update(_telegram_bot, update)
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid Telegram update")
-    return {"ok": True}
-
+        release_telegram_update(update_id)
+        raise HTTPException(status_code=500, detail="Telegram update processing failed")
+    finish_telegram_update(update_id)
+    return {"ok": True, "duplicate": False}
 
 @app.get("/health")
 async def health():
@@ -381,8 +428,16 @@ async def status():
             "enabled": True,
             "storage": "sqlite_server_database",
             "payments": False,
+            "telegram_stars": "disabled_not_configured",
             "wallet_operations": False,
             "blockchain_transactions": False,
+        },
+        "security": {
+            "telegram_initdata_exchange": "signed_freshness_and_replay_protected",
+            "api_sessions": "opaque_hashed_revocable_12h",
+            "webhook": "secret_header_verified_idempotent_update_inbox",
+            "user_wallet_access": False,
+            "user_api_key_storage": False,
         },
         "note": "Portals is the sole marketplace catalogue. Independent public reference feeds provide beta gift-metadata changes and daily historical collection floors; these are not live listings.",
     }
