@@ -465,6 +465,73 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(withdrawn.status_code, 200)
         self.assertEqual(withdrawn.json()["item"]["status"], "withdrawn")
 
+    def test_order_owner_can_edit_active_order_fields(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        created = self.client.post(
+            "/api/marketplace/orders", headers=owner_headers,
+            json={"kind": "listing", "title": "Original Gift", "price": "2.5", "currency": "TON", "note": "old"},
+        )
+        self.assertEqual(created.status_code, 201)
+        order_id = created.json()["item"]["id"]
+
+        updated = self.client.patch(
+            f"/api/marketplace/orders/{order_id}", headers=owner_headers,
+            json={"title": "Updated Gift", "price": "3.75", "note": "new note"},
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json()["item"]["title"], "Updated Gift")
+        self.assertEqual(updated.json()["item"]["price"], "3.75")
+        self.assertEqual(updated.json()["item"]["note"], "new note")
+        self.assertGreaterEqual(updated.json()["item"]["updatedAt"], created.json()["item"]["updatedAt"])
+
+    def test_order_edit_rejects_non_owner_and_inactive_orders(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        other_headers = {"X-Telegram-Init-Data": "user-b"}
+        created = self.client.post(
+            "/api/marketplace/orders", headers=owner_headers,
+            json={"kind": "listing", "title": "Protected Gift", "price": "2", "currency": "TON"},
+        )
+        order_id = created.json()["item"]["id"]
+        forbidden = self.client.patch(
+            f"/api/marketplace/orders/{order_id}", headers=other_headers,
+            json={"title": "Hijacked"},
+        )
+        self.assertEqual(forbidden.status_code, 403)
+
+        cancelled = self.client.delete(f"/api/marketplace/orders/{order_id}", headers=owner_headers)
+        self.assertEqual(cancelled.status_code, 200)
+        inactive = self.client.patch(
+            f"/api/marketplace/orders/{order_id}", headers=owner_headers,
+            json={"price": "4"},
+        )
+        self.assertEqual(inactive.status_code, 409)
+
+    def test_order_edit_validates_payload_and_requires_auth(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        created = self.client.post(
+            "/api/marketplace/orders", headers=owner_headers,
+            json={"kind": "listing", "title": "Gift", "price": "2", "currency": "TON"},
+        )
+        order_id = created.json()["item"]["id"]
+        blank = self.client.patch(
+            f"/api/marketplace/orders/{order_id}", headers=owner_headers,
+            json={"title": "   "},
+        )
+        self.assertEqual(blank.status_code, 422)
+        invalid_price = self.client.patch(
+            f"/api/marketplace/orders/{order_id}", headers=owner_headers,
+            json={"price": "-1"},
+        )
+        self.assertEqual(invalid_price.status_code, 422)
+        empty = self.client.patch(
+            f"/api/marketplace/orders/{order_id}", headers=owner_headers, json={},
+        )
+        self.assertEqual(empty.status_code, 422)
+        unauthenticated = self.client.patch(
+            f"/api/marketplace/orders/{order_id}", json={"title": "No auth"},
+        )
+        self.assertEqual(unauthenticated.status_code, 401)
+
     def test_mutations_require_telegram_auth(self):
         response = self.client.post(
             "/api/marketplace/orders",
