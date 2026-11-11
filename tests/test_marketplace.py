@@ -50,6 +50,40 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(row["username"], "updated_handle")
         self.assertEqual(row["is_premium"], 1)
 
+    def test_favorites_are_private_persistent_and_removable(self):
+        headers_a = {"X-Telegram-Init-Data": "user-a"}
+        headers_b = {"X-Telegram-Init-Data": "user-b"}
+        gift = {"id": "gift-77", "name": "Plush Pepe", "price": "2.5", "currency": "TON"}
+        saved = self.client.put(
+            "/api/marketplace/favorites/gift-77",
+            headers=headers_a,
+            json={"gift": gift},
+        )
+        self.assertEqual(saved.status_code, 200)
+        self.assertTrue(saved.json()["saved"])
+
+        own = self.client.get("/api/marketplace/favorites", headers=headers_a)
+        self.assertEqual(own.status_code, 200)
+        self.assertEqual(own.json()["items"], [gift])
+
+        other = self.client.get("/api/marketplace/favorites", headers=headers_b)
+        self.assertEqual(other.status_code, 200)
+        self.assertEqual(other.json()["items"], [])
+
+        removed = self.client.delete("/api/marketplace/favorites/gift-77", headers=headers_a)
+        self.assertEqual(removed.status_code, 200)
+        self.assertEqual(self.client.get("/api/marketplace/favorites", headers=headers_a).json()["items"], [])
+
+    def test_favorites_require_telegram_auth_and_limit_payload_size(self):
+        unauthenticated = self.client.get("/api/marketplace/favorites")
+        self.assertEqual(unauthenticated.status_code, 401)
+        oversized = self.client.put(
+            "/api/marketplace/favorites/large",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"gift": {"description": "x" * 17000}},
+        )
+        self.assertEqual(oversized.status_code, 413)
+
     def test_orders_are_shared_and_stats_are_server_calculated(self):
         created = self.client.post(
             "/api/marketplace/orders",
