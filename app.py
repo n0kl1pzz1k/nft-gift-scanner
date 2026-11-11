@@ -176,37 +176,82 @@ def source_status() -> dict[str, str]:
     }
 
 
-async def portals_get(path: str) -> dict:
-    # Only explicitly allowlisted, read-only market-data GET routes are enabled.
-    if path not in ALLOWED_PORTALS_PATHS:
+async def _portals_get_json(route: str, params: dict[str, Any] | None = None) -> dict:
+    """Perform a rate-limited, retryable read-only request to the Portals Partners API."""
+    if route not in {"/collections/preview", "/collections/floors", "/nfts/search"}:
         raise HTTPException(status_code=400, detail="Portals route is not enabled")
     token = os.getenv("PORTALS_API_KEY", "").strip()
     if not token:
         raise HTTPException(status_code=503, detail="PORTALS_API_KEY is not configured")
-    headers = {"Authorization": f"partners {token}"}
+
+    headers = {"Authorization": f"partners {token}", "Accept": "application/json"}
     global _last_request_at
-    async with _request_lock:
-        wait = 1.05 - (time.monotonic() - _last_request_at)
-        if wait > 0:
-            await asyncio.sleep(wait)
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(f"{PORTALS_BASE}{path}", headers=headers)
-        _last_request_at = time.monotonic()
-    if response.status_code == 401:
-        raise HTTPException(status_code=502, detail="Portals rejected the API key")
-    if response.status_code == 429:
-        raise HTTPException(status_code=503, detail="Portals rate limit reached; retry shortly")
-    if response.status_code == 403:
-        raise HTTPException(status_code=502, detail="Portals API subscription or access is not active")
-    if response.is_error:
-        raise HTTPException(status_code=502, detail=f"Portals API error: HTTP {response.status_code}")
-    try:
-        payload = response.json()
-    except ValueError:
-        raise HTTPException(status_code=502, detail="Portals returned invalid JSON")
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=502, detail="Portals returned an unexpected response")
-    return payload
+    last_status: int | None = None
+
+    for attempt in range(3):
+        try:
+            async with _request_lock:
+                wait = 1.05 - (time.monotonic() - _last_request_at)
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    response = await client.get(
+                        f"{PORTALS_BASE}{route}",
+                        headers=headers,
+                        params=params,
+                    )
+                _last_request_at = time.monotonic()
+        except httpx.HTTPError:
+            if attempt < 2:
+                await asyncio.sleep(1.05 * (attempt + 1))
+                continue
+            raise HTTPException(status_code=503, detail="Portals API is temporarily unreachable")
+
+        last_status = response.status_code
+        if response.status_code == 429:
+            retry_after_raw = response.headers.get("Retry-After", "1.05")
+            try:
+                retry_after = max(1.05, float(retry_after_raw))
+            except (TypeError, ValueError):
+                retry_after = 1.05
+            if attempt < 2 and retry_after <= 15:
+                await asyncio.sleep(retry_after)
+                continue
+            raise HTTPException(
+                status_code=503,
+                detail="Portals rate limit reached; retry shortly",
+                headers={"Retry-After": str(max(1, int(retry_after)))},
+            )
+        if response.status_code in {500, 502, 503, 504} and attempt < 2:
+            await asyncio.sleep(1.05 * (attempt + 1))
+            continue
+        if response.status_code == 401:
+            raise HTTPException(status_code=502, detail="Portals rejected the API key")
+        if response.status_code == 403:
+            raise HTTPException(status_code=502, detail="Portals API subscription or access is not active")
+        if response.is_error:
+            raise HTTPException(status_code=502, detail=f"Portals API error: HTTP {response.status_code}")
+        try:
+            payload = response.json()
+        except ValueError:
+            raise HTTPException(status_code=502, detail="Portals returned invalid JSON")
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=502, detail="Portals returned an unexpected response")
+        return payload
+
+    raise HTTPException(
+        status_code=503,
+        detail=f"Portals API temporarily unavailable (HTTP {last_status or 'network error'})",
+    )
+
+
+async def portals_get(path: str) -> dict:
+    # Keep the legacy internal path contract while enforcing an explicit read-only route allowlist.
+    if path not in ALLOWED_PORTALS_PATHS:
+        raise HTTPException(status_code=400, detail="Portals route is not enabled")
+    route, _, query = path.partition("?")
+    params = dict(parse_qsl(query, keep_blank_values=True))
+    return await _portals_get_json(route, params or None)
 
 
 async def cached_portals(path: str) -> dict:
@@ -410,30 +455,8 @@ async def gifts(
     if cached and time.monotonic() - cached[0] < GIFTS_CACHE_SECONDS:
         return cached[1]
 
-    token = os.getenv("PORTALS_API_KEY", "").strip()
-    headers = {"Authorization": f"partners {token}"}
-    global _last_request_at
     try:
-        async with _request_lock:
-            wait = 1.05 - (time.monotonic() - _last_request_at)
-            if wait > 0:
-                await asyncio.sleep(wait)
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.get(
-                    f"{PORTALS_BASE}/nfts/search",
-                    headers=headers,
-                    params=params,
-                )
-            _last_request_at = time.monotonic()
-        if response.status_code == 401:
-            raise HTTPException(status_code=502, detail="Portals rejected the API key")
-        if response.status_code == 429:
-            raise HTTPException(status_code=503, detail="Portals rate limit reached; retry shortly")
-        if response.status_code == 403:
-            raise HTTPException(status_code=502, detail="Portals API access is not active")
-        if response.is_error:
-            raise HTTPException(status_code=502, detail=f"Portals API error: HTTP {response.status_code}")
-        payload = response.json()
+        payload = await _portals_get_json("/nfts/search", params)
     except HTTPException:
         raise
     except Exception:
