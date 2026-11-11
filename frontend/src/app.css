@@ -183,9 +183,7 @@ button:active,.nav-button:active,.market-tab:active,.favorite:active{transform:n
 .modal-gift-media video{display:block;width:100%;height:100%;max-height:62vh;object-fit:contain;background:#202640}
 
 
-/* Smooth animated gift rendering */
-.gift-media{contain:layout paint;transform:translateZ(0);backface-visibility:hidden;-webkit-backface-visibility:hidden;will-change:transform}
-.gift-media canvas,.gift-media video{display:block;width:100%!important;height:100%!important;object-fit:contain;transform:translateZ(0);backface-visibility:hidden;-webkit-backface-visibility:hidden}
-.gift-media canvas{image-rendering:auto}
+/* Keep animation layers lightweight; offscreen media is paused by the component. */
+.gift-media{contain:layout paint}
+.gift-media canvas,.gift-media video{display:block;width:100%!important;height:100%!important;object-fit:contain}
 .modal-gift-media canvas{display:block;width:100%!important;height:100%!important;max-height:62vh;object-fit:contain}
-@media(prefers-reduced-motion:reduce){.gift-media{will-change:auto;transform:none}}
