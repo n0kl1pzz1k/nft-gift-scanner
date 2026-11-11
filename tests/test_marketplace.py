@@ -74,6 +74,37 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(removed.status_code, 200)
         self.assertEqual(self.client.get("/api/marketplace/favorites", headers=headers_a).json()["items"], [])
 
+    def test_admin_marketplace_visibility_persists_across_database_reinitialization(self):
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
+            headers = {"X-Telegram-Init-Data": "user-a"}
+            changed = self.client.post(
+                "/api/admin/marketplaces/portals",
+                headers=headers,
+                json={"enabled": False},
+            )
+            self.assertEqual(changed.status_code, 200)
+            self.assertFalse(changed.json()["enabled"])
+            marketplace.init_marketplace_db()
+            overview = self.client.get("/api/admin/overview", headers=headers)
+            self.assertEqual(overview.status_code, 200)
+            self.assertFalse(overview.json()["marketplace_visibility"]["portals"])
+            enabled = self.client.post(
+                "/api/admin/marketplaces/portals",
+                headers=headers,
+                json={"enabled": True},
+            )
+            self.assertEqual(enabled.status_code, 200)
+            self.assertTrue(enabled.json()["enabled"])
+
+    def test_admin_marketplace_settings_reject_non_admin(self):
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "999"}):
+            response = self.client.post(
+                "/api/admin/marketplaces/portals",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"enabled": False},
+            )
+            self.assertEqual(response.status_code, 403)
+
     def test_status_reports_persistent_metadata_history_capability(self):
         status = self.client.get("/api/status")
         self.assertEqual(status.status_code, 200)
