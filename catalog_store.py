@@ -67,6 +67,16 @@ def upsert_catalogue_items(items: list[dict[str, Any]]) -> int:
                 (gift_id, fingerprint, encoded, now),
             )
             conn.execute(
+                """DELETE FROM catalogue_gift_snapshots
+                   WHERE gift_id = ? AND fingerprint NOT IN (
+                       SELECT fingerprint FROM catalogue_gift_snapshots
+                       WHERE gift_id = ?
+                       ORDER BY observed_at DESC, fingerprint DESC
+                       LIMIT 50
+                   )""",
+                (gift_id, gift_id),
+            )
+            conn.execute(
                 """INSERT INTO catalogue_gifts(gift_id, gift_json, source, first_seen_at, last_seen_at)
                    VALUES (?, ?, 'Portals', ?, ?)
                    ON CONFLICT(gift_id) DO UPDATE SET
