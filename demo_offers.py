@@ -415,4 +415,95 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             "simulation_only": True,
         }
 
+    @router.get("/activity")
+    async def account_activity(
+        limit: int = Query(default=30, ge=1, le=100),
+        offset: int = Query(default=0, ge=0, le=10000),
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Unified, account-scoped timeline of demo order and offer events."""
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        user_id = str(user["id"])
+        query = """
+            WITH activity AS (
+                SELECT
+                    'order-' || e.id AS id,
+                    CASE e.event_type
+                      WHEN 'created' THEN 'order_created'
+                      WHEN 'simulated_fill' THEN 'order_simulated_fill'
+                      WHEN 'cancelled' THEN 'order_cancelled'
+                    END AS type,
+                    o.id AS order_id,
+                    o.title AS title,
+                    CASE WHEN e.actor_user_id = ? THEN 'You' ELSE o.owner_name END AS actor_name,
+                    e.created_at AS created_at,
+                    o.price AS amount,
+                    o.currency AS currency
+                FROM demo_order_events e
+                JOIN demo_orders o ON o.id = e.order_id
+                WHERE o.user_id = ? OR e.actor_user_id = ?
+
+                UNION ALL
+
+                SELECT
+                    'notice-' || n.id AS id,
+                    n.event_type AS type,
+                    n.order_id AS order_id,
+                    n.order_title AS title,
+                    n.actor_name AS actor_name,
+                    n.created_at AS created_at,
+                    f.amount AS amount,
+                    f.currency AS currency
+                FROM demo_notifications n
+                JOIN demo_offers f ON f.id = n.offer_id
+                WHERE n.user_id = ?
+
+                UNION ALL
+
+                SELECT
+                    'deal-' || d.id AS id,
+                    'demo_deal_created' AS type,
+                    d.order_id AS order_id,
+                    o.title AS title,
+                    CASE WHEN d.listing_owner_id = ? THEN f.sender_name ELSE o.owner_name END AS actor_name,
+                    d.created_at AS created_at,
+                    d.agreed_amount AS amount,
+                    d.currency AS currency
+                FROM demo_deals d
+                JOIN demo_orders o ON o.id = d.order_id
+                JOIN demo_offers f ON f.id = d.offer_id
+                WHERE d.listing_owner_id = ? OR d.offer_sender_id = ?
+            )
+            SELECT id, type, order_id, title, actor_name, created_at, amount, currency
+            FROM activity
+            ORDER BY created_at DESC, id DESC
+            LIMIT ? OFFSET ?
+        """
+        params = (user_id, user_id, user_id, user_id, user_id, user_id, user_id, limit, offset)
+        count_query = """
+            WITH activity AS (
+                SELECT e.id FROM demo_order_events e JOIN demo_orders o ON o.id=e.order_id
+                WHERE o.user_id=? OR e.actor_user_id=?
+                UNION ALL
+                SELECT n.id FROM demo_notifications n WHERE n.user_id=?
+                UNION ALL
+                SELECT d.id FROM demo_deals d WHERE d.listing_owner_id=? OR d.offer_sender_id=?
+            )
+            SELECT COUNT(*) FROM activity
+        """
+        with _db() as conn:
+            rows = conn.execute(query, params).fetchall()
+            total = conn.execute(
+                count_query, (user_id, user_id, user_id, user_id, user_id)
+            ).fetchone()[0]
+        return {
+            "items": [{
+                "id": row["id"], "type": row["type"], "order_id": row["order_id"],
+                "title": row["title"], "actor_name": row["actor_name"],
+                "created_at": row["created_at"], "amount": row["amount"],
+                "currency": row["currency"], "simulation_only": True,
+            } for row in rows],
+            "total": total, "limit": limit, "offset": offset, "simulation_only": True,
+        }
+
     return router
