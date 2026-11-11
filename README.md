@@ -27,7 +27,7 @@ The Portals Partner API credential may have broader permissions than read-only. 
 
 ## Server data pipeline
 
-The Mini App does not contain marketplace data or fabricate listings. It requests the backend API, and the backend retrieves public data from the configured upstream marketplaces. The backend warms the default Portals collections/listings and Tonnel public-listings caches in a background task; identical catalogue requests reuse server-side cached responses for up to 60 seconds. The cache is in process memory and resets on a Railway restart or deploy. Persistent historical snapshots require a configured database or mounted persistent volume and are not claimed as available yet.
+The Mini App does not contain marketplace data or fabricate listings. It requests the backend API, and the backend retrieves public data from the configured upstream marketplaces. The backend warms the default Portals collections/listings and Tonnel public-listings caches in a background task; identical catalogue requests reuse server-side cached responses for up to 60 seconds. The cache is in process memory and resets on a Railway restart or deploy. Portals catalogue metadata is also indexed in SQLite: the latest item record is upserted by upstream gift ID, and up to 50 distinct metadata snapshots are retained per gift. Snapshots are recorded when `/api/gifts` successfully refreshes data; this is an observation history, not a complete exchange price chart or proof of ownership. The database path is `GIFT_RADAR_DB_PATH` (fallback: `DATABASE_PATH`, default: `./data/gift-radar.sqlite3`). For persistence across Railway redeploys, attach a Railway volume and set `GIFT_RADAR_DB_PATH` to a file inside that volume's mount path. Without a persistent volume, SQLite data may be lost when the service is replaced.
 
 - `DATA_REFRESH_SECONDS` — optional background refresh interval (60–900 seconds; default 60).
 - `/api/status` reports the delivery path, cache type and refresh interval.
@@ -38,6 +38,9 @@ The Mini App does not contain marketplace data or fabricate listings. It request
 - `GET /api/status` — source coverage and verified data capabilities.
 - `GET /api/collections` — Portals collection-level data or an honest empty result.
 - `GET /api/gifts` — Portals listed-gift catalogue with `search`, `collection_id`, `min_price`, `max_price`, `external_collection_number`, `filter_by_backdrops`, optional `status` (`listed` / `unlisted`), and documented `sort_by` filters (including model-rarity sorting); pagination is limited to 40 results per request.
+- `GET /api/catalog/items` — read-only search over persisted Portals metadata with bounded `search`, `collection_id`, `limit` (1–50) and `offset` filters.
+- `GET /api/catalog/items/{gift_id}` — exact lookup of the latest indexed metadata snapshot.
+- `GET /api/catalog/items/{gift_id}/history` — up to 50 distinct metadata snapshots, newest first.
 - The Mini App opens a dedicated collection view with all NFT statuses by default, plus optional listed/unlisted, price, gift-number, backdrop and sort controls. Backdrop choices are discovered from attributes returned by loaded listings; the API does not currently expose a separate complete backdrop-facets endpoint.
 - `GET /api/tonnel/gifts` — Swift partner-backed public Tonnel listings when configured; otherwise the experimental unauthenticated fallback. Supports `search`, `page` and `limit`.
 - `GET /api/mrkt/gifts` — public MRKT listings through the Swift partner aggregator when `SWIFTGIFTS_API_KEY` is configured. Supports `search`, `page` and `limit`.
