@@ -67,6 +67,13 @@ def init_marketplace_db() -> None:
             FOREIGN KEY(telegram_id) REFERENCES telegram_users(telegram_id)
         );
         CREATE INDEX IF NOT EXISTS idx_telegram_sessions_user ON telegram_sessions(telegram_id, expires_at DESC);
+        CREATE TABLE IF NOT EXISTS telegram_initdata_uses (
+            initdata_hash TEXT PRIMARY KEY,
+            telegram_id TEXT NOT NULL,
+            consumed_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_telegram_initdata_expiry ON telegram_initdata_uses(expires_at);
         CREATE TABLE IF NOT EXISTS user_favorites (
             telegram_id TEXT NOT NULL,
             gift_id TEXT NOT NULL,
@@ -186,6 +193,25 @@ def upsert_telegram_user(user: dict[str, Any]) -> dict[str, Any]:
         conn.execute("INSERT INTO telegram_users (telegram_id, username, first_name, last_name, photo_url, language_code, is_premium, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(telegram_id) DO UPDATE SET username=excluded.username, first_name=excluded.first_name, last_name=excluded.last_name, photo_url=excluded.photo_url, language_code=excluded.language_code, is_premium=excluded.is_premium, updated_at=excluded.updated_at", values)
         row = conn.execute("SELECT * FROM telegram_users WHERE telegram_id = ?", (telegram_id,)).fetchone()
     return {"id": row["telegram_id"], "username": row["username"], "first_name": row["first_name"], "last_name": row["last_name"], "photo_url": row["photo_url"], "language_code": row["language_code"], "is_premium": bool(row["is_premium"]), "created_at": row["created_at"], "updated_at": row["updated_at"]}
+
+
+def consume_telegram_init_data(init_data: str, telegram_id: str, ttl_seconds: int = 900) -> bool:
+    """Atomically mark a verified initData payload as exchanged; persist only its digest."""
+    digest = hashlib.sha256(init_data.encode("utf-8")).hexdigest()
+    now = int(time.time())
+    with _db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("DELETE FROM telegram_initdata_uses WHERE expires_at <= ?", (now,))
+        try:
+            conn.execute(
+                "INSERT INTO telegram_initdata_uses(initdata_hash, telegram_id, consumed_at, expires_at) VALUES (?, ?, ?, ?)",
+                (digest, str(telegram_id), now, now + max(300, min(int(ttl_seconds), 3600))),
+            )
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            return False
+        conn.commit()
+    return True
 
 
 def create_telegram_session(telegram_id: str, ttl_seconds: int = 43200) -> str:
