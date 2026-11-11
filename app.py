@@ -30,6 +30,12 @@ _request_lock = asyncio.Lock()
 _last_request_at = 0.0
 
 TONNEL_LISTINGS_URL = "https://gifts2.tonnel.network/api/pageGifts"
+MRKT_LISTINGS_URL = "https://api.tgmrkt.io/api/v1/gifts/saling"
+_mrkt_cache: dict[str, tuple[float, Any]] = {}
+_MRKT_CACHE_SECONDS = 30
+_mrkt_lock = asyncio.Lock()
+_mrkt_last_request_at = 0.0
+_mrkt_runtime_status = "public_endpoint_not_checked"
 _tonnel_cache: dict[str, tuple[float, Any]] = {}
 _TONNEL_CACHE_SECONDS = 30
 _tonnel_lock = asyncio.Lock()
@@ -41,7 +47,7 @@ def source_status() -> dict[str, str]:
     return {
         "portals": "configured_read_only" if os.getenv("PORTALS_API_KEY", "").strip() else "needs_api_key",
         "tonnel": _tonnel_runtime_status,
-        "mrkt": "official_api_not_verified",
+        "mrkt": _mrkt_runtime_status,
     }
 
 
@@ -436,4 +442,142 @@ async def tonnel_gifts(
         "sources": {**source_status(), "tonnel": "online_read_only"},
         "updated_at": int(time.time()),
         "note": "Public listings only. Floor is not inferred from a partial listings page.",
+    }
+
+
+def _mrkt_value(row: dict, *keys: str) -> Any:
+    for key in keys:
+        value = row.get(key)
+        if value is not None and value != "":
+            return value
+    return None
+
+
+def _extract_mrkt_items(payload: Any) -> tuple[list[dict], Any, str | None]:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=502, detail="MRKT returned an unexpected response")
+    rows = payload.get("gifts")
+    if not isinstance(rows, list):
+        rows = payload.get("items")
+    if not isinstance(rows, list):
+        rows = payload.get("results")
+    if not isinstance(rows, list):
+        raise HTTPException(status_code=502, detail="MRKT response format was not recognized")
+    total_count = _mrkt_value(payload, "totalCount", "total_count", "count")
+    next_cursor = _mrkt_value(payload, "cursor", "nextCursor", "next_cursor")
+    return [row for row in rows if isinstance(row, dict)], total_count if total_count is not None else len(rows), str(next_cursor) if next_cursor else None
+
+
+async def _fetch_mrkt_page(limit: int, cursor: str, search: str | None) -> tuple[list[dict], Any, str | None]:
+    global _mrkt_last_request_at, _mrkt_runtime_status
+    cache_key = f"{limit}:{cursor}:{(search or '').strip().lower()}"
+    now = time.monotonic()
+    cached = _mrkt_cache.get(cache_key)
+    if cached and now - cached[0] < _MRKT_CACHE_SECONDS:
+        return cached[1]
+
+    term = (search or "").strip()
+    body = {
+        "collectionNames": [],
+        "modelNames": [],
+        "backdropNames": [],
+        "symbolNames": [],
+        "ordering": None,
+        "lowToHigh": True,
+        "maxPrice": None,
+        "minPrice": None,
+        "mintable": None,
+        "number": int(term) if term.isdigit() else None,
+        "count": limit,
+        "cursor": cursor,
+        "query": None if term.isdigit() or not term else term,
+        "promotedFirst": False,
+    }
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Referer": "https://cdn.tgmrkt.io/",
+    }
+
+    async with _mrkt_lock:
+        wait = 1.25 - (time.monotonic() - _mrkt_last_request_at)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(MRKT_LISTINGS_URL, json=body, headers=headers)
+        _mrkt_last_request_at = time.monotonic()
+
+    if response.status_code == 429:
+        _mrkt_runtime_status = "rate_limited"
+        raise HTTPException(status_code=503, detail="MRKT rate limit reached; retry later")
+    if response.status_code in (401, 403):
+        _mrkt_runtime_status = "public_access_unavailable"
+        raise HTTPException(status_code=503, detail="MRKT requires account-linked authorization; this app does not collect Telegram sessions or tokens")
+    if response.is_error:
+        _mrkt_runtime_status = "temporarily_unavailable"
+        raise HTTPException(status_code=502, detail=f"MRKT returned HTTP {response.status_code}")
+    try:
+        payload = response.json()
+    except ValueError:
+        _mrkt_runtime_status = "temporarily_unavailable"
+        raise HTTPException(status_code=502, detail="MRKT returned invalid JSON")
+
+    rows, total_count, next_cursor = _extract_mrkt_items(payload)
+    _mrkt_runtime_status = "online_read_only"
+    result = (rows, total_count, next_cursor)
+    _mrkt_cache[cache_key] = (time.monotonic(), result)
+    return result
+
+
+@app.get("/api/mrkt/gifts")
+async def mrkt_gifts(
+    limit: int = Query(default=20, ge=1, le=20),
+    cursor: str = Query(default="", max_length=500),
+    search: str | None = Query(default=None, max_length=80),
+):
+    """Experimental public MRKT listing query. Never requests Telegram account auth or tokens."""
+    rows, total_count, next_cursor = await _fetch_mrkt_page(limit, cursor, search)
+    items = []
+    for gift in rows:
+        raw_attributes = gift.get("attributes")
+        attrs = []
+        if isinstance(raw_attributes, list):
+            for attr in raw_attributes:
+                if isinstance(attr, dict):
+                    attrs.append({
+                        "type": _mrkt_value(attr, "type", "name", "attributeType"),
+                        "value": _mrkt_value(attr, "value", "attributeName", "nameValue"),
+                        "rarity": _mrkt_value(attr, "rarity", "percent", "percentage"),
+                    })
+        for label, keys in (
+            ("Model", ("model", "modelName")),
+            ("Backdrop", ("backdrop", "backdropName")),
+            ("Symbol", ("symbol", "symbolName")),
+        ):
+            value = _mrkt_value(gift, *keys)
+            if value is not None and not any(a.get("type") == label for a in attrs):
+                attrs.append({"type": label, "value": value})
+
+        items.append({
+            "id": _mrkt_value(gift, "id", "giftId", "gift_id"),
+            "name": _mrkt_value(gift, "name", "giftName", "gift_name", "collectionName") or "Telegram Gift",
+            "number": _mrkt_value(gift, "number", "giftNumber", "gift_num"),
+            "collection_id": _mrkt_value(gift, "collectionId", "collection_id", "collectionName"),
+            "image": _mrkt_value(gift, "image", "imageUrl", "photoUrl", "preview", "previewUrl"),
+            "price": _mrkt_value(gift, "price", "amount", "priceAmount"),
+            "floor_price": None,
+            "attributes": attrs,
+            "status": _mrkt_value(gift, "status", "saleStatus", "state") or "listed",
+            "listed_at": _mrkt_value(gift, "listedAt", "createdAt", "created_at", "date"),
+            "source": "MRKT",
+            "currency": _mrkt_value(gift, "currency", "asset") or "GRAM",
+        })
+    return {
+        "items": items,
+        "total_count": total_count,
+        "next_cursor": next_cursor,
+        "connected": True,
+        "sources": {**source_status(), "mrkt": "online_read_only"},
+        "updated_at": int(time.time()),
+        "note": "Experimental public listings only. If MRKT requires account authorization, no session or token is requested.",
     }
