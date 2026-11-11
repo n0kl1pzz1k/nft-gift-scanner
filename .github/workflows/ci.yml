@@ -16,8 +16,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
       - name: Check Python syntax
-        run: python -m compileall -q app.py bot.py
+        run: python -m compileall -q app.py bot.py tests
+      - name: Run API contract tests
+        run: python -m unittest discover -s tests -v
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
