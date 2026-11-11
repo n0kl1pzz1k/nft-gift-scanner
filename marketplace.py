@@ -256,10 +256,20 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
     ):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         _enforce_user_rate_limit(str(user["id"]), "save_favorite", 30)
-        gift_id = gift_id.strip()[:160]
         gift = payload.get("gift")
-        if not gift_id or not isinstance(gift, dict):
+        if not isinstance(gift, dict):
             raise HTTPException(status_code=422, detail="A gift and its ID are required")
+        if not gift_id or gift_id != gift_id.strip() or len(gift_id) > 160:
+            raise HTTPException(status_code=422, detail="Gift ID must be between 1 and 160 characters")
+        item_key = gift.get("id")
+        if item_key is None:
+            item_key = gift.get("number")
+        if item_key is None:
+            item_key = gift.get("name")
+        if item_key is None:
+            item_key = "gift"
+        if not isinstance(item_key, (str, int, float)) or str(item_key) != gift_id:
+            raise HTTPException(status_code=422, detail="Gift ID does not match the gift data")
         import json
         encoded = json.dumps(gift, ensure_ascii=False, separators=(",", ":"))
         if len(encoded.encode("utf-8")) > 16000:
