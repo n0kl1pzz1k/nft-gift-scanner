@@ -347,6 +347,10 @@ def claim_telegram_update(update_id: int, payload: Any, lease_seconds: int = 60)
     lease = max(15, min(int(lease_seconds), 300))
     with _db() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "DELETE FROM telegram_update_inbox WHERE status = 'processed' AND processed_at < ?",
+            (now - 1_209_600,),
+        )
         row = conn.execute(
             "SELECT payload_hash, status, lease_until FROM telegram_update_inbox WHERE update_id = ?",
             (update_id,),
