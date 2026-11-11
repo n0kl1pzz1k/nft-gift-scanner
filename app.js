@@ -12,7 +12,7 @@ const copy={
     updated:"Last response",never:"Not available",error:"Could not load marketplace data.",
     public:"Public data",readonly:"View only",nomoney:"No transactions",system:"SYSTEM",overview:"DATA OVERVIEW",count:"COLLECTIONS",live:"LIVE MONITOR",
     catalog:"Marketplace listings",collectionKicker:"COLLECTION",viewCollection:"Open collection",backCollections:"← All collections",collectionLoading:"Loading gifts in this collection…",collectionEmpty:"No public listings were found in this collection.",loadMore:"Load more",loadingMore:"Loading…",lots:"LISTINGS",filters:"FILTERS",minPrice:"Min price · GRAM",maxPrice:"Max price · GRAM",giftNumberFilter:"Gift number",backdropFilter:"Backdrop colour",allBackdrops:"All backdrops",statusFilter:"Listing status",allStatuses:"All NFTs",listedOnly:"Listed only",unlistedOnly:"Unlisted only",sortLabel:"Sort by",sortRecent:"Recently listed",sortPriceLow:"Price: low to high",sortPriceHigh:"Price: high to low",sortNumberLow:"Number: low to high",sortNumberHigh:"Number: high to low",sortRarityLow:"Model rarity: ascending",sortRarityHigh:"Model rarity: descending",applyFilters:"Apply filters",clearFilters:"Clear",rarityLabel:"Rarity",searchPlaceholder:"Search by gift name or number",searchButton:"Search",catalogWaiting:"Catalogue will appear when a verified data source is connected.",catalogNote:"Public listing information only. No purchase or gift-action buttons.",giftPrice:"Listing price",giftFloor:"Collection floor",giftNumber:"Gift #",giftEmpty:"No matching public listings were returned.",catalogUpdated:"Catalogue response",
-    connected:"CONNECTED",pending:"NOT CONNECTED",details:"View details",status:"Listing status",listed:"Listed",collectionLabel:"Collection",giftIdLabel:"NFT ID",attributes:"Attributes",noAttributes:"No public attributes supplied",detailNote:"Public listing details only. No transaction actions.",marketUnavailable:"This marketplace is not connected yet.",marketReasonTonnel:"Tonnel public listings are requested without account authentication. If the marketplace refuses public access, the app will show that honestly; no anti-bot bypass is used.",marketReasonMrkt:"MRKT currently requires account-linked Telegram authorization. This app does not collect Telegram sessions or API credentials.",marketTonnelError:"Tonnel public listings are temporarily unavailable or the source refused the request.",notConnected:"Not connected",modalClose:"Close"
+    connected:"CONNECTED",pending:"NOT CONNECTED",details:"View details",status:"Listing status",listed:"Listed",collectionLabel:"Collection",giftIdLabel:"NFT ID",attributes:"Attributes",noAttributes:"No public attributes supplied",detailNote:"Public listing details only. No transaction actions.",marketUnavailable:"This marketplace is not connected yet.",marketReasonTonnel:"Tonnel public listings are requested without account authentication. If the marketplace refuses public access, the app will show that honestly; no anti-bot bypass is used.",marketReasonMrkt:"MRKT public listings are loaded through the Swift Gifts partner data connector. No Telegram account session is collected.",marketPartnerKey:"The shared read-only partner connector is not configured yet. Ask the project owner to add its key in Railway Variables.",marketMrktError:"MRKT public listing data is temporarily unavailable from the partner source.",marketTonnelError:"Tonnel public listings are temporarily unavailable or the source refused the request.",notConnected:"Not connected",modalClose:"Close"
   },
   ru:{
     eyebrow:"МОНИТОРИНГ РЫНКА · ТОЛЬКО ЧТЕНИЕ",heading:"Весь рынок Telegram-подарков <em>в одном месте.</em>",sub:"Коллекции, публичные показатели и состояние маркетплейсов — без лишнего шума.",
@@ -27,7 +27,7 @@ const copy={
     updated:"Последний ответ",never:"Нет данных",error:"Не удалось загрузить данные маркетплейсов.",
     public:"Публичные данные",readonly:"Только просмотр",nomoney:"Без транзакций",system:"СИСТЕМА",overview:"ОБЗОР ДАННЫХ",count:"КОЛЛЕКЦИЙ",live:"LIVE МОНИТОРИНГ",
     catalog:"Объявления маркетплейсов",collectionKicker:"КОЛЛЕКЦИЯ",viewCollection:"Открыть коллекцию",backCollections:"← Все коллекции",collectionLoading:"Загружаем подарки этой коллекции…",collectionEmpty:"В этой коллекции не найдено публичных объявлений.",loadMore:"Показать ещё",loadingMore:"Загружаем…",lots:"ЛОТОВ",filters:"ФИЛЬТРЫ",minPrice:"Цена от · GRAM",maxPrice:"Цена до · GRAM",giftNumberFilter:"Номер NFT",backdropFilter:"Цвет фона",allBackdrops:"Все фоны",statusFilter:"Статус NFT",allStatuses:"Все NFT",listedOnly:"Только выставленные",unlistedOnly:"Не выставленные",sortLabel:"Сортировка",sortRecent:"Сначала новые",sortPriceLow:"Цена: сначала дешевле",sortPriceHigh:"Цена: сначала дороже",sortNumberLow:"Номер: по возрастанию",sortNumberHigh:"Номер: по убыванию",sortRarityLow:"Редкость модели: по возрастанию",sortRarityHigh:"Редкость модели: по убыванию",applyFilters:"Применить фильтры",clearFilters:"Сбросить",rarityLabel:"Редкость",searchPlaceholder:"Поиск по названию или номеру",searchButton:"Найти",catalogWaiting:"Каталог появится после подключения подтверждённого источника данных.",catalogNote:"Только публичная информация об объявлениях. Без торговых действий.",giftPrice:"Цена объявления",giftFloor:"Флор коллекции",giftNumber:"Подарок №",giftEmpty:"По этому запросу публичных объявлений не найдено.",catalogUpdated:"Ответ каталога",
-    connected:"ПОДКЛЮЧЁН",pending:"НЕ ПОДКЛЮЧЁН",details:"Подробнее",status:"Статус объявления",listed:"Выставлен",collectionLabel:"Коллекция",giftIdLabel:"ID подарка",attributes:"Атрибуты",noAttributes:"Источник не передал публичные атрибуты",detailNote:"Только публичная информация об объявлении. Без торговых операций.",marketUnavailable:"Этот маркетплейс пока не подключён.",marketReasonTonnel:"Публичные объявления Tonnel запрашиваются без авторизации аккаунта. Если площадка не разрешит публичный доступ, приложение честно покажет это. Обход антибот-защиты не используется.",marketReasonMrkt:"Сейчас MRKT требует авторизацию, связанную с Telegram-аккаунтом. Приложение не собирает Telegram-сессии и API-ключи.",marketTonnelError:"Публичные объявления Tonnel временно недоступны или источник отклонил запрос.",notConnected:"Не подключён",modalClose:"Закрыть"
+    connected:"ПОДКЛЮЧЁН",pending:"НЕ ПОДКЛЮЧЁН",details:"Подробнее",status:"Статус объявления",listed:"Выставлен",collectionLabel:"Коллекция",giftIdLabel:"ID подарка",attributes:"Атрибуты",noAttributes:"Источник не передал публичные атрибуты",detailNote:"Только публичная информация об объявлении. Без торговых операций.",marketUnavailable:"Этот маркетплейс пока не подключён.",marketReasonTonnel:"Публичные объявления Tonnel запрашиваются без авторизации аккаунта. Если площадка не разрешит публичный доступ, приложение честно покажет это. Обход антибот-защиты не используется.",marketReasonMrkt:"Публичные объявления MRKT загружаются через партнёрский источник Swift Gifts. Telegram-сессии аккаунта не используются.",marketPartnerKey:"Общий партнёрский источник пока не настроен. Владелец проекта должен добавить ключ в Railway Variables.",marketMrktError:"Публичные объявления MRKT временно недоступны у партнёрского источника.",marketTonnelError:"Публичные объявления Tonnel временно недоступны или источник отклонил запрос.",notConnected:"Не подключён",modalClose:"Закрыть"
   }
 };
 let lang="ru";
@@ -36,6 +36,8 @@ let giftItems=[];
 let portalsGiftItems=[];
 let tonnelGiftItems=[];
 let tonnelTotalCount=0;
+let mrktGiftItems=[];
+let mrktTotalCount=0;
 let sourceStates={};
 let collectionItems=[];
 let selectedCollection=null;
@@ -78,6 +80,7 @@ function renderText(){
   $("lang").textContent=lang==="en"?"RU":"EN";
   renderMarketTabs();
   if(activeMarket==="tonnel"&&sourceStates.tonnel==="online_read_only") renderGifts({items:tonnelGiftItems,total_count:tonnelTotalCount||tonnelGiftItems.length,connected:true});
+  else if(activeMarket==="mrkt"&&sourceStates.mrkt==="online_read_only") renderGifts({items:mrktGiftItems,total_count:mrktTotalCount||mrktGiftItems.length,connected:true});
   else if(activeMarket!=="portals") renderUnavailableMarket(activeMarket);
   else if(selectedCollection) renderGifts({items:selectedCollectionItems,total_count:selectedCollectionTotal,connected:true});
   else renderGifts({items:portalsGiftItems,total_count:portalsGiftItems.length,connected:sourceStates.portals!=="needs_api_key"});
@@ -106,14 +109,16 @@ function renderMarketTabs(){
     const market=button.dataset.market;
     button.classList.toggle("active",market===activeMarket);
     const state=sourceStates[market]||"official_api_not_verified";
-    const connected=state==="online_read_only"||(market==="portals"&&(state==="configured_read_only"||state==="online"));
+    const connected=state==="online_read_only"||state==="configured_read_only"||(market==="portals"&&state==="online");
     $("tab-state-"+market).textContent=connected?t.connected:t.pending;
     $("tab-state-"+market).classList.toggle("is-connected",connected);
   });
 }
 function renderUnavailableMarket(market){
-  const t=copy[lang];
-  const reason=market==="tonnel"?(sourceStates.tonnel==="rate_limited"||sourceStates.tonnel==="temporarily_unavailable"||sourceStates.tonnel==="public_access_unavailable"?t.marketTonnelError:t.marketReasonTonnel):(sourceStates.mrkt==="rate_limited"||sourceStates.mrkt==="temporarily_unavailable"||sourceStates.mrkt==="public_access_unavailable"?t.marketMrktError:t.marketReasonMrkt);
+  const t=copy[lang], state=sourceStates[market];
+  let reason=market==="tonnel"?t.marketReasonTonnel:t.marketReasonMrkt;
+  if(state==="rate_limited"||state==="temporarily_unavailable"||state==="public_access_unavailable") reason=market==="tonnel"?t.marketTonnelError:t.marketMrktError;
+  if(state==="needs_partner_api_key") reason=t.marketPartnerKey;
   $("gifts-count").textContent="—";
   $("gifts-updated").textContent=t.notConnected;
   $("market-view").innerHTML='<div class="market-empty"><div class="market-empty-icon">'+(market==="tonnel"?"T":"M")+'</div><h3>'+escapeHtml(t.marketUnavailable)+'</h3><p>'+escapeHtml(reason)+'</p></div>';
@@ -165,6 +170,7 @@ async function load(){
     // Warm the public Tonnel catalogue in the background so its first tab
     // selection is instant. Failure is isolated and never blanks Portals.
     loadTonnelGifts("",false);
+    loadMrktGifts("",false);
   }catch(e){
     $("api-status").textContent=t.offline;
     $("collections-count").textContent="—";
@@ -224,6 +230,33 @@ async function loadTonnelGifts(search="",renderActive=true){
     if(typeof nftRenderProfile==="function")nftRenderProfile();
   }
 }
+
+
+async function loadMrktGifts(search="",renderActive=true){
+  const t=copy[lang];
+  if(renderActive&&activeMarket==="mrkt"){
+    $("gifts-count").textContent="…";
+    $("gifts-updated").textContent=t.checking;
+    $("market-view").innerHTML='<p class="empty">'+t.checking+'</p>';
+  }
+  try{
+    const response=await fetch(window.API_BASE+"/api/mrkt/gifts?limit=24&page=0&search="+encodeURIComponent(search),{cache:"no-store"});
+    const data=await response.json();
+    if(!response.ok) throw new Error(data.detail||"MRKT unavailable");
+    mrktGiftItems=Array.isArray(data.items)?data.items:[];
+    mrktTotalCount=Number(data.total_count??mrktGiftItems.length)||mrktGiftItems.length;
+    sourceStates.mrkt=data.partial?"partial_read_only":"online_read_only";
+    renderMarketTabs();
+    if(activeMarket==="mrkt")renderGifts({...data,items:mrktGiftItems,total_count:mrktTotalCount});
+    if(typeof nftRenderProfile==="function")nftRenderProfile();
+  }catch(e){
+    const message=String(e.message||"").toLowerCase();
+    sourceStates.mrkt=message.includes("partner access is not configured")?"needs_partner_api_key":message.includes("rate limit")?"rate_limited":"temporarily_unavailable";
+    renderMarketTabs();
+    if(renderActive&&activeMarket==="mrkt")renderUnavailableMarket("mrkt");
+    if(typeof nftRenderProfile==="function")nftRenderProfile();
+  }
+}
 function currentCollectionParams(offset=0,searchTerm=""){
   const params=new URLSearchParams({limit:"24",offset:String(offset),collection_id:String(selectedCollection.id??selectedCollection.short_name)});
   if(searchTerm) params.set("search",searchTerm);
@@ -237,6 +270,7 @@ async function searchGifts(){
   const term=$("gift-search").value.trim();
   const t=copy[lang];
   if(activeMarket==="tonnel"){await loadTonnelGifts(term);return;}
+  if(activeMarket==="mrkt"){await loadMrktGifts(term);return;}
   if(activeMarket!=="portals") return;
   if(selectedCollection){await loadCollectionGifts(0,false,term);return;}
   $("gift-grid").innerHTML='<p class="empty">'+t.checking+'</p>';
@@ -377,6 +411,9 @@ document.querySelectorAll(".market-tab").forEach(button=>button.addEventListener
   else if(activeMarket==="tonnel"){
     if(sourceStates.tonnel==="online_read_only") renderGifts({items:tonnelGiftItems,total_count:tonnelTotalCount||tonnelGiftItems.length,connected:true});
     else loadTonnelGifts();
+  }else if(activeMarket==="mrkt"){
+    if(sourceStates.mrkt==="online_read_only") renderGifts({items:mrktGiftItems,total_count:mrktTotalCount||mrktGiftItems.length,connected:true});
+    else loadMrktGifts();
   }else renderUnavailableMarket(activeMarket);
 }));
 $("modal-close").addEventListener("click",closeGiftDetails);
@@ -508,7 +545,7 @@ const nftOriginalRenderGifts=renderGifts;
 renderGifts=function(data){
  nftOriginalRenderGifts(data);
  if($("gift-search-button"))$("gift-search-button").onclick=searchGifts;
- if(activeMarket==="portals"||activeMarket==="tonnel"){
+ if(activeMarket==="portals"||activeMarket==="tonnel"||activeMarket==="mrkt"){
   const cards=document.querySelectorAll("#gift-grid .gift-card");
   cards.forEach((card,i)=>{if(card.querySelector("[data-nft-heart]"))return;const g=giftItems[i];if(!g)return;const b=document.createElement("button");b.type="button";b.className="favorite-toggle"+(nftIsSaved(g)?" is-saved":"");b.dataset.nftHeart=String(i);b.setAttribute("aria-label",nftIsSaved(g)?"Saved":"Save");b.textContent=nftIsSaved(g)?"♥":"♡";card.appendChild(b);});
  }
