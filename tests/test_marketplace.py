@@ -74,6 +74,16 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(removed.status_code, 200)
         self.assertEqual(self.client.get("/api/marketplace/favorites", headers=headers_a).json()["items"], [])
 
+    def test_portals_attributes_are_normalized_and_bounded(self):
+        attributes = [{"type": "model", "value": "x" * 300}, "invalid", {"name": {"nested": "value"}}] + [
+            {"type": "symbol", "value": str(index)} for index in range(50)
+        ]
+        normalized = api._safe_gift_attributes(attributes)
+        self.assertEqual(len(normalized), 40)
+        self.assertEqual(normalized[0]["value"], "x" * 160)
+        self.assertEqual(normalized[1]["name"], "")
+        self.assertTrue(all(set(item) == {"type", "name", "value"} for item in normalized))
+
     def test_portals_catalogue_is_persisted_and_searchable_by_exact_item(self):
         payload = {
             "results": [{
