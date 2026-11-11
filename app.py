@@ -4,16 +4,24 @@ import time
 import json
 import hmac
 import hashlib
+import secrets
 from urllib.parse import parse_qsl
 from pydantic import BaseModel
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query, Header
+from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="NFT Gift Scanner API", version="0.3.0")
+from marketplace import create_marketplace_router, init_marketplace_db
+
+app = FastAPI(title="GIFT RADAR API", version="0.4.0")
+app.include_router(create_marketplace_router(lambda value: _verify_telegram_init_data(value)))
+
+_telegram_bot = None
+_telegram_dispatcher = None
+_telegram_webhook_secret = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,7 +29,7 @@ app.add_middleware(
     allow_credentials=False,
     # The Mini App reads public data with GET and verifies Telegram identity
     # with POST. Keep CORS aligned with the actual read-only/auth API surface.
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-Telegram-Init-Data"],
 )
 
@@ -132,7 +140,7 @@ async def admin_overview(x_telegram_init_data: str | None = Header(default=None)
     user = _require_admin(x_telegram_init_data)
     return {
         "admin": {"id": str(user["id"]), "first_name": user.get("first_name", ""), "username": user.get("username", "")},
-        "mode": "read_only",
+        "mode": "catalogue_read_only_with_shared_demo_marketplace",
         "sources": source_status(),
         "marketplace_visibility": dict(_marketplace_visibility),
         "settings_persistence": "runtime_only_resets_on_backend_restart",
@@ -204,6 +212,29 @@ async def cached_portals(path: str) -> dict:
     return data
 
 
+@app.post("/api/telegram/webhook")
+async def telegram_webhook(
+    request: Request,
+    x_telegram_bot_api_secret_token: str | None = Header(default=None),
+):
+    if (
+        _telegram_bot is None
+        or _telegram_dispatcher is None
+        or not _telegram_webhook_secret
+        or not x_telegram_bot_api_secret_token
+        or not hmac.compare_digest(x_telegram_bot_api_secret_token, _telegram_webhook_secret)
+    ):
+        raise HTTPException(status_code=403, detail="Invalid Telegram webhook secret")
+    from aiogram.types import Update
+    try:
+        payload = await request.json()
+        update = Update.model_validate(payload, context={"bot": _telegram_bot})
+        await _telegram_dispatcher.feed_update(_telegram_bot, update)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Telegram update")
+    return {"ok": True}
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "nft-gift-scanner"}
@@ -212,7 +243,7 @@ async def health():
 @app.get("/api/status")
 async def status():
     return {
-        "mode": "read_only",
+        "mode": "catalogue_read_only_with_shared_demo_marketplace",
         "sources": source_status(),
         "available_data": {
             "portals": ["collection_list", "collection_floor", "reported_24h_volume", "reported_supply", "listed_gift_catalog", "gift_price", "gift_attributes"],
@@ -226,6 +257,13 @@ async def status():
             "cache": "server_memory_cache",
             "refresh_interval_seconds": _refresh_interval_seconds(),
             "persistent_history": False,
+        },
+        "demo_marketplace": {
+            "enabled": True,
+            "storage": "sqlite_server_database",
+            "payments": False,
+            "wallet_operations": False,
+            "blockchain_transactions": False,
         },
         "note": "Portals is the sole marketplace catalogue. Independent public reference feeds provide beta gift-metadata changes and daily historical collection floors; these are not live listings.",
     }
@@ -559,17 +597,41 @@ async def _refresh_public_catalogues():
 
 @app.on_event("startup")
 async def start_catalogue_refresh():
-    global _refresh_task
+    global _refresh_task, _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret
+    init_marketplace_db()
     _refresh_task = asyncio.create_task(_refresh_public_catalogues())
+
+    token = os.getenv("BOT_TOKEN", "").strip()
+    if token:
+        try:
+            from bot import create_bot, create_dispatcher
+            _telegram_bot = create_bot()
+            _telegram_dispatcher = create_dispatcher()
+            _telegram_webhook_secret = os.getenv("BOT_WEBHOOK_SECRET", "").strip() or secrets.token_urlsafe(32)
+            backend_url = os.getenv(
+                "API_BASE_URL",
+                "https://nft-gift-scanner-production.up.railway.app",
+            ).rstrip("/")
+            await _telegram_bot.set_webhook(
+                url=f"{backend_url}/api/telegram/webhook",
+                secret_token=_telegram_webhook_secret,
+                allowed_updates=_telegram_dispatcher.resolve_used_update_types(),
+            )
+        except Exception:
+            import logging
+            logging.exception("Could not configure Telegram webhook")
 
 
 @app.on_event("shutdown")
 async def stop_catalogue_refresh():
-    global _refresh_task
+    global _refresh_task, _telegram_bot
     if _refresh_task and not _refresh_task.done():
         _refresh_task.cancel()
         try:
             await _refresh_task
         except asyncio.CancelledError:
             pass
+    if _telegram_bot is not None:
+        await _telegram_bot.session.close()
+        _telegram_bot = None
 

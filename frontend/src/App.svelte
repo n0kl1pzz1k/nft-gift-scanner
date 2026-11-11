@@ -11,8 +11,12 @@
   };
   type DemoOrder = {
     id: string; kind: 'listing' | 'buy-order'; title: string;
-    price: number; currency: string; status: 'active' | 'matched' | 'cancelled';
-    createdAt: string; image?: string; number?: string; note?: string;
+    price: string | number; currency: 'TON' | 'XTR'; status: 'active' | 'matched' | 'cancelled';
+    createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; events?: {type:string;createdAt:number}[];
+  };
+  type MarketplaceStats = {
+    active_listings: number; active_buy_requests: number; matched_orders: number;
+    volume_ton: number; volume_stars: number; total_orders: number;
   };
   type View = 'market' | 'orders' | 'create' | 'favorites' | 'profile';
 
@@ -23,6 +27,7 @@
   let favorites = $state<string[]>([]);
   let favoriteItems = $state<Gift[]>([]);
   let orders = $state<DemoOrder[]>([]);
+  let marketplaceStats = $state<MarketplaceStats>({active_listings:0,active_buy_requests:0,matched_orders:0,volume_ton:0,volume_stars:0,total_orders:0});
   let search = $state('');
   let minPrice = $state('');
   let maxPrice = $state('');
@@ -39,6 +44,7 @@
   let createKind = $state<'listing' | 'buy-order'>('listing');
   let createTitle = $state('');
   let createPrice = $state('');
+  let createCurrency = $state<'TON' | 'XTR'>('TON');
   let createNote = $state('');
   let collectionFilter = $state('all');
 
@@ -50,15 +56,15 @@
     empty: 'По этому запросу ничего не найдено.', failed: 'Не удалось загрузить каталог.',
     details: 'О подарке', floor: 'Флор', price: 'Цена', traits: 'Характеристики',
     createTitle: 'Создать объявление', sell: 'Предложение', buy: 'Заявка на поиск', titleLabel: 'Название подарка',
-    priceLabel: 'Цена в TON (демо)', noteLabel: 'Комментарий', publish: 'Создать демо-объявление',
-    createHint: 'Это локальная демонстрация интерфейса. Объявление не публикуется на Portals и не создаёт сделку.',
-    ordersTitle: 'Мои ордера', noOrders: 'Пока нет созданных объявлений или заявок.',
-    active: 'Активен', matched: 'Смоделирован', cancelled: 'Отменён', cancel: 'Снять',
+    priceLabel: 'Цена (демо)', noteLabel: 'Комментарий', publish: 'Создать демо-объявление',
+    createHint: 'Общие тестовые заявки видны всем пользователям GIFT RADAR. Реальные сделки и платежи не выполняются.',
+    ordersTitle: 'Ордера маркетплейса', noOrders: 'Пока нет активных предложений или заявок.',
+    active: 'Активен', matched: 'Смоделирован', cancelled: 'Отменён', cancel: 'Снять', match: 'Симулировать исполнение',
     demo: 'ДЕМО-РЕЖИМ', demoWallet: 'Демо-профиль', demoWalletText: 'Подключение кошельков и реальные платежи отключены.',
     signIn: 'Подтвердить Telegram', guest: 'Гость', authHint: 'Открой Mini App через Telegram, чтобы подтвердить профиль.',
-    signed: 'Telegram подтверждён', profileText: 'Настройки профиля и локальная история действий.',
+    signed: 'Telegram подтверждён', profileText: 'Профиль Telegram и общая история демонстрационных заявок.',
     favoritesTitle: 'Избранные подарки', noFavorites: 'Добавьте подарки в избранное из каталога.',
-    save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Демо-запись добавлена.',
+    save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Демо-запись добавлена.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Демо-оборот', statsVolumeHint: 'Только смоделированные записи', statsCatalog: 'Подарков в каталоге', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'Каталог Portals', refresh: 'Обновить', all: 'Все',
   };
   const en = {
@@ -69,27 +75,56 @@
     empty: 'No gifts match this search.', failed: 'Could not load the catalogue.',
     details: 'Gift details', floor: 'Floor', price: 'Price', traits: 'Attributes',
     createTitle: 'Create an order', sell: 'Sell listing', buy: 'Buy request', titleLabel: 'Gift name',
-    priceLabel: 'Price in TON (demo)', noteLabel: 'Note', publish: 'Create demo order',
-    createHint: 'This is a local interface demo. Nothing is published to Portals and no trade is executed.',
-    ordersTitle: 'My orders', noOrders: 'No listings or requests yet.',
-    active: 'Active', matched: 'Simulated', cancelled: 'Cancelled', cancel: 'Cancel',
+    priceLabel: 'Demo price', noteLabel: 'Note', publish: 'Create demo order',
+    createHint: 'Shared demo orders are visible to GIFT RADAR users. No real trades or payments take place.',
+    ordersTitle: 'Marketplace orders', noOrders: 'No active listings or requests yet.',
+    active: 'Active', matched: 'Simulated', cancelled: 'Cancelled', cancel: 'Cancel', match: 'Simulate fill',
     demo: 'DEMO MODE', demoWallet: 'Demo profile', demoWalletText: 'Wallet connections and real payments are disabled.',
     signIn: 'Verify Telegram', guest: 'Guest', authHint: 'Open the Mini App in Telegram to verify your profile.',
-    signed: 'Telegram verified', profileText: 'Profile settings and local activity history.',
+    signed: 'Telegram verified', profileText: 'Telegram profile and shared demo order history.',
     favoritesTitle: 'Saved gifts', noFavorites: 'Save gifts from the catalogue to see them here.',
-    save: 'Save', saved: 'Saved', currency: 'TON', success: 'Demo entry created.',
+    save: 'Save', saved: 'Saved', currency: 'TON', success: 'Demo entry created.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Demo volume', statsVolumeHint: 'Simulated entries only', statsCatalog: 'Catalogue gifts', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'Portals catalogue', refresh: 'Refresh', all: 'All',
   };
   const t = $derived(lang === 'ru' ? ru : en);
   const keyOf = (g: Gift) => String(g.id ?? g.number ?? g.name ?? 'gift');
   const shownGifts = $derived(view === 'favorites' ? favoriteItems : gifts);
+  const demoListings = $derived(marketplaceStats.active_listings);
+  const demoBuyRequests = $derived(marketplaceStats.active_buy_requests);
+  const demoVolumeTon = $derived(marketplaceStats.volume_ton);
+  const demoVolumeStars = $derived(marketplaceStats.volume_stars);
   const fmt = (value: unknown, currency = '') => value === null || value === undefined || value === '' ? '—' : String(value) + (currency ? ' ' + currency : '');
 
-  async function request(path: string, signal?: AbortSignal) {
-    const response = await fetch(API + path, { signal });
+  const authHeaders = (): Record<string, string> => {
+    const initData = window.Telegram?.WebApp?.initData || '';
+    const headers: Record<string, string> = {};
+    if (initData) headers['X-Telegram-Init-Data'] = initData;
+    return headers;
+  };
+
+  async function request(path: string, signal?: AbortSignal, init: RequestInit = {}) {
+    const headers = new Headers(authHeaders());
+    new Headers(init.headers || {}).forEach((value, key) => headers.set(key, value));
+    const response = await fetch(API + path, { ...init, signal, headers });
     const data = await response.json().catch(() => ({ detail: 'Invalid server response' }));
     if (!response.ok) throw new Error(data.detail || 'Request failed');
     return data;
+  }
+
+  async function loadMarketplace() {
+    try {
+      const [publicData, mineData, statsData] = await Promise.all([
+        request('/api/marketplace/orders?status=active&limit=100'),
+        window.Telegram?.WebApp?.initData ? request('/api/marketplace/history') : Promise.resolve({items:[]}),
+        request('/api/marketplace/stats'),
+      ]);
+      const combined = new Map<string, DemoOrder>();
+      for (const item of [...(publicData.items || []), ...(mineData.items || [])]) combined.set(item.id, item);
+      orders = [...combined.values()].sort((a,b) => b.createdAt - a.createdAt);
+      marketplaceStats = { ...marketplaceStats, ...statsData };
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    }
   }
 
   async function loadCatalogue(append = false) {
@@ -122,35 +157,42 @@
     try { localStorage.setItem('gift-radar-favorites-v2', JSON.stringify(favoriteItems)); } catch {}
   }
 
-  function saveOrders() {
-    try { localStorage.setItem('gift-radar-demo-orders', JSON.stringify(orders)); } catch {}
-  }
-
-  function createOrder() {
+  async function createOrder() {
     const price = Number(createPrice);
     if (!createTitle.trim() || !Number.isFinite(price) || price <= 0) {
       notice = lang === 'ru' ? 'Укажи название подарка и положительную цену.' : 'Enter a gift name and a positive price.';
       return;
     }
-    orders = [{
-      id: 'demo-' + Date.now().toString(36),
-      kind: createKind,
-      title: createTitle.trim(),
-      price,
-      currency: 'TON',
-      status: 'active',
-      createdAt: new Date().toISOString(),
-      note: createNote.trim(),
-    }, ...orders];
-    saveOrders();
-    createTitle = ''; createPrice = ''; createNote = '';
-    notice = t.success;
-    view = 'orders';
+    if (!window.Telegram?.WebApp?.initData) {
+      notice = lang === 'ru' ? 'Открой приложение через Telegram, чтобы публиковать заявки.' : 'Open the app in Telegram to publish demo orders.';
+      return;
+    }
+    try {
+      await request('/api/marketplace/orders', undefined, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({kind:createKind,title:createTitle.trim(),price,currency:createCurrency,note:createNote.trim()}),
+      });
+      createTitle = ''; createPrice = ''; createNote = ''; createCurrency = 'TON';
+      notice = t.success;
+      view = 'orders';
+      await loadMarketplace();
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
-  function cancelOrder(id: string) {
-    orders = orders.map(o => o.id === id ? { ...o, status: 'cancelled' } : o);
-    saveOrders();
+  async function completeOrder(id: string) {
+    try {
+      await request('/api/marketplace/orders/' + encodeURIComponent(id) + '/simulate-fill', undefined, {method:'POST'});
+      notice = lang === 'ru' ? 'Демо-ордер отмечен как исполненный.' : 'Demo order marked as filled.';
+      await loadMarketplace();
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+  }
+
+  async function cancelOrder(id: string) {
+    try {
+      await request('/api/marketplace/orders/' + encodeURIComponent(id), undefined, {method:'DELETE'});
+      notice = lang === 'ru' ? 'Заявка снята.' : 'Order cancelled.';
+      await loadMarketplace();
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
   async function telegramLogin() {
@@ -185,10 +227,9 @@
           favorites = fav as string[];
         }
       }
-      const saved = JSON.parse(localStorage.getItem('gift-radar-demo-orders') || '[]');
-      if (Array.isArray(saved)) orders = saved;
     } catch {}
     void loadCatalogue();
+    void loadMarketplace();
   });
 </script>
 
@@ -213,7 +254,7 @@
   <main class="main-content">
     <header class="topbar">
       <div class="crumb"><span>GIFT RADAR</span><b>/</b><span>{view.toUpperCase()}</span></div>
-      <div class="top-actions"><span class="demo-pill">{t.demo}</span><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>view='profile'}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
+      <div class="top-actions"><span class="demo-pill">{t.demo}</span><button class="language" onclick={()=>createCurrency=createCurrency==='TON'?'XTR':'TON'}>{createCurrency==='TON'?'TON':'⭐ Stars'}</button><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>view='profile'}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
     </header>
 
     {#if view==='market'}
@@ -221,6 +262,7 @@
         <div class="hero-copy"><div class="eyebrow"><span class="spark"></span> {t.portals}</div><h1>{t.headline}</h1><p>{t.subtitle}</p><div class="hero-tags"><span>✦ Animated gifts</span><span>◈ Portals catalogue</span><span>◎ Demo orders</span></div></div>
         <div class="hero-art" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="hero-gem">✳</div><span class="float-chip chip-a">GIFT #042</span><span class="float-chip chip-b">PORTALS</span><span class="float-chip chip-c">✦ RARE FIND</span></div>
       </section>
+      <section class="market-stats" aria-label="Marketplace overview"><article><span>↗</span><div><strong>{demoListings}</strong><small>{t.statsListings}</small></div></article><article><span>⌕</span><div><strong>{demoBuyRequests}</strong><small>{t.statsBuys}</small></div></article><article><span>◈</span><div><strong>{demoVolumeTon.toFixed(2)} TON</strong><small>{t.statsVolume}</small></div></article><article><span>★</span><div><strong>{demoVolumeStars} ⭐</strong><small>{t.statsVolume}</small></div></article><article><span>▦</span><div><strong>{total.toLocaleString()}</strong><small>{t.statsCatalog}</small></div></article><p>{t.statsVolumeHint}</p></section>
       <section class="market-section">
         <div class="section-title"><div><div class="eyebrow">DISCOVER</div><h2>{t.listings}</h2><p>{total.toLocaleString()} {t.results}</p></div><button class="refresh-button" onclick={()=>loadCatalogue()} disabled={busy}>↻ {t.refresh}</button></div>
         <div class="filter-bar"><div class="search-field"><span>⌕</span><input bind:value={search} placeholder={t.search} onkeydown={e=>e.key==='Enter'&&loadCatalogue()}/></div><input class="filter-input" type="number" min="0" bind:value={minPrice} placeholder={t.min}/><input class="filter-input" type="number" min="0" bind:value={maxPrice} placeholder={t.max}/><button class="search-button" onclick={()=>loadCatalogue()}>{t.market}</button></div>
@@ -245,23 +287,23 @@
     {:else if view==='orders'}
       <section class="page-heading"><div class="eyebrow">YOUR ACTIVITY</div><h1>{t.ordersTitle}</h1><p>{t.createHint}</p></section>
       {#if orders.length===0}<div class="state-panel">{t.noOrders}<button class="search-button" onclick={()=>view='create'}>{t.create}</button></div>
-      {:else}<div class="orders-list">{#each orders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {order.note?'· '+order.note:''}</p></div><div class="order-price"><strong>{order.price} TON</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active'}<button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button>{/if}</article>{/each}</div>{/if}
+      {:else}<div class="orders-list">{#each orders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {'· '+order.owner} {order.note?'· '+order.note:''} {order.events?.length?'· '+order.events.map(event=>event.type==='created'?(lang==='ru'?'создан':'created'):event.type==='simulated_fill'?(lang==='ru'?'смоделировано исполнение':'simulated fill'):(lang==='ru'?'снят':'cancelled')).join(' → '):''}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active' && order.isMine}<div class="order-actions"><button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button></div>{:else if order.status==='active'}<div class="order-actions"><button class="match-button" onclick={()=>completeOrder(order.id)}>{t.match}</button></div>{/if}</article>{/each}</div>{/if}
     {:else if view==='create'}
       <section class="page-heading"><div class="eyebrow">MARKETPLACE STUDIO</div><h1>{t.createTitle}</h1><p>{t.createHint}</p></section>
       <section class="create-layout"><div class="create-form">
         <div class="segmented"><button class:chosen={createKind==='listing'} onclick={()=>createKind='listing'}>{t.sell}</button><button class:chosen={createKind==='buy-order'} onclick={()=>createKind='buy-order'}>{t.buy}</button></div>
         <label>{t.titleLabel}<input class="form-input" bind:value={createTitle} placeholder="Plush Pepe #042"/></label>
-        <label>{t.priceLabel}<input class="form-input" type="number" min="0" step="0.01" bind:value={createPrice} placeholder="125.00"/></label>
+        <label>{t.priceLabel}<div class="currency-choice"><button class:chosen={createCurrency==='TON'} onclick={()=>createCurrency='TON'}>TON</button><button class:chosen={createCurrency==='XTR'} onclick={()=>createCurrency='XTR'}>⭐ Telegram Stars</button></div><input class="form-input" type="number" min="0" step="0.01" bind:value={createPrice} placeholder={createCurrency==='TON'?'1.25':'100'}/></label>
         <label>{t.noteLabel}<textarea class="form-input note-input" bind:value={createNote} placeholder="..."></textarea></label>
         <button class="publish-button" onclick={createOrder}>{t.publish} <span>→</span></button>
         <p class="safety-note">ⓘ {t.createHint}</p>
-      </div><div class="create-aside"><div class="aside-icon">✳</div><div class="eyebrow">GIFT RADAR</div><h2>Make your next move visible.</h2><p>Созданные записи сохраняются только в этом браузере и нужны для демонстрации интерфейса.</p><div class="aside-stats"><div><strong>{orders.length}</strong><span>DEMO ORDERS</span></div><div><strong>{favorites.length}</strong><span>SAVED GIFTS</span></div></div></div></section>
+      </div><div class="create-aside"><div class="aside-icon">✳</div><div class="eyebrow">GIFT RADAR</div><h2>Make your next move visible.</h2><p>Заявки хранятся на сервере и видны другим пользователям. TON и Stars — только обозначения тестовых цен.</p><div class="aside-stats"><div><strong>{orders.length}</strong><span>DEMO ORDERS</span></div><div><strong>{favorites.length}</strong><span>SAVED GIFTS</span></div></div></div></section>
     {:else if view==='favorites'}
       <section class="page-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{t.favoritesTitle}</h1><p>{favorites.length} saved items</p></section>
       {#if shownGifts.length}<div class="gift-grid">{#each shownGifts as gift (keyOf(gift))}<article class="gift-card"><button class="gift-visual" onclick={()=>selected=gift}><GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/></button><div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'}</div><div class="gift-card-bottom"><strong>{fmt(gift.price,gift.currency||'TON')}</strong><button class="heart-button hearted" onclick={()=>toggleFavorite(gift)}>♥</button></div></div></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='market'}>{t.market}</button></div>{/if}
     {:else}
       <section class="page-heading"><div class="eyebrow">ACCOUNT CENTER</div><h1>{t.profile}</h1><p>{t.profileText}</p></section>
-      <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p></div><button class="publish-button" onclick={telegramLogin}>{t.signIn} →</button></article><article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>Wallet connection disabled</strong><small>Demo profile · no assets stored</small></div><b>DEMO</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>Portals catalogue · RU / EN · local demo history</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article></section>
+      <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p></div><button class="publish-button" onclick={telegramLogin}>{t.signIn} →</button></article><article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>Wallet connection disabled</strong><small>Demo profile · no assets stored</small></div><b>DEMO</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>Portals catalogue · TON / Stars demo labels · RU / EN</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article></section>
     {/if}
 
     {#if notice}<div class="toast" role="status">{notice}<button onclick={()=>notice=''}>×</button></div>{/if}
