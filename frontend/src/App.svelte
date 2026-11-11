@@ -24,6 +24,11 @@
     active_listings: number; active_buy_requests: number; matched_orders: number;
     volume_ton: number; volume_stars: number; total_orders: number;
   };
+  type ApiStatus = {
+    sources?: Record<string, string>;
+    data_pipeline?: { refresh_interval_seconds?: number };
+    note?: string;
+  };
   type View = 'market' | 'orders' | 'create' | 'favorites' | 'profile';
 
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://nft-gift-scanner-production.up.railway.app').replace(/\/$/, '');
@@ -45,6 +50,10 @@
   let offerNote = $state('');
   let offersBusy = $state(false);
   let marketplaceStats = $state<MarketplaceStats>({active_listings:0,active_buy_requests:0,matched_orders:0,volume_ton:0,volume_stars:0,total_orders:0});
+  let apiStatus = $state<ApiStatus | null>(null);
+  let statusCheckedAt = $state<number | null>(null);
+  let statusBusy = $state(false);
+  let statusError = $state(false);
   let search = $state('');
   let minPrice = $state('');
   let maxPrice = $state('');
@@ -94,6 +103,7 @@
     favoritesTitle: 'Избранные подарки', noFavorites: 'Добавьте подарки в избранное из каталога.',
     save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Демо-запись добавлена.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Демо-оборот', statsVolumeHint: 'Только смоделированные записи', statsCatalog: 'Подарков в каталоге', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'Каталог Portals', refresh: 'Обновить', all: 'Все',
+    sourceStatusTitle: 'СОСТОЯНИЕ ИСТОЧНИКОВ', sourceStatusSubtitle: 'Что подключено к приложению', sourcePortals: 'Каталог объявлений', sourceChanges: 'Изменения подарков', sourceDailyFloors: 'История floor-цен', sourceStatusChecked: 'Проверено', sourceStatusChecking: 'Проверяем статус…', sourceStatusUnavailable: 'Не удалось получить статус API.', sourceRefreshInterval: 'Интервал фонового обновления', sourceConfigured: 'Настроен · только чтение', sourceNeedsKey: 'Требуется API-ключ', sourcePublic: 'Публичный источник', sourceDaily: 'Публичная ежедневная история', sourceUnknown: 'Нет данных',
   };
   const en = {
     market: 'Market', orders: 'Activity', create: 'Create', favorites: 'Favorites', profile: 'Profile', readonly: 'READ ONLY', catalogOnly: 'Live Portals listings. Browse and search are available; trade execution is not enabled in GIFT RADAR.',
@@ -115,6 +125,7 @@
     favoritesTitle: 'Saved gifts', noFavorites: 'Save gifts from the catalogue to see them here.',
     save: 'Save', saved: 'Saved', currency: 'TON', success: 'Demo entry created.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Demo volume', statsVolumeHint: 'Simulated entries only', statsCatalog: 'Catalogue gifts', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'Portals catalogue', refresh: 'Refresh', all: 'All',
+    sourceStatusTitle: 'SOURCE STATUS', sourceStatusSubtitle: 'Connected data sources', sourcePortals: 'Marketplace catalogue', sourceChanges: 'Gift metadata changes', sourceDailyFloors: 'Floor price history', sourceStatusChecked: 'Checked', sourceStatusChecking: 'Checking status…', sourceStatusUnavailable: 'Could not load API status.', sourceRefreshInterval: 'Background refresh interval', sourceConfigured: 'Configured · read-only', sourceNeedsKey: 'API key required', sourcePublic: 'Public source', sourceDaily: 'Public daily history', sourceUnknown: 'No data',
   };
   const t = $derived(lang === 'ru' ? ru : en);
   const keyOf = (g: Gift) => String(g.id ?? g.number ?? g.name ?? 'gift');
@@ -124,6 +135,18 @@
   const demoVolumeTon = $derived(marketplaceStats.volume_ton);
   const demoVolumeStars = $derived(marketplaceStats.volume_stars);
   const fmt = (value: unknown, currency = '') => value === null || value === undefined || value === '' ? '—' : String(value) + (currency ? ' ' + currency : '');
+
+  function sourceStatusText(value?: string) {
+    if (value === 'configured_read_only') return t.sourceConfigured;
+    if (value === 'needs_api_key') return t.sourceNeedsKey;
+    if (value === 'public_read_only') return t.sourcePublic;
+    if (value === 'public_daily_read_only') return t.sourceDaily;
+    return t.sourceUnknown;
+  }
+
+  function sourceStatusClass(value?: string) {
+    return value && value !== 'needs_api_key' ? 'is-available' : 'is-pending';
+  }
 
   const authHeaders = (): Record<string, string> => {
     const initData = window.Telegram?.WebApp?.initData || '';
@@ -253,6 +276,20 @@
       await Promise.all([loadOffersAndDeals(), loadMarketplace()]);
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
+  async function loadApiStatus() {
+    if (statusBusy) return;
+    statusBusy = true;
+    try {
+      apiStatus = await request('/api/status');
+      statusError = false;
+      statusCheckedAt = Date.now();
+    } catch {
+      statusError = true;
+    } finally {
+      statusBusy = false;
+    }
+  }
+
   async function loadCollections() {
     try {
       const data = await request('/api/collections');
@@ -468,6 +505,7 @@
     void loadCatalogue();
     void loadCollections();
     void loadMarketplace();
+    void loadApiStatus();
     if (window.Telegram?.WebApp?.initData) void telegramLogin(false);
   });
 </script>
@@ -526,6 +564,27 @@
         </section>
       {/if}
       <section class="market-stats" aria-label="Catalogue overview"><article><span>▦</span><div><strong>{total.toLocaleString()}</strong><small>{t.statsCatalog}</small></div></article><p>{t.catalogOnly}</p></section>
+      <section class="source-status-panel" aria-label={t.sourceStatusTitle}>
+        <div class="source-status-heading">
+          <div><div class="eyebrow">{t.sourceStatusTitle}</div><h2>{t.sourceStatusSubtitle}</h2></div>
+          <div class="source-status-actions">
+            {#if statusCheckedAt}<span>{t.sourceStatusChecked} {new Date(statusCheckedAt).toLocaleTimeString(lang==='ru'?'ru-RU':'en-US')}</span>{/if}
+            <button class="refresh-button" onclick={loadApiStatus} disabled={statusBusy}>{statusBusy?'…':t.refresh}</button>
+          </div>
+        </div>
+        {#if apiStatus?.sources}
+          <div class="source-status-grid">
+            <article class="source-status-item"><div><strong>{t.sourcePortals}</strong><span class={'source-status-dot '+sourceStatusClass(apiStatus.sources.portals)}></span></div><small>Portals</small><b>{sourceStatusText(apiStatus.sources.portals)}</b></article>
+            <article class="source-status-item"><div><strong>{t.sourceChanges}</strong><span class={'source-status-dot '+sourceStatusClass(apiStatus.sources.gift_changes)}></span></div><small>Gift Changes API</small><b>{sourceStatusText(apiStatus.sources.gift_changes)}</b></article>
+            <article class="source-status-item"><div><strong>{t.sourceDailyFloors}</strong><span class={'source-status-dot '+sourceStatusClass(apiStatus.sources.tg_gifts_daily)}></span></div><small>TG Gifts</small><b>{sourceStatusText(apiStatus.sources.tg_gifts_daily)}</b></article>
+          </div>
+          {#if apiStatus.data_pipeline?.refresh_interval_seconds}<p class="source-status-footnote">{t.sourceRefreshInterval}: {apiStatus.data_pipeline.refresh_interval_seconds}s</p>{/if}
+        {:else if statusError}
+          <p class="source-status-message">{t.sourceStatusUnavailable}</p>
+        {:else}
+          <p class="source-status-message">{t.sourceStatusChecking}</p>
+        {/if}
+      </section>
       <section class="market-section" id="catalogue">
         <div class="section-title"><div><div class="eyebrow">{t.discoverLabel}</div><h2>{t.listings}</h2><p>{total.toLocaleString()} {t.results}</p></div><button class="refresh-button" onclick={()=>loadCatalogue()} disabled={busy}>↻ {t.refresh}</button></div>
         <div class="filter-bar">
