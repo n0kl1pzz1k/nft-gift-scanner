@@ -779,12 +779,37 @@ async def gift_reference_changes(limit: int = Query(default=25, ge=1, le=100),
 
 
 @app.get("/api/reference/daily-floors")
-async def reference_daily_floors():
-    """Public daily historical collection floors with required CC BY 4.0 attribution."""
+async def reference_daily_floors(full: bool = Query(default=False)):
+    """Daily historical floors; summary by default, full upstream dataset on explicit request."""
     payload = await _fetch_reference_json("tg_gifts_daily_floors", TG_GIFTS_DAILY_URL,
                                           cache_seconds=3600)
+    collections_data = payload.get("collections", {}) if isinstance(payload, dict) else {}
+    if not isinstance(collections_data, dict):
+        collections_data = {}
+    latest_dates: list[str] = []
+    observation_count = 0
+    for collection in collections_data.values():
+        if not isinstance(collection, dict):
+            continue
+        for field in ("days", "timed_sale_days"):
+            points = collection.get(field, [])
+            if isinstance(points, list):
+                observation_count += len(points)
+                latest_dates.extend(str(point[0]) for point in points
+                                    if isinstance(point, (list, tuple)) and point)
+    timed = payload.get("timed_sale_collections", {}) if isinstance(payload, dict) else {}
+    timed_items = timed.get("items", []) if isinstance(timed, dict) else []
+    summary = {
+        "generated": payload.get("generated") if isinstance(payload, dict) else None,
+        "collection_count": len(collections_data),
+        "observation_count": observation_count,
+        "latest_snapshot_date": max(latest_dates) if latest_dates else None,
+        "timed_sale_collection_count": len(timed_items) if isinstance(timed_items, list) else 0,
+    }
     return {
-        "data": payload, "source": "TG Gifts", "source_url": "https://tggifts.com/data",
+        "data": payload if full else summary,
+        "full_dataset_available": True,
+        "source": "TG Gifts", "source_url": "https://tggifts.com/data",
         "attribution": "Data: TG Gifts (tggifts.com)", "license": "CC BY 4.0",
         "updated_at": int(time.time()),
         "note": "Daily historical snapshots, not live marketplace listings or a real-time floor.",
