@@ -62,7 +62,7 @@ def init_demo_offers_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_demo_offers_status ON demo_offers(status, created_at DESC);
         CREATE TABLE IF NOT EXISTS demo_deals (
             id TEXT PRIMARY KEY,
-            order_id TEXT NOT NULL UNIQUE,
+            order_id TEXT NOT NULL,
             offer_id TEXT NOT NULL UNIQUE,
             listing_owner_id TEXT NOT NULL,
             offer_sender_id TEXT NOT NULL,
@@ -74,6 +74,9 @@ def init_demo_offers_db() -> None:
             FOREIGN KEY(order_id) REFERENCES demo_orders(id),
             FOREIGN KEY(offer_id) REFERENCES demo_offers(id)
         );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_demo_deals_one_open_reservation
+            ON demo_deals(order_id)
+            WHERE status NOT IN ('cancelled', 'expired');
         CREATE TABLE IF NOT EXISTS demo_deal_events (
             id TEXT PRIMARY KEY,
             deal_id TEXT NOT NULL,
@@ -96,6 +99,30 @@ def init_demo_offers_db() -> None:
         BEFORE DELETE ON demo_deal_events
         BEGIN
             SELECT RAISE(ABORT, 'deal events are immutable');
+        END;
+        CREATE TABLE IF NOT EXISTS demo_deal_lifecycle_events (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            id TEXT NOT NULL UNIQUE,
+            deal_id TEXT NOT NULL,
+            order_id TEXT NOT NULL,
+            actor_user_id TEXT NOT NULL,
+            event_type TEXT NOT NULL CHECK(event_type IN ('deal_cancelled')),
+            event_data TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY(deal_id) REFERENCES demo_deals(id),
+            FOREIGN KEY(order_id) REFERENCES demo_orders(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_demo_deal_lifecycle_events_deal
+            ON demo_deal_lifecycle_events(deal_id, sequence ASC);
+        CREATE TRIGGER IF NOT EXISTS trg_demo_deal_lifecycle_events_no_update
+        BEFORE UPDATE ON demo_deal_lifecycle_events
+        BEGIN
+            SELECT RAISE(ABORT, 'deal lifecycle events are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_demo_deal_lifecycle_events_no_delete
+        BEFORE DELETE ON demo_deal_lifecycle_events
+        BEGIN
+            SELECT RAISE(ABORT, 'deal lifecycle events are immutable');
         END;
         CREATE TABLE IF NOT EXISTS demo_notifications (
             id TEXT PRIMARY KEY,
@@ -152,6 +179,66 @@ def init_demo_offers_db() -> None:
             UPDATE demo_offers SET status='declined', updated_at=NEW.updated_at
             WHERE order_id=NEW.id AND status='pending';
         END;
+        """)
+        # Older releases enforced one deal per order forever. Rebuild that table
+        # so cancelled/expired history remains intact while a fresh reservation can be made.
+        unique_order_index = False
+        for index in conn.execute("PRAGMA index_list(demo_deals)").fetchall():
+            if index["unique"]:
+                columns = [row["name"] for row in conn.execute(
+                    f"PRAGMA index_info('{index['name']}')"
+                ).fetchall()]
+                if columns == ["order_id"]:
+                    unique_order_index = True
+                    break
+        if unique_order_index:
+            conn.execute("PRAGMA foreign_keys = OFF")
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute("""
+                    CREATE TABLE demo_deals_new (
+                        id TEXT PRIMARY KEY,
+                        order_id TEXT NOT NULL,
+                        offer_id TEXT NOT NULL UNIQUE,
+                        listing_owner_id TEXT NOT NULL,
+                        offer_sender_id TEXT NOT NULL,
+                        agreed_amount TEXT NOT NULL,
+                        currency TEXT NOT NULL CHECK(currency IN ('TON', 'XTR')),
+                        created_at INTEGER NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'payment_not_enabled'
+                            CHECK(status IN ('payment_not_enabled', 'awaiting_payment',
+                                             'payment_pending', 'paid', 'delivery_pending',
+                                             'completed', 'disputed', 'cancelled', 'expired')),
+                        FOREIGN KEY(order_id) REFERENCES demo_orders(id),
+                        FOREIGN KEY(offer_id) REFERENCES demo_offers(id)
+                    )
+                """)
+                conn.execute("""
+                    INSERT INTO demo_deals_new
+                    (id, order_id, offer_id, listing_owner_id, offer_sender_id,
+                     agreed_amount, currency, created_at, status)
+                    SELECT id, order_id, offer_id, listing_owner_id, offer_sender_id,
+                           agreed_amount, currency, created_at, status
+                    FROM demo_deals
+                """)
+                conn.execute("DROP TABLE demo_deals")
+                conn.execute("ALTER TABLE demo_deals_new RENAME TO demo_deals")
+                conn.execute("""
+                    CREATE UNIQUE INDEX idx_demo_deals_one_open_reservation
+                    ON demo_deals(order_id)
+                    WHERE status NOT IN ('cancelled', 'expired')
+                """)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.execute("PRAGMA foreign_keys = ON")
+        # Recreate the partial index on databases created before the partial reservation guard.
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_demo_deals_one_open_reservation
+            ON demo_deals(order_id)
+            WHERE status NOT IN ('cancelled', 'expired')
         """)
         # Forward-compatible migration for databases created before deal lifecycle state.
         deal_columns = {row["name"] for row in conn.execute("PRAGMA table_info(demo_deals)").fetchall()}
@@ -210,6 +297,10 @@ class CreateOffer(BaseModel):
 
 class OfferAction(BaseModel):
     action: Literal["accept", "decline", "withdraw"]
+
+
+class DealAction(BaseModel):
+    action: Literal["cancel"]
 
 
 def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) -> APIRouter:
@@ -363,6 +454,67 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         return {"item": _offer_dict(updated, actor_id), "simulation_only": True,
                 "deal_created": action == "accept"}
 
+    @router.post("/deals/{deal_id}/actions")
+    async def act_on_deal(
+        deal_id: str,
+        payload: DealAction,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Allow participants to release an unpaid demo reservation atomically."""
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        actor_id = str(user["id"])
+        _enforce_user_rate_limit(actor_id, "deal_action", 10)
+        now = int(time.time())
+        with _db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            deal = conn.execute(
+                """SELECT d.*, o.status AS order_status
+                   FROM demo_deals d JOIN demo_orders o ON o.id = d.order_id
+                   WHERE d.id = ?""",
+                (deal_id,),
+            ).fetchone()
+            if deal is None or actor_id not in (deal["listing_owner_id"], deal["offer_sender_id"]):
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Deal not found")
+            if deal["status"] == "cancelled":
+                conn.commit()
+                return {"deal_id": deal_id, "status": "cancelled", "already_cancelled": True,
+                        "payments_enabled": False, "simulation_only": True}
+            if deal["status"] != "payment_not_enabled":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Only unpaid demo reservations can be cancelled")
+            if deal["order_status"] != "matched":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="The reserved order is no longer in a cancellable state")
+            changed = conn.execute(
+                """UPDATE demo_deals SET status='cancelled'
+                   WHERE id=? AND status='payment_not_enabled'""",
+                (deal_id,),
+            )
+            if changed.rowcount != 1:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Deal state changed; refresh and try again")
+            released = conn.execute(
+                """UPDATE demo_orders SET status='active', updated_at=?
+                   WHERE id=? AND status='matched'""",
+                (now, deal["order_id"]),
+            )
+            if released.rowcount != 1:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Reservation could not be released safely")
+            conn.execute(
+                """INSERT INTO demo_deal_lifecycle_events
+                   (id, deal_id, order_id, actor_user_id, event_type, event_data, created_at)
+                   VALUES (?, ?, ?, ?, 'deal_cancelled', ?, ?)""",
+                ("dl-" + uuid.uuid4().hex[:20], deal_id, deal["order_id"], actor_id,
+                 json.dumps({"reason": "participant_cancelled_unpaid_reservation",
+                             "reservation_released": True, "simulation_only": True},
+                            separators=(",", ":")), now),
+            )
+            conn.commit()
+        return {"deal_id": deal_id, "status": "cancelled", "reservation_released": True,
+                "payments_enabled": False, "simulation_only": True}
+
     @router.get("/deals/{deal_id}/events")
     async def list_deal_events(
         deal_id: str,
@@ -381,10 +533,18 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             if user_id not in (deal["listing_owner_id"], deal["offer_sender_id"]):
                 raise HTTPException(status_code=404, detail="Deal not found")
             rows = conn.execute(
-                """SELECT id, event_type, actor_user_id, event_data, created_at
-                   FROM demo_deal_events WHERE deal_id = ?
-                   ORDER BY rowid ASC""",
-                (deal_id,),
+                """SELECT id, event_type, actor_user_id, event_data, created_at, sequence
+                   FROM (
+                       SELECT id, event_type, actor_user_id, event_data, created_at,
+                              rowid AS sequence
+                       FROM demo_deal_events WHERE deal_id = ?
+                       UNION ALL
+                       SELECT id, event_type, actor_user_id, event_data, created_at,
+                              1000000000 + sequence AS sequence
+                       FROM demo_deal_lifecycle_events WHERE deal_id = ?
+                   )
+                   ORDER BY created_at ASC, sequence ASC""",
+                (deal_id, deal_id),
             ).fetchall()
         return {"items": [{
             "id": row["id"],

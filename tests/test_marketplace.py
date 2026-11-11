@@ -1075,6 +1075,112 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertTrue(buyer_deal["simulation_only"])
 
 
+    def test_participant_can_cancel_unpaid_deal_and_release_listing_atomically(self):
+        owner = {"X-Telegram-Init-Data": "user-a"}
+        buyer = {"X-Telegram-Init-Data": "user-b"}
+        outsider = {"X-Telegram-Init-Data": "user-c"}
+        order = self.client.post(
+            "/api/marketplace/orders", headers=owner,
+            json={"kind": "listing", "title": "Releaseable Gift", "price": "3", "currency": "TON"},
+        )
+        order_id = order.json()["item"]["id"]
+        offer = self.client.post(
+            "/api/marketplace/offers", headers=buyer,
+            json={"order_id": order_id, "amount": "2.8"},
+        )
+        offer_id = offer.json()["item"]["id"]
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer_id}", headers=owner,
+            json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200)
+        deal_id = self.client.get("/api/marketplace/deals", headers=buyer).json()["items"][0]["id"]
+
+        forbidden = self.client.post(
+            f"/api/marketplace/deals/{deal_id}/actions", headers=outsider,
+            json={"action": "cancel"},
+        )
+        self.assertEqual(forbidden.status_code, 404)
+
+        cancelled = self.client.post(
+            f"/api/marketplace/deals/{deal_id}/actions", headers=buyer,
+            json={"action": "cancel"},
+        )
+        self.assertEqual(cancelled.status_code, 200)
+        self.assertEqual(cancelled.json()["status"], "cancelled")
+        self.assertTrue(cancelled.json()["reservation_released"])
+        self.assertFalse(cancelled.json()["payments_enabled"])
+
+        active = self.client.get("/api/marketplace/orders?status=active")
+        self.assertTrue(any(item["id"] == order_id for item in active.json()["items"]))
+        deals = self.client.get("/api/marketplace/deals", headers=owner)
+        deal = next(item for item in deals.json()["items"] if item["id"] == deal_id)
+        self.assertEqual(deal["status"], "cancelled")
+
+        history = self.client.get(
+            f"/api/marketplace/deals/{deal_id}/events", headers=owner,
+        )
+        self.assertEqual(history.status_code, 200)
+        self.assertEqual(
+            [item["type"] for item in history.json()["items"]],
+            ["deal_created", "listing_reserved", "payment_not_enabled", "deal_cancelled"],
+        )
+        self.assertTrue(history.json()["items"][-1]["data"]["reservation_released"])
+
+        repeated = self.client.post(
+            f"/api/marketplace/deals/{deal_id}/actions", headers=owner,
+            json={"action": "cancel"},
+        )
+        self.assertEqual(repeated.status_code, 200)
+        self.assertTrue(repeated.json()["already_cancelled"])
+        history_again = self.client.get(
+            f"/api/marketplace/deals/{deal_id}/events", headers=owner,
+        )
+        self.assertEqual(len(history_again.json()["items"]), 4)
+
+        # A cancelled reservation must not permanently consume the order's unique deal slot.
+        second_offer = self.client.post(
+            "/api/marketplace/offers", headers=outsider,
+            json={"order_id": order_id, "amount": "2.7"},
+        )
+        self.assertEqual(second_offer.status_code, 201)
+        second_accept = self.client.patch(
+            f"/api/marketplace/offers/{second_offer.json()['item']['id']}",
+            headers=owner, json={"action": "accept"},
+        )
+        self.assertEqual(second_accept.status_code, 200)
+        all_deals = self.client.get("/api/marketplace/deals", headers=owner).json()["items"]
+        self.assertEqual(len([item for item in all_deals if item["order_id"] == order_id]), 2)
+        self.assertEqual(
+            next(item for item in all_deals if item["id"] == deal_id)["status"],
+            "cancelled",
+        )
+
+    def test_cannot_cancel_deal_when_payment_state_is_not_unpaid(self):
+        owner = {"X-Telegram-Init-Data": "user-a"}
+        buyer = {"X-Telegram-Init-Data": "user-b"}
+        order = self.client.post(
+            "/api/marketplace/orders", headers=owner,
+            json={"kind": "listing", "title": "Protected Gift", "price": "4", "currency": "TON"},
+        )
+        offer = self.client.post(
+            "/api/marketplace/offers", headers=buyer,
+            json={"order_id": order.json()["item"]["id"], "amount": "3.5"},
+        )
+        self.client.patch(
+            f"/api/marketplace/offers/{offer.json()['item']['id']}", headers=owner,
+            json={"action": "accept"},
+        )
+        deal_id = self.client.get("/api/marketplace/deals", headers=buyer).json()["items"][0]["id"]
+        with demo_offers._db() as conn:
+            conn.execute("UPDATE demo_deals SET status='paid' WHERE id=?", (deal_id,))
+        response = self.client.post(
+            f"/api/marketplace/deals/{deal_id}/actions", headers=buyer,
+            json={"action": "cancel"},
+        )
+        self.assertEqual(response.status_code, 409)
+
+
 class PortalsReadOnlyClientTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.token_patch = patch.dict(os.environ, {"PORTALS_API_KEY": "test-partner-key"})
