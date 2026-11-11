@@ -279,7 +279,8 @@
     if (!window.Telegram?.WebApp?.initData) { offers = []; deals = []; await loadAccountOverview(); return; }
     offersBusy = true;
     try {
-      const results = await Promise.all([request('/api/marketplace/offers?limit=100&offset=0'), request('/api/marketplace/deals?limit=100&offset=0'), loadAccountOverview()]);
+      const offerStatusQuery = offerStatusFilter === 'all' ? '' : '&status=' + encodeURIComponent(offerStatusFilter);
+      const results = await Promise.all([request('/api/marketplace/offers?limit=100&offset=0' + offerStatusQuery), request('/api/marketplace/deals?limit=100&offset=0'), loadAccountOverview()]);
       offers = Array.isArray(results[0].items) ? results[0].items : [];
       offersTotal = Number(results[0].total) || offers.length;
       deals = Array.isArray(results[1].items) ? results[1].items : [];
@@ -288,11 +289,18 @@
     finally { offersBusy = false; }
   }
 
+  async function changeOfferStatus(event: Event) {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    offerStatusFilter = value as typeof offerStatusFilter;
+    await loadOffersAndDeals();
+  }
+
   async function loadMoreOffers() {
     if (offersLoadingMore || offers.length >= offersTotal) return;
     offersLoadingMore = true;
     try {
-      const data = await request('/api/marketplace/offers?limit=100&offset=' + offers.length);
+      const offerStatusQuery = offerStatusFilter === 'all' ? '' : '&status=' + encodeURIComponent(offerStatusFilter);
+      const data = await request('/api/marketplace/offers?limit=100&offset=' + offers.length + offerStatusQuery);
       const next = Array.isArray(data.items) ? data.items as DemoOffer[] : [];
       const combined = new Map<string, DemoOffer>(offers.map(offer => [offer.id, offer] as const));
       for (const offer of next) combined.set(offer.id, offer);
@@ -785,7 +793,7 @@
                   {/if}{:else if order.status==='active' && signedIn}<div class="order-actions"><input class="form-input" type="number" min="0.01" step="0.01" bind:value={offerAmount} placeholder={t.offerAmount}/><button class="match-button" onclick={()=>createOffer(order.id)}>{t.sendOffer}</button></div>{/if}</article>{/each}</div>{#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}{/if}{/if}
       <section class="market-section account-offers">
         <div class="section-title"><div><div class="eyebrow">ACCOUNT ACTIVITY</div><h2>{t.offersTitle}</h2></div><button class="refresh-button" onclick={()=>loadOffersAndDeals()} disabled={offersBusy}>↻ {t.refresh}</button></div>
-        <label class="offer-filter-label">{t.offerStatusFilter}<select class="filter-input" bind:value={offerStatusFilter}><option value="all">{t.all}</option><option value="pending">{t.offerPending}</option><option value="accepted">{t.offerAccepted}</option><option value="declined">{t.offerDeclined}</option><option value="withdrawn">{t.offerWithdrawn}</option></select></label>
+        <label class="offer-filter-label">{t.offerStatusFilter}<select class="filter-input" value={offerStatusFilter} onchange={changeOfferStatus}><option value="all">{t.all}</option><option value="pending">{t.offerPending}</option><option value="accepted">{t.offerAccepted}</option><option value="declined">{t.offerDeclined}</option><option value="withdrawn">{t.offerWithdrawn}</option></select></label>
         {#if offersBusy}<div class="state-panel">{t.loading}</div>{:else if offers.length===0}<div class="state-panel">{t.noOffers}</div>{:else if visibleOffers.length===0}<div class="state-panel">{lang==='ru'?'Нет офферов с таким статусом.':'No offers with this status.'}</div>{:else}
           <div class="orders-list">{#each visibleOffers as offer (offer.id)}
             <article class="order-card"><div class="order-icon">↗</div><div class="order-main"><div class="order-kind">{offer.is_mine?t.outgoing:t.incoming} · {offer.order_title}</div><h3>{offer.amount} {offer.currency==='XTR'?'⭐ Stars':'TON'}</h3><p>{offer.note || offer.sender_name} · {new Date(offer.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p></div><div class="order-price"><span class={'status-'+(offer.status==='pending'?'active':offer.status==='accepted'?'matched':'cancelled')}>{offerStatusLabel(offer.status)}</span></div>
