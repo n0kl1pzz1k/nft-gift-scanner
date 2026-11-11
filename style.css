@@ -218,3 +218,11 @@ footer{margin-top:32px;padding-top:15px}
 }
 @media(max-width:390px){.collections{grid-template-columns:1fr}.collection-card{display:grid;grid-template-columns:95px 1fr}.collection-card img,.collection-card .placeholder{width:95px;height:100%;min-height:112px}.collection-card .card-info{padding:9px}.topbar-context{max-width:75%;overflow:hidden;white-space:nowrap}}
 @media(prefers-reduced-motion:reduce){.collection-card,.gift-card,.nav-item{transition:none!important}}
+
+
+/* Hide the legacy connection-status strip and panel; keep source diagnostics in Profile only. */
+#api-status,
+.topbar-divider,
+.status-panel {
+  display: none !important;
+}
