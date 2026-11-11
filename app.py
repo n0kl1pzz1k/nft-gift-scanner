@@ -36,6 +36,13 @@ CACHE_SECONDS = 60
 # upstream marketplaces are queried at a controlled cadence, not on every tap.
 _gifts_cache: dict[str, tuple[float, Any]] = {}
 GIFTS_CACHE_SECONDS = 60
+
+
+def _safe_total_count(reported_total: Any, item_count: int) -> int:
+    try:
+        return max(item_count, int(reported_total or 0))
+    except (TypeError, ValueError):
+        return item_count
 _request_lock = asyncio.Lock()
 _last_request_at = 0.0
 _refresh_task: asyncio.Task | None = None
@@ -424,7 +431,7 @@ async def gifts(
 
     result = {
         "items": items,
-        "total_count": payload.get("total_count", len(items)),
+        "total_count": _safe_total_count(payload.get("total_count"), len(items)),
         "connected": True,
         "sources": {**source_status(), "portals": "online_read_only"},
         "updated_at": int(time.time()),
