@@ -17,6 +17,8 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("/api/gifts", paths)
         self.assertIn("/api/tonnel/gifts", paths)
         self.assertIn("/api/mrkt/gifts", paths)
+        self.assertIn("/api/reference/gift-changes", paths)
+        self.assertIn("/api/reference/daily-floors", paths)
         self.assertIn("/api/auth/telegram", paths)
 
     def test_swift_normalizer_discards_transaction_payload(self):
