@@ -422,7 +422,7 @@ let nftSavedItems=[];
 let nftCurrentModal=null;
 let nftModalReturnFocus=null;
 try{nftSavedItems=JSON.parse(localStorage.getItem(NFT_FAVORITES_KEY)||"[]");if(!Array.isArray(nftSavedItems))nftSavedItems=[];}catch(e){nftSavedItems=[];}
-function nftKey(g){return String(g&&g.id!=null?g.id:[g&&g.source,g&&g.collection_id,g&&g.name,g&&g.number].join("|"));}
+function nftKey(g){return String(g&&g.id!=null?[g.source||"unknown",g.id].join("|"):[g&&g.source,g&&g.collection_id,g&&g.name,g&&g.number].join("|"));}
 function nftIsSaved(g){return nftSavedItems.some(x=>nftKey(x)===nftKey(g));}
 function nftSave(){try{localStorage.setItem(NFT_FAVORITES_KEY,JSON.stringify(nftSavedItems));}catch(e){}}
 function nftUpdateCounts(){const n=String(nftSavedItems.length);["nav-favorite-count","favorites-count"].forEach(id=>{if($(id))$(id).textContent=n;});}
@@ -508,9 +508,11 @@ const nftOriginalRenderGifts=renderGifts;
 renderGifts=function(data){
  nftOriginalRenderGifts(data);
  if($("gift-search-button"))$("gift-search-button").onclick=searchGifts;
- if(activeMarket==="portals"){
+ if(activeMarket==="portals"||activeMarket==="tonnel"){
   const cards=document.querySelectorAll("#gift-grid .gift-card");
   cards.forEach((card,i)=>{if(card.querySelector("[data-nft-heart]"))return;const g=giftItems[i];if(!g)return;const b=document.createElement("button");b.type="button";b.className="favorite-toggle"+(nftIsSaved(g)?" is-saved":"");b.dataset.nftHeart=String(i);b.setAttribute("aria-label",nftIsSaved(g)?"Saved":"Save");b.textContent=nftIsSaved(g)?"♥":"♡";card.appendChild(b);});
+ }
+ if(activeMarket==="portals"){
   if(!selectedCollection)nftEnsureGlobalFilters();
   nftEnsureGlobalMore();
  }
