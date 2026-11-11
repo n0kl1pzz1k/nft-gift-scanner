@@ -54,7 +54,9 @@ def upsert_catalogue_items(items: list[dict[str, Any]]) -> int:
             raw_id = item.get("id")
             if raw_id is None or not str(raw_id).strip():
                 continue
-            gift_id = str(raw_id).strip()[:160]
+            gift_id = str(raw_id).strip()
+            if len(gift_id) > 160:
+                continue
             encoded = json.dumps(item, ensure_ascii=False, separators=(",", ":"))
             if len(encoded.encode("utf-8")) > 32000:
                 continue
@@ -80,8 +82,8 @@ def upsert_catalogue_items(items: list[dict[str, Any]]) -> int:
 
 def get_catalogue_item(gift_id: str) -> dict[str, Any] | None:
     _ensure_table()
-    safe_id = str(gift_id or "").strip()[:160]
-    if not safe_id:
+    safe_id = str(gift_id or "").strip()
+    if not safe_id or len(safe_id) > 160:
         return None
     with _db() as conn:
         row = conn.execute(
@@ -156,7 +158,7 @@ def get_catalogue_history(gift_id: str, limit: int = 20) -> list[dict[str, Any]]
     _ensure_table()
     safe_id = str(gift_id or "").strip()[:160]
     safe_limit = min(max(int(limit), 1), 50)
-    if not safe_id:
+    if not safe_id or len(safe_id) > 160:
         return []
     with _db() as conn:
         rows = conn.execute(
