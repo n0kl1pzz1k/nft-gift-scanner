@@ -487,6 +487,21 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 UNION ALL
 
                 SELECT
+                    'revision-' || r.id AS id,
+                    'order_updated' AS type,
+                    o.id AS order_id,
+                    o.title AS title,
+                    CASE WHEN r.actor_user_id = ? THEN 'You' ELSE o.owner_name END AS actor_name,
+                    r.created_at AS created_at,
+                    o.price AS amount,
+                    o.currency AS currency
+                FROM demo_order_revisions r
+                JOIN demo_orders o ON o.id = r.order_id
+                WHERE o.user_id = ? OR r.actor_user_id = ?
+
+                UNION ALL
+
+                SELECT
                     'deal-' || d.id AS id,
                     'demo_deal_created' AS type,
                     d.order_id AS order_id,
@@ -508,13 +523,16 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                      id DESC
             LIMIT ? OFFSET ?
         """
-        params = (user_id, user_id, user_id, user_id, user_id, user_id, user_id, limit, offset)
+        params = (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, limit, offset)
         count_query = """
             WITH activity AS (
                 SELECT e.id FROM demo_order_events e JOIN demo_orders o ON o.id=e.order_id
                 WHERE o.user_id=? OR e.actor_user_id=?
                 UNION ALL
                 SELECT n.id FROM demo_notifications n WHERE n.user_id=?
+                UNION ALL
+                SELECT r.id FROM demo_order_revisions r JOIN demo_orders o ON o.id=r.order_id
+                WHERE o.user_id=? OR r.actor_user_id=?
                 UNION ALL
                 SELECT d.id FROM demo_deals d WHERE d.listing_owner_id=? OR d.offer_sender_id=?
             )
@@ -523,7 +541,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         with _db() as conn:
             rows = conn.execute(query, params).fetchall()
             total = conn.execute(
-                count_query, (user_id, user_id, user_id, user_id, user_id)
+                count_query, (user_id, user_id, user_id, user_id, user_id, user_id, user_id)
             ).fetchone()[0]
         return {
             "items": [{

@@ -5,6 +5,7 @@ No wallet, payment, blockchain or transfer operations are performed.
 """
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import time
@@ -91,6 +92,16 @@ def init_marketplace_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_demo_order_events_order
             ON demo_order_events(order_id, created_at DESC);
+        CREATE TABLE IF NOT EXISTS demo_order_revisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id TEXT NOT NULL,
+            actor_user_id TEXT NOT NULL,
+            changed_fields TEXT NOT NULL DEFAULT '[]',
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY(order_id) REFERENCES demo_orders(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_demo_order_revisions_order
+            ON demo_order_revisions(order_id, created_at DESC);
         CREATE TABLE IF NOT EXISTS api_rate_limits (
             user_id TEXT NOT NULL,
             action TEXT NOT NULL,
@@ -465,6 +476,10 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
                 values,
             )
             updated = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (order_id,)).fetchone()
+            conn.execute(
+                "INSERT INTO demo_order_revisions(order_id, actor_user_id, changed_fields, created_at) VALUES (?, ?, ?, ?)",
+                (order_id, actor_id, json.dumps(sorted(changes.keys()), separators=(",", ":")), now),
+            )
             conn.commit()
         return {"item": _order_dict(updated, actor_id)}
 
@@ -549,8 +564,14 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
                     "SELECT event_type, created_at FROM demo_order_events WHERE order_id = ? ORDER BY created_at ASC, id ASC",
                     (row["id"],),
                 ).fetchall()
+                revisions = conn.execute(
+                    "SELECT created_at FROM demo_order_revisions WHERE order_id = ? ORDER BY created_at ASC, id ASC",
+                    (row["id"],),
+                ).fetchall()
                 item = _order_dict(row, user_id)
-                item["events"] = [{"type": event["event_type"], "createdAt": event["created_at"]} for event in events]
+                timeline = [{"type": event["event_type"], "createdAt": event["created_at"]} for event in events]
+                timeline.extend({"type": "updated", "createdAt": revision["created_at"]} for revision in revisions)
+                item["events"] = sorted(timeline, key=lambda event: event["createdAt"])
                 result.append(item)
         return {"items": result}
 
