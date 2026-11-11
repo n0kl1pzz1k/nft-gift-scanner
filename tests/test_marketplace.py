@@ -1046,9 +1046,6 @@ class TelegramInitDataValidationTests(unittest.TestCase):
                 api._verify_telegram_init_data(self._signed_init_data(now + 120))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
     def test_session_list_and_single_session_logout(self):
         login = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
         token = login.json()["session_token"]
@@ -1091,6 +1088,10 @@ if __name__ == "__main__":
     def test_failed_telegram_webhook_update_can_be_retried(self):
         payload = {"update_id": 778, "message": {"text": "/start"}}
         self.assertEqual(marketplace.claim_telegram_update(778, payload), "claimed")
+
+
+if __name__ == "__main__":
+    unittest.main()
         marketplace.release_telegram_update(778)
         self.assertEqual(marketplace.claim_telegram_update(778, payload), "claimed")
 
