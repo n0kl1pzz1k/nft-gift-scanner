@@ -65,7 +65,7 @@ class MarketplaceSettingRequest(BaseModel):
 
 # Runtime controls are deliberately limited to read-only market visibility.
 # For durable configuration across deploys, set ADMIN_TELEGRAM_IDS in Railway.
-_marketplace_visibility = {"portals": True, "tonnel": True, "mrkt": True}
+_marketplace_visibility = {"portals": True}
 
 
 def _admin_ids() -> set[str]:
@@ -153,197 +153,9 @@ async def admin_set_marketplace(
 
 
 
-TONNEL_LISTINGS_URL = "https://gifts2.tonnel.network/api/pageGifts"
-_tonnel_cache: dict[str, tuple[float, Any]] = {}
-_TONNEL_CACHE_SECONDS = 60
-_tonnel_lock = asyncio.Lock()
-_tonnel_last_request_at = 0.0
-_tonnel_runtime_status = "public_endpoint_not_checked"
-
-
-
-SWIFTGIFTS_BASE = "https://partners.swiftgifts.tg"
-_swift_cache: dict[str, tuple[float, Any]] = {}
-_SWIFT_CACHE_SECONDS = 45
-_swift_lock = asyncio.Lock()
-_swift_last_request_at = 0.0
-
-
-def _swift_api_key() -> str:
-    return os.getenv("SWIFTGIFTS_API_KEY", "").strip()
-
-
-def _normalize_swift_item(item: dict, market: str) -> dict:
-    raw_attributes = item.get("attributes")
-    attributes = []
-    if isinstance(raw_attributes, dict):
-        for key, value in raw_attributes.items():
-            if isinstance(value, dict):
-                attributes.append({
-                    "type": str(key).title(),
-                    "value": value.get("value"),
-                    "rarity": value.get("rarity"),
-                })
-            elif value is not None:
-                attributes.append({"type": str(key).title(), "value": value})
-    elif isinstance(raw_attributes, list):
-        for value in raw_attributes:
-            if isinstance(value, dict):
-                attributes.append({
-                    "type": value.get("type") or value.get("name") or value.get("trait_type"),
-                    "value": value.get("value") or value.get("attribute_name"),
-                    "rarity": value.get("rarity"),
-                })
-    return {
-        "id": item.get("giftId") or item.get("id") or item.get("slug"),
-        "name": item.get("title") or item.get("name") or "Telegram Gift",
-        "number": item.get("number") or item.get("external_collection_number"),
-        "collection_id": item.get("collection") or item.get("collection_name"),
-        "image": item.get("photo_url") or item.get("source_image_url") or item.get("image"),
-        "animation_url": item.get("animation_url") or item.get("animationUrl"),
-        "has_animation": bool(item.get("has_animation") or item.get("hasAnimation") or item.get("animation_url") or item.get("animationUrl")),
-        "price": item.get("price") if item.get("price") is not None else item.get("totalPrice"),
-        "floor_price": None,
-        "attributes": attributes,
-        "status": item.get("status") or ("listed" if item.get("on_sale", True) else "unlisted"),
-        "listed_at": item.get("listed_at") or item.get("created_at"),
-        "source": "MRKT" if market == "mrkt" else "Tonnel",
-        "currency": "TON",
-        "provider": market,
-    }
-
-
-async def _fetch_swift_market_page(
-    market: str, page: int, limit: int, search: str | None
-) -> dict:
-    """Fetch normalized, read-only listing data from the Swift partner aggregator."""
-    global _swift_last_request_at
-    key = _swift_api_key()
-    if not key:
-        raise HTTPException(status_code=503, detail="Swift Gifts partner access is not configured")
-    if market not in {"mrkt", "tonnel"}:
-        raise HTTPException(status_code=400, detail="Unsupported marketplace")
-    cache_key = f"{market}:{page}:{limit}:{(search or '').strip().casefold()}"
-    cached = _swift_cache.get(cache_key)
-    if cached and time.monotonic() - cached[0] < _SWIFT_CACHE_SECONDS:
-        return cached[1]
-
-    body: dict[str, Any] = {
-        "market": [market],
-        # Zero deliberately prevents buyer-specific purchase payloads and transactions.
-        "receiver": 0,
-        "sort_by": "listed_at desc",
-    }
-    term = (search or "").strip()
-    if term:
-        if term.isdigit():
-            body["number"] = int(term)
-        else:
-            body["name"] = term
-
-    async with _swift_lock:
-        wait = 1.05 - (time.monotonic() - _swift_last_request_at)
-        if wait > 0:
-            await asyncio.sleep(wait)
-        try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                response = await client.post(
-                    f"{SWIFTGIFTS_BASE}/api/aggregator",
-                    params={"page": page, "limit": limit},
-                    json=body,
-                    headers={
-                        "Accept": "application/json",
-                        "Content-Type": "application/json",
-                        "X-API-KEY": key,
-                    },
-                )
-        except httpx.TimeoutException:
-            raise HTTPException(status_code=503, detail="Swift Gifts partner API timed out")
-        except httpx.HTTPError:
-            raise HTTPException(status_code=503, detail="Swift Gifts partner API is unreachable")
-        finally:
-            _swift_last_request_at = time.monotonic()
-
-    if response.status_code == 429:
-        retry_after = response.headers.get("Retry-After", "a short time")
-        raise HTTPException(status_code=503, detail=f"Swift Gifts rate limit reached; retry after {retry_after} seconds")
-    if response.status_code == 402:
-        raise HTTPException(status_code=503, detail="Swift Gifts partner key is inactive")
-    if response.status_code in (401, 403):
-        raise HTTPException(status_code=503, detail="Swift Gifts partner key is invalid or lacks this route")
-    if response.is_error:
-        raise HTTPException(status_code=502, detail=f"Swift Gifts returned HTTP {response.status_code}")
-    try:
-        payload = response.json()
-    except ValueError:
-        raise HTTPException(status_code=502, detail="Swift Gifts returned invalid JSON")
-    if not isinstance(payload, dict) or not isinstance(payload.get("items", []), list):
-        raise HTTPException(status_code=502, detail="Swift Gifts aggregator response was not recognized")
-
-    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
-    partial_providers = meta.get("partialProviders") or []
-    disabled_providers = meta.get("providers_disabled") or []
-    provider_errors = meta.get("providerErrors") or {}
-    completed_providers = meta.get("providers_completed")
-    partial = bool(meta.get("partial")) or market in partial_providers or market in disabled_providers
-    if isinstance(provider_errors, dict) and market in provider_errors:
-        partial = True
-    if isinstance(completed_providers, list) and market not in completed_providers:
-        partial = True
-
-    normalized = [
-        _normalize_swift_item(item, market)
-        for item in payload.get("items", [])
-        if isinstance(item, dict) and str(item.get("provider", market)).lower() == market
-    ]
-    try:
-        total_count = max(len(normalized), int(payload.get("total", len(normalized)) or 0))
-    except (TypeError, ValueError):
-        total_count = len(normalized)
-
-    result = {
-        "items": normalized,
-        "total_count": total_count,
-        "connected": not partial,
-        "partial": partial,
-        "sources": {
-            **source_status(),
-            market: "partial_read_only" if partial else "online_read_only",
-        },
-        "updated_at": int(time.time()),
-        "note": (
-            "The upstream aggregator reported partial or disabled provider coverage."
-            if partial else
-            "Public listing data only. Transaction and buyer-specific payloads are discarded."
-        ),
-        "meta": {
-            "partial": bool(meta.get("partial") or partial),
-            "partialProviders": partial_providers,
-            "providers_disabled": disabled_providers,
-            "providers_completed": meta.get("providers_completed"),
-        },
-    }
-    _swift_cache[cache_key] = (time.monotonic(), result)
-    if len(_swift_cache) > 300:
-        oldest = sorted(_swift_cache, key=lambda cache_id: _swift_cache[cache_id][0])[:-200]
-        for old_key in oldest:
-            _swift_cache.pop(old_key, None)
-    return result
-
-
-async def _swift_market_page(market: str, page: int, limit: int, search: str | None) -> dict:
-    result = await _fetch_swift_market_page(market, page, limit, search)
-    if market == "tonnel":
-        global _tonnel_runtime_status
-        _tonnel_runtime_status = "online_read_only" if not result.get("partial") else "partial_read_only"
-    return result
-
 def source_status() -> dict[str, str]:
-    swift_ready = bool(_swift_api_key())
     return {
         "portals": "configured_read_only" if os.getenv("PORTALS_API_KEY", "").strip() else "needs_api_key",
-        "tonnel": ("configured_read_only" if swift_ready else _tonnel_runtime_status),
-        "mrkt": "configured_read_only" if swift_ready else "needs_partner_api_key",
         "gift_changes": "public_read_only",
         "tg_gifts_daily": "public_daily_read_only",
     }
@@ -404,8 +216,6 @@ async def status():
         "sources": source_status(),
         "available_data": {
             "portals": ["collection_list", "collection_floor", "reported_24h_volume", "reported_supply", "listed_gift_catalog", "gift_price", "gift_attributes"],
-            "tonnel": ["public_listings"] if _swift_api_key() or _tonnel_runtime_status == "online_read_only" else [],
-            "mrkt": ["public_listings"] if _swift_api_key() else [],
             "gift_changes": ["public_gift_metadata_changes_beta"],
             "tg_gifts_daily": ["daily_collection_floor_history_cc_by_4_0"],
         },
@@ -417,7 +227,7 @@ async def status():
             "refresh_interval_seconds": _refresh_interval_seconds(),
             "persistent_history": False,
         },
-        "note": "Portals uses read-only partner routes. MRKT and Tonnel use Swift Gifts only when its partner key is configured; transaction payloads are discarded. Independent public reference feeds provide beta gift-metadata changes and daily historical collection floors; these are not live MRKT/Tonnel listings.",
+        "note": "Portals is the sole marketplace catalogue. Independent public reference feeds provide beta gift-metadata changes and daily historical collection floors; these are not live listings.",
     }
 
 
@@ -627,110 +437,6 @@ async def gifts(
 
 
 
-def _extract_tonnel_items(payload: Any) -> list[dict]:
-    """Accept the list and common wrapper shapes returned by the public Tonnel listing endpoint."""
-    if isinstance(payload, list):
-        rows = payload
-    elif isinstance(payload, dict):
-        rows = None
-        found_list = False
-        for key in ("data", "items", "results", "gifts"):
-            candidate = payload.get(key)
-            if isinstance(candidate, list):
-                rows = candidate
-                found_list = True
-                break
-            if isinstance(candidate, dict):
-                for nested_key in ("items", "results", "gifts"):
-                    nested = candidate.get(nested_key)
-                    if isinstance(nested, list):
-                        rows = nested
-                        found_list = True
-                        break
-            if rows is not None:
-                break
-        if rows is None:
-            rows = []
-        if not found_list:
-            raise HTTPException(status_code=502, detail="Tonnel response format was not recognized")
-    else:
-        raise HTTPException(status_code=502, detail="Tonnel returned an unexpected response")
-    return [row for row in rows if isinstance(row, dict)]
-
-
-async def _fetch_tonnel_page(page: int, limit: int, search: str | None) -> tuple[list[dict], Any]:
-    global _tonnel_last_request_at, _tonnel_runtime_status
-    cache_key = f"{page}:{limit}:{(search or '').strip().lower()}"
-    now = time.monotonic()
-    cached = _tonnel_cache.get(cache_key)
-    if cached and now - cached[0] < _TONNEL_CACHE_SECONDS:
-        return cached[1]
-
-    filters: dict[str, Any] = {
-        "price": {"$exists": True},
-        "refunded": {"$ne": True},
-        "buyer": {"$exists": False},
-        "export_at": {"$exists": True},
-        "asset": "TON",
-    }
-    term = (search or "").strip()
-    if term:
-        if term.isdigit():
-            filters["gift_num"] = int(term)
-        else:
-            filters["gift_name"] = term
-
-    body = {
-        "page": page,
-        "limit": limit,
-        "sort": json.dumps({"message_post_time": -1, "gift_id": -1}, separators=(",", ":")),
-        "filter": json.dumps(filters, ensure_ascii=False, separators=(",", ":")),
-        "price_range": None,
-        "user_auth": "",
-    }
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Origin": "https://market.tonnel.network",
-        "Referer": "https://market.tonnel.network/",
-        "User-Agent": "NFT-Gift-Scanner/1.0 (public read-only catalogue)",
-    }
-
-    async with _tonnel_lock:
-        wait = 1.5 - (time.monotonic() - _tonnel_last_request_at)
-        if wait > 0:
-            await asyncio.sleep(wait)
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-            response = await client.post(TONNEL_LISTINGS_URL, json=body, headers=headers)
-        _tonnel_last_request_at = time.monotonic()
-
-    if response.status_code == 429:
-        _tonnel_runtime_status = "rate_limited"
-        raise HTTPException(status_code=503, detail="Tonnel rate limit reached; retry later")
-    if response.status_code in (401, 403):
-        _tonnel_runtime_status = "public_access_unavailable"
-        raise HTTPException(status_code=503, detail="Tonnel did not allow public unauthenticated listing access")
-    if response.is_error:
-        _tonnel_runtime_status = "temporarily_unavailable"
-        raise HTTPException(status_code=502, detail=f"Tonnel returned HTTP {response.status_code}")
-    try:
-        payload = response.json()
-    except ValueError:
-        _tonnel_runtime_status = "temporarily_unavailable"
-        raise HTTPException(status_code=502, detail="Tonnel returned invalid JSON")
-
-    rows = _extract_tonnel_items(payload)
-    total_count = payload.get("total_count", payload.get("count", len(rows))) if isinstance(payload, dict) else len(rows)
-    _tonnel_runtime_status = "online_read_only"
-    result = (rows, total_count)
-    _tonnel_cache[cache_key] = (time.monotonic(), result)
-    if len(_tonnel_cache) > 200:
-        oldest = sorted(_tonnel_cache, key=lambda key: _tonnel_cache[key][0])[:-150]
-        for old_key in oldest:
-            _tonnel_cache.pop(old_key, None)
-    return result
-
-
 _REFERENCE_CACHE: dict[str, tuple[float, Any]] = {}
 _REFERENCE_CACHE_SECONDS = 3600
 CHANGES_API_BASE = "https://api.changes.tg"
@@ -820,65 +526,6 @@ async def reference_daily_floors(full: bool = Query(default=False)):
     }
 
 
-@app.get("/api/mrkt/gifts")
-async def mrkt_gifts(
-    limit: int = Query(default=24, ge=1, le=100),
-    page: int = Query(default=0, ge=0, le=10000),
-    search: str | None = Query(default=None, max_length=80),
-):
-    """Read-only MRKT public listings through the authorized Swift partner aggregator."""
-    if not _marketplace_visibility["mrkt"]:
-        raise HTTPException(status_code=503, detail="MRKT catalogue is temporarily disabled by the administrator")
-    return await _swift_market_page("mrkt", page, limit, search)
-
-
-@app.get("/api/tonnel/gifts")
-async def tonnel_gifts(
-    limit: int = Query(default=24, ge=1, le=30),
-    page: int = Query(default=1, ge=1, le=10000),
-    search: str | None = Query(default=None, max_length=80),
-):
-    """Public Tonnel listings only. No account auth, trading or anti-bot workarounds."""
-    if not _marketplace_visibility["tonnel"]:
-        raise HTTPException(status_code=503, detail="Tonnel catalogue is temporarily disabled by the administrator")
-    if _swift_api_key():
-        return await _swift_market_page("tonnel", page - 1, limit, search)
-    rows, total_count = await _fetch_tonnel_page(page, limit, search)
-    items = []
-    for gift in rows:
-        model = gift.get("model")
-        backdrop = gift.get("backdrop")
-        symbol = gift.get("symbol")
-        attrs = []
-        if model:
-            attrs.append({"type": "Model", "value": model})
-        if backdrop:
-            attrs.append({"type": "Backdrop", "value": backdrop})
-        if symbol:
-            attrs.append({"type": "Symbol", "value": symbol})
-        items.append({
-            "id": gift.get("gift_id"),
-            "name": gift.get("name") or gift.get("gift_name") or "Telegram Gift",
-            "number": gift.get("gift_num"),
-            "image": gift.get("image") or gift.get("photo_url"),
-            "price": gift.get("price"),
-            "floor_price": None,
-            "attributes": attrs,
-            "status": gift.get("status") or "forsale",
-            "listed_at": gift.get("export_at") or gift.get("message_post_time"),
-            "source": "Tonnel",
-            "currency": gift.get("asset") or "TON",
-        })
-    return {
-        "items": items,
-        "total_count": total_count,
-        "connected": True,
-        "sources": {**source_status(), "tonnel": "online_read_only"},
-        "updated_at": int(time.time()),
-        "note": "Public listings only. Floor is not inferred from a partial listings page.",
-    }
-
-
 async def _refresh_public_catalogues():
     """Warm backend caches from upstream public APIs independently of browser visits."""
     interval = _refresh_interval_seconds()
@@ -905,16 +552,6 @@ async def _refresh_public_catalogues():
                     sort_by=None,
                     status=None,
                 )
-            except Exception:
-                pass
-        if _marketplace_visibility["tonnel"]:
-            try:
-                await tonnel_gifts(limit=24, page=1, search=None)
-            except Exception:
-                pass
-        if _marketplace_visibility["mrkt"] and _swift_api_key():
-            try:
-                await mrkt_gifts(limit=24, page=0, search=None)
             except Exception:
                 pass
         await asyncio.sleep(interval)
