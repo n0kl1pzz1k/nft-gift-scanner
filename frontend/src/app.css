@@ -56,3 +56,18 @@
 .market-section{scroll-margin-top:18px}
 @media(max-width:1050px){.collection-rail{grid-template-columns:repeat(2,minmax(0,1fr))}.hero-art{right:1%;opacity:.7}}
 @media(max-width:700px){.hero-market{min-height:0;padding:27px 22px;margin:18px 0 25px}.hero-market h1{font-size:34px;max-width:100%}.hero-market .hero-copy{max-width:100%}.hero-art{display:none}.hero-actions{gap:12px}.collection-rail{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.collection-tile{padding:8px;gap:8px}.collection-image{width:40px;height:40px;flex-basis:40px;border-radius:10px}.shelf-heading h2{font-size:19px}.shelf-heading>span{font-size:8px}}
+
+
+/* Prevent iOS Safari from auto-zooming the Mini App when marketplace filters receive focus. */
+@media (max-width: 900px) {
+  .filter-bar input,
+  .filter-bar select,
+  .filter-bar .search-field input {
+    font-size: 16px !important;
+    min-height: 44px;
+    -webkit-text-size-adjust: 100%;
+  }
+  .filter-bar .search-field {
+    min-height: 46px;
+  }
+}

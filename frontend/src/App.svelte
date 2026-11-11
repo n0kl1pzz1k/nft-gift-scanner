@@ -356,7 +356,7 @@
 <svelte:head>
   <title>GIFT RADAR — Marketplace</title>
   <meta name="theme-color" content="#090B18" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 </svelte:head>
 
 <div class="market-app">
