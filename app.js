@@ -745,6 +745,13 @@ nftRenderProfile=function(){
     $("telegram-auth-title").textContent=lang==="ru"?"Вход через Telegram":"Sign in with Telegram";
     $("telegram-auth-description").textContent=lang==="ru"?"Без паролей и подключения кошелька. Telegram подтверждает личность внутри Mini App.":"No passwords or wallet connection. Telegram verifies identity inside the Mini App.";
     $("telegram-auth-button").textContent=lang==="ru"?"Авторизоваться через Telegram":"Sign in with Telegram";
+  }else if(nftTelegramAuth){
+    const user=nftTelegramAuth.user||{};
+    if($("profile-guest"))$("profile-guest").textContent=user.first_name||"Telegram user";
+    if($("profile-description"))$("profile-description").textContent=nftTelegramAuth.is_admin?(lang==="ru"?"Подтверждённый администратор GIFT RADAR.":"Verified GIFT RADAR administrator."):(lang==="ru"?"Telegram подтверждён. Доступны публичные данные и обычные функции приложения.":"Telegram verified. Public data and standard app features are available.");
+    if($("telegram-auth-title"))$("telegram-auth-title").textContent=nftTelegramAuth.is_admin?(lang==="ru"?"Администратор подтверждён":"Administrator verified"):(lang==="ru"?"Telegram подтверждён":"Telegram verified");
+    if($("telegram-auth-description"))$("telegram-auth-description").textContent=nftTelegramAuth.is_admin?(lang==="ru"?"Дополнительные инструменты управления доступны ниже.":"Additional management tools are available below."):(lang==="ru"?"У этой учётной записи нет прав администратора.":"This account does not have administrator permissions.");
+    if($("telegram-auth-button"))$("telegram-auth-button").textContent=lang==="ru"?"Проверено через Telegram":"Verified with Telegram";
   }
   nftRenderAdminControls();
 };
