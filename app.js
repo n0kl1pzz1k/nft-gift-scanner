@@ -232,7 +232,7 @@ async function loadTonnelGifts(search="",renderActive=true){
 function currentCollectionParams(offset=0,searchTerm=""){
   const params=new URLSearchParams({limit:"24",offset:String(offset),collection_id:String(selectedCollection.id??selectedCollection.short_name)});
   if(searchTerm) params.set("search",searchTerm);
-  for(const key of ["min_price","max_price","external_collection_number","filter_by_backdrops","sort_by","status"]){
+  for(const key of ["min_price","max_price","external_collection_number","filter_by_backdrops","filter_by_models","filter_by_symbols","mint_status","statuses","sort_by","status"]){
     const value=collectionFilterState[key];
     if(value!==undefined&&value!==null&&String(value).trim()) params.set(key,String(value).trim());
   }
@@ -369,7 +369,7 @@ $("market-view").addEventListener("keydown",event=>{
 });
 document.querySelectorAll(".market-tab").forEach(button=>button.addEventListener("click",()=>{
   activeMarket=button.dataset.market;
-  if(activeMarket!=="portals") selectedCollection=null;
+  if(activeMarket!=="portals"&&selectedCollection){selectedCollection=null;document.body.classList.remove("collection-view-active");}
   $("catalog-title").textContent=selectedCollection?(selectedCollection.name||copy[lang].catalog):copy[lang].catalog;
   $("catalog-kicker").textContent=selectedCollection?copy[lang].collectionKicker:"MARKETPLACES";
   renderMarketTabs();
@@ -496,7 +496,7 @@ async function nftLoadGlobal(offset=0,append=false,term=""){
  const t=copy[lang];try{
   const params=new URLSearchParams({limit:"24",offset:String(offset)});
   if(term)params.set("search",term);
-  for(const k of ["min_price","max_price","external_collection_number","filter_by_backdrops","sort_by","status"]){const v=collectionFilterState[k];if(v)params.set(k,v);}
+  for(const k of ["min_price","max_price","external_collection_number","filter_by_backdrops","filter_by_models","filter_by_symbols","mint_status","statuses","sort_by","status"]){const v=collectionFilterState[k];if(v)params.set(k,v);}
   const response=await fetch(window.API_BASE+"/api/gifts?"+params.toString());const data=await response.json();
   if(!response.ok)throw new Error(data.detail||"HTTP "+response.status);
   const page=Array.isArray(data.items)?data.items:[];
