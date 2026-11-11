@@ -2,7 +2,7 @@ name: Validate GIFT RADAR
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/persistent-gift-catalog]
   pull_request:
     branches: [main, feature/telegram-user-profiles]
 
