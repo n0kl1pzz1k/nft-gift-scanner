@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { animate } from 'motion/dom';
 
   type Gift = { id?: string|number; name?: string; number?: string|number; image?: string; price?: string|number; floor_price?: string|number|null; currency?: string; source?: string; status?: string; listed_at?: string|number; attributes?: {type?:string;name?:string;value?:string}[]; collection_id?: string|number };
   type Collection = { id?: string|number; name?: string; short_name?: string; image?: string; floor_price?: string|number; day_volume?: string|number; supply?: string|number };
@@ -53,7 +52,7 @@
       if(market==='mrkt'){gifts=[];total=0;return;}
       const g=await request(endpoint); gifts=Array.isArray(g.items)?g.items:[]; total=Number(g.total_count??gifts.length); refreshed=new Date().toLocaleTimeString(lang==='ru'?'ru-RU':'en-US',{hour:'2-digit',minute:'2-digit'});
     } catch(e) { error=e instanceof Error?e.message:String(e); }
-    finally { busy=false; await tick(); const cards=document.querySelectorAll('.gift-card,.collection-card'); cards.forEach((card,index)=>motionAnimate(card,{opacity:[0,1],y:[12,0]},{delay:index*.035,duration:.28,easing:'ease-out'})); }
+    finally { busy=false; await tick(); const cards=document.querySelectorAll('.gift-card,.collection-card'); cards.forEach((card,index)=>{(card as HTMLElement).animate([{opacity:0,transform:'translateY(12px)'},{opacity:1,transform:'translateY(0px)'}],{delay:index*35,duration:280,easing:'ease-out',fill:'both'});}); }
   }
   function toggleFavorite(g:Gift) { const k=keyOf(g); favorites=favorites.includes(k)?favorites.filter(x=>x!==k):[...favorites,k]; try{localStorage.setItem('gift-radar-favorites',JSON.stringify(favorites));}catch{} }
   function selectMarket(next:'portals'|'tonnel'|'mrkt'){market=next;void loadCatalogue(search);}
