@@ -303,7 +303,7 @@
   <main class="main-content">
     <header class="topbar">
       <div class="crumb"><span>GIFT RADAR</span><b>/</b><span>{view.toUpperCase()}</span></div>
-      <div class="top-actions"><span class="demo-pill">{t.readonly}</span><button class="language" onclick={()=>createCurrency=createCurrency==='TON'?'XTR':'TON'}>{createCurrency==='TON'?'TON':'⭐ Stars'}</button><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>view='profile'}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
+      <div class="top-actions"><span class="demo-pill">{t.readonly}</span><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>view='profile'}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
     </header>
 
     {#if view==='market'}
@@ -333,7 +333,6 @@
           </select>
           <button class="search-button" onclick={()=>loadCatalogue()}>Применить</button>
         </div>
-        <div class="filter-bar"><div class="search-field"><span>⌕</span><input bind:value={search} placeholder={t.search} onkeydown={e=>e.key==='Enter'&&loadCatalogue()}/></div><input class="filter-input" type="number" min="0" bind:value={minPrice} placeholder={t.min}/><input class="filter-input" type="number" min="0" bind:value={maxPrice} placeholder={t.max}/><button class="search-button" onclick={()=>loadCatalogue()}>{t.market}</button></div>
         {#if busy}<div class="state-panel"><div class="loader"></div>{t.loading}</div>
         {:else if error}<div class="state-panel error-state">{t.failed}<small>{error}</small><button class="search-button" onclick={()=>loadCatalogue()}>{t.refresh}</button></div>
         {:else if gifts.length===0}<div class="state-panel">{t.empty}</div>
@@ -375,7 +374,7 @@
     {/if}
 
     {#if notice}<div class="toast" role="status">{notice}<button onclick={()=>notice=''}>×</button></div>{/if}
-    <footer class="footer"><span>✳ GIFT RADAR</span><span>PORTALS CATALOGUE · DEMO MARKETPLACE</span><span>© 2026</span></footer>
+    <footer class="footer"><span>✳ GIFT RADAR</span><span>PORTALS LIVE · READ ONLY</span><span>© 2026</span></footer>
   </main>
 </div>
 
