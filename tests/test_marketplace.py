@@ -24,8 +24,8 @@ class SharedMarketplaceTests(unittest.TestCase):
             api,
             "_verify_telegram_init_data",
             side_effect=lambda value: {
-                "id": "101" if value == "user-a" else "202",
-                "first_name": "Tester A" if value == "user-a" else "Tester B",
+                "id": {"user-a": "101", "user-b": "202", "user-c": "303"}.get(value, "202"),
+                "first_name": {"user-a": "Tester A", "user-b": "Tester B", "user-c": "Tester C"}.get(value, "Tester B"),
                 "username": "tester",
             },
         )
