@@ -63,9 +63,9 @@
 </script>
 
 {#if mode === 'video' && animationUrl}
-  <video class={className} src={animationUrl} poster={image} autoplay loop muted playsinline aria-label={alt}></video>
+  <video class={`${className} gift-media`} src={animationUrl} poster={image} autoplay loop muted playsinline aria-label={alt}></video>
 {:else if mode === 'lottie' && !failed}
-  <div class={className} bind:this={container} role="img" aria-label={alt}></div>
+  <div class={`${className} gift-media`} bind:this={container} role="img" aria-label={alt}></div>
 {:else if image}
   <img class={className} src={image} alt={alt} loading="lazy"/>
 {:else}
