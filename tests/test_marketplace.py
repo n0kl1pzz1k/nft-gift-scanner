@@ -249,7 +249,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         oversized = self.client.put(
             "/api/marketplace/favorites/large",
             headers={"X-Telegram-Init-Data": "user-a"},
-            json={"gift": {"description": "x" * 17000}},
+            json={"gift": {"id": "large", "description": "x" * 17000}},
         )
         self.assertEqual(oversized.status_code, 413)
 
