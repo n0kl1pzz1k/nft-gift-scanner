@@ -69,6 +69,54 @@ def init_demo_offers_db() -> None:
             FOREIGN KEY(order_id) REFERENCES demo_orders(id),
             FOREIGN KEY(offer_id) REFERENCES demo_offers(id)
         );
+        CREATE TABLE IF NOT EXISTS demo_notifications (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            event_type TEXT NOT NULL CHECK(event_type IN ('offer_received', 'offer_accepted', 'offer_declined', 'offer_withdrawn')),
+            offer_id TEXT NOT NULL,
+            order_id TEXT NOT NULL,
+            order_title TEXT NOT NULL DEFAULT '',
+            actor_name TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL,
+            read_at INTEGER,
+            FOREIGN KEY(offer_id) REFERENCES demo_offers(id),
+            FOREIGN KEY(order_id) REFERENCES demo_orders(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_demo_notifications_user_created
+            ON demo_notifications(user_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_demo_notifications_user_unread
+            ON demo_notifications(user_id, read_at, created_at DESC);
+        CREATE TRIGGER IF NOT EXISTS trg_demo_offer_received
+        AFTER INSERT ON demo_offers
+        BEGIN
+            INSERT INTO demo_notifications
+                (id, user_id, event_type, offer_id, order_id, order_title, actor_name, created_at)
+            SELECT 'nt-' || lower(hex(randomblob(8))), o.user_id, 'offer_received',
+                   NEW.id, NEW.order_id, o.title, NEW.sender_name, NEW.created_at
+            FROM demo_orders o
+            WHERE o.id = NEW.order_id AND o.user_id <> NEW.sender_user_id;
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_demo_offer_status_notification
+        AFTER UPDATE OF status ON demo_offers
+        WHEN OLD.status = 'pending' AND NEW.status <> OLD.status
+        BEGIN
+            INSERT INTO demo_notifications
+                (id, user_id, event_type, offer_id, order_id, order_title, actor_name, created_at)
+            SELECT 'nt-' || lower(hex(randomblob(8))),
+                   CASE WHEN NEW.status = 'withdrawn' THEN o.user_id ELSE NEW.sender_user_id END,
+                   CASE NEW.status
+                     WHEN 'accepted' THEN 'offer_accepted'
+                     WHEN 'declined' THEN 'offer_declined'
+                     WHEN 'withdrawn' THEN 'offer_withdrawn'
+                   END,
+                   NEW.id, NEW.order_id, o.title,
+                   CASE WHEN NEW.status = 'withdrawn' THEN NEW.sender_name ELSE o.owner_name END,
+                   NEW.updated_at
+            FROM demo_orders o
+            WHERE o.id = NEW.order_id
+              AND NEW.status IN ('accepted', 'declined', 'withdrawn')
+              AND (NEW.status <> 'withdrawn' OR o.user_id <> NEW.sender_user_id);
+        END;
         """)
 
 
@@ -265,5 +313,106 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             "currency": row["currency"], "created_at": row["created_at"],
             "status": "simulated_complete", "simulation_only": True,
         } for row in rows]}
+
+    @router.get("/notifications")
+    async def list_notifications(
+        unread_only: bool = False,
+        limit: int = Query(default=50, ge=1, le=100),
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        user_id = str(user["id"])
+        clause = " AND read_at IS NULL" if unread_only else ""
+        with _db() as conn:
+            rows = conn.execute(
+                f"""SELECT id, event_type, offer_id, order_id, order_title,
+                           actor_name, created_at, read_at
+                    FROM demo_notifications WHERE user_id = ?{clause}
+                    ORDER BY created_at DESC LIMIT ?""",
+                (user_id, limit),
+            ).fetchall()
+            unread = conn.execute(
+                "SELECT COUNT(*) FROM demo_notifications WHERE user_id = ? AND read_at IS NULL",
+                (user_id,),
+            ).fetchone()[0]
+        return {
+            "items": [{
+                "id": row["id"], "type": row["event_type"], "offer_id": row["offer_id"],
+                "order_id": row["order_id"], "order_title": row["order_title"],
+                "actor_name": row["actor_name"], "created_at": row["created_at"],
+                "read_at": row["read_at"],
+            } for row in rows],
+            "unread_count": unread,
+        }
+
+    @router.patch("/notifications/{notification_id}/read")
+    async def mark_notification_read(
+        notification_id: str,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        with _db() as conn:
+            updated = conn.execute(
+                """UPDATE demo_notifications SET read_at = ?
+                   WHERE id = ? AND user_id = ? AND read_at IS NULL""",
+                (int(time.time()), notification_id, str(user["id"])),
+            )
+            exists = conn.execute(
+                "SELECT 1 FROM demo_notifications WHERE id = ? AND user_id = ?",
+                (notification_id, str(user["id"])),
+            ).fetchone()
+        if exists is None:
+            raise HTTPException(status_code=404, detail="Notification not found")
+        return {"read": True, "changed": updated.rowcount == 1}
+
+    @router.post("/notifications/read-all")
+    async def mark_all_notifications_read(
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        with _db() as conn:
+            updated = conn.execute(
+                "UPDATE demo_notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL",
+                (int(time.time()), str(user["id"])),
+            )
+        return {"read": True, "updated": updated.rowcount}
+
+    @router.get("/account/stats")
+    async def account_stats(x_telegram_init_data: str | None = Header(default=None)):
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        user_id = str(user["id"])
+        with _db() as conn:
+            orders = conn.execute(
+                """SELECT
+                     SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active_orders,
+                     SUM(CASE WHEN status = 'matched' THEN 1 ELSE 0 END) AS completed_orders
+                   FROM demo_orders WHERE user_id = ?""",
+                (user_id,),
+            ).fetchone()
+            offers = conn.execute(
+                """SELECT
+                     SUM(CASE WHEN f.sender_user_id = ? AND f.status = 'pending' THEN 1 ELSE 0 END) AS sent_pending,
+                     SUM(CASE WHEN o.user_id = ? AND f.status = 'pending' THEN 1 ELSE 0 END) AS received_pending
+                   FROM demo_offers f JOIN demo_orders o ON o.id = f.order_id
+                   WHERE f.sender_user_id = ? OR o.user_id = ?""",
+                (user_id, user_id, user_id, user_id),
+            ).fetchone()
+            deals = conn.execute(
+                "SELECT COUNT(*) FROM demo_deals WHERE listing_owner_id = ? OR offer_sender_id = ?",
+                (user_id, user_id),
+            ).fetchone()[0]
+            unread = conn.execute(
+                "SELECT COUNT(*) FROM demo_notifications WHERE user_id = ? AND read_at IS NULL",
+                (user_id,),
+            ).fetchone()[0]
+        return {
+            "active_orders": orders["active_orders"] or 0,
+            "completed_orders": orders["completed_orders"] or 0,
+            "pending_offers_sent": offers["sent_pending"] or 0,
+            "pending_offers_received": offers["received_pending"] or 0,
+            "simulated_deals": deals,
+            "unread_notifications": unread,
+            "simulation_only": True,
+        }
 
     return router
