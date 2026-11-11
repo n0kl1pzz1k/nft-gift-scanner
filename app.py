@@ -32,8 +32,13 @@ ALLOWED_PORTALS_PATHS = {
 }
 _cache: dict[str, tuple[float, Any]] = {}
 CACHE_SECONDS = 30
+# Per-query cache for item listings. The browser always reads from this backend;
+# upstream marketplaces are queried at a controlled cadence, not on every tap.
+_gifts_cache: dict[str, tuple[float, Any]] = {}
+GIFTS_CACHE_SECONDS = 20
 _request_lock = asyncio.Lock()
 _last_request_at = 0.0
+_refresh_task: asyncio.Task | None = None
 
 
 
@@ -345,6 +350,12 @@ async def gifts(
             raise HTTPException(status_code=422, detail="status must be listed or unlisted")
         params["status"] = status
 
+    # Reuse the last server-side result for identical filters.
+    cache_key = json.dumps(params, sort_keys=True, separators=(",", ":"))
+    cached = _gifts_cache.get(cache_key)
+    if cached and time.monotonic() - cached[0] < GIFTS_CACHE_SECONDS:
+        return cached[1]
+
     token = os.getenv("PORTALS_API_KEY", "").strip()
     headers = {"Authorization": f"partners {token}"}
     global _last_request_at
@@ -399,13 +410,15 @@ async def gifts(
             "currency": "GRAM",
         })
 
-    return {
+    result = {
         "items": items,
         "total_count": payload.get("total_count", len(items)),
         "connected": True,
         "sources": {**source_status(), "portals": "online_read_only"},
         "updated_at": int(time.time()),
     }
+    _gifts_cache[cache_key] = (time.monotonic(), result)
+    return result
 
 
 
@@ -552,4 +565,42 @@ async def tonnel_gifts(
         "updated_at": int(time.time()),
         "note": "Public listings only. Floor is not inferred from a partial listings page.",
     }
+
+
+async def _refresh_public_catalogues():
+    """Warm backend caches from upstream public APIs independently of browser visits."""
+    interval = max(60, min(int(os.getenv("DATA_REFRESH_SECONDS", "90")), 900))
+    while True:
+        if _marketplace_visibility["portals"] and os.getenv("PORTALS_API_KEY", "").strip():
+            try:
+                await collections()
+            except Exception:
+                pass
+            try:
+                await gifts(limit=24, offset=0)
+            except Exception:
+                pass
+        if _marketplace_visibility["tonnel"]:
+            try:
+                await tonnel_gifts(limit=24, page=1, search=None)
+            except Exception:
+                pass
+        await asyncio.sleep(interval)
+
+
+@app.on_event("startup")
+async def start_catalogue_refresh():
+    global _refresh_task
+    _refresh_task = asyncio.create_task(_refresh_public_catalogues())
+
+
+@app.on_event("shutdown")
+async def stop_catalogue_refresh():
+    global _refresh_task
+    if _refresh_task and not _refresh_task.done():
+        _refresh_task.cancel()
+        try:
+            await _refresh_task
+        except asyncio.CancelledError:
+            pass
 
