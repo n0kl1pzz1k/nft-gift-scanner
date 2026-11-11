@@ -13,7 +13,7 @@
   type DemoOrder = {
     id: string; kind: 'listing' | 'buy-order'; title: string;
     price: string | number; currency: 'TON' | 'XTR'; status: 'active' | 'matched' | 'cancelled';
-    createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; events?: {type:string;createdAt:number}[];
+    createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; seller_profile_id?: string | null; events?: {type:string;createdAt:number}[];
   };
   type DemoOffer = { id:string; order_id:string; sender_name:string; amount:string; currency:'TON'|'XTR'; note:string; status:'pending'|'accepted'|'declined'|'withdrawn'; created_at:number; is_mine:boolean; order_title:string; order_owner_id:string; order_owner_name:string; order_status:string };
   type DemoDeal = { id:string; order_id:string; offer_id:string; title:string; listing_owner:string; offer_sender:string; amount:string; currency:'TON'|'XTR'; created_at:number; status:string; simulation_only:boolean };
@@ -21,7 +21,7 @@
   type AccountStats = { active_orders:number; completed_orders:number; pending_offers_sent:number; pending_offers_received:number; simulated_deals:number; unread_notifications:number };
   type AccountActivity = { id:string; type:string; order_id:string; title:string; actor_name:string; created_at:number; amount:string; currency:'TON'|'XTR'; simulation_only:boolean };
   type OrderReport = { id:string; order_id:string; reporter_name:string; reason:'scam'|'misleading'|'inappropriate'|'spam'|'other'; details:string; status:'open'|'dismissed'|'removed'; created_at:number; order_title:string; order_status:string; order_owner:string };
-  type SellerProfile = { profile_id:string; display_name:string; bio:string; created_at:number; updated_at:number; username:string };
+  type SellerProfile = { profile_id:string; display_name:string; bio:string; created_at:number; updated_at:number; username:string };\n  type PublicSellerProfile = SellerProfile & { active_listings:number; completed_trades:number; rating:number|null; listings:{id:string;title:string;price:string;currency:'TON'|'XTR';createdAt:number;note:string}[] };
   type MarketplaceStats = {
     active_listings: number; active_buy_requests: number; matched_orders: number;
     volume_ton: number; volume_stars: number; total_orders: number;
@@ -31,7 +31,7 @@
     data_pipeline?: { refresh_interval_seconds?: number };
     note?: string;
   };
-  type View = 'market' | 'orders' | 'create' | 'favorites' | 'profile';
+  type View = 'market' | 'orders' | 'create' | 'favorites' | 'profile' | 'seller';
 
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://nft-gift-scanner-production.up.railway.app').replace(/\/$/, '');
   let lang = $state<'ru' | 'en'>('ru');
@@ -60,7 +60,7 @@
   let sellerProfile = $state<SellerProfile | null>(null);
   let sellerDisplayName = $state('');
   let sellerBio = $state('');
-  let sellerProfileBusy = $state(false);
+  let sellerProfileBusy = $state(false);\n  let publicSellerProfile = $state<PublicSellerProfile | null>(null);\n  let publicSellerBusy = $state(false);
   let offerAmount = $state('');
   let offerNote = $state('');
   let offersBusy = $state(false);
@@ -259,6 +259,22 @@
       notice = e instanceof Error ? e.message : String(e);
     } finally {
       ordersLoadingMore = false;
+    }
+  }
+
+  async function openSellerProfile(profileId: string) {
+    if (!profileId || !profileId.startsWith('usr_')) return;
+    publicSellerBusy = true;
+    publicSellerProfile = null;
+    view = 'seller';
+    try {
+      const data = await request('/api/marketplace/profiles/' + encodeURIComponent(profileId));
+      publicSellerProfile = data.profile as PublicSellerProfile;
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+      view = 'orders';
+    } finally {
+      publicSellerBusy = false;
     }
   }
 
@@ -896,9 +912,28 @@
           {#if gifts.length<total}<div class="load-more-wrap"><button class="load-more" onclick={()=>loadCatalogue(true)} disabled={loadingMore}>{loadingMore?'…':t.loadMore}</button></div>{/if}
         {/if}
       </section>
+    {:else if view==='seller'}
+      <section class="page-heading"><div class="eyebrow">GIFT RADAR · SELLER</div><h1>{lang==='ru'?'Профиль продавца':'Seller profile'}</h1><p>{lang==='ru'?'Публичная информация и активные объявления':'Public information and active listings'}</p></section>
+      {#if publicSellerBusy}<div class="state-panel">{t.loading}</div>
+      {:else if publicSellerProfile}
+        <section class="public-seller-layout">
+          <article class="profile-card public-seller-card">
+            <div class="profile-avatar"><span>{publicSellerProfile.display_name.slice(0,1).toUpperCase()}</span></div>
+            <div class="public-seller-identity"><h2>{publicSellerProfile.display_name}</h2>{#if publicSellerProfile.username}<p>@{publicSellerProfile.username}</p>{/if}<p>{publicSellerProfile.bio || (lang==='ru'?'Продавец GIFT RADAR':'GIFT RADAR seller')}</p><small>{lang==='ru'?'На платформе с':'Member since'} {new Date(publicSellerProfile.created_at*1000).toLocaleDateString(lang==='ru'?'ru-RU':'en-US')}</small></div>
+            <div class="public-seller-stats"><div><strong>{publicSellerProfile.active_listings}</strong><span>{lang==='ru'?'Активные объявления':'Active listings'}</span></div><div><strong>{publicSellerProfile.completed_trades}</strong><span>{lang==='ru'?'Завершённые сделки':'Completed trades'}</span></div></div>
+            <small class="seller-reputation-note">{lang==='ru'?'Рейтинг появится после запуска проверяемых завершённых сделок.':'Ratings will appear after verified completed trades are supported.'}</small>
+          </article>
+          <div class="section-title"><div><div class="eyebrow">MARKETPLACE</div><h2>{lang==='ru'?'Объявления продавца':'Seller listings'}</h2></div><button class="refresh-button" onclick={()=>view='orders'}>{lang==='ru'?'Назад':'Back'}</button></div>
+          {#if publicSellerProfile.listings.length}
+            <div class="orders-list">{#each publicSellerProfile.listings as listing (listing.id)}
+              <article class="order-card"><div class="order-icon">↗</div><div class="order-main"><div class="order-kind">{lang==='ru'?'Предложение':'Listing'}</div><h3>{listing.title}</h3><p>{listing.note || (lang==='ru'?'Без комментария':'No note')} · {new Date(listing.createdAt*1000).toLocaleDateString(lang==='ru'?'ru-RU':'en-US')}</p></div><div class="order-price"><strong>{listing.price} {listing.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class="status-active">{t.active}</span></div></article>
+            {/each}</div>
+          {:else}<div class="state-panel">{lang==='ru'?'У продавца пока нет активных объявлений.':'This seller has no active listings yet.'}</div>{/if}
+        </section>
+      {:else}<div class="state-panel">{lang==='ru'?'Профиль не найден.':'Seller profile not found.'}</div>{/if}
     {:else if view==='orders'}
       <section class="page-heading"><div class="eyebrow">YOUR ACTIVITY</div><h1>{t.ordersTitle}</h1><p>{t.createHint}</p></section>
-      <div class="order-filter-bar"><label>{t.orderStatus}<select class="filter-input" bind:value={orderStatusFilter} onchange={changeOrderFilters}><option value="all">{t.all}</option><option value="active">{t.activeOrders}</option><option value="matched">{t.matchedOrders}</option><option value="cancelled">{t.cancelledOrders}</option></select></label><label>{t.orderKind}<select class="filter-input" bind:value={orderKindFilter} onchange={changeOrderFilters}><option value="all">{t.all}</option><option value="listing">{t.listingsOnly}</option><option value="buy-order">{t.buyRequestsOnly}</option></select></label></div>{#if visibleOrders.length===0}<div class="state-panel">{t.noOrders}</div>{:else}<div class="orders-list">{#each visibleOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {'· '+order.owner} {order.note?'· '+order.note:''} {order.events?.length?'· '+order.events.map(event=>event.type==='created'?(lang==='ru'?'создан':'created'):event.type==='updated'?(lang==='ru'?'изменено':'updated'):event.type==='simulated_fill'?(lang==='ru'?'смоделировано исполнение':'simulated fill'):(lang==='ru'?'снят':'cancelled')).join(' → '):''}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active' && order.isMine}
+      <div class="order-filter-bar"><label>{t.orderStatus}<select class="filter-input" bind:value={orderStatusFilter} onchange={changeOrderFilters}><option value="all">{t.all}</option><option value="active">{t.activeOrders}</option><option value="matched">{t.matchedOrders}</option><option value="cancelled">{t.cancelledOrders}</option></select></label><label>{t.orderKind}<select class="filter-input" bind:value={orderKindFilter} onchange={changeOrderFilters}><option value="all">{t.all}</option><option value="listing">{t.listingsOnly}</option><option value="buy-order">{t.buyRequestsOnly}</option></select></label></div>{#if visibleOrders.length===0}<div class="state-panel">{t.noOrders}</div>{:else}<div class="orders-list">{#each visibleOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {'· '+order.owner} {order.note?'· '+order.note:''} {order.events?.length?'· '+order.events.map(event=>event.type==='created'?(lang==='ru'?'создан':'created'):event.type==='updated'?(lang==='ru'?'изменено':'updated'):event.type==='simulated_fill'?(lang==='ru'?'смоделировано исполнение':'simulated fill'):(lang==='ru'?'снят':'cancelled')).join(' → '):''}</p>{#if order.seller_profile_id}<button class="seller-link" onclick={()=>openSellerProfile(order.seller_profile_id!)}>{lang==='ru'?'Профиль продавца':'Seller profile'} ↗</button>{/if}</div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active' && order.isMine}
                   <div class="order-actions"><button class="match-button" onclick={()=>startEditOrder(order)}>{t.editOrder}</button><button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button></div>
                   {#if editingOrderId===order.id}
                     <div class="order-edit-form">
