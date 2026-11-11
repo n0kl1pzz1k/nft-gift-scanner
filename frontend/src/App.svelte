@@ -142,7 +142,7 @@
         {#if shownGifts.length}<div class="grid">{#each shownGifts as gift (keyOf(gift))}<div class="gift-card"><button type="button" class="gift-open" onclick={()=>selected=gift}>{#if gift.image}<img class="gift-image" src={gift.image} alt="" loading="lazy"/>{:else}<div class="gift-placeholder">🎁</div>{/if}<div class="gift-info"><div class="gift-title">{gift.name||'Telegram Gift'}</div><div class="price-row"><span class="price">{formatPrice(gift.price,gift.currency)}</span></div></div></button><button class="favorite card-favorite" onclick={()=>toggleFavorite(gift)}>♥</button></div>{/each}</div>{:else}<div class="empty">{t.noFav}</div>{/if}
       </section>
     {:else}
-      <section><div class="section-head"><div class="kicker">ACCOUNT & PREFERENCES</div><h2>{t.profile}</h2></div>
+      <section class="profile-screen"><div class="section-head"><div><div class="kicker">ACCOUNT & PREFERENCES</div><h2>{t.profile}</h2></div><span class="market-live"><i></i> PERSONAL SPACE</span></div>
         <div class="profile">
           <article class="profile-card"><h3>{telegramUser||t.guest}</h3><p class="muted">{t.profileText}</p><button class="primary" onclick={telegramLogin}>{t.signIn}</button><p class="muted">{adminNote}</p></article>
           <article class="profile-card"><h3>{t.admin}</h3><p class="muted">Server-side authorization required. Read-only catalogue visibility controls.</p>
