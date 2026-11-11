@@ -55,6 +55,15 @@ def init_marketplace_db() -> None:
             updated_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_telegram_users_updated ON telegram_users(updated_at DESC);
+        CREATE TABLE IF NOT EXISTS user_favorites (
+            telegram_id TEXT NOT NULL,
+            gift_id TEXT NOT NULL,
+            gift_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY(telegram_id, gift_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_favorites_updated ON user_favorites(telegram_id, updated_at DESC);
         CREATE TABLE IF NOT EXISTS demo_orders (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -185,6 +194,75 @@ class CreateDemoOrder(BaseModel):
 
 def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) -> APIRouter:
     router = APIRouter(prefix="/api/marketplace", tags=["demo-marketplace"])
+
+    @router.get("/favorites")
+    async def list_favorites(x_telegram_init_data: str | None = Header(default=None)):
+        user = _user(x_telegram_init_data, verify_telegram_init_data)
+        with _db() as conn:
+            rows = conn.execute(
+                "SELECT gift_json FROM user_favorites WHERE telegram_id = ? ORDER BY updated_at DESC LIMIT 300",
+                (str(user["id"]),),
+            ).fetchall()
+        import json
+        items = []
+        for row in rows:
+            try:
+                items.append(json.loads(row["gift_json"]))
+            except (TypeError, ValueError):
+                continue
+        return {"items": items, "total": len(items)}
+
+    @router.put("/favorites/{gift_id}")
+    async def save_favorite(
+        gift_id: str,
+        payload: dict,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        user = _user(x_telegram_init_data, verify_telegram_init_data)
+        gift_id = gift_id.strip()[:160]
+        gift = payload.get("gift")
+        if not gift_id or not isinstance(gift, dict):
+            raise HTTPException(status_code=422, detail="A gift and its ID are required")
+        import json
+        encoded = json.dumps(gift, ensure_ascii=False, separators=(",", ":"))
+        if len(encoded.encode("utf-8")) > 16000:
+            raise HTTPException(status_code=413, detail="Gift data is too large")
+        now = int(time.time())
+        with _db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            exists = conn.execute(
+                "SELECT 1 FROM user_favorites WHERE telegram_id = ? AND gift_id = ?",
+                (str(user["id"]), gift_id),
+            ).fetchone()
+            count = conn.execute(
+                "SELECT COUNT(*) FROM user_favorites WHERE telegram_id = ?",
+                (str(user["id"]),),
+            ).fetchone()[0]
+            if not exists and count >= 300:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Favorites limit reached")
+            conn.execute(
+                """INSERT INTO user_favorites(telegram_id, gift_id, gift_json, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(telegram_id, gift_id) DO UPDATE SET
+                   gift_json=excluded.gift_json, updated_at=excluded.updated_at""",
+                (str(user["id"]), gift_id, encoded, now, now),
+            )
+            conn.commit()
+        return {"saved": True, "gift_id": gift_id}
+
+    @router.delete("/favorites/{gift_id}")
+    async def remove_favorite(
+        gift_id: str,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        user = _user(x_telegram_init_data, verify_telegram_init_data)
+        with _db() as conn:
+            conn.execute(
+                "DELETE FROM user_favorites WHERE telegram_id = ? AND gift_id = ?",
+                (str(user["id"]), gift_id[:160]),
+            )
+        return {"removed": True, "gift_id": gift_id[:160]}
 
     @router.get("/orders")
     async def list_orders(
