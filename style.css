@@ -301,3 +301,18 @@ footer{margin-top:32px;padding-top:15px}
 @media(prefers-reduced-motion:reduce){
   .gift-card,.collection-card,.filter-apply{transition:none!important}
 }
+
+
+/* Detail view polish: readable metadata and mobile-safe modal layout. */
+.modal-detail-row b{max-width:68%;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.modal-image-wrap{position:relative;overflow:hidden}
+.modal-image-wrap img{display:block;object-position:center}
+.modal-attributes:empty{display:none}
+.gift-modal-card:focus-visible{outline:2px solid #a78bfa;outline-offset:3px}
+@media(max-width:650px){
+ .gift-modal{align-items:flex-end;padding:8px}
+ .gift-modal-card{width:100%;max-width:520px;max-height:calc(100dvh - 16px);border-radius:22px 22px 16px 16px;overscroll-behavior:contain}
+ .modal-image-wrap{min-height:190px;max-height:230px}
+ .modal-content{padding-bottom:calc(20px + env(safe-area-inset-bottom))}
+ .modal-detail-row{padding:11px 2px;font-size:12px}
+}
