@@ -511,6 +511,35 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(unrelated.json()["items"], [])
         self.assertEqual(unrelated.json()["total"], 0)
 
+    def test_cancelling_order_declines_pending_offers_and_notifies_senders(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        sender_headers = {"X-Telegram-Init-Data": "user-b"}
+        order = self.client.post(
+            "/api/marketplace/orders", headers=owner_headers,
+            json={"kind": "listing", "title": "Cancelled order gift", "price": "2", "currency": "TON"},
+        )
+        order_id = order.json()["item"]["id"]
+        offer = self.client.post(
+            "/api/marketplace/offers", headers=sender_headers,
+            json={"order_id": order_id, "amount": "1.8"},
+        )
+        offer_id = offer.json()["item"]["id"]
+
+        cancelled = self.client.delete(f"/api/marketplace/orders/{order_id}", headers=owner_headers)
+        self.assertEqual(cancelled.status_code, 200)
+
+        sender_offers = self.client.get("/api/marketplace/offers", headers=sender_headers)
+        updated_offer = next(item for item in sender_offers.json()["items"] if item["id"] == offer_id)
+        self.assertEqual(updated_offer["status"], "declined")
+        notifications = self.client.get("/api/marketplace/notifications", headers=sender_headers)
+        self.assertIn("offer_declined", {item["type"] for item in notifications.json()["items"]})
+
+        owner_offers = self.client.get("/api/marketplace/offers", headers=owner_headers)
+        self.assertEqual(
+            next(item for item in owner_offers.json()["items"] if item["id"] == offer_id)["status"],
+            "declined",
+        )
+
     def test_order_reports_require_auth_and_prevent_duplicates_and_self_reports(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         reporter_headers = {"X-Telegram-Init-Data": "user-b"}
