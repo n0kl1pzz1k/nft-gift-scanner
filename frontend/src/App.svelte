@@ -153,7 +153,11 @@
     view = 'orders';
   }
 
-  function completeOrder(id: string) {\n    orders = orders.map(o => o.id === id ? { ...o, status: 'matched' } : o);\n    saveOrders();\n    notice = lang === 'ru' ? 'Демо-ордер отмечен как исполненный.' : 'Demo order marked as filled.';\n  }\n\n  function cancelOrder(id: string) {
+  function completeOrder(id: string) {
+    orders = orders.map(o => o.id === id ? { ...o, status: 'matched' } : o);
+    saveOrders();
+    notice = lang === 'ru' ? 'Демо-ордер отмечен как исполненный.' : 'Demo order marked as filled.';
+  }\n\n  function cancelOrder(id: string) {
     orders = orders.map(o => o.id === id ? { ...o, status: 'cancelled' } : o);
     saveOrders();
   }
