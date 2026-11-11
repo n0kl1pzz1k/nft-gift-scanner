@@ -71,6 +71,29 @@ def init_demo_offers_db() -> None:
             FOREIGN KEY(order_id) REFERENCES demo_orders(id),
             FOREIGN KEY(offer_id) REFERENCES demo_offers(id)
         );
+        CREATE TABLE IF NOT EXISTS demo_deal_events (
+            id TEXT PRIMARY KEY,
+            deal_id TEXT NOT NULL,
+            order_id TEXT NOT NULL,
+            actor_user_id TEXT NOT NULL,
+            event_type TEXT NOT NULL CHECK(event_type IN ('deal_created', 'listing_reserved', 'payment_not_enabled')),
+            event_data TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY(deal_id) REFERENCES demo_deals(id),
+            FOREIGN KEY(order_id) REFERENCES demo_orders(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_demo_deal_events_deal_created
+            ON demo_deal_events(deal_id, created_at ASC, id ASC);
+        CREATE TRIGGER IF NOT EXISTS trg_demo_deal_events_no_update
+        BEFORE UPDATE ON demo_deal_events
+        BEGIN
+            SELECT RAISE(ABORT, 'deal events are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_demo_deal_events_no_delete
+        BEFORE DELETE ON demo_deal_events
+        BEGIN
+            SELECT RAISE(ABORT, 'deal events are immutable');
+        END;
         CREATE TABLE IF NOT EXISTS demo_notifications (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -283,20 +306,38 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 if row["order_status"] != "active":
                     conn.rollback()
                     raise HTTPException(status_code=409, detail="The demo order is no longer active")
-                conn.execute(
+                reserved = conn.execute(
                     "UPDATE demo_orders SET status='matched', updated_at=? WHERE id=? AND status='active'",
                     (now, row["order_id"]),
                 )
+                if reserved.rowcount != 1:
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="This listing has already been reserved")
                 conn.execute(
                     "UPDATE demo_offers SET status='declined', updated_at=? WHERE order_id=? AND id<>? AND status='pending'",
                     (now, row["order_id"], offer_id),
                 )
+                deal_id = "deal-" + uuid.uuid4().hex[:16]
                 conn.execute("""
                     INSERT INTO demo_deals
                     (id, order_id, offer_id, listing_owner_id, offer_sender_id, agreed_amount, currency, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, ("deal-" + uuid.uuid4().hex[:16], row["order_id"], offer_id,
+                """, (deal_id, row["order_id"], offer_id,
                       actor_id, row["sender_user_id"], row["amount"], row["currency"], now))
+                # Immutable audit trail: this is an agreement/reservation only.
+                # Payment and asset delivery are deliberately not started here.
+                for event_type, event_actor, event_data in (
+                    ("deal_created", actor_id, {"simulation_only": True}),
+                    ("listing_reserved", actor_id, {"reservation": "exclusive"}),
+                    ("payment_not_enabled", "system", {"reason": "payment_integration_not_live"}),
+                ):
+                    conn.execute(
+                        """INSERT INTO demo_deal_events
+                           (id, deal_id, order_id, actor_user_id, event_type, event_data, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        ("de-" + uuid.uuid4().hex[:20], deal_id, row["order_id"],
+                         event_actor, event_type, json.dumps(event_data, separators=(",", ":")), now),
+                    )
             new_status = {"accept": "accepted", "decline": "declined", "withdraw": "withdrawn"}[action]
             conn.execute("UPDATE demo_offers SET status=?, updated_at=? WHERE id=? AND status='pending'",
                          (new_status, now, offer_id))
@@ -308,6 +349,39 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             """, (offer_id,)).fetchone()
         return {"item": _offer_dict(updated, actor_id), "simulation_only": True,
                 "deal_created": action == "accept"}
+
+    @router.get("/deals/{deal_id}/events")
+    async def list_deal_events(
+        deal_id: str,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        user_id = str(user["id"])
+        with _db() as conn:
+            deal = conn.execute(
+                """SELECT id, listing_owner_id, offer_sender_id
+                   FROM demo_deals WHERE id = ?""",
+                (deal_id,),
+            ).fetchone()
+            if deal is None:
+                raise HTTPException(status_code=404, detail="Deal not found")
+            if user_id not in (deal["listing_owner_id"], deal["offer_sender_id"]):
+                raise HTTPException(status_code=404, detail="Deal not found")
+            rows = conn.execute(
+                """SELECT id, event_type, actor_user_id, event_data, created_at
+                   FROM demo_deal_events WHERE deal_id = ?
+                   ORDER BY created_at ASC, id ASC""",
+                (deal_id,),
+            ).fetchall()
+        return {"items": [{
+            "id": row["id"],
+            "type": row["event_type"],
+            "actor": "system" if row["actor_user_id"] == "system" else
+                     ("you" if row["actor_user_id"] == user_id else "counterparty"),
+            "data": json.loads(row["event_data"]),
+            "created_at": row["created_at"],
+            "simulation_only": True,
+        } for row in rows], "simulation_only": True}
 
     @router.get("/deals")
     async def list_deals(
