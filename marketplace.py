@@ -43,6 +43,27 @@ def init_marketplace_db() -> None:
     with _db() as conn:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript("""
+        CREATE TABLE IF NOT EXISTS telegram_users (
+            telegram_id TEXT PRIMARY KEY,
+            username TEXT NOT NULL DEFAULT '',
+            first_name TEXT NOT NULL DEFAULT '',
+            last_name TEXT NOT NULL DEFAULT '',
+            photo_url TEXT NOT NULL DEFAULT '',
+            language_code TEXT NOT NULL DEFAULT '',
+            is_premium INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_telegram_users_updated ON telegram_users(updated_at DESC);
+        CREATE TABLE IF NOT EXISTS user_favorites (
+            telegram_id TEXT NOT NULL,
+            gift_id TEXT NOT NULL,
+            gift_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY(telegram_id, gift_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_favorites_updated ON user_favorites(telegram_id, updated_at DESC);
         CREATE TABLE IF NOT EXISTS demo_orders (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -77,8 +98,56 @@ def init_marketplace_db() -> None:
             request_count INTEGER NOT NULL,
             PRIMARY KEY(user_id, action)
         );
+        CREATE TABLE IF NOT EXISTS app_settings (
+            setting_key TEXT PRIMARY KEY,
+            setting_value TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
         """)
 
+
+
+def get_app_setting(key: str, default: str = "") -> str:
+    """Read a small durable runtime setting from SQLite."""
+    safe_key = str(key or "").strip()[:100]
+    if not safe_key:
+        return default
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT setting_value FROM app_settings WHERE setting_key = ?",
+            (safe_key,),
+        ).fetchone()
+    return str(row["setting_value"]) if row is not None else default
+
+
+def set_app_setting(key: str, value: str) -> None:
+    """Persist a bounded runtime setting across backend restarts."""
+    safe_key = str(key or "").strip()[:100]
+    safe_value = str(value)[:500]
+    if not safe_key:
+        raise ValueError("A setting key is required")
+    with _db() as conn:
+        conn.execute(
+            """INSERT INTO app_settings(setting_key, setting_value, updated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(setting_key) DO UPDATE SET
+                 setting_value=excluded.setting_value,
+                 updated_at=excluded.updated_at""",
+            (safe_key, safe_value, int(time.time())),
+        )
+
+
+def upsert_telegram_user(user: dict[str, Any]) -> dict[str, Any]:
+    """Persist the minimum Telegram profile fields needed by the Mini App."""
+    telegram_id = str(user.get("id", "")).strip()
+    if not telegram_id.isdigit():
+        raise ValueError("A verified Telegram user ID is required")
+    now = int(time.time())
+    values = (telegram_id, str(user.get("username") or "")[:64], str(user.get("first_name") or "")[:128], str(user.get("last_name") or "")[:128], str(user.get("photo_url") or "")[:2048], str(user.get("language_code") or "")[:16], 1 if user.get("is_premium") is True else 0, now, now)
+    with _db() as conn:
+        conn.execute("INSERT INTO telegram_users (telegram_id, username, first_name, last_name, photo_url, language_code, is_premium, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(telegram_id) DO UPDATE SET username=excluded.username, first_name=excluded.first_name, last_name=excluded.last_name, photo_url=excluded.photo_url, language_code=excluded.language_code, is_premium=excluded.is_premium, updated_at=excluded.updated_at", values)
+        row = conn.execute("SELECT * FROM telegram_users WHERE telegram_id = ?", (telegram_id,)).fetchone()
+    return {"id": row["telegram_id"], "username": row["username"], "first_name": row["first_name"], "last_name": row["last_name"], "photo_url": row["photo_url"], "language_code": row["language_code"], "is_premium": bool(row["is_premium"]), "created_at": row["created_at"], "updated_at": row["updated_at"]}
 
 def _user(init_data: str | None, verify: Callable[[str], dict]) -> dict:
     if not init_data:
@@ -161,6 +230,89 @@ class CreateDemoOrder(BaseModel):
 
 def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) -> APIRouter:
     router = APIRouter(prefix="/api/marketplace", tags=["demo-marketplace"])
+
+    @router.get("/favorites")
+    async def list_favorites(x_telegram_init_data: str | None = Header(default=None)):
+        user = _user(x_telegram_init_data, verify_telegram_init_data)
+        with _db() as conn:
+            rows = conn.execute(
+                "SELECT gift_json FROM user_favorites WHERE telegram_id = ? ORDER BY updated_at DESC LIMIT 300",
+                (str(user["id"]),),
+            ).fetchall()
+        import json
+        items = []
+        for row in rows:
+            try:
+                items.append(json.loads(row["gift_json"]))
+            except (TypeError, ValueError):
+                continue
+        return {"items": items, "total": len(items)}
+
+    @router.put("/favorites/{gift_id}")
+    async def save_favorite(
+        gift_id: str,
+        payload: dict,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        user = _user(x_telegram_init_data, verify_telegram_init_data)
+        _enforce_user_rate_limit(str(user["id"]), "save_favorite", 30)
+        gift = payload.get("gift")
+        if not isinstance(gift, dict):
+            raise HTTPException(status_code=422, detail="A gift and its ID are required")
+        if not gift_id or gift_id != gift_id.strip() or len(gift_id) > 160:
+            raise HTTPException(status_code=422, detail="Gift ID must be between 1 and 160 characters")
+        item_key = gift.get("id")
+        if item_key is None:
+            item_key = gift.get("number")
+        if item_key is None:
+            item_key = gift.get("name")
+        if item_key is None:
+            item_key = "gift"
+        if not isinstance(item_key, (str, int, float)) or str(item_key) != gift_id:
+            raise HTTPException(status_code=422, detail="Gift ID does not match the gift data")
+        import json
+        encoded = json.dumps(gift, ensure_ascii=False, separators=(",", ":"))
+        if len(encoded.encode("utf-8")) > 16000:
+            raise HTTPException(status_code=413, detail="Gift data is too large")
+        now = int(time.time())
+        with _db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            exists = conn.execute(
+                "SELECT 1 FROM user_favorites WHERE telegram_id = ? AND gift_id = ?",
+                (str(user["id"]), gift_id),
+            ).fetchone()
+            count = conn.execute(
+                "SELECT COUNT(*) FROM user_favorites WHERE telegram_id = ?",
+                (str(user["id"]),),
+            ).fetchone()[0]
+            if not exists and count >= 300:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Favorites limit reached")
+            conn.execute(
+                """INSERT INTO user_favorites(telegram_id, gift_id, gift_json, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(telegram_id, gift_id) DO UPDATE SET
+                   gift_json=excluded.gift_json, updated_at=excluded.updated_at""",
+                (str(user["id"]), gift_id, encoded, now, now),
+            )
+            conn.commit()
+        return {"saved": True, "gift_id": gift_id}
+
+    @router.delete("/favorites/{gift_id}")
+    async def remove_favorite(
+        gift_id: str,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        user = _user(x_telegram_init_data, verify_telegram_init_data)
+        _enforce_user_rate_limit(str(user["id"]), "remove_favorite", 30)
+        if not gift_id or gift_id != gift_id.strip() or len(gift_id) > 160:
+            raise HTTPException(status_code=422, detail="Gift ID must be between 1 and 160 characters")
+        with _db() as conn:
+            conn.execute(
+                "DELETE FROM user_favorites WHERE telegram_id = ? AND gift_id = ?",
+                (str(user["id"]), gift_id),
+            )
+        return {"removed": True, "gift_id": gift_id}
 
     @router.get("/orders")
     async def list_orders(

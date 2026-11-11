@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from app import app, _safe_total_count, _marketplace_visibility
 
@@ -23,7 +24,8 @@ class ApiContractTests(unittest.TestCase):
         self.assertNotIn("/api/mrkt/gifts", paths)
 
     def test_marketplace_visibility_contains_only_portals(self):
-        self.assertEqual(_marketplace_visibility, {"portals": True})
+        with patch("app.get_app_setting", return_value="true"):
+            self.assertEqual(_marketplace_visibility(), {"portals": True})
 
     def test_reference_feeds_remain_separate_from_marketplace(self):
         paths = set(app.openapi()['paths'])
