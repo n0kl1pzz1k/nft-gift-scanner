@@ -67,3 +67,8 @@ class PersistentCatalogueTests(unittest.TestCase):
     def test_overlong_source_ids_are_rejected_not_truncated(self):
         self.assertEqual(upsert_catalogue_items([{"id": "x" * 161, "name": "Collision"}]), 0)
         self.assertIsNone(get_catalogue_item("x" * 160))
+
+    def test_metadata_history_is_bounded(self):
+        for index in range(55):
+            upsert_catalogue_items([{"id": "history-cap", "name": "Gift", "version": index}])
+        self.assertEqual(len(get_catalogue_history("history-cap", limit=50)), 50)
