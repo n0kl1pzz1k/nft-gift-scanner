@@ -74,6 +74,45 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(removed.status_code, 200)
         self.assertEqual(self.client.get("/api/marketplace/favorites", headers=headers_a).json()["items"], [])
 
+    def test_portals_catalogue_is_persisted_and_searchable_by_exact_item(self):
+        payload = {
+            "results": [{
+                "id": "portals-item-9001",
+                "name": "Plush Pepe",
+                "external_collection_number": 9001,
+                "collection_id": "plush-pepe",
+                "photo_url": "https://example.invalid/gift.webp",
+                "animation_url": None,
+                "price": "4.2",
+                "floor_price": "3.9",
+                "attributes": [{"type": "model", "value": "Pepe"}],
+                "status": "listed",
+                "listed_at": "2026-11-11T00:00:00Z",
+            }],
+            "total_count": 1,
+        }
+        with patch.dict(os.environ, {"PORTALS_API_KEY": "test-partner-key"}), patch.object(
+            api, "_portals_get_json", new_callable=AsyncMock, return_value=payload
+        ):
+            loaded = self.client.get("/api/gifts?limit=1")
+        self.assertEqual(loaded.status_code, 200)
+        self.assertEqual(loaded.json()["items"][0]["id"], "portals-item-9001")
+
+        exact = self.client.get("/api/catalog/items/portals-item-9001")
+        self.assertEqual(exact.status_code, 200)
+        self.assertTrue(exact.json()["metadata_only"])
+        self.assertEqual(exact.json()["item"]["number"], 9001)
+        self.assertEqual(exact.json()["item"]["catalogue_source"], "Portals")
+
+        searched = self.client.get("/api/catalog/items?search=Pepe&collection_id=plush-pepe")
+        self.assertEqual(searched.status_code, 200)
+        self.assertEqual(searched.json()["total_count"], 1)
+        self.assertEqual(searched.json()["items"][0]["id"], "portals-item-9001")
+
+    def test_catalogue_item_endpoint_does_not_invent_missing_items(self):
+        missing = self.client.get("/api/catalog/items/not-indexed")
+        self.assertEqual(missing.status_code, 404)
+
     def test_price_filter_rejects_minimum_above_maximum(self):
         with patch.dict(os.environ, {"PORTALS_API_KEY": "test-partner-key"}), patch.object(api, "_portals_get_json", new_callable=AsyncMock) as upstream:
             response = self.client.get("/api/gifts?min_price=5&max_price=2")
