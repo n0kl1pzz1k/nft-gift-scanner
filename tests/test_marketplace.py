@@ -564,6 +564,38 @@ class SharedMarketplaceTests(unittest.TestCase):
         )
 
 
+    def test_notification_history_pagination_is_private(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        sender_headers = {"X-Telegram-Init-Data": "user-b"}
+        for index in range(3):
+            order = self.client.post(
+                "/api/marketplace/orders", headers=owner_headers,
+                json={"kind": "listing", "title": f"Notification Page Gift {index}", "price": "1", "currency": "TON"},
+            )
+            self.assertEqual(order.status_code, 201)
+            offered = self.client.post(
+                "/api/marketplace/offers", headers=sender_headers,
+                json={"order_id": order.json()["item"]["id"], "amount": "1"},
+            )
+            self.assertEqual(offered.status_code, 201)
+
+        first_page = self.client.get(
+            "/api/marketplace/notifications?limit=2&offset=0", headers=owner_headers,
+        )
+        second_page = self.client.get(
+            "/api/marketplace/notifications?limit=2&offset=2", headers=owner_headers,
+        )
+        self.assertEqual(first_page.status_code, 200)
+        self.assertEqual(first_page.json()["total"], 3)
+        self.assertEqual(len(first_page.json()["items"]), 2)
+        self.assertEqual(len(second_page.json()["items"]), 1)
+        unrelated = self.client.get(
+            "/api/marketplace/notifications?limit=10",
+            headers={"X-Telegram-Init-Data": "user-c"},
+        )
+        self.assertEqual(unrelated.json()["total"], 0)
+        self.assertEqual(unrelated.json()["items"], [])
+
     def test_account_notifications_are_private_and_read_state_persists(self):
         headers_a = {"X-Telegram-Init-Data": "user-a"}
         headers_b = {"X-Telegram-Init-Data": "user-b"}

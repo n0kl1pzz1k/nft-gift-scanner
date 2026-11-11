@@ -336,18 +336,23 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
     async def list_notifications(
         unread_only: bool = False,
         limit: int = Query(default=50, ge=1, le=100),
+        offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         user_id = str(user["id"])
         clause = " AND read_at IS NULL" if unread_only else ""
         with _db() as conn:
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM demo_notifications WHERE user_id = ?{clause}",
+                (user_id,),
+            ).fetchone()[0]
             rows = conn.execute(
                 f"""SELECT id, event_type, offer_id, order_id, order_title,
                            actor_name, created_at, read_at
                     FROM demo_notifications WHERE user_id = ?{clause}
-                    ORDER BY created_at DESC LIMIT ?""",
-                (user_id, limit),
+                    ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?""",
+                (user_id, limit, offset),
             ).fetchall()
             unread = conn.execute(
                 "SELECT COUNT(*) FROM demo_notifications WHERE user_id = ? AND read_at IS NULL",
@@ -360,6 +365,9 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 "actor_name": row["actor_name"], "created_at": row["created_at"],
                 "read_at": row["read_at"],
             } for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
             "unread_count": unread,
         }
 
