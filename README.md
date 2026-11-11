@@ -63,3 +63,16 @@ Catalogue and provider integrations are read-only. The separate order-book inter
 - The webhook inbox is transport-level idempotency, not a payment ledger. Telegram Stars invoices, pre-checkout approval, successful-payment fulfillment, refunds and real settlement remain **disabled**. Never mark an order paid from a client callback, screenshot, browser request or unverified webhook.
 - If Telegram Stars is approved for a future release, the server must create invoices from server-owned order/price data in `XTR`, validate `pre_checkout_query` (user, payload, amount, currency, expiry and order state), and treat only Telegram's authenticated `successful_payment` update as payment evidence. Persist charge IDs and a unique transaction record inside one database transaction; make duplicate updates and charge IDs harmless. Do not enable fulfilment until that separate implementation has passed review and tests.
 - GIFT RADAR does not request, store or operate users' seed phrases, private keys, wallet passwords, exchange API keys or account API tokens. It cannot debit, credit or otherwise mutate user balances. Current orders and deal states remain simulation-only.
+
+## Target payment architecture (not live yet)
+
+The product roadmap is a real marketplace with **non-custodial user-wallet boundaries**. This is a target design, not a statement that live transactions are already available.
+
+- **Telegram Stars:** server-created `XTR` invoices, server-validated pre-checkout, and successful-payment confirmation from Telegram's authenticated update. Invoice amount and buyer/order binding come from the backend database. Stars proceeds are credited to the bot/platform's Telegram Stars balance; they are not automatically paid directly to each seller.
+- **TON:** optional TON Connect integration. Users connect voluntarily and approve transactions in their own wallet. The backend stores no wallet private keys or seed phrases and independently verifies the on-chain transaction before changing an order state.
+- **No custody:** GIFT RADAR will not request wallet passwords, seed phrases, private keys, exchange API keys or banking credentials, and will not debit or mutate user wallet balances. A public address may be processed only where needed and with clear user consent.
+- **Delivery is separate from payment:** a confirmed payment does not prove that a gift/NFT was transferred. Payment and asset-delivery states must be independently verified and auditable.
+- **Commercial terms remain open:** owner profit, marketplace commission, seller share, payout timing and refund/dispute responsibility are not hard-coded and must be agreed before production launch.
+
+For digital goods sold inside Telegram, the payment surface must follow Telegram's applicable Stars requirements; TON is not a workaround for those rules. See [the detailed security design](docs/SECURITY_SECTIONS_1_2.md) for the state machine, threats, controls and production gates.
+
