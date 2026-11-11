@@ -201,9 +201,11 @@ function renderGifts(data){
 }
 async function loadTonnelGifts(search="",renderActive=true){
   const t=copy[lang];
-  $("gifts-count").textContent="…";
-  $("gifts-updated").textContent=t.checking;
-  $("market-view").innerHTML='<p class="empty">'+t.checking+'</p>';
+  if(renderActive&&activeMarket==="tonnel"){
+    $("gifts-count").textContent="…";
+    $("gifts-updated").textContent=t.checking;
+    $("market-view").innerHTML='<p class="empty">'+t.checking+'</p>';
+  }
   try{
     const response=await fetch(window.API_BASE+"/api/tonnel/gifts?limit=24&page=1&search="+encodeURIComponent(search));
     const data=await response.json();
@@ -211,13 +213,20 @@ async function loadTonnelGifts(search="",renderActive=true){
     tonnelGiftItems=Array.isArray(data.items)?data.items:[];
     tonnelTotalCount=Number(data.total_count??tonnelGiftItems.length)||tonnelGiftItems.length;
     sourceStates.tonnel="online_read_only";
+    // If Portals is not configured and Tonnel returned real listings, show
+    // those cards by default instead of leaving an empty catalogue on screen.
+    if(activeMarket==="portals"&&sourceStates.portals==="needs_api_key"&&tonnelGiftItems.length){
+      activeMarket="tonnel";
+    }
     renderMarketTabs();
-    if(renderActive&&activeMarket==="tonnel")renderGifts({...data,items:tonnelGiftItems,total_count:tonnelTotalCount});
+    if(activeMarket==="tonnel")renderGifts({...data,items:tonnelGiftItems,total_count:tonnelTotalCount});
+    if(typeof nftRenderProfile==="function")nftRenderProfile();
   }catch(e){
     const message=String(e.message||"");
     sourceStates.tonnel=message.toLowerCase().includes("rate limit")?"rate_limited":message.toLowerCase().includes("public unauthenticated")?"public_access_unavailable":"temporarily_unavailable";
     renderMarketTabs();
     if(renderActive&&activeMarket==="tonnel")renderUnavailableMarket("tonnel");
+    if(typeof nftRenderProfile==="function")nftRenderProfile();
   }
 }
 function currentCollectionParams(offset=0,searchTerm=""){
