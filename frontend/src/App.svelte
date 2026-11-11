@@ -11,8 +11,12 @@
   };
   type DemoOrder = {
     id: string; kind: 'listing' | 'buy-order'; title: string;
-    price: number; currency: string; status: 'active' | 'matched' | 'cancelled';
-    createdAt: string; image?: string; number?: string; note?: string;
+    price: string | number; currency: 'TON' | 'XTR'; status: 'active' | 'matched' | 'cancelled';
+    createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string;
+  };
+  type MarketplaceStats = {
+    active_listings: number; active_buy_requests: number; matched_orders: number;
+    volume_ton: number; volume_stars: number; total_orders: number;
   };
   type View = 'market' | 'orders' | 'create' | 'favorites' | 'profile';
 
@@ -23,6 +27,7 @@
   let favorites = $state<string[]>([]);
   let favoriteItems = $state<Gift[]>([]);
   let orders = $state<DemoOrder[]>([]);
+  let marketplaceStats = $state<MarketplaceStats>({active_listings:0,active_buy_requests:0,matched_orders:0,volume_ton:0,volume_stars:0,total_orders:0});
   let search = $state('');
   let minPrice = $state('');
   let maxPrice = $state('');
@@ -84,17 +89,38 @@
   const t = $derived(lang === 'ru' ? ru : en);
   const keyOf = (g: Gift) => String(g.id ?? g.number ?? g.name ?? 'gift');
   const shownGifts = $derived(view === 'favorites' ? favoriteItems : gifts);
-  const demoListings = $derived(orders.filter(o => o.kind === 'listing' && o.status === 'active').length);
-  const demoBuyRequests = $derived(orders.filter(o => o.kind === 'buy-order' && o.status === 'active').length);
-  const demoVolumeTon = $derived(orders.filter(o => o.status === 'matched' && o.currency === 'TON').reduce((sum, o) => sum + o.price, 0));
-  const demoVolumeStars = $derived(orders.filter(o => o.status === 'matched' && o.currency === 'XTR').reduce((sum, o) => sum + o.price, 0));
+  const demoListings = $derived(marketplaceStats.active_listings);
+  const demoBuyRequests = $derived(marketplaceStats.active_buy_requests);
+  const demoVolumeTon = $derived(marketplaceStats.volume_ton);
+  const demoVolumeStars = $derived(marketplaceStats.volume_stars);
   const fmt = (value: unknown, currency = '') => value === null || value === undefined || value === '' ? '—' : String(value) + (currency ? ' ' + currency : '');
 
-  async function request(path: string, signal?: AbortSignal) {
-    const response = await fetch(API + path, { signal });
+  const authHeaders = () => {
+    const initData = window.Telegram?.WebApp?.initData || '';
+    return initData ? { 'X-Telegram-Init-Data': initData } : {};
+  };
+
+  async function request(path: string, signal?: AbortSignal, init: RequestInit = {}) {
+    const response = await fetch(API + path, { ...init, signal, headers: { ...authHeaders(), ...(init.headers || {}) } });
     const data = await response.json().catch(() => ({ detail: 'Invalid server response' }));
     if (!response.ok) throw new Error(data.detail || 'Request failed');
     return data;
+  }
+
+  async function loadMarketplace() {
+    try {
+      const [publicData, mineData, statsData] = await Promise.all([
+        request('/api/marketplace/orders?status=active&limit=100'),
+        window.Telegram?.WebApp?.initData ? request('/api/marketplace/mine') : Promise.resolve({items:[]}),
+        request('/api/marketplace/stats'),
+      ]);
+      const combined = new Map<string, DemoOrder>();
+      for (const item of [...(publicData.items || []), ...(mineData.items || [])]) combined.set(item.id, item);
+      orders = [...combined.values()].sort((a,b) => b.createdAt - a.createdAt);
+      marketplaceStats = { ...marketplaceStats, ...statsData };
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    }
   }
 
   async function loadCatalogue(append = false) {
