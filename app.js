@@ -314,8 +314,8 @@ $("collections").addEventListener("keydown",event=>{
   if(card&&(event.key==="Enter"||event.key===" ")){event.preventDefault();openCollection(Number(card.dataset.collectionIndex));}
 });
 $("market-view").addEventListener("click",event=>{
-  if(event.target.closest("[data-apply-filters]")){readCollectionFilters();loadCollectionGifts(0,false,$("gift-search")?.value.trim()||"");return;}
-  if(event.target.closest("[data-clear-filters]")){collectionFilterState={min_price:"",max_price:"",external_collection_number:"",filter_by_backdrops:"",sort_by:"listed_at desc"};loadCollectionGifts(0,false,$("gift-search")?.value.trim()||"");return;}
+  if(event.target.closest("[data-apply-filters]")){if(!readCollectionFilters())return;loadCollectionGifts(0,false,$("gift-search")?.value.trim()||"");return;}
+  if(event.target.closest("[data-clear-filters]")){collectionFilterState={min_price:"",max_price:"",external_collection_number:"",filter_by_backdrops:"",filter_by_models:"",filter_by_symbols:"",mint_status:"",statuses:"",sort_by:"listed_at desc",status:""};loadCollectionGifts(0,false,$("gift-search")?.value.trim()||"");return;}
   if(event.target.closest("[data-back-collections]")){closeCollection();return;}
   if(event.target.closest("[data-load-more-gifts]")){loadMoreCollectionGifts();return;}
   const card=event.target.closest("[data-gift-index]");
@@ -494,7 +494,7 @@ $("market-view").addEventListener("click",event=>{
  const clear=event.target.closest("[data-clear-filters]");
  if((apply||clear)&&!selectedCollection&&activeMarket==="portals"){
   event.preventDefault();event.stopImmediatePropagation();
-  if(clear)collectionFilterState={min_price:"",max_price:"",external_collection_number:"",filter_by_backdrops:"",sort_by:"listed_at desc",status:""};
+  if(clear)collectionFilterState={min_price:"",max_price:"",external_collection_number:"",filter_by_backdrops:"",filter_by_models:"",filter_by_symbols:"",mint_status:"",statuses:"",sort_by:"listed_at desc",status:""};
   else if(!readCollectionFilters())return;
   nftLoadGlobal(0,false,$("gift-search")?$("gift-search").value.trim():"");
  }
