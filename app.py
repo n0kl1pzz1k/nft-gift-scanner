@@ -58,6 +58,26 @@ _gifts_cache: dict[str, tuple[float, Any]] = {}
 GIFTS_CACHE_SECONDS = 60
 
 
+def _safe_gift_attributes(raw_attributes: Any) -> list[dict[str, str]]:
+    """Keep upstream attribute payloads small and aligned with the Mini App schema."""
+    if not isinstance(raw_attributes, list):
+        return []
+    safe: list[dict[str, str]] = []
+    for attribute in raw_attributes[:40]:
+        if not isinstance(attribute, dict):
+            continue
+        normalized: dict[str, str] = {}
+        for field in ("type", "name", "value"):
+            value = attribute.get(field)
+            if value is None or isinstance(value, (dict, list)):
+                normalized[field] = ""
+            else:
+                normalized[field] = str(value).strip()[:160]
+        if any(normalized.values()):
+            safe.append(normalized)
+    return safe
+
+
 def _safe_total_count(reported_total: Any, item_count: int) -> int:
     try:
         return max(item_count, int(reported_total or 0))
@@ -485,7 +505,7 @@ async def gifts(
             "has_animation": bool(gift.get("has_animation") or gift.get("hasAnimation") or gift.get("animation_url") or gift.get("animationUrl")),
             "price": gift.get("price"),
             "floor_price": gift.get("floor_price"),
-            "attributes": gift.get("attributes", []),
+            "attributes": _safe_gift_attributes(gift.get("attributes")),
             "status": gift.get("status"),
             "listed_at": gift.get("listed_at"),
             "source": "Portals",
