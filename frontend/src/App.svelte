@@ -719,8 +719,9 @@
         {#if offers.length < offersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOffers} disabled={offersLoadingMore}>{offersLoadingMore?'…':t.loadMore}</button></div>{/if}
          <div class="section-title"><div><div class="eyebrow">HISTORY</div><h2>{t.dealsTitle}</h2></div></div>
         {#if deals.length===0}<div class="state-panel">{t.noDeals}</div>{:else}<div class="orders-list">{#each deals as deal (deal.id)}<article class="order-card"><div class="order-icon">✓</div><div class="order-main"><div class="order-kind">{deal.title}</div><h3>{deal.amount} {deal.currency==='XTR'?'⭐ Stars':'TON'}</h3><p>{deal.listing_owner} · {deal.offer_sender} · {new Date(deal.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p></div><div class="order-price"><span class="status-matched">{lang==='ru'?'Смоделирована':'Simulated'}</span></div></article>{/each}</div>{/if}
-      </section>
-    {#if deals.length < dealsTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreDeals} disabled={dealsLoadingMore}>{dealsLoadingMore?'…':t.loadMore}</button></div>{/if}
+               {#if deals.length < dealsTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreDeals} disabled={dealsLoadingMore}>{dealsLoadingMore?'…':t.loadMore}</button></div>{/if}
+       </section>
+    
      {:else if view==='create'}
       <section class="page-heading"><div class="eyebrow">MARKETPLACE STUDIO</div><h1>{t.createTitle}</h1><p>{t.createHint}</p></section>
       <section class="create-layout"><div class="create-form">
