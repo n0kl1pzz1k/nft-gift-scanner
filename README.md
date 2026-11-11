@@ -19,6 +19,7 @@ The Portals Partner API credential may have broader permissions than read-only. 
 ## Environment variables
 
 - `BOT_TOKEN` — Telegram bot token, stored only in Railway Variables.
+- `BOT_WEBHOOK_SECRET` — recommended explicit Telegram webhook secret (1–256 characters from Telegram's allowed set), stored only in Railway Variables. If omitted, a fresh random secret is generated at startup and registered with Telegram; setting a stable secret is preferable for controlled rotation.
 - `PUBLIC_APP_URL` — public HTTPS Mini App URL.
 - `ADMIN_TELEGRAM_ID` or `ADMIN_TELEGRAM_IDS` — numeric Telegram user ID(s) allowed to use bot admin commands and the Mini App catalogue-visibility controls. Configure only in the backend environment; if unset, admin access is denied.
 - `API_BASE_URL` — optional internal backend URL for admin health checks; defaults to `http://127.0.0.1:8080`.
