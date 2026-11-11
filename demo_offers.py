@@ -97,6 +97,30 @@ def init_demo_offers_db() -> None:
         BEGIN
             SELECT RAISE(ABORT, 'deal events are immutable');
         END;
+        CREATE TABLE IF NOT EXISTS demo_deal_lifecycle_events (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            id TEXT NOT NULL UNIQUE,
+            deal_id TEXT NOT NULL,
+            order_id TEXT NOT NULL,
+            actor_user_id TEXT NOT NULL,
+            event_type TEXT NOT NULL CHECK(event_type IN ('deal_cancelled')),
+            event_data TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY(deal_id) REFERENCES demo_deals(id),
+            FOREIGN KEY(order_id) REFERENCES demo_orders(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_demo_deal_lifecycle_events_deal
+            ON demo_deal_lifecycle_events(deal_id, sequence ASC);
+        CREATE TRIGGER IF NOT EXISTS trg_demo_deal_lifecycle_events_no_update
+        BEFORE UPDATE ON demo_deal_lifecycle_events
+        BEGIN
+            SELECT RAISE(ABORT, 'deal lifecycle events are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_demo_deal_lifecycle_events_no_delete
+        BEFORE DELETE ON demo_deal_lifecycle_events
+        BEGIN
+            SELECT RAISE(ABORT, 'deal lifecycle events are immutable');
+        END;
         CREATE TABLE IF NOT EXISTS demo_notifications (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -210,6 +234,10 @@ class CreateOffer(BaseModel):
 
 class OfferAction(BaseModel):
     action: Literal["accept", "decline", "withdraw"]
+
+
+class DealAction(BaseModel):
+    action: Literal["cancel"]
 
 
 def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) -> APIRouter:
@@ -363,6 +391,67 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         return {"item": _offer_dict(updated, actor_id), "simulation_only": True,
                 "deal_created": action == "accept"}
 
+    @router.post("/deals/{deal_id}/actions")
+    async def act_on_deal(
+        deal_id: str,
+        payload: DealAction,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Allow participants to release an unpaid demo reservation atomically."""
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        actor_id = str(user["id"])
+        _enforce_user_rate_limit(actor_id, "deal_action", 10)
+        now = int(time.time())
+        with _db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            deal = conn.execute(
+                """SELECT d.*, o.status AS order_status
+                   FROM demo_deals d JOIN demo_orders o ON o.id = d.order_id
+                   WHERE d.id = ?""",
+                (deal_id,),
+            ).fetchone()
+            if deal is None or actor_id not in (deal["listing_owner_id"], deal["offer_sender_id"]):
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Deal not found")
+            if deal["status"] == "cancelled":
+                conn.commit()
+                return {"deal_id": deal_id, "status": "cancelled", "already_cancelled": True,
+                        "payments_enabled": False, "simulation_only": True}
+            if deal["status"] != "payment_not_enabled":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Only unpaid demo reservations can be cancelled")
+            if deal["order_status"] != "matched":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="The reserved order is no longer in a cancellable state")
+            changed = conn.execute(
+                """UPDATE demo_deals SET status='cancelled'
+                   WHERE id=? AND status='payment_not_enabled'""",
+                (deal_id,),
+            )
+            if changed.rowcount != 1:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Deal state changed; refresh and try again")
+            released = conn.execute(
+                """UPDATE demo_orders SET status='active', updated_at=?
+                   WHERE id=? AND status='matched'""",
+                (now, deal["order_id"]),
+            )
+            if released.rowcount != 1:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Reservation could not be released safely")
+            conn.execute(
+                """INSERT INTO demo_deal_lifecycle_events
+                   (id, deal_id, order_id, actor_user_id, event_type, event_data, created_at)
+                   VALUES (?, ?, ?, ?, 'deal_cancelled', ?, ?)""",
+                ("dl-" + uuid.uuid4().hex[:20], deal_id, deal["order_id"], actor_id,
+                 json.dumps({"reason": "participant_cancelled_unpaid_reservation",
+                             "reservation_released": True, "simulation_only": True},
+                            separators=(",", ":")), now),
+            )
+            conn.commit()
+        return {"deal_id": deal_id, "status": "cancelled", "reservation_released": True,
+                "payments_enabled": False, "simulation_only": True}
+
     @router.get("/deals/{deal_id}/events")
     async def list_deal_events(
         deal_id: str,
@@ -381,10 +470,18 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             if user_id not in (deal["listing_owner_id"], deal["offer_sender_id"]):
                 raise HTTPException(status_code=404, detail="Deal not found")
             rows = conn.execute(
-                """SELECT id, event_type, actor_user_id, event_data, created_at
-                   FROM demo_deal_events WHERE deal_id = ?
-                   ORDER BY rowid ASC""",
-                (deal_id,),
+                """SELECT id, event_type, actor_user_id, event_data, created_at, sequence
+                   FROM (
+                       SELECT id, event_type, actor_user_id, event_data, created_at,
+                              rowid AS sequence
+                       FROM demo_deal_events WHERE deal_id = ?
+                       UNION ALL
+                       SELECT id, event_type, actor_user_id, event_data, created_at,
+                              1000000000 + sequence AS sequence
+                       FROM demo_deal_lifecycle_events WHERE deal_id = ?
+                   )
+                   ORDER BY created_at ASC, sequence ASC""",
+                (deal_id, deal_id),
             ).fetchall()
         return {"items": [{
             "id": row["id"],
