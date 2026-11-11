@@ -1,9 +1,14 @@
 import unittest
 
-from app import app
+from app import app, _safe_total_count
 
 
 class ApiContractTests(unittest.TestCase):
+    def test_total_count_never_underreports_returned_items(self):
+        self.assertEqual(_safe_total_count(0, 3), 3)
+        self.assertEqual(_safe_total_count("12", 3), 12)
+        self.assertEqual(_safe_total_count("invalid", 3), 3)
+
     def test_public_read_only_routes_exist(self):
         paths = {route.path for route in app.routes}
         self.assertIn("/health", paths)
