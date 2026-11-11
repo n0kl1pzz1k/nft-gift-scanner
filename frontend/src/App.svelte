@@ -39,6 +39,8 @@
   let total = $state(0);
   let offset = $state(0);
   let selected = $state<Gift | null>(null);
+  let selectedHistory = $state<{item: Gift; observed_at: number}[]>([]);
+  let historyLoading = $state(false);
   let telegramUser = $state('');
   let telegramPhoto = $state('');
   let telegramUsername = $state('');
@@ -139,6 +141,24 @@
       collections = Array.isArray(data.items) ? data.items : [];
     } catch {
       collections = [];
+    }
+  }
+
+  async function openGift(gift: Gift) {
+    selected = gift;
+    selectedHistory = [];
+    historyLoading = true;
+    const giftId = keyOf(gift);
+    try {
+      const data = await request('/api/catalog/items/' + encodeURIComponent(giftId) + '/history?limit=5');
+      if (selected && keyOf(selected) === giftId) {
+        selectedHistory = Array.isArray(data.history) ? data.history : [];
+      }
+    } catch {
+      // The live listing remains usable when historical snapshots are not indexed yet.
+      selectedHistory = [];
+    } finally {
+      if (selected && keyOf(selected) === giftId) historyLoading = false;
     }
   }
 
@@ -364,7 +384,7 @@
           <div class="gift-grid">
             {#each gifts as gift (keyOf(gift))}
               <article class="gift-card">
-                <button class="gift-visual" onclick={()=>selected=gift} aria-label={t.details}>
+                <button class="gift-visual" onclick={()=>void openGift(gift)} aria-label={t.details}>
                   <GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/>
                   <span class="source-tag">PORTALS</span>
                 </button>
@@ -413,7 +433,7 @@
     <div class="gift-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label={selected.name||'Gift details'} onclick={e=>e.stopPropagation()} onkeydown={e=>e.stopPropagation()}>
       <button class="modal-close" onclick={()=>selected=null}>×</button>
       <div class="modal-media"><GiftMedia image={selected.image} animationUrl={selected.animation_url} hasAnimation={selected.has_animation} alt={selected.name||'Gift'} className="gift-media"/></div>
-      <div class="modal-content"><div class="eyebrow">PORTALS COLLECTIBLE</div><h2>{selected.name||'Telegram Gift'} {selected.number?'#'+selected.number:''}</h2><div class="modal-price"><span>{t.price}</span><strong>{fmt(selected.price,selected.currency||'TON')}</strong></div><div class="modal-price"><span>{t.floor}</span><strong>{fmt(selected.floor_price,selected.currency||'TON')}</strong></div><h3>{t.traits}</h3>{#each selected.attributes||[] as trait}<div class="trait-row"><span>{trait.type||trait.name}</span><strong>{trait.value||'—'}</strong></div>{/each}<button class="publish-button" onclick={()=>toggleFavorite(selected!)}>{favorites.includes(keyOf(selected))?t.saved:t.save} <span>♡</span></button></div>
+      <div class="modal-content"><div class="eyebrow">PORTALS COLLECTIBLE</div><h2>{selected.name||'Telegram Gift'} {selected.number?'#'+selected.number:''}</h2><div class="modal-price"><span>{t.price}</span><strong>{fmt(selected.price,selected.currency||'TON')}</strong></div><div class="modal-price"><span>{t.floor}</span><strong>{fmt(selected.floor_price,selected.currency||'TON')}</strong></div><h3>{t.traits}</h3>{#each selected.attributes||[] as trait}<div class="trait-row"><span>{trait.type||trait.name}</span><strong>{trait.value||'—'}</strong></div>{/each}<h3>{lang==='ru'?'История данных':'Metadata history'}</h3>{#if historyLoading}<div class="trait-row"><span>{lang==='ru'?'Загружаем снимки…':'Loading snapshots…'}</span></div>{:else if selectedHistory.length}{#each selectedHistory as snapshot}<div class="trait-row"><span>{new Date(snapshot.observed_at * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</span><strong>{fmt(snapshot.item.price, String(snapshot.item.currency||'GRAM'))}</strong></div>{/each}{:else}<div class="trait-row"><span>{lang==='ru'?'История пока не накоплена':'No history snapshots yet'}</span></div>{/if}<button class="publish-button" onclick={()=>toggleFavorite(selected!)}>{favorites.includes(keyOf(selected))?t.saved:t.save} <span>♡</span></button></div>
     </div>
   </div>
 {/if}
