@@ -21,7 +21,7 @@ WELCOME_IMAGE_URL = os.getenv(
     "WELCOME_IMAGE_URL",
     "https://nft-gift-scanner.pages.dev/welcome_640x360.jpg",
 ).strip()
-API_BASE = os.getenv("API_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+API_BASE = os.getenv("API_BASE_URL", f"http://127.0.0.1:{os.getenv('PORT', '8080')}").rstrip("/")
 ADMIN_TELEGRAM_IDS = {part.strip() for part in os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", "")).split(",") if part.strip().isdigit()}
 CHANNEL_URL = "https://t.me/nopzw"
 
