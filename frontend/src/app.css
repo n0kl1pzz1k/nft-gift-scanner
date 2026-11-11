@@ -71,3 +71,25 @@
     min-height: 46px;
   }
 }
+
+
+/* Account centre: persistent notification inbox and personal activity counters. */
+.account-stats-card,.notification-card{grid-column:span 1}
+.account-stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:16px}
+.account-stat-grid>div{display:grid;gap:6px;padding:13px;border:1px solid #ffffff14;border-radius:12px;background:#0c1222}
+.account-stat-grid strong{font-size:20px;letter-spacing:-.04em;color:#eeeaff}
+.account-stat-grid span{font-size:9px;color:#8290ad}
+.notification-heading{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px}
+.notification-heading>div{display:grid;gap:7px}
+.notification-heading>div>strong{font-size:12px;color:#b8a7ff}
+.notification-list{display:grid;gap:7px;max-height:360px;overflow:auto}
+.notification-item{display:flex;align-items:center;gap:10px;width:100%;padding:11px;border:1px solid #ffffff12;border-radius:11px;background:#0c1222;color:#c8d0e5;text-align:left}
+.notification-item.unread{border-color:#9a7bff55;background:#17152b}
+.notification-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:#53617b}
+.notification-item.unread .notification-dot{background:#a88cff;box-shadow:0 0 10px #a88cff88}
+.notification-copy{display:grid;gap:5px;min-width:0;flex:1}
+.notification-copy strong{font-size:10px;line-height:1.45;font-weight:600}
+.notification-copy small{font-size:8px;color:#7785a3}
+.notification-new{font-size:8px;color:#b8a7ff}
+@media(max-width:900px){.account-stats-card,.notification-card{grid-column:auto}}
+@media(max-width:520px){.account-stat-grid{gap:7px}.account-stat-grid>div{padding:10px}.account-stat-grid strong{font-size:17px}.notification-item{padding:9px}.notification-copy strong{font-size:9px}}
