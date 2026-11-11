@@ -1046,8 +1046,33 @@ class TelegramInitDataValidationTests(unittest.TestCase):
                 api._verify_telegram_init_data(self._signed_init_data(now + 120))
 
 
+class TelegramSessionSecurityTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_patch = patch.object(marketplace, "DB_PATH", os.path.join(self.temp_dir.name, "sessions.sqlite3"))
+        self.db_patch.start()
+        marketplace.init_marketplace_db()
+        self.auth_patch = patch.object(
+            api,
+            "_verify_telegram_init_data",
+            side_effect=lambda value: {
+                "id": "101",
+                "first_name": "Session Tester",
+                "username": "session_tester",
+            },
+        )
+        self.auth_patch.start()
+        self.client = TestClient(api.app)
+
+    def tearDown(self):
+        self.client.close()
+        self.auth_patch.stop()
+        self.db_patch.stop()
+        self.temp_dir.cleanup()
+
     def test_session_list_and_single_session_logout(self):
-        login = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
+        login = self.client.post("/api/auth/telegram", json={"init_data": "one-time-init-data"})
+        self.assertEqual(login.status_code, 200)
         token = login.json()["session_token"]
         headers = {"X-Telegram-Init-Data": token}
         sessions = self.client.get("/api/auth/sessions", headers=headers)
