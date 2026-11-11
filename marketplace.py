@@ -43,6 +43,18 @@ def init_marketplace_db() -> None:
     with _db() as conn:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript("""
+        CREATE TABLE IF NOT EXISTS telegram_users (
+            telegram_id TEXT PRIMARY KEY,
+            username TEXT NOT NULL DEFAULT '',
+            first_name TEXT NOT NULL DEFAULT '',
+            last_name TEXT NOT NULL DEFAULT '',
+            photo_url TEXT NOT NULL DEFAULT '',
+            language_code TEXT NOT NULL DEFAULT '',
+            is_premium INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_telegram_users_updated ON telegram_users(updated_at DESC);
         CREATE TABLE IF NOT EXISTS demo_orders (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -79,6 +91,18 @@ def init_marketplace_db() -> None:
         );
         """)
 
+
+def upsert_telegram_user(user: dict[str, Any]) -> dict[str, Any]:
+    """Persist the minimum Telegram profile fields needed by the Mini App."""
+    telegram_id = str(user.get("id", "")).strip()
+    if not telegram_id.isdigit():
+        raise ValueError("A verified Telegram user ID is required")
+    now = int(time.time())
+    values = (telegram_id, str(user.get("username") or "")[:64], str(user.get("first_name") or "")[:128], str(user.get("last_name") or "")[:128], str(user.get("photo_url") or "")[:2048], str(user.get("language_code") or "")[:16], 1 if user.get("is_premium") is True else 0, now, now)
+    with _db() as conn:
+        conn.execute("INSERT INTO telegram_users (telegram_id, username, first_name, last_name, photo_url, language_code, is_premium, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(telegram_id) DO UPDATE SET username=excluded.username, first_name=excluded.first_name, last_name=excluded.last_name, photo_url=excluded.photo_url, language_code=excluded.language_code, is_premium=excluded.is_premium, updated_at=excluded.updated_at", values)
+        row = conn.execute("SELECT * FROM telegram_users WHERE telegram_id = ?", (telegram_id,)).fetchone()
+    return {"id": row["telegram_id"], "username": row["username"], "first_name": row["first_name"], "last_name": row["last_name"], "photo_url": row["photo_url"], "language_code": row["language_code"], "is_premium": bool(row["is_premium"]), "created_at": row["created_at"], "updated_at": row["updated_at"]}
 
 def _user(init_data: str | None, verify: Callable[[str], dict]) -> dict:
     if not init_data:
