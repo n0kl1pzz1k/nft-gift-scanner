@@ -385,8 +385,10 @@ async def telegram_webhook(
     claim = claim_telegram_update(update_id, payload)
     if claim == "conflict":
         raise HTTPException(status_code=409, detail="Telegram update ID payload conflict")
-    if claim in {"processed", "in_progress"}:
+    if claim == "processed":
         return {"ok": True, "duplicate": True}
+    if claim == "in_progress":
+        raise HTTPException(status_code=503, detail="Telegram update is already being processed", headers={"Retry-After": "2"})
 
     from aiogram.types import Update
     try:
