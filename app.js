@@ -215,7 +215,7 @@ async function loadTonnelGifts(search="",renderActive=true){
     sourceStates.tonnel="online_read_only";
     // If Portals is not configured and Tonnel returned real listings, show
     // those cards by default instead of leaving an empty catalogue on screen.
-    if(activeMarket==="portals"&&sourceStates.portals==="needs_api_key"&&tonnelGiftItems.length){
+    if(activeMarket==="portals"&&!portalsGiftItems.length&&tonnelGiftItems.length){
       activeMarket="tonnel";
     }
     renderMarketTabs();
