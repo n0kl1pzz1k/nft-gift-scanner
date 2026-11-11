@@ -75,11 +75,6 @@ function renderText(){
   $("modal-date-label").textContent=t.listed;
   $("modal-collection-label").textContent=t.collectionLabel;
   $("modal-id-label").textContent=t.giftIdLabel;
-  const collection=collectionItems.find(item=>String(item.id??item.short_name)===String(gift.collection_id));
-  $("modal-collection").textContent=collection?.name||gift.collection_id||"—";
-  $("modal-id").textContent=gift.id??"—";
-  $("modal-attributes-title").textContent=t.attributes;
-  $("modal-note").textContent=t.detailNote;
   $("lang").textContent=lang==="en"?"RU":"EN";
   renderMarketTabs();
   if(activeMarket==="tonnel"&&sourceStates.tonnel==="online_read_only") renderGifts({items:tonnelGiftItems,total_count:tonnelTotalCount||tonnelGiftItems.length,connected:true});
@@ -320,6 +315,11 @@ function openGiftDetails(index){
   const gift=giftItems[index];
   if(!gift) return;
   const t=copy[lang];
+  const collection=collectionItems.find(item=>String(item.id??item.short_name)===String(gift.collection_id));
+  $("modal-collection").textContent=collection?.name||gift.collection_id||"—";
+  $("modal-id").textContent=gift.id??"—";
+  $("modal-attributes-title").textContent=t.attributes;
+  $("modal-note").textContent=t.detailNote;
   $("modal-source").textContent=gift.source||"PORTALS";
   $("modal-title").textContent=gift.name||"Telegram Gift";
   $("modal-number").textContent=t.giftNumber+" "+(gift.number??"—");
