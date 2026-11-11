@@ -69,6 +69,8 @@ def init_demo_offers_db() -> None:
             agreed_amount TEXT NOT NULL,
             currency TEXT NOT NULL CHECK(currency IN ('TON', 'XTR')),
             created_at INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'payment_not_enabled'
+                CHECK(status IN ('payment_not_enabled', 'awaiting_payment', 'payment_pending', 'paid', 'delivery_pending', 'completed', 'disputed', 'cancelled', 'expired')),
             FOREIGN KEY(order_id) REFERENCES demo_orders(id),
             FOREIGN KEY(offer_id) REFERENCES demo_offers(id)
         );
@@ -151,6 +153,16 @@ def init_demo_offers_db() -> None:
             WHERE order_id=NEW.id AND status='pending';
         END;
         """)
+        # Forward-compatible migration for databases created before deal lifecycle state.
+        deal_columns = {row["name"] for row in conn.execute("PRAGMA table_info(demo_deals)").fetchall()}
+        if "status" not in deal_columns:
+            conn.execute(
+                """ALTER TABLE demo_deals ADD COLUMN status TEXT NOT NULL
+                   DEFAULT 'payment_not_enabled'
+                   CHECK(status IN ('payment_not_enabled', 'awaiting_payment', 'payment_pending',
+                                    'paid', 'delivery_pending', 'completed', 'disputed',
+                                    'cancelled', 'expired'))"""
+            )
 
 
 def _require_user(init_data: str | None, verify: Callable[[str], dict]) -> dict:
@@ -421,9 +433,9 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 "my_role": "buyer" if user_id == buyer_id else "seller",
                 "order_kind": row["order_kind"], "amount": row["agreed_amount"],
                 "currency": row["currency"], "created_at": row["created_at"],
-                "status": "simulated_complete", "simulation_only": True,
+                "status": row["status"], "simulation_only": True,
             })
-        return {"items": items, "total": total, "limit": limit, "offset": offset}
+        return {"items": items, "total": total, "limit": limit, "offset": offset, "payments_enabled": False, "simulation_only": True}
 
     @router.get("/notifications")
     async def list_notifications(
