@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import marketplace
-from catalog_store import get_catalogue_item, search_catalogue_items, upsert_catalogue_items
+from catalog_store import get_catalogue_history, get_catalogue_item, search_catalogue_items, upsert_catalogue_items
 
 
 class PersistentCatalogueTests(unittest.TestCase):
@@ -53,3 +53,13 @@ class PersistentCatalogueTests(unittest.TestCase):
         page = search_catalogue_items(limit=500, offset=-10)
         self.assertEqual(page["limit"], 50)
         self.assertEqual(page["offset"], 0)
+
+    def test_metadata_history_keeps_distinct_snapshots_without_duplicates(self):
+        original = {"id": "history-1", "name": "Gift", "price": "1.0"}
+        changed = {"id": "history-1", "name": "Gift", "price": "1.5"}
+        upsert_catalogue_items([original])
+        upsert_catalogue_items([original])
+        upsert_catalogue_items([changed])
+        history = get_catalogue_history("history-1")
+        self.assertEqual(len(history), 2)
+        self.assertEqual({entry["item"]["price"] for entry in history}, {"1.0", "1.5"})
