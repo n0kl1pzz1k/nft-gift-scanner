@@ -10,12 +10,15 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(_safe_total_count("invalid", 3), 3)
 
     def test_portals_is_the_only_marketplace_adapter(self):
-        paths = {route.path for route in app.routes}
+        paths = set(app.openapi()['paths'])
         self.assertIn("/health", paths)
         self.assertIn("/api/status", paths)
         self.assertIn("/api/collections", paths)
         self.assertIn("/api/gifts", paths)
         self.assertIn("/api/auth/telegram", paths)
+        self.assertIn("/api/marketplace/orders", paths)
+        self.assertIn("/api/marketplace/stats", paths)
+        self.assertIn("/api/telegram/webhook", paths)
         self.assertNotIn("/api/tonnel/gifts", paths)
         self.assertNotIn("/api/mrkt/gifts", paths)
 
@@ -23,7 +26,7 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(_marketplace_visibility, {"portals": True})
 
     def test_reference_feeds_remain_separate_from_marketplace(self):
-        paths = {route.path for route in app.routes}
+        paths = set(app.openapi()['paths'])
         self.assertIn("/api/reference/gift-changes", paths)
         self.assertIn("/api/reference/daily-floors", paths)
 
