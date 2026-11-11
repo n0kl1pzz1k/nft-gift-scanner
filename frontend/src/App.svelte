@@ -1,8 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { animate as motionAnimateRaw } from 'motion';
   import GiftMedia from './GiftMedia.svelte';
-  const motionAnimate = motionAnimateRaw as unknown as (target: Element, keyframes: Record<string, Array<number|string>>, options: {delay:number;duration:number;easing:string}) => unknown;
 
   type Gift = { id?: string|number; name?: string; number?: string|number; image?: string; animation_url?: string; has_animation?: boolean; price?: string|number; floor_price?: string|number|null; currency?: string; source?: string; status?: string; listed_at?: string|number; attributes?: {type?:string;name?:string;value?:string}[]; collection_id?: string|number };
   type Collection = { id?: string|number; name?: string; short_name?: string; image?: string; floor_price?: string|number; day_volume?: string|number; supply?: string|number };
@@ -93,7 +91,7 @@
       if(market==='mrkt'){gifts=[];total=0;return;}
       const g=await request(endpoint); gifts=Array.isArray(g.items)?g.items:[]; total=Math.max(Number(g.total_count)||0,gifts.length); refreshed=new Date().toLocaleTimeString(lang==='ru'?'ru-RU':'en-US',{hour:'2-digit',minute:'2-digit'});
     } catch(e) { error=e instanceof Error?e.message:String(e); }
-    finally { busy=false; await tick(); const cards=document.querySelectorAll('.gift-card,.collection-card'); cards.forEach((card,index)=>{motionAnimate(card,{opacity:[0,1],y:[12,0]},{delay:index*.035,duration:.28,easing:'ease-out'});}); }
+    finally { busy=false; }
   }
   function toggleFavorite(g:Gift) { const k=keyOf(g); favorites=favorites.includes(k)?favorites.filter(x=>x!==k):[...favorites,k]; try{localStorage.setItem('gift-radar-favorites',JSON.stringify(favorites));}catch{} }
   function selectMarket(next:'portals'|'tonnel'|'mrkt'){market=next;void loadCatalogue(search);}
