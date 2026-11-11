@@ -30,6 +30,8 @@
   let refreshed = $state('');
   let giftChanges = $state<GiftChange[]>([]);
   let dailyArchiveAvailable = $state(false);
+  let dailyArchiveCount = $state(0);
+  let dailyArchiveDate = $state('');
   let referenceLoading = $state(true);
   let referenceError = $state('');
 
@@ -73,6 +75,12 @@
       referenceError=changesResult.reason instanceof Error?changesResult.reason.message:String(changesResult.reason);
     }
     dailyArchiveAvailable=dailyResult.status==='fulfilled';
+    if(dailyResult.status==='fulfilled'){
+      dailyArchiveCount=Number(dailyResult.value?.data?.collection_count)||0;
+      dailyArchiveDate=String(dailyResult.value?.data?.latest_snapshot_date||'');
+    }else{
+      dailyArchiveCount=0; dailyArchiveDate='';
+    }
     referenceLoading=false;
   }
   async function loadCatalogue(term='') {
@@ -165,7 +173,7 @@
         </div>{/if}
       </section>
         <section class="panel reference-panel">
-          <div class="panel-head"><div><div class="kicker">PUBLIC REFERENCE DATA</div><h2>{t.changesTitle}</h2></div><span class="muted">{dailyArchiveAvailable?'TG Gifts · CC BY 4.0':t.notConnected}</span></div>
+          <div class="panel-head"><div><div class="kicker">PUBLIC REFERENCE DATA</div><h2>{t.changesTitle}</h2></div><span class="muted">{dailyArchiveAvailable?'TG Gifts · '+dailyArchiveCount+' · '+dailyArchiveDate+' · CC BY 4.0':t.notConnected}</span></div>
           {#if referenceLoading}
             <p class="muted">{t.changesLoading}</p>
           {:else if referenceError}
