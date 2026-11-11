@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from marketplace import create_marketplace_router, init_marketplace_db, upsert_telegram_user
+from catalog_store import get_catalogue_item, upsert_catalogue_items
 
 app = FastAPI(title="GIFT RADAR API", version="0.4.0")
 app.include_router(create_marketplace_router(lambda value: _verify_telegram_init_data(value)))
@@ -498,6 +499,9 @@ async def gifts(
         "sources": {**source_status(), "portals": "online_read_only"},
         "updated_at": int(time.time()),
     }
+    # Persist only authoritative Portals catalogue metadata. This is a metadata index,
+    # not custody, ownership proof, or a transfer of the underlying NFT.
+    upsert_catalogue_items(items)
     _gifts_cache[cache_key] = (time.monotonic(), result)
     if len(_gifts_cache) > 200:
         oldest = sorted(_gifts_cache, key=lambda key: _gifts_cache[key][0])[:-150]
@@ -505,6 +509,15 @@ async def gifts(
             _gifts_cache.pop(old_key, None)
     return result
 
+
+
+@app.get("/api/catalog/items/{gift_id}")
+async def catalogue_item(gift_id: str):
+    """Return the latest Portals metadata snapshot previously indexed by GIFT RADAR."""
+    item = get_catalogue_item(gift_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Gift is not present in the indexed Portals catalogue")
+    return {"item": item, "source": "Portals", "metadata_only": True}
 
 
 _REFERENCE_CACHE: dict[str, tuple[float, Any]] = {}
