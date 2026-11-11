@@ -19,7 +19,7 @@ TOKEN = os.getenv("BOT_TOKEN")
 APP_URL = os.getenv("PUBLIC_APP_URL", "").strip()
 WELCOME_IMAGE_URL = os.getenv(
     "WELCOME_IMAGE_URL",
-    "https://nft-gift-scanner.pages.dev/welcome.jpg",
+    "https://nft-gift-scanner.pages.dev/welcome_640x360.jpg",
 ).strip()
 API_BASE = os.getenv("API_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
 ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID", "").strip()
