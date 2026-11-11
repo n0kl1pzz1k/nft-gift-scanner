@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main, feature/persistent-gift-catalog]
+    branches: [main, feature/telegram-user-profiles]
 
 jobs:
   syntax:
