@@ -12,7 +12,7 @@
   type DemoOrder = {
     id: string; kind: 'listing' | 'buy-order'; title: string;
     price: string | number; currency: 'TON' | 'XTR'; status: 'active' | 'matched' | 'cancelled';
-    createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string;
+    createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; events?: {type:string;createdAt:number}[];
   };
   type MarketplaceStats = {
     active_listings: number; active_buy_requests: number; matched_orders: number;
@@ -113,7 +113,7 @@
     try {
       const [publicData, mineData, statsData] = await Promise.all([
         request('/api/marketplace/orders?status=active&limit=100'),
-        window.Telegram?.WebApp?.initData ? request('/api/marketplace/mine') : Promise.resolve({items:[]}),
+        window.Telegram?.WebApp?.initData ? request('/api/marketplace/history') : Promise.resolve({items:[]}),
         request('/api/marketplace/stats'),
       ]);
       const combined = new Map<string, DemoOrder>();
@@ -285,7 +285,7 @@
     {:else if view==='orders'}
       <section class="page-heading"><div class="eyebrow">YOUR ACTIVITY</div><h1>{t.ordersTitle}</h1><p>{t.createHint}</p></section>
       {#if orders.length===0}<div class="state-panel">{t.noOrders}<button class="search-button" onclick={()=>view='create'}>{t.create}</button></div>
-      {:else}<div class="orders-list">{#each orders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {'· '+order.owner} {order.note?'· '+order.note:''}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active' && order.isMine}<div class="order-actions"><button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button></div>{:else if order.status==='active'}<div class="order-actions"><button class="match-button" onclick={()=>completeOrder(order.id)}>{t.match}</button></div>{/if}</article>{/each}</div>{/if}
+      {:else}<div class="orders-list">{#each orders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {'· '+order.owner} {order.note?'· '+order.note:''} {order.events?.length?'· '+order.events.map(event=>event.type==='created'?(lang==='ru'?'создан':'created'):event.type==='simulated_fill'?(lang==='ru'?'смоделировано исполнение':'simulated fill'):(lang==='ru'?'снят':'cancelled')).join(' → '):''}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active' && order.isMine}<div class="order-actions"><button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button></div>{:else if order.status==='active'}<div class="order-actions"><button class="match-button" onclick={()=>completeOrder(order.id)}>{t.match}</button></div>{/if}</article>{/each}</div>{/if}
     {:else if view==='create'}
       <section class="page-heading"><div class="eyebrow">MARKETPLACE STUDIO</div><h1>{t.createTitle}</h1><p>{t.createHint}</p></section>
       <section class="create-layout"><div class="create-form">
