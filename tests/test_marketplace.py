@@ -83,6 +83,28 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(removed.status_code, 200)
         self.assertEqual(self.client.get("/api/marketplace/favorites", headers=headers_a).json()["items"], [])
 
+    def test_favorite_id_must_match_gift_data_and_is_not_truncated(self):
+        headers = {"X-Telegram-Init-Data": "user-a"}
+        mismatch = self.client.put(
+            "/api/marketplace/favorites/gift-77",
+            headers=headers,
+            json={"gift": {"id": "gift-88", "name": "Plush Pepe"}},
+        )
+        self.assertEqual(mismatch.status_code, 422)
+
+        oversized_id = "x" * 161
+        oversized = self.client.put(
+            f"/api/marketplace/favorites/{oversized_id}",
+            headers=headers,
+            json={"gift": {"id": oversized_id, "name": "Gift"}},
+        )
+        self.assertEqual(oversized.status_code, 422)
+
+        self.assertEqual(
+            self.client.get("/api/marketplace/favorites", headers=headers).json()["items"],
+            [],
+        )
+
     def test_admin_marketplace_visibility_persists_across_database_reinitialization(self):
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
             headers = {"X-Telegram-Init-Data": "user-a"}
