@@ -19,6 +19,7 @@
   type DemoDeal = { id:string; order_id:string; offer_id:string; title:string; listing_owner:string; offer_sender:string; amount:string; currency:'TON'|'XTR'; created_at:number; status:string; simulation_only:boolean };
   type AccountNotification = { id:string; type:'offer_received'|'offer_accepted'|'offer_declined'|'offer_withdrawn'; offer_id:string; order_id:string; order_title:string; actor_name:string; created_at:number; read_at:number|null };
   type AccountStats = { active_orders:number; completed_orders:number; pending_offers_sent:number; pending_offers_received:number; simulated_deals:number; unread_notifications:number };
+  type AccountActivity = { id:string; type:string; order_id:string; title:string; actor_name:string; created_at:number; amount:string; currency:'TON'|'XTR'; simulation_only:boolean };
   type MarketplaceStats = {
     active_listings: number; active_buy_requests: number; matched_orders: number;
     volume_ton: number; volume_stars: number; total_orders: number;
@@ -36,6 +37,9 @@
   let offers = $state<DemoOffer[]>([]);
   let deals = $state<DemoDeal[]>([]);
   let notifications = $state<AccountNotification[]>([]);
+  let accountActivity = $state<AccountActivity[]>([]);
+  let activityTotal = $state(0);
+  let activityBusy = $state(false);
   let accountStats = $state<AccountStats>({active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,simulated_deals:0,unread_notifications:0});
   let offerAmount = $state('');
   let offerNote = $state('');
@@ -82,7 +86,7 @@
     createHint: 'Общие тестовые заявки видны всем пользователям GIFT RADAR. Реальные сделки и платежи не выполняются.',
     ordersTitle: 'Ордера маркетплейса', noOrders: 'Пока нет активных предложений или заявок.',
     offersTitle: 'Офферы', dealsTitle: 'Демо-сделки', sendOffer: 'Отправить оффер', offerAmount: 'Сумма оффера', acceptOffer: 'Принять', declineOffer: 'Отклонить', withdrawOffer: 'Отозвать', noOffers: 'Офферов пока нет.', noDeals: 'Демо-сделок пока нет.', incoming: 'Входящий', outgoing: 'Исходящий',
-    accountStatsTitle: 'Статистика аккаунта', activeOrdersStat: 'Активные заявки', completedOrdersStat: 'Завершённые', sentOffersStat: 'Мои офферы', receivedOffersStat: 'Входящие офферы', notificationsTitle: 'Уведомления', markAllRead: 'Прочитать все', noNotifications: 'Новых уведомлений нет.', offerReceivedNotice: 'отправил(а) оффер', offerAcceptedNotice: 'принят оффер по', offerDeclinedNotice: 'отклонил(а) оффер по', offerWithdrawnNotice: 'отозвал(а) оффер по',
+    accountStatsTitle: 'Статистика аккаунта', activeOrdersStat: 'Активные заявки', completedOrdersStat: 'Завершённые', sentOffersStat: 'Мои офферы', receivedOffersStat: 'Входящие офферы', notificationsTitle: 'Уведомления', markAllRead: 'Прочитать все', noNotifications: 'Новых уведомлений нет.', offerReceivedNotice: 'отправил(а) оффер', offerAcceptedNotice: 'принят оффер по', offerDeclinedNotice: 'отклонил(а) оффер по', offerWithdrawnNotice: 'отозвал(а) оффер по', activityTitle: 'История активности', noActivity: 'Активность пока не появилась.', loadMoreActivity: 'Показать ещё', orderCreatedActivity: 'Создана заявка', orderFilledActivity: 'Заявка отмечена как исполненная (демо)', orderCancelledActivity: 'Заявка снята', offerReceivedActivity: 'Получен оффер', offerAcceptedActivity: 'Оффер принят', offerDeclinedActivity: 'Оффер отклонён', offerWithdrawnActivity: 'Оффер отозван',
     active: 'Активен', matched: 'Смоделирован', cancelled: 'Отменён', cancel: 'Снять', match: 'Симулировать исполнение',
     demo: 'PORTALS LIVE · READ ONLY', demoWallet: 'Кошелёк не подключён', demoWalletText: 'Подключение кошельков и операции с активами пока не поддерживаются.',
     signIn: 'Подтвердить Telegram', guest: 'Гость', authHint: 'Открой Mini App через Telegram, чтобы подтвердить профиль.',
@@ -103,7 +107,7 @@
     createHint: 'Shared demo orders are visible to GIFT RADAR users. No real trades or payments take place.',
     ordersTitle: 'Marketplace orders', noOrders: 'No active listings or requests yet.',
     offersTitle: 'Offers', dealsTitle: 'Demo deals', sendOffer: 'Send offer', offerAmount: 'Offer amount', acceptOffer: 'Accept', declineOffer: 'Decline', withdrawOffer: 'Withdraw', noOffers: 'No offers yet.', noDeals: 'No demo deals yet.', incoming: 'Incoming', outgoing: 'Outgoing',
-    accountStatsTitle: 'Account stats', activeOrdersStat: 'Active orders', completedOrdersStat: 'Completed', sentOffersStat: 'Offers sent', receivedOffersStat: 'Offers received', notificationsTitle: 'Notifications', markAllRead: 'Mark all read', noNotifications: 'No notifications yet.', offerReceivedNotice: 'sent you an offer for', offerAcceptedNotice: 'accepted your offer for', offerDeclinedNotice: 'declined your offer for', offerWithdrawnNotice: 'withdrew an offer for',
+    accountStatsTitle: 'Account stats', activeOrdersStat: 'Active orders', completedOrdersStat: 'Completed', sentOffersStat: 'Offers sent', receivedOffersStat: 'Offers received', notificationsTitle: 'Notifications', markAllRead: 'Mark all read', noNotifications: 'No notifications yet.', offerReceivedNotice: 'sent you an offer for', offerAcceptedNotice: 'accepted your offer for', offerDeclinedNotice: 'declined your offer for', offerWithdrawnNotice: 'withdrew an offer for', activityTitle: 'Activity history', noActivity: 'No activity yet.', loadMoreActivity: 'Load more', orderCreatedActivity: 'Order created', orderFilledActivity: 'Order marked as filled (demo)', orderCancelledActivity: 'Order cancelled', offerReceivedActivity: 'Offer received', offerAcceptedActivity: 'Offer accepted', offerDeclinedActivity: 'Offer declined', offerWithdrawnActivity: 'Offer withdrawn', dealCreatedActivity: 'Demo deal created',
     active: 'Active', matched: 'Simulated', cancelled: 'Cancelled', cancel: 'Cancel', match: 'Simulate fill',
     demo: 'PORTALS LIVE · READ ONLY', demoWallet: 'Wallet not connected', demoWalletText: 'Wallet connections and asset operations are not supported yet.',
     signIn: 'Verify Telegram', guest: 'Guest', authHint: 'Open the Mini App in Telegram to verify your profile.',
@@ -159,12 +163,15 @@
       accountStats = {active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,simulated_deals:0,unread_notifications:0};
       return;
     }
-    const [stats, feed] = await Promise.all([
+    const [stats, feed, activity] = await Promise.all([
       request('/api/marketplace/account/stats'),
       request('/api/marketplace/notifications?limit=40'),
+      request('/api/marketplace/activity?limit=20&offset=0'),
     ]);
     accountStats = stats;
     notifications = Array.isArray(feed.items) ? feed.items : [];
+    accountActivity = Array.isArray(activity.items) ? activity.items : [];
+    activityTotal = Number(activity.total) || 0;
   }
 
   function notificationMessage(item: AccountNotification) {
@@ -187,6 +194,28 @@
       deals = Array.isArray(results[1].items) ? results[1].items : [];
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
     finally { offersBusy = false; }
+  }
+
+  async function loadMoreActivity() {
+    if (activityBusy || accountActivity.length >= activityTotal) return;
+    activityBusy = true;
+    try {
+      const data = await request('/api/marketplace/activity?limit=20&offset=' + accountActivity.length);
+      const next = Array.isArray(data.items) ? data.items as AccountActivity[] : [];
+      accountActivity = [...accountActivity, ...next];
+      activityTotal = Number(data.total) || activityTotal;
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { activityBusy = false; }
+  }
+
+  function activityLabel(item: AccountActivity) {
+    const labels: Record<string,string> = {
+      order_created:t.orderCreatedActivity, order_simulated_fill:t.orderFilledActivity,
+      order_cancelled:t.orderCancelledActivity, offer_received:t.offerReceivedActivity,
+      offer_accepted:t.offerAcceptedActivity, offer_declined:t.offerDeclinedActivity,
+      offer_withdrawn:t.offerWithdrawnActivity, demo_deal_created:t.dealCreatedActivity,
+    };
+    return labels[item.type] || item.type;
   }
 
   async function markNotificationRead(id: string) {
