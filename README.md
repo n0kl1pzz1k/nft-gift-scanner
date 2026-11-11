@@ -21,6 +21,13 @@ The Portals Partner API credential may have broader permissions than read-only. 
 - `API_BASE_URL` — optional internal backend URL for admin health checks; defaults to `http://127.0.0.1:8080`.
 - `PORTALS_API_KEY` — optional server-side Portals credential; see the warning above.
 
+## Server data pipeline
+
+The Mini App does not contain marketplace data or fabricate listings. It requests the backend API, and the backend retrieves public data from the configured upstream marketplaces. The backend warms the default Portals collections/listings and Tonnel public-listings caches in a background task; identical catalogue requests reuse server-side cached responses for up to 60 seconds. The cache is in process memory and resets on a Railway restart or deploy. Persistent historical snapshots require a configured database or mounted persistent volume and are not claimed as available yet.
+
+- `DATA_REFRESH_SECONDS` — optional background refresh interval (60–900 seconds; default 60).
+- `/api/status` reports the delivery path, cache type and refresh interval.
+
 ## API
 
 - `GET /health` — backend health.
