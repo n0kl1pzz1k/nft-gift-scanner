@@ -54,7 +54,7 @@
     priceLabel: 'Цена (демо)', noteLabel: 'Комментарий', publish: 'Создать демо-объявление',
     createHint: 'Это локальная демонстрация интерфейса. Объявление не публикуется на Portals и не создаёт сделку.',
     ordersTitle: 'Мои ордера', noOrders: 'Пока нет созданных объявлений или заявок.',
-    active: 'Активен', matched: 'Смоделирован', cancelled: 'Отменён', cancel: 'Снять',
+    active: 'Активен', matched: 'Смоделирован', cancelled: 'Отменён', cancel: 'Снять', match: 'Симулировать исполнение',
     demo: 'ДЕМО-РЕЖИМ', demoWallet: 'Демо-профиль', demoWalletText: 'Подключение кошельков и реальные платежи отключены.',
     signIn: 'Подтвердить Telegram', guest: 'Гость', authHint: 'Открой Mini App через Telegram, чтобы подтвердить профиль.',
     signed: 'Telegram подтверждён', profileText: 'Настройки профиля и локальная история действий.',
@@ -73,7 +73,7 @@
     priceLabel: 'Demo price', noteLabel: 'Note', publish: 'Create demo order',
     createHint: 'This is a local interface demo. Nothing is published to Portals and no trade is executed.',
     ordersTitle: 'My orders', noOrders: 'No listings or requests yet.',
-    active: 'Active', matched: 'Simulated', cancelled: 'Cancelled', cancel: 'Cancel',
+    active: 'Active', matched: 'Simulated', cancelled: 'Cancelled', cancel: 'Cancel', match: 'Simulate fill',
     demo: 'DEMO MODE', demoWallet: 'Demo profile', demoWalletText: 'Wallet connections and real payments are disabled.',
     signIn: 'Verify Telegram', guest: 'Guest', authHint: 'Open the Mini App in Telegram to verify your profile.',
     signed: 'Telegram verified', profileText: 'Profile settings and local activity history.',
@@ -153,7 +153,7 @@
     view = 'orders';
   }
 
-  function cancelOrder(id: string) {
+  function completeOrder(id: string) {\n    orders = orders.map(o => o.id === id ? { ...o, status: 'matched' } : o);\n    saveOrders();\n    notice = lang === 'ru' ? 'Демо-ордер отмечен как исполненный.' : 'Demo order marked as filled.';\n  }\n\n  function cancelOrder(id: string) {
     orders = orders.map(o => o.id === id ? { ...o, status: 'cancelled' } : o);
     saveOrders();
   }
@@ -251,7 +251,7 @@
     {:else if view==='orders'}
       <section class="page-heading"><div class="eyebrow">YOUR ACTIVITY</div><h1>{t.ordersTitle}</h1><p>{t.createHint}</p></section>
       {#if orders.length===0}<div class="state-panel">{t.noOrders}<button class="search-button" onclick={()=>view='create'}>{t.create}</button></div>
-      {:else}<div class="orders-list">{#each orders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {order.note?'· '+order.note:''}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active'}<button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button>{/if}</article>{/each}</div>{/if}
+      {:else}<div class="orders-list">{#each orders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {order.note?'· '+order.note:''}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active'}<div class="order-actions"><button class="match-button" onclick={()=>completeOrder(order.id)}>{t.match}</button><button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button></div>{/if}</article>{/each}</div>{/if}
     {:else if view==='create'}
       <section class="page-heading"><div class="eyebrow">MARKETPLACE STUDIO</div><h1>{t.createTitle}</h1><p>{t.createHint}</p></section>
       <section class="create-layout"><div class="create-form">
