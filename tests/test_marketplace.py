@@ -51,6 +51,8 @@ class SharedMarketplaceTests(unittest.TestCase):
         token = first.json()["session_token"]
         self.assertTrue(token.startswith("grs_"))
         self.assertEqual(first.json()["expires_in"], 43200)
+        replay = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
+        self.assertEqual(replay.status_code, 409)
         session_user = api._authenticate_telegram_credential(token)
         self.assertEqual(session_user["id"], "101")
         self.assertIsNone(marketplace.get_telegram_session_user("grs_invalid-token"))
