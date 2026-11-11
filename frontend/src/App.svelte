@@ -157,6 +157,32 @@
       ? favoriteItems.filter(item => keyOf(item) !== id)
       : [gift, ...favoriteItems.filter(item => keyOf(item) !== id)];
     try { localStorage.setItem('gift-radar-favorites-v2', JSON.stringify(favoriteItems)); } catch {}
+    if (signedIn) void persistFavorite(gift, !exists);
+  }
+
+  async function persistFavorite(gift: Gift, enabled: boolean) {
+    const id = keyOf(gift);
+    try {
+      if (enabled) {
+        await request('/api/marketplace/favorites/' + encodeURIComponent(id), undefined, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gift }),
+        });
+      } else {
+        await request('/api/marketplace/favorites/' + encodeURIComponent(id), undefined, { method: 'DELETE' });
+      }
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function loadAccountFavorites() {
+    const data = await request('/api/marketplace/favorites');
+    const items = Array.isArray(data.items) ? data.items as Gift[] : [];
+    favoriteItems = items;
+    favorites = items.map(keyOf);
+    try { localStorage.setItem('gift-radar-favorites-v2', JSON.stringify(items)); } catch {}
   }
 
   async function createOrder() {
@@ -212,6 +238,7 @@
       telegramUsername = data.user?.username ? '@' + data.user.username : '';
       telegramPremium = data.user?.is_premium === true;
       signedIn = true;
+      await loadAccountFavorites();
       if (showNotice) notice = t.signed;
     } catch (e) {
       if (showNotice) notice = e instanceof Error ? e.message : String(e);
