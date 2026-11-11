@@ -53,7 +53,7 @@
       if(market==='mrkt'){gifts=[];total=0;return;}
       const g=await request(endpoint); gifts=Array.isArray(g.items)?g.items:[]; total=Number(g.total_count??gifts.length); refreshed=new Date().toLocaleTimeString(lang==='ru'?'ru-RU':'en-US',{hour:'2-digit',minute:'2-digit'});
     } catch(e) { error=e instanceof Error?e.message:String(e); }
-    finally { busy=false; await tick(); const cards=document.querySelectorAll('.gift-card,.collection-card'); cards.forEach((card,index)=>animate(card as HTMLElement,{opacity:[0,1],y:[12,0]},{delay:index*.035,duration:.28,ease:'ease-out'})); }
+    finally { busy=false; await tick(); const cards=document.querySelectorAll('.gift-card,.collection-card'); cards.forEach((card,index)=>animate(card as HTMLElement,[{opacity:0,transform:'translateY(12px)'},{opacity:1,transform:'translateY(0px)'}],{delay:index*.035,duration:.28,easing:'ease-out'})); }
   }
   function toggleFavorite(g:Gift) { const k=keyOf(g); favorites=favorites.includes(k)?favorites.filter(x=>x!==k):[...favorites,k]; try{localStorage.setItem('gift-radar-favorites',JSON.stringify(favorites));}catch{} }
   function selectMarket(next:'portals'|'tonnel'|'mrkt'){market=next;void loadCatalogue(search);}
