@@ -107,10 +107,10 @@ async def status():
         "available_data": {
             "portals": ["collection_list", "collection_floor", "reported_24h_volume", "reported_supply", "listed_gift_catalog", "gift_price", "gift_attributes"],
             "tonnel": ["public_listings"] if _tonnel_runtime_status == "online_read_only" else [],
-            "mrkt": [],
+            "mrkt": ["public_listings"] if _mrkt_runtime_status == "online_read_only" else [],
         },
         "cross_market_comparison": False,
-        "note": "Portals uses documented read-only routes. Tonnel uses an experimental unofficial public-listings endpoint and may be unavailable. MRKT remains unconnected. Cross-market comparisons stay disabled.",
+        "note": "Portals uses documented read-only routes. Tonnel and MRKT are experimental public listing queries without account authentication; either may refuse unauthenticated access. No account sessions or tokens are collected.",
     }
 
 
