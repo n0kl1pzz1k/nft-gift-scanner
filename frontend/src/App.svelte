@@ -83,6 +83,8 @@
   let statusFilter = $state('listed');
   let sortBy = $state('listed_at desc');
   let catalogueRequestId = 0;
+  let orderStatusFilter = $state<'all' | 'active' | 'matched' | 'cancelled'>('active');
+  let orderKindFilter = $state<'all' | 'listing' | 'buy-order'>('all');
 
   const ru = {
     market: 'Маркет', orders: 'Активность', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'ТОЛЬКО ПРОСМОТР', catalogOnly: 'Актуальные объявления Portals. Просмотр и поиск доступны; управление сделками в GIFT RADAR пока не включено.',
@@ -103,7 +105,7 @@
     signed: 'Telegram подтверждён', profileText: 'Профиль Telegram и общая история демонстрационных заявок.',
     favoritesTitle: 'Избранные подарки', noFavorites: 'Добавьте подарки в избранное из каталога.',
     save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Демо-запись добавлена.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Демо-оборот', statsVolumeHint: 'Только смоделированные записи', statsCatalog: 'Подарков в каталоге', stars: 'Stars', ton: 'TON',
-    noImage: 'GIFT', online: 'Каталог Portals', refresh: 'Обновить', all: 'Все', invalidPrice: 'Проверь диапазон цены: значения должны быть неотрицательными, а минимальная цена — не выше максимальной.',
+    noImage: 'GIFT', online: 'Каталог Portals', refresh: 'Обновить', all: 'Все', orderStatus: 'Статус', orderKind: 'Тип заявки', activeOrders: 'Активные', matchedOrders: 'Смоделированные', cancelledOrders: 'Снятые', listingsOnly: 'Предложения', buyRequestsOnly: 'Заявки на поиск', invalidPrice: 'Проверь диапазон цены: значения должны быть неотрицательными, а минимальная цена — не выше максимальной.',
     sourceStatusTitle: 'СОСТОЯНИЕ ИСТОЧНИКОВ', sourceStatusSubtitle: 'Что подключено к приложению', sourcePortals: 'Каталог объявлений', sourceChanges: 'Изменения подарков', sourceDailyFloors: 'История floor-цен', sourceStatusChecked: 'Проверено', sourceStatusChecking: 'Проверяем статус…', sourceStatusUnavailable: 'Не удалось получить статус API.', sourceRefreshInterval: 'Интервал фонового обновления', sourceConfigured: 'Настроен · только чтение', sourceNeedsKey: 'Требуется API-ключ', sourcePublic: 'Публичный источник', sourceDaily: 'Публичная ежедневная история', sourceUnknown: 'Нет данных',
   };
   const en = {
@@ -125,12 +127,16 @@
     signed: 'Telegram verified', profileText: 'Telegram profile and shared demo order history.',
     favoritesTitle: 'Saved gifts', noFavorites: 'Save gifts from the catalogue to see them here.',
     save: 'Save', saved: 'Saved', currency: 'TON', success: 'Demo entry created.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Demo volume', statsVolumeHint: 'Simulated entries only', statsCatalog: 'Catalogue gifts', stars: 'Stars', ton: 'TON',
-    noImage: 'GIFT', online: 'Portals catalogue', refresh: 'Refresh', all: 'All', invalidPrice: 'Check the price range: values must be non-negative and the minimum cannot exceed the maximum.',
+    noImage: 'GIFT', online: 'Portals catalogue', refresh: 'Refresh', all: 'All', orderStatus: 'Status', orderKind: 'Order type', activeOrders: 'Active', matchedOrders: 'Simulated', cancelledOrders: 'Cancelled', listingsOnly: 'Listings', buyRequestsOnly: 'Buy requests', invalidPrice: 'Check the price range: values must be non-negative and the minimum cannot exceed the maximum.',
     sourceStatusTitle: 'SOURCE STATUS', sourceStatusSubtitle: 'Connected data sources', sourcePortals: 'Marketplace catalogue', sourceChanges: 'Gift metadata changes', sourceDailyFloors: 'Floor price history', sourceStatusChecked: 'Checked', sourceStatusChecking: 'Checking status…', sourceStatusUnavailable: 'Could not load API status.', sourceRefreshInterval: 'Background refresh interval', sourceConfigured: 'Configured · read-only', sourceNeedsKey: 'API key required', sourcePublic: 'Public source', sourceDaily: 'Public daily history', sourceUnknown: 'No data',
   };
   const t = $derived(lang === 'ru' ? ru : en);
   const keyOf = (g: Gift) => String(g.id ?? g.number ?? g.name ?? 'gift');
   const shownGifts = $derived(view === 'favorites' ? favoriteItems : gifts);
+  const visibleOrders = $derived(orders.filter(order =>
+    (orderStatusFilter === 'all' || order.status === orderStatusFilter) &&
+    (orderKindFilter === 'all' || order.kind === orderKindFilter)
+  ));
   const demoListings = $derived(marketplaceStats.active_listings);
   const demoBuyRequests = $derived(marketplaceStats.active_buy_requests);
   const demoVolumeTon = $derived(marketplaceStats.volume_ton);
@@ -168,7 +174,7 @@
   async function loadMarketplace() {
     try {
       const [publicData, mineData, statsData] = await Promise.all([
-        request('/api/marketplace/orders?status=active&limit=100'),
+        request('/api/marketplace/orders?status=all&limit=200&offset=0'),
         window.Telegram?.WebApp?.initData ? request('/api/marketplace/mine') : Promise.resolve({items:[]}),
         request('/api/marketplace/stats'),
       ]);
@@ -643,7 +649,7 @@
     {:else if view==='orders'}
       <section class="page-heading"><div class="eyebrow">YOUR ACTIVITY</div><h1>{t.ordersTitle}</h1><p>{t.createHint}</p></section>
       {#if orders.length===0}<div class="state-panel">{t.noOrders}<button class="search-button" onclick={()=>view='create'}>{t.create}</button></div>
-      {:else}<div class="orders-list">{#each orders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {'· '+order.owner} {order.note?'· '+order.note:''} {order.events?.length?'· '+order.events.map(event=>event.type==='created'?(lang==='ru'?'создан':'created'):event.type==='simulated_fill'?(lang==='ru'?'смоделировано исполнение':'simulated fill'):(lang==='ru'?'снят':'cancelled')).join(' → '):''}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active' && order.isMine}<div class="order-actions"><button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button></div>{:else if order.status==='active' && signedIn}<div class="order-actions"><input class="form-input" type="number" min="0.01" step="0.01" bind:value={offerAmount} placeholder={t.offerAmount}/><button class="match-button" onclick={()=>createOffer(order.id)}>{t.sendOffer}</button></div>{/if}</article>{/each}</div>{/if}
+      {:else}<div class="order-filter-bar"><label>{t.orderStatus}<select class="filter-input" bind:value={orderStatusFilter}><option value="all">{t.all}</option><option value="active">{t.activeOrders}</option><option value="matched">{t.matchedOrders}</option><option value="cancelled">{t.cancelledOrders}</option></select></label><label>{t.orderKind}<select class="filter-input" bind:value={orderKindFilter}><option value="all">{t.all}</option><option value="listing">{t.listingsOnly}</option><option value="buy-order">{t.buyRequestsOnly}</option></select></label></div>{#if visibleOrders.length===0}<div class="state-panel">{t.noOrders}</div>{:else}<div class="orders-list">{#each visibleOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {'· '+order.owner} {order.note?'· '+order.note:''} {order.events?.length?'· '+order.events.map(event=>event.type==='created'?(lang==='ru'?'создан':'created'):event.type==='simulated_fill'?(lang==='ru'?'смоделировано исполнение':'simulated fill'):(lang==='ru'?'снят':'cancelled')).join(' → '):''}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active' && order.isMine}<div class="order-actions"><button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button></div>{:else if order.status==='active' && signedIn}<div class="order-actions"><input class="form-input" type="number" min="0.01" step="0.01" bind:value={offerAmount} placeholder={t.offerAmount}/><button class="match-button" onclick={()=>createOffer(order.id)}>{t.sendOffer}</button></div>{/if}</article>{/each}</div>{/if}{/if}
       <section class="market-section account-offers">
         <div class="section-title"><div><div class="eyebrow">ACCOUNT ACTIVITY</div><h2>{t.offersTitle}</h2></div><button class="refresh-button" onclick={()=>loadOffersAndDeals()} disabled={offersBusy}>↻ {t.refresh}</button></div>
         {#if offersBusy}<div class="state-panel">{t.loading}</div>{:else if offers.length===0}<div class="state-panel">{t.noOffers}</div>{:else}
