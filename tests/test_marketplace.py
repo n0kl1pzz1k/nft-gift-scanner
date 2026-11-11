@@ -1,5 +1,6 @@
 import os
 import tempfile
+import sqlite3
 import unittest
 import hashlib
 import hmac
@@ -941,6 +942,308 @@ class SharedMarketplaceTests(unittest.TestCase):
     def test_account_stats_require_verified_telegram_session(self):
         response = self.client.get("/api/marketplace/account/stats")
         self.assertEqual(response.status_code, 401)
+
+
+
+    def test_deal_events_are_immutable_and_visible_only_to_participants(self):
+        created = self.client.post(
+            "/api/marketplace/orders",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"kind": "listing", "title": "Rare Gift", "price": "5", "currency": "TON"},
+        )
+        order_id = created.json()["item"]["id"]
+        offered = self.client.post(
+            "/api/marketplace/offers",
+            headers={"X-Telegram-Init-Data": "user-b"},
+            json={"order_id": order_id, "amount": "4.5"},
+        )
+        offer_id = offered.json()["item"]["id"]
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer_id}",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200)
+
+        deals = self.client.get("/api/marketplace/deals", headers={"X-Telegram-Init-Data": "user-b"})
+        deal_id = deals.json()["items"][0]["id"]
+        events = self.client.get(
+            f"/api/marketplace/deals/{deal_id}/events",
+            headers={"X-Telegram-Init-Data": "user-b"},
+        )
+        self.assertEqual(events.status_code, 200)
+        self.assertEqual(
+            [item["type"] for item in events.json()["items"]],
+            ["deal_created", "listing_reserved", "payment_not_enabled"],
+        )
+        self.assertTrue(all(item["simulation_only"] for item in events.json()["items"]))
+        self.assertEqual(events.json()["items"][-1]["data"]["reason"], "payment_integration_not_live")
+
+        outsider = self.client.get(
+            f"/api/marketplace/deals/{deal_id}/events",
+            headers={"X-Telegram-Init-Data": "user-c"},
+        )
+        self.assertEqual(outsider.status_code, 404)
+
+        with demo_offers._db() as conn:
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute(
+                    "UPDATE demo_deal_events SET event_data='{}' WHERE deal_id=?",
+                    (deal_id,),
+                )
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute(
+                    "DELETE FROM demo_deal_events WHERE deal_id=?",
+                    (deal_id,),
+                )
+
+    def test_accepting_one_offer_atomically_reserves_listing_and_declines_competing_offers(self):
+        created = self.client.post(
+            "/api/marketplace/orders",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"kind": "listing", "title": "One of One", "price": "8", "currency": "TON"},
+        )
+        order_id = created.json()["item"]["id"]
+        offer_ids = []
+        for user_token, amount in (("user-b", "7"), ("user-c", "6.5")):
+            offered = self.client.post(
+                "/api/marketplace/offers",
+                headers={"X-Telegram-Init-Data": user_token},
+                json={"order_id": order_id, "amount": amount},
+            )
+            self.assertEqual(offered.status_code, 201)
+            offer_ids.append(offered.json()["item"]["id"])
+
+        first = self.client.patch(
+            f"/api/marketplace/offers/{offer_ids[0]}",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"action": "accept"},
+        )
+        self.assertEqual(first.status_code, 200)
+        second = self.client.patch(
+            f"/api/marketplace/offers/{offer_ids[1]}",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"action": "accept"},
+        )
+        self.assertEqual(second.status_code, 409)
+
+        order = self.client.get(
+            f"/api/marketplace/orders?status=matched",
+        )
+        self.assertTrue(any(item["id"] == order_id for item in order.json()["items"]))
+        for user_token, expected in (("user-b", "accepted"), ("user-c", "declined")):
+            offers = self.client.get(
+                "/api/marketplace/offers",
+                headers={"X-Telegram-Init-Data": user_token},
+            )
+            own = next(item for item in offers.json()["items"] if item["order_id"] == order_id)
+            self.assertEqual(own["status"], expected)
+
+    def test_buy_request_deal_reports_buyer_and_seller_roles_correctly(self):
+        created = self.client.post(
+            "/api/marketplace/orders",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"kind": "buy-order", "title": "Looking for Rare Gift", "price": "9", "currency": "TON"},
+        )
+        order_id = created.json()["item"]["id"]
+        offered = self.client.post(
+            "/api/marketplace/offers",
+            headers={"X-Telegram-Init-Data": "user-b"},
+            json={"order_id": order_id, "amount": "8.5"},
+        )
+        self.assertEqual(offered.status_code, 201)
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offered.json()['item']['id']}",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200)
+
+        buyer_view = self.client.get("/api/marketplace/deals", headers={"X-Telegram-Init-Data": "user-a"})
+        seller_view = self.client.get("/api/marketplace/deals", headers={"X-Telegram-Init-Data": "user-b"})
+        buyer_deal = buyer_view.json()["items"][0]
+        seller_deal = seller_view.json()["items"][0]
+        self.assertEqual(buyer_deal["buyer"], "Tester A")
+        self.assertEqual(buyer_deal["seller"], "Tester B")
+        self.assertEqual(buyer_deal["my_role"], "buyer")
+        self.assertEqual(seller_deal["my_role"], "seller")
+        self.assertEqual(buyer_deal["order_kind"], "buy-order")
+        self.assertTrue(buyer_deal["simulation_only"])
+
+
+class PortalsReadOnlyClientTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.token_patch = patch.dict(os.environ, {"PORTALS_API_KEY": "test-partner-key"})
+        self.token_patch.start()
+        self.lock_patch = patch.object(api, "_request_lock", asyncio.Lock())
+        self.lock_patch.start()
+        self.time_patch = patch.object(api, "_last_request_at", 0.0)
+        self.time_patch.start()
+
+    async def asyncTearDown(self):
+        self.time_patch.stop()
+        self.lock_patch.stop()
+        self.token_patch.stop()
+
+    async def test_portals_search_retries_rate_limit_and_keeps_auth_server_side(self):
+        class Response:
+            def __init__(self, status_code, payload, headers=None):
+                self.status_code = status_code
+                self._payload = payload
+                self.headers = headers or {}
+                self.is_error = status_code >= 400
+
+            def json(self):
+                return self._payload
+
+        class Client:
+            def __init__(self):
+                self.calls = []
+                self.responses = [
+                    Response(429, {}, {"Retry-After": "0"}),
+                    Response(200, {"results": []}),
+                ]
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def get(self, url, headers, params):
+                self.calls.append((url, headers, params))
+                return self.responses.pop(0)
+
+        client = Client()
+        with patch.object(api.httpx, "AsyncClient", return_value=client), patch.object(api.asyncio, "sleep", new=AsyncMock()):
+            result = await api._portals_get_json("/nfts/search", {"limit": 10})
+
+        self.assertEqual(result, {"results": []})
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(client.calls[0][1]["Authorization"], "partners test-partner-key")
+        self.assertEqual(client.calls[0][2], {"limit": 10})
+
+    async def test_portals_client_rejects_non_allowlisted_routes(self):
+        with self.assertRaises(api.HTTPException) as raised:
+            await api._portals_get_json("/partners/market/buy", {})
+        self.assertEqual(raised.exception.status_code, 400)
+
+
+
+class TelegramInitDataValidationTests(unittest.TestCase):
+    def _signed_init_data(self, auth_date: int | None = None) -> str:
+        bot_token = "test-bot-token"
+        values = {
+            "auth_date": str(auth_date if auth_date is not None else int(time.time())),
+            "query_id": "AAE-test-query",
+            "user": json.dumps({"id": 123456, "first_name": "Test"}, separators=(",", ":")),
+        }
+        check_string = "\n".join(f"{key}={value}" for key, value in sorted(values.items()))
+        secret = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
+        values["hash"] = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
+        return urlencode(values)
+
+    def test_raw_init_data_cannot_be_used_directly_as_an_api_session(self):
+        with self.assertRaises(api.HTTPException) as raised:
+            api._authenticate_telegram_credential("auth_date=123&hash=" + "a" * 64)
+        self.assertEqual(raised.exception.status_code, 401)
+
+    def test_valid_telegram_init_data_is_verified(self):
+        with patch.dict(os.environ, {"BOT_TOKEN": "test-bot-token", "TELEGRAM_INITDATA_MAX_AGE_SECONDS": "300"}):
+            user = api._verify_telegram_init_data(self._signed_init_data())
+        self.assertEqual(user["id"], 123456)
+
+    def test_tampered_or_duplicate_init_data_is_rejected(self):
+        signed = self._signed_init_data()
+        tampered = signed.replace("first_name", "last_name")
+        with patch.dict(os.environ, {"BOT_TOKEN": "test-bot-token"}):
+            with self.assertRaises(api.HTTPException) as invalid_signature:
+                api._verify_telegram_init_data(tampered)
+            self.assertEqual(invalid_signature.exception.status_code, 401)
+            with self.assertRaises(api.HTTPException) as duplicate:
+                api._verify_telegram_init_data("auth_date=1&auth_date=2&hash=" + "0" * 64)
+            self.assertEqual(duplicate.exception.status_code, 401)
+
+    def test_expired_and_future_init_data_is_rejected(self):
+        now = int(time.time())
+        with patch.dict(os.environ, {"BOT_TOKEN": "test-bot-token", "TELEGRAM_INITDATA_MAX_AGE_SECONDS": "60"}):
+            with self.assertRaises(api.HTTPException):
+                api._verify_telegram_init_data(self._signed_init_data(now - 120))
+            with self.assertRaises(api.HTTPException):
+                api._verify_telegram_init_data(self._signed_init_data(now + 120))
+
+
+class TelegramSessionSecurityTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_patch = patch.object(marketplace, "DB_PATH", os.path.join(self.temp_dir.name, "sessions.sqlite3"))
+        self.db_patch.start()
+        marketplace.init_marketplace_db()
+        self.auth_patch = patch.object(
+            api,
+            "_verify_telegram_init_data",
+            side_effect=lambda value: {
+                "id": "101",
+                "first_name": "Session Tester",
+                "username": "session_tester",
+            },
+        )
+        self.auth_patch.start()
+        self.client = TestClient(api.app)
+
+    def tearDown(self):
+        self.client.close()
+        self.auth_patch.stop()
+        self.db_patch.stop()
+        self.temp_dir.cleanup()
+
+    def test_session_list_and_single_session_logout(self):
+        login = self.client.post("/api/auth/telegram", json={"init_data": "one-time-init-data"})
+        self.assertEqual(login.status_code, 200)
+        token = login.json()["session_token"]
+        headers = {"X-Telegram-Init-Data": token}
+        sessions = self.client.get("/api/auth/sessions", headers=headers)
+        self.assertEqual(sessions.status_code, 200)
+        self.assertEqual(len(sessions.json()["items"]), 1)
+        self.assertTrue(sessions.json()["items"][0]["current"])
+        logout = self.client.post("/api/auth/logout", headers=headers)
+        self.assertEqual(logout.status_code, 200)
+        self.assertTrue(logout.json()["revoked"])
+        self.assertIsNone(marketplace.get_telegram_session_user(token))
+        denied = self.client.get("/api/auth/sessions", headers=headers)
+        self.assertEqual(denied.status_code, 401)
+
+    def test_logout_all_revokes_every_account_session(self):
+        marketplace.upsert_telegram_user({"id": "101", "first_name": "Tester"})
+        first = marketplace.create_telegram_session("101")
+        second = marketplace.create_telegram_session("101")
+        response = self.client.post(
+            "/api/auth/logout-all",
+            headers={"X-Telegram-Init-Data": first},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["revoked_sessions"], 2)
+        self.assertIsNone(marketplace.get_telegram_session_user(first))
+        self.assertIsNone(marketplace.get_telegram_session_user(second))
+
+    def test_telegram_webhook_inbox_is_idempotent_and_detects_payload_conflicts(self):
+        payload = {"update_id": 777, "message": {"text": "/start"}}
+        self.assertEqual(marketplace.claim_telegram_update(777, payload), "claimed")
+        self.assertEqual(marketplace.claim_telegram_update(777, payload), "in_progress")
+        marketplace.finish_telegram_update(777)
+        self.assertEqual(marketplace.claim_telegram_update(777, payload), "processed")
+        self.assertEqual(
+            marketplace.claim_telegram_update(777, {"update_id": 777, "message": {"text": "/help"}}),
+            "conflict",
+        )
+
+    def test_failed_telegram_webhook_update_can_be_retried(self):
+        payload = {"update_id": 778, "message": {"text": "/start"}}
+        self.assertEqual(marketplace.claim_telegram_update(778, payload), "claimed")
+        marketplace.release_telegram_update(778)
+        self.assertEqual(marketplace.claim_telegram_update(778, payload), "claimed")
+
+
 
 
 
