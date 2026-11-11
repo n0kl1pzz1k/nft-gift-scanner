@@ -57,12 +57,12 @@
     details: 'О подарке', floor: 'Флор', price: 'Цена', traits: 'Характеристики',
     createTitle: 'Создать объявление', sell: 'Предложение', buy: 'Заявка на поиск', titleLabel: 'Название подарка',
     priceLabel: 'Цена (демо)', noteLabel: 'Комментарий', publish: 'Создать демо-объявление',
-    createHint: 'Это локальная демонстрация интерфейса. Объявление не публикуется на Portals и не создаёт сделку.',
-    ordersTitle: 'Мои ордера', noOrders: 'Пока нет созданных объявлений или заявок.',
+    createHint: 'Общие тестовые заявки видны всем пользователям GIFT RADAR. Реальные сделки и платежи не выполняются.',
+    ordersTitle: 'Ордера маркетплейса', noOrders: 'Пока нет активных предложений или заявок.',
     active: 'Активен', matched: 'Смоделирован', cancelled: 'Отменён', cancel: 'Снять', match: 'Симулировать исполнение',
     demo: 'ДЕМО-РЕЖИМ', demoWallet: 'Демо-профиль', demoWalletText: 'Подключение кошельков и реальные платежи отключены.',
     signIn: 'Подтвердить Telegram', guest: 'Гость', authHint: 'Открой Mini App через Telegram, чтобы подтвердить профиль.',
-    signed: 'Telegram подтверждён', profileText: 'Настройки профиля и локальная история действий.',
+    signed: 'Telegram подтверждён', profileText: 'Профиль Telegram и общая история демонстрационных заявок.',
     favoritesTitle: 'Избранные подарки', noFavorites: 'Добавьте подарки в избранное из каталога.',
     save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Демо-запись добавлена.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Демо-оборот', statsVolumeHint: 'Только смоделированные записи', statsCatalog: 'Подарков в каталоге', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'Каталог Portals', refresh: 'Обновить', all: 'Все',
@@ -76,12 +76,12 @@
     details: 'Gift details', floor: 'Floor', price: 'Price', traits: 'Attributes',
     createTitle: 'Create an order', sell: 'Sell listing', buy: 'Buy request', titleLabel: 'Gift name',
     priceLabel: 'Demo price', noteLabel: 'Note', publish: 'Create demo order',
-    createHint: 'This is a local interface demo. Nothing is published to Portals and no trade is executed.',
-    ordersTitle: 'My orders', noOrders: 'No listings or requests yet.',
+    createHint: 'Shared demo orders are visible to GIFT RADAR users. No real trades or payments take place.',
+    ordersTitle: 'Marketplace orders', noOrders: 'No active listings or requests yet.',
     active: 'Active', matched: 'Simulated', cancelled: 'Cancelled', cancel: 'Cancel', match: 'Simulate fill',
     demo: 'DEMO MODE', demoWallet: 'Demo profile', demoWalletText: 'Wallet connections and real payments are disabled.',
     signIn: 'Verify Telegram', guest: 'Guest', authHint: 'Open the Mini App in Telegram to verify your profile.',
-    signed: 'Telegram verified', profileText: 'Profile settings and local activity history.',
+    signed: 'Telegram verified', profileText: 'Telegram profile and shared demo order history.',
     favoritesTitle: 'Saved gifts', noFavorites: 'Save gifts from the catalogue to see them here.',
     save: 'Save', saved: 'Saved', currency: 'TON', success: 'Demo entry created.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Demo volume', statsVolumeHint: 'Simulated entries only', statsCatalog: 'Catalogue gifts', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'Portals catalogue', refresh: 'Refresh', all: 'All',
@@ -101,7 +101,9 @@
   };
 
   async function request(path: string, signal?: AbortSignal, init: RequestInit = {}) {
-    const response = await fetch(API + path, { ...init, signal, headers: { ...authHeaders(), ...(init.headers || {}) } });
+    const headers = new Headers(authHeaders());
+    new Headers(init.headers || {}).forEach((value, key) => headers.set(key, value));
+    const response = await fetch(API + path, { ...init, signal, headers });
     const data = await response.json().catch(() => ({ detail: 'Invalid server response' }));
     if (!response.ok) throw new Error(data.detail || 'Request failed');
     return data;
@@ -293,7 +295,7 @@
         <label>{t.noteLabel}<textarea class="form-input note-input" bind:value={createNote} placeholder="..."></textarea></label>
         <button class="publish-button" onclick={createOrder}>{t.publish} <span>→</span></button>
         <p class="safety-note">ⓘ {t.createHint}</p>
-      </div><div class="create-aside"><div class="aside-icon">✳</div><div class="eyebrow">GIFT RADAR</div><h2>Make your next move visible.</h2><p>Созданные записи сохраняются только в этом браузере. TON и Stars здесь — обозначения демо-цен, обмена и оплаты нет.</p><div class="aside-stats"><div><strong>{orders.length}</strong><span>DEMO ORDERS</span></div><div><strong>{favorites.length}</strong><span>SAVED GIFTS</span></div></div></div></section>
+      </div><div class="create-aside"><div class="aside-icon">✳</div><div class="eyebrow">GIFT RADAR</div><h2>Make your next move visible.</h2><p>Заявки хранятся на сервере и видны другим пользователям. TON и Stars — только обозначения тестовых цен.</p><div class="aside-stats"><div><strong>{orders.length}</strong><span>DEMO ORDERS</span></div><div><strong>{favorites.length}</strong><span>SAVED GIFTS</span></div></div></div></section>
     {:else if view==='favorites'}
       <section class="page-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{t.favoritesTitle}</h1><p>{favorites.length} saved items</p></section>
       {#if shownGifts.length}<div class="gift-grid">{#each shownGifts as gift (keyOf(gift))}<article class="gift-card"><button class="gift-visual" onclick={()=>selected=gift}><GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/></button><div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'}</div><div class="gift-card-bottom"><strong>{fmt(gift.price,gift.currency||'TON')}</strong><button class="heart-button hearted" onclick={()=>toggleFavorite(gift)}>♥</button></div></div></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='market'}>{t.market}</button></div>{/if}
