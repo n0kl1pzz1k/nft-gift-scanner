@@ -476,7 +476,10 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             )
             SELECT id, type, order_id, title, actor_name, created_at, amount, currency
             FROM activity
-            ORDER BY created_at DESC, id DESC
+            ORDER BY created_at DESC,
+                     CASE WHEN type IN ('offer_received', 'offer_accepted', 'offer_declined', 'offer_withdrawn') THEN 0
+                          WHEN type = 'demo_deal_created' THEN 1 ELSE 2 END,
+                     id DESC
             LIMIT ? OFFSET ?
         """
         params = (user_id, user_id, user_id, user_id, user_id, user_id, user_id, limit, offset)
