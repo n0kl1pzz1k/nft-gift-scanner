@@ -14,16 +14,16 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from marketplace import create_marketplace_router, get_app_setting, init_marketplace_db, set_app_setting, upsert_telegram_user
+from marketplace import create_marketplace_router, create_telegram_session, get_telegram_session_user, get_app_setting, init_marketplace_db, set_app_setting, upsert_telegram_user
 from demo_offers import create_demo_offers_router, init_demo_offers_db
 from catalog_store import get_catalogue_history, get_catalogue_item, search_catalogue_items, upsert_catalogue_items
 
 app = FastAPI(title="GIFT RADAR API", version="0.4.0")
 app.include_router(create_marketplace_router(
-    lambda value: _verify_telegram_init_data(value),
+    lambda value: _authenticate_telegram_credential(value),
     lambda value: _require_admin(value),
 ))
-app.include_router(create_demo_offers_router(lambda value: _verify_telegram_init_data(value)))
+app.include_router(create_demo_offers_router(lambda value: _authenticate_telegram_credential(value)))
 
 _telegram_bot = None
 _telegram_dispatcher = None
@@ -124,38 +124,70 @@ def _admin_ids() -> set[str]:
 
 
 def _verify_telegram_init_data(init_data: str) -> dict:
+    """Verify raw Telegram WebApp initData using Telegram's documented HMAC scheme.
+
+    Raw initData is accepted only by the session-exchange endpoint. API requests
+    should use the short-lived opaque session token issued after this check.
+    """
     bot_token = os.getenv("BOT_TOKEN", "").strip()
     if not bot_token:
         raise HTTPException(status_code=503, detail="Telegram authentication is not configured")
-    if not init_data or len(init_data) > 8192:
+    if not isinstance(init_data, str) or not init_data or len(init_data) > 8192:
         raise HTTPException(status_code=401, detail="Missing or invalid Telegram initData")
     try:
-        pairs = parse_qsl(init_data, keep_blank_values=True, strict_parsing=True)
-        values = dict(pairs)
+        pairs = parse_qsl(init_data, keep_blank_values=True, strict_parsing=True, max_num_fields=64)
+        values: dict[str, str] = {}
+        for key, value in pairs:
+            if not key or key in values:
+                raise ValueError("Duplicate or empty initData field")
+            values[key] = value
         received_hash = values.pop("hash", "")
-        if not received_hash or len(values) != len(pairs) - 1:
-            raise ValueError("Invalid initData fields")
+        if len(received_hash) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in received_hash):
+            raise ValueError("Invalid Telegram hash")
         check_string = "\n".join(f"{key}={value}" for key, value in sorted(values.items()))
-        secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
-        expected_hash = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(expected_hash, received_hash):
+        secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
+        expected_hash = hmac.new(secret_key, check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected_hash, received_hash.lower()):
             raise ValueError("Invalid Telegram signature")
-        auth_date = int(values.get("auth_date", "0"))
+
+        auth_date_raw = values.get("auth_date", "")
+        if not auth_date_raw.isdigit():
+            raise ValueError("Invalid auth_date")
+        auth_date = int(auth_date_raw)
         now = int(time.time())
-        if auth_date <= 0 or auth_date > now + 60 or now - auth_date > 86400:
+        max_age = max(60, min(int(os.getenv("TELEGRAM_INITDATA_MAX_AGE_SECONDS", "300")), 900))
+        if auth_date <= 0 or auth_date > now + 30 or now - auth_date > max_age:
             raise ValueError("Expired Telegram initData")
-        user = json.loads(values.get("user", "{}"))
-        if not isinstance(user, dict) or not str(user.get("id", "")).isdigit():
+
+        user_raw = values.get("user", "")
+        user = json.loads(user_raw)
+        if not isinstance(user, dict):
             raise ValueError("Telegram user is missing")
+        user_id = user.get("id")
+        if isinstance(user_id, bool) or not isinstance(user_id, (int, str)) or not str(user_id).isdigit() or int(user_id) <= 0:
+            raise ValueError("Telegram user ID is invalid")
         return user
-    except (ValueError, TypeError, json.JSONDecodeError):
+    except (ValueError, TypeError, json.JSONDecodeError, OverflowError):
         raise HTTPException(status_code=401, detail="Telegram authentication failed; reopen the Mini App")
 
 
-def _require_admin(init_data: str | None) -> dict:
-    if not init_data:
+def _authenticate_telegram_credential(credential: str) -> dict:
+    """Resolve an opaque server session; raw initData is a compatibility fallback."""
+    if not credential:
         raise HTTPException(status_code=401, detail="Telegram Mini App authentication required")
-    user = _verify_telegram_init_data(init_data)
+    if credential.startswith("grs_"):
+        user = get_telegram_session_user(credential)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Telegram session expired; reopen the Mini App")
+        return user
+    # Compatibility during rollout. New clients exchange initData once and use grs_ tokens.
+    return _verify_telegram_init_data(credential)
+
+
+def _require_admin(credential: str | None) -> dict:
+    if not credential:
+        raise HTTPException(status_code=401, detail="Telegram Mini App authentication required")
+    user = _authenticate_telegram_credential(credential)
     if str(user["id"]) not in _admin_ids():
         raise HTTPException(status_code=403, detail="Administrator access only")
     return user
@@ -165,13 +197,15 @@ def _require_admin(init_data: str | None) -> dict:
 async def telegram_auth(payload: TelegramAuthRequest):
     user = _verify_telegram_init_data(payload.init_data)
     profile = upsert_telegram_user(user)
+    session_token = create_telegram_session(str(user["id"]))
     is_admin = str(user["id"]) in _admin_ids()
     return {
         "authenticated": True,
         "is_admin": is_admin,
+        "session_token": session_token,
+        "expires_in": 43200,
         "user": profile,
     }
-
 
 @app.get("/api/admin/overview")
 async def admin_overview(x_telegram_init_data: str | None = Header(default=None)):
