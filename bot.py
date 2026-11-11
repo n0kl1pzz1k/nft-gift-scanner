@@ -67,14 +67,6 @@ async def main():
         buttons.append([
             InlineKeyboardButton(text="📢 Telegram-канал", url=CHANNEL_URL),
         ])
-        if APP_URL.startswith("https://"):
-            buttons.append([
-                InlineKeyboardButton(
-                    text="🚀 Открыть GIFT RADAR",
-                    web_app=WebAppInfo(url=APP_URL),
-                )
-            ])
-
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
         if WELCOME_IMAGE_URL.startswith("https://"):
