@@ -342,6 +342,8 @@ def source_status() -> dict[str, str]:
         "portals": "configured_read_only" if os.getenv("PORTALS_API_KEY", "").strip() else "needs_api_key",
         "tonnel": ("configured_read_only" if swift_ready else _tonnel_runtime_status),
         "mrkt": "configured_read_only" if swift_ready else "needs_partner_api_key",
+        "gift_changes": "public_read_only",
+        "tg_gifts_daily": "public_daily_read_only",
     }
 
 
@@ -402,6 +404,8 @@ async def status():
             "portals": ["collection_list", "collection_floor", "reported_24h_volume", "reported_supply", "listed_gift_catalog", "gift_price", "gift_attributes"],
             "tonnel": ["public_listings"] if _swift_api_key() or _tonnel_runtime_status == "online_read_only" else [],
             "mrkt": ["public_listings"] if _swift_api_key() else [],
+            "gift_changes": ["public_gift_metadata_changes_beta"],
+            "tg_gifts_daily": ["daily_collection_floor_history_cc_by_4_0"],
         },
         "marketplace_visibility": dict(_marketplace_visibility),
         "cross_market_comparison": False,
@@ -411,7 +415,7 @@ async def status():
             "refresh_interval_seconds": _refresh_interval_seconds(),
             "persistent_history": False,
         },
-        "note": "Portals uses its read-only partner routes. MRKT and Tonnel use the Swift Gifts partner aggregator when SWIFTGIFTS_API_KEY is configured; transaction payloads are discarded. Without that key, Tonnel falls back to its experimental public endpoint and MRKT remains unavailable.",
+        "note": "Portals uses read-only partner routes. MRKT and Tonnel use Swift Gifts only when its partner key is configured; transaction payloads are discarded. Independent public reference feeds provide beta gift-metadata changes and daily historical collection floors; these are not live MRKT/Tonnel listings.",
     }
 
 
@@ -721,6 +725,70 @@ async def _fetch_tonnel_page(page: int, limit: int, search: str | None) -> tuple
         for old_key in oldest:
             _tonnel_cache.pop(old_key, None)
     return result
+
+
+_REFERENCE_CACHE: dict[str, tuple[float, Any]] = {}
+_REFERENCE_CACHE_SECONDS = 3600
+CHANGES_API_BASE = "https://api.changes.tg"
+TG_GIFTS_DAILY_URL = "https://tggifts.com/data/floors-daily.json"
+
+
+async def _fetch_reference_json(cache_key: str, url: str, params: dict[str, Any] | None = None,
+                                cache_seconds: int = _REFERENCE_CACHE_SECONDS) -> Any:
+    cached = _REFERENCE_CACHE.get(cache_key)
+    if cached and time.monotonic() - cached[0] < cache_seconds:
+        return cached[1]
+    try:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            response = await client.get(url, params=params, headers={
+                "Accept": "application/json",
+                "User-Agent": "GIFT-RADAR/1.0 (public read-only data)",
+            })
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="Public reference data source is unreachable")
+    if response.status_code == 429:
+        raise HTTPException(status_code=503, detail="Public reference data rate limit reached; retry later")
+    if response.is_error:
+        raise HTTPException(status_code=502, detail=f"Public reference source returned HTTP {response.status_code}")
+    try:
+        payload = response.json()
+    except ValueError:
+        raise HTTPException(status_code=502, detail="Public reference source returned invalid JSON")
+    _REFERENCE_CACHE[cache_key] = (time.monotonic(), payload)
+    if len(_REFERENCE_CACHE) > 100:
+        for old_key in sorted(_REFERENCE_CACHE, key=lambda key: _REFERENCE_CACHE[key][0])[:-60]:
+            _REFERENCE_CACHE.pop(old_key, None)
+    return payload
+
+
+@app.get("/api/reference/gift-changes")
+async def gift_reference_changes(limit: int = Query(default=25, ge=1, le=100),
+                                 since: str | None = Query(default=None, max_length=80)):
+    """Recent public gift metadata changes (beta feed; not marketplace listings)."""
+    params: dict[str, Any] = {"limit": limit}
+    if since and since.strip():
+        params["since"] = since.strip()
+    cache_key = "gift_changes:" + json.dumps(params, sort_keys=True)
+    payload = await _fetch_reference_json(cache_key, f"{CHANGES_API_BASE}/changes",
+                                          params=params, cache_seconds=120)
+    return {
+        "data": payload, "source": "Gift Changes API", "source_url": "https://api.changes.tg/",
+        "updated_at": int(time.time()),
+        "note": "Beta metadata-change feed. It does not contain marketplace listing availability or prices.",
+    }
+
+
+@app.get("/api/reference/daily-floors")
+async def reference_daily_floors():
+    """Public daily historical collection floors with required CC BY 4.0 attribution."""
+    payload = await _fetch_reference_json("tg_gifts_daily_floors", TG_GIFTS_DAILY_URL,
+                                          cache_seconds=3600)
+    return {
+        "data": payload, "source": "TG Gifts", "source_url": "https://tggifts.com/data",
+        "attribution": "Data: TG Gifts (tggifts.com)", "license": "CC BY 4.0",
+        "updated_at": int(time.time()),
+        "note": "Daily historical snapshots, not live marketplace listings or a real-time floor.",
+    }
 
 
 @app.get("/api/mrkt/gifts")
