@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "motion": "^12.23.12",
-    "svelte": "^5.38.0"
+    "svelte": "^5.38.0",
+    "lottie-web": "^5.13.0",
+    "fflate": "^0.8.2"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.2.0",
