@@ -1,7 +1,8 @@
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
+import asyncio
 
 from fastapi.testclient import TestClient
 
@@ -139,6 +140,65 @@ class SharedMarketplaceTests(unittest.TestCase):
             response.headers.get("access-control-allow-origin"),
             "https://nft-gift-scanner.fj7kmzkhn9.workers.dev",
         )
+
+
+
+class PortalsReadOnlyClientTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.token_patch = patch.dict(os.environ, {"PORTALS_API_KEY": "test-partner-key"})
+        self.token_patch.start()
+        self.lock_patch = patch.object(api, "_request_lock", asyncio.Lock())
+        self.lock_patch.start()
+        self.time_patch = patch.object(api, "_last_request_at", 0.0)
+        self.time_patch.start()
+
+    async def asyncTearDown(self):
+        self.time_patch.stop()
+        self.lock_patch.stop()
+        self.token_patch.stop()
+
+    async def test_portals_search_retries_rate_limit_and_keeps_auth_server_side(self):
+        class Response:
+            def __init__(self, status_code, payload, headers=None):
+                self.status_code = status_code
+                self._payload = payload
+                self.headers = headers or {}
+                self.is_error = status_code >= 400
+
+            def json(self):
+                return self._payload
+
+        class Client:
+            def __init__(self):
+                self.calls = []
+                self.responses = [
+                    Response(429, {}, {"Retry-After": "0"}),
+                    Response(200, {"results": []}),
+                ]
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def get(self, url, headers, params):
+                self.calls.append((url, headers, params))
+                return self.responses.pop(0)
+
+        client = Client()
+        with patch.object(api.httpx, "AsyncClient", return_value=client), patch.object(api.asyncio, "sleep", new=AsyncMock()):
+            result = await api._portals_get_json("/nfts/search", {"limit": 10})
+
+        self.assertEqual(result, {"results": []})
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(client.calls[0][1]["Authorization"], "partners test-partner-key")
+        self.assertEqual(client.calls[0][2], {"limit": 10})
+
+    async def test_portals_client_rejects_non_allowlisted_routes(self):
+        with self.assertRaises(api.HTTPException) as raised:
+            await api._portals_get_json("/partners/market/buy", {})
+        self.assertEqual(raised.exception.status_code, 400)
 
 
 if __name__ == "__main__":
