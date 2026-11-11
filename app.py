@@ -243,7 +243,7 @@ async def health():
 @app.get("/api/status")
 async def status():
     return {
-        "mode": "read_only",
+        "mode": "catalogue_read_only_with_shared_demo_marketplace",
         "sources": source_status(),
         "available_data": {
             "portals": ["collection_list", "collection_floor", "reported_24h_volume", "reported_supply", "listed_gift_catalog", "gift_price", "gift_attributes"],
