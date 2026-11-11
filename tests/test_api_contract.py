@@ -1,6 +1,6 @@
 import unittest
 
-from app import app, _safe_total_count
+from app import app, _safe_total_count, _normalize_swift_item
 
 
 class ApiContractTests(unittest.TestCase):
@@ -16,7 +16,24 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("/api/collections", paths)
         self.assertIn("/api/gifts", paths)
         self.assertIn("/api/tonnel/gifts", paths)
+        self.assertIn("/api/mrkt/gifts", paths)
         self.assertIn("/api/auth/telegram", paths)
+
+    def test_swift_normalizer_discards_transaction_payload(self):
+        item = _normalize_swift_item({
+            "provider": "mrkt",
+            "giftId": "gift-1",
+            "title": "Test Gift",
+            "price": 12.5,
+            "photo_url": "https://example.com/gift.jpg",
+            "attributes": {"model": {"value": "Gold", "rarity": "2%"}},
+            "options": {"transaction": {"messages": [{"amount": "1"}]}},
+        }, "mrkt")
+        self.assertEqual(item["source"], "MRKT")
+        self.assertEqual(item["currency"], "TON")
+        self.assertEqual(item["attributes"][0]["value"], "Gold")
+        self.assertNotIn("options", item)
+        self.assertNotIn("transaction", item)
 
     def test_cors_allows_telegram_post_auth(self):
         cors = next(
@@ -31,7 +48,7 @@ class ApiContractTests(unittest.TestCase):
         from app import _marketplace_visibility
         self.assertTrue(_marketplace_visibility["portals"])
         self.assertTrue(_marketplace_visibility["tonnel"])
-        self.assertFalse(_marketplace_visibility["mrkt"])
+        self.assertTrue(_marketplace_visibility["mrkt"])
 
 
 if __name__ == "__main__":
