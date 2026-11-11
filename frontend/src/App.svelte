@@ -1,11 +1,10 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { animate, stagger } from 'motion';
+  import { animate } from 'motion';
 
   type Gift = { id?: string|number; name?: string; number?: string|number; image?: string; price?: string|number; floor_price?: string|number|null; currency?: string; source?: string; status?: string; listed_at?: string|number; attributes?: {type?:string;name?:string;value?:string}[]; collection_id?: string|number };
   type Collection = { id?: string|number; name?: string; short_name?: string; image?: string; floor_price?: string|number; day_volume?: string|number; supply?: string|number };
   type Status = { sources?: Record<string,string>; marketplace_visibility?: Record<string,boolean>; note?:string; data_pipeline?:Record<string,unknown> };
-  declare global { interface Window { API_BASE?: string; Telegram?: {WebApp?: {initData?:string;ready?:()=>void;expand?:()=>void;themeParams?:Record<string,string>}} } }
 
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://nft-gift-scanner-production.up.railway.app').replace(/\/$/,'');
   let lang = $state<'ru'|'en'>('ru');
@@ -54,7 +53,7 @@
       if(market==='mrkt'){gifts=[];total=0;return;}
       const g=await request(endpoint); gifts=Array.isArray(g.items)?g.items:[]; total=Number(g.total_count??gifts.length); refreshed=new Date().toLocaleTimeString(lang==='ru'?'ru-RU':'en-US',{hour:'2-digit',minute:'2-digit'});
     } catch(e) { error=e instanceof Error?e.message:String(e); }
-    finally { busy=false; await tick(); const cards=document.querySelectorAll('.gift-card,.collection-card'); if(cards.length) animate(cards,{opacity:[0,1],y:[12,0]},{delay:stagger(.035),duration:.28,ease:'ease-out'}); }
+    finally { busy=false; await tick(); const cards=document.querySelectorAll('.gift-card,.collection-card'); cards.forEach((card,index)=>animate(card as HTMLElement,{opacity:[0,1],y:[12,0]},{delay:index*.035,duration:.28,ease:'ease-out'})); }
   }
   function toggleFavorite(g:Gift) { const k=keyOf(g); favorites=favorites.includes(k)?favorites.filter(x=>x!==k):[...favorites,k]; try{localStorage.setItem('gift-radar-favorites',JSON.stringify(favorites));}catch{} }
   function selectMarket(next:'portals'|'tonnel'|'mrkt'){market=next;void loadCatalogue(search);}
@@ -129,12 +128,13 @@
         {:else if gifts.length===0}<div class="empty">{t.empty}</div>
         {:else}<div class="grid">
           {#each gifts as gift (keyOf(gift))}
-            <article class="gift-card" role="button" tabindex="0" onclick={()=>selected=gift} onkeydown={(e)=>e.key==='Enter'&&(selected=gift)}>
-              {#if gift.image}<img class="gift-image" src={gift.image} alt={gift.name||'Telegram gift'} loading="lazy" onerror={(e)=>((e.currentTarget as HTMLImageElement).style.display='none')}/>{:else}<div class="gift-placeholder">🎁</div>{/if}
-              <div class="gift-info"><div class="gift-title">{gift.name||'Telegram Gift'} {gift.number?'#'+gift.number:''}</div><div class="gift-meta">{gift.source||market.toUpperCase()} · {gift.status||'—'}</div>
-                <div class="price-row"><span class="price">{formatPrice(gift.price,gift.currency||'GRAM')}</span><button class="favorite" aria-label={t.favorite} onclick={(e)=>{e.stopPropagation();toggleFavorite(gift);}}>{favorites.includes(keyOf(gift))?'♥':'♡'}</button></div>
-              </div>
-            </article>
+            <div class="gift-card">
+              <button type="button" class="gift-open" onclick={()=>selected=gift}>
+                {#if gift.image}<img class="gift-image" src={gift.image} alt={gift.name||'Telegram gift'} loading="lazy" onerror={(e)=>((e.currentTarget as HTMLImageElement).style.display='none')}/>{:else}<div class="gift-placeholder">🎁</div>{/if}
+                <div class="gift-info"><div class="gift-title">{gift.name||'Telegram Gift'} {gift.number?'#'+gift.number:''}</div><div class="gift-meta">{gift.source||market.toUpperCase()} · {gift.status||'—'}</div><div class="price-row"><span class="price">{formatPrice(gift.price,gift.currency||'GRAM')}</span></div></div>
+              </button>
+              <button class="favorite card-favorite" aria-label={t.favorite} onclick={()=>toggleFavorite(gift)}>{favorites.includes(keyOf(gift))?'♥':'♡'}</button>
+            </div>
           {/each}
         </div>{/if}
       </section>
@@ -144,7 +144,7 @@
       </section>
     {:else if view==='favorites'}
       <section><div class="section-head"><div class="kicker">PERSONAL LIST</div><h2>{t.favorites}</h2></div>
-        {#if shownGifts.length}<div class="grid">{#each shownGifts as gift (keyOf(gift))}<article class="gift-card" onclick={()=>selected=gift}>{#if gift.image}<img class="gift-image" src={gift.image} alt="" loading="lazy"/>{:else}<div class="gift-placeholder">🎁</div>{/if}<div class="gift-info"><div class="gift-title">{gift.name||'Telegram Gift'}</div><div class="price-row"><span class="price">{formatPrice(gift.price,gift.currency)}</span><button class="favorite" onclick={(e)=>{e.stopPropagation();toggleFavorite(gift);}}>♥</button></div></div></article>{/each}</div>{:else}<div class="empty">{t.noFav}</div>{/if}
+        {#if shownGifts.length}<div class="grid">{#each shownGifts as gift (keyOf(gift))}<div class="gift-card"><button type="button" class="gift-open" onclick={()=>selected=gift}>{#if gift.image}<img class="gift-image" src={gift.image} alt="" loading="lazy"/>{:else}<div class="gift-placeholder">🎁</div>{/if}<div class="gift-info"><div class="gift-title">{gift.name||'Telegram Gift'}</div><div class="price-row"><span class="price">{formatPrice(gift.price,gift.currency)}</span></div></div></button><button class="favorite card-favorite" onclick={()=>toggleFavorite(gift)}>♥</button></div>{/each}</div>{:else}<div class="empty">{t.noFav}</div>{/if}
       </section>
     {:else}
       <section><div class="section-head"><div class="kicker">ACCOUNT & PREFERENCES</div><h2>{t.profile}</h2></div>
@@ -168,7 +168,7 @@
 </nav>
 {#if selected}
   <div class="modal-backdrop" role="presentation" onclick={()=>selected=null} onkeydown={(e)=>e.key==='Escape'&&(selected=null)}>
-    <article class="modal" role="dialog" aria-modal="true" aria-label={selected.name||'Gift details'} onclick={(e)=>e.stopPropagation()}>
+    <div class="modal" role="dialog" aria-modal="true" aria-label={selected.name||'Gift details'} onclick={(e)=>e.stopPropagation()} onkeydown={(e)=>e.stopPropagation()}>
       <button class="modal-close" onclick={()=>selected=null}>×</button>
       {#if selected.image}<img src={selected.image} alt={selected.name||'Gift'}/>{:else}<div class="gift-placeholder">🎁</div>{/if}
       <div class="modal-body"><div class="kicker">{selected.source||market}</div><h2>{selected.name||'Telegram Gift'} #{selected.number??'—'}</h2>
@@ -178,6 +178,6 @@
         <h3>Attributes</h3>{#each selected.attributes||[] as a}<div class="price-row"><span class="muted">{a.type||a.name}</span><strong>{a.value}</strong></div>{/each}
         <button class="primary" style="margin-top:18px" onclick={()=>toggleFavorite(selected!)}>{favorites.includes(keyOf(selected))?'♥ '+t.saved:'♡ '+t.favorite}</button>
       </div>
-    </article>
+    </div>
   </div>
 {/if}
