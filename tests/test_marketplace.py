@@ -74,6 +74,13 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(removed.status_code, 200)
         self.assertEqual(self.client.get("/api/marketplace/favorites", headers=headers_a).json()["items"], [])
 
+    def test_price_filter_rejects_minimum_above_maximum(self):
+        with patch.dict(os.environ, {"PORTALS_API_KEY": "test-partner-key"}), patch.object(api, "_portals_get_json", new_callable=AsyncMock) as upstream:
+            response = self.client.get("/api/gifts?min_price=5&max_price=2")
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("min_price cannot exceed max_price", response.json()["detail"])
+        upstream.assert_not_awaited()
+
     def test_favorites_require_telegram_auth_and_limit_payload_size(self):
         unauthenticated = self.client.get("/api/marketplace/favorites")
         self.assertEqual(unauthenticated.status_code, 401)
