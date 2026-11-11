@@ -228,6 +228,36 @@ class CreateDemoOrder(BaseModel):
         return value
 
 
+
+class UpdateDemoOrder(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=120)
+    price: Decimal | None = None
+    note: str | None = Field(default=None, max_length=300)
+
+    @field_validator("title")
+    @classmethod
+    def clean_title(cls, value: str | None) -> str | None:
+        if value is None:
+            raise ValueError("Title cannot be null")
+        value = value.strip()
+        if not value:
+            raise ValueError("Gift name is required")
+        return value
+
+    @field_validator("price")
+    @classmethod
+    def valid_price(cls, value: Decimal | None) -> Decimal | None:
+        if value is None or not value.is_finite() or value <= 0 or value > Decimal("1000000000"):
+            raise ValueError("Price must be a positive number")
+        return value
+
+    @field_validator("note")
+    @classmethod
+    def valid_note(cls, value: str | None) -> str | None:
+        if value is None:
+            raise ValueError("Note cannot be null")
+        return value.strip()
+
 def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) -> APIRouter:
     router = APIRouter(prefix="/api/marketplace", tags=["demo-marketplace"])
 
@@ -394,6 +424,49 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
             row = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (order_id,)).fetchone()
             conn.commit()
         return {"item": _order_dict(row, str(user["id"]))}
+
+    @router.patch("/orders/{order_id}")
+    async def update_order(
+        order_id: str,
+        payload: UpdateDemoOrder,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        user = _user(x_telegram_init_data, verify_telegram_init_data)
+        actor_id = str(user["id"])
+        _enforce_user_rate_limit(actor_id, "update_order", 12)
+        changes = payload.model_dump(exclude_unset=True)
+        if not changes:
+            raise HTTPException(status_code=422, detail="At least one order field must be provided")
+        if any(value is None for value in changes.values()):
+            raise HTTPException(status_code=422, detail="Order fields cannot be null")
+        assignments, values = [], []
+        for field, value in changes.items():
+            if field == "price":
+                value = format(value, "f")
+            assignments.append(f"{field} = ?")
+            values.append(value)
+        now = int(time.time())
+        assignments.append("updated_at = ?")
+        values.extend([now, order_id])
+        with _db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (order_id,)).fetchone()
+            if row is None:
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Order not found")
+            if row["user_id"] != actor_id:
+                conn.rollback()
+                raise HTTPException(status_code=403, detail="Only the author can edit this order")
+            if row["status"] != "active":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Only active orders can be edited")
+            conn.execute(
+                f"UPDATE demo_orders SET {', '.join(assignments)} WHERE id = ? AND status = 'active'",
+                values,
+            )
+            updated = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (order_id,)).fetchone()
+            conn.commit()
+        return {"item": _order_dict(updated, actor_id)}
 
     @router.post("/orders/{order_id}/simulate-fill")
     async def simulate_fill(
