@@ -1046,5 +1046,76 @@ class TelegramInitDataValidationTests(unittest.TestCase):
                 api._verify_telegram_init_data(self._signed_init_data(now + 120))
 
 
+class TelegramSessionSecurityTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_patch = patch.object(marketplace, "DB_PATH", os.path.join(self.temp_dir.name, "sessions.sqlite3"))
+        self.db_patch.start()
+        marketplace.init_marketplace_db()
+        self.auth_patch = patch.object(
+            api,
+            "_verify_telegram_init_data",
+            side_effect=lambda value: {
+                "id": "101",
+                "first_name": "Session Tester",
+                "username": "session_tester",
+            },
+        )
+        self.auth_patch.start()
+        self.client = TestClient(api.app)
+
+    def tearDown(self):
+        self.client.close()
+        self.auth_patch.stop()
+        self.db_patch.stop()
+        self.temp_dir.cleanup()
+
+    def test_session_list_and_single_session_logout(self):
+        login = self.client.post("/api/auth/telegram", json={"init_data": "one-time-init-data"})
+        self.assertEqual(login.status_code, 200)
+        token = login.json()["session_token"]
+        headers = {"X-Telegram-Init-Data": token}
+        sessions = self.client.get("/api/auth/sessions", headers=headers)
+        self.assertEqual(sessions.status_code, 200)
+        self.assertEqual(len(sessions.json()["items"]), 1)
+        self.assertTrue(sessions.json()["items"][0]["current"])
+        logout = self.client.post("/api/auth/logout", headers=headers)
+        self.assertEqual(logout.status_code, 200)
+        self.assertTrue(logout.json()["revoked"])
+        self.assertIsNone(marketplace.get_telegram_session_user(token))
+        denied = self.client.get("/api/auth/sessions", headers=headers)
+        self.assertEqual(denied.status_code, 401)
+
+    def test_logout_all_revokes_every_account_session(self):
+        marketplace.upsert_telegram_user({"id": "101", "first_name": "Tester"})
+        first = marketplace.create_telegram_session("101")
+        second = marketplace.create_telegram_session("101")
+        response = self.client.post(
+            "/api/auth/logout-all",
+            headers={"X-Telegram-Init-Data": first},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["revoked_sessions"], 2)
+        self.assertIsNone(marketplace.get_telegram_session_user(first))
+        self.assertIsNone(marketplace.get_telegram_session_user(second))
+
+    def test_telegram_webhook_inbox_is_idempotent_and_detects_payload_conflicts(self):
+        payload = {"update_id": 777, "message": {"text": "/start"}}
+        self.assertEqual(marketplace.claim_telegram_update(777, payload), "claimed")
+        self.assertEqual(marketplace.claim_telegram_update(777, payload), "in_progress")
+        marketplace.finish_telegram_update(777)
+        self.assertEqual(marketplace.claim_telegram_update(777, payload), "processed")
+        self.assertEqual(
+            marketplace.claim_telegram_update(777, {"update_id": 777, "message": {"text": "/help"}}),
+            "conflict",
+        )
+
+    def test_failed_telegram_webhook_update_can_be_retried(self):
+        payload = {"update_id": 778, "message": {"text": "/start"}}
+        self.assertEqual(marketplace.claim_telegram_update(778, payload), "claimed")
+        marketplace.release_telegram_update(778)
+        self.assertEqual(marketplace.claim_telegram_update(778, payload), "claimed")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -19,6 +19,7 @@ The Portals Partner API credential may have broader permissions than read-only. 
 ## Environment variables
 
 - `BOT_TOKEN` — Telegram bot token, stored only in Railway Variables.
+- `BOT_WEBHOOK_SECRET` — recommended explicit Telegram webhook secret (1–256 characters from Telegram's allowed set), stored only in Railway Variables. If omitted, a fresh random secret is generated at startup and registered with Telegram; setting a stable secret is preferable for controlled rotation.
 - `PUBLIC_APP_URL` — public HTTPS Mini App URL.
 - `ADMIN_TELEGRAM_ID` or `ADMIN_TELEGRAM_IDS` — numeric Telegram user ID(s) allowed to use bot admin commands and the Mini App catalogue-visibility controls. Configure only in the backend environment; if unset, admin access is denied.
 - `API_BASE_URL` — optional internal backend URL for admin health checks; defaults to `http://127.0.0.1:8080`.
@@ -52,3 +53,13 @@ The Mini App includes marketplace tabs for Portals, Tonnel and MRKT, plus a sepa
 The Telegram bot provides `/myid`, `/admin` and `/admin_status`. The Mini App also has a server-authorized admin panel that can only enable or disable Portals catalogue visibility. Admin identity is verified from signed Telegram initData against `ADMIN_TELEGRAM_ID` / `ADMIN_TELEGRAM_IDS`; visibility is stored in SQLite. Attach a persistent Railway volume and set `GIFT_RADAR_DB_PATH` inside its mount path to retain this setting across redeploys. No wallet, payment, purchase or transfer actions are available.
 
 Catalogue and provider integrations are read-only. The separate order-book interface and its API are demonstration-only: records and fills are simulated, have no settlement, and do not move assets or money. No real buying, selling, transfers, offers, payments or wallet actions are implemented.
+
+
+## Security baseline (November 2026)
+
+- Telegram Mini App `initData` is verified server-side with Telegram's HMAC scheme, bounded freshness, duplicate-field rejection and one-time replay protection. It is exchanged for an opaque 12-hour session; only a SHA-256 digest is persisted.
+- API credentials are server-issued sessions, not raw Telegram `initData`. Sessions can be listed, revoked individually, or all revoked for an account through `GET /api/auth/sessions`, `POST /api/auth/logout` and `POST /api/auth/logout-all`. Session responses expose timestamps and status only, never bearer tokens or hashes.
+- Telegram webhook requests require Telegram's configured secret-token header. The endpoint enforces a 1 MiB request limit and stores update IDs in a durable SQLite inbox. Duplicate processed updates are acknowledged without redispatch; failed processing releases the lease so Telegram retries. Reuse of an update ID with a different payload is rejected.
+- The webhook inbox is transport-level idempotency, not a payment ledger. Telegram Stars invoices, pre-checkout approval, successful-payment fulfillment, refunds and real settlement remain **disabled**. Never mark an order paid from a client callback, screenshot, browser request or unverified webhook.
+- If Telegram Stars is approved for a future release, the server must create invoices from server-owned order/price data in `XTR`, validate `pre_checkout_query` (user, payload, amount, currency, expiry and order state), and treat only Telegram's authenticated `successful_payment` update as payment evidence. Persist charge IDs and a unique transaction record inside one database transaction; make duplicate updates and charge IDs harmless. Do not enable fulfilment until that separate implementation has passed review and tests.
+- GIFT RADAR does not request, store or operate users' seed phrases, private keys, wallet passwords, exchange API keys or account API tokens. It cannot debit, credit or otherwise mutate user balances. Current orders and deal states remain simulation-only.
