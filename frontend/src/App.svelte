@@ -39,11 +39,16 @@
   let total = $state(0);
   let offset = $state(0);
   let selected = $state<Gift | null>(null);
+  let selectedHistory = $state<{item: Gift; observed_at: number}[]>([]);
+  let historyLoading = $state(false);
   let telegramUser = $state('');
   let telegramPhoto = $state('');
   let telegramUsername = $state('');
   let telegramPremium = $state(false);
   let signedIn = $state(false);
+  let isAdmin = $state(false);
+  let adminMarketplaceEnabled = $state(true);
+  let adminBusy = $state(false);
   let notice = $state('');
   let createKind = $state<'listing' | 'buy-order'>('listing');
   let createTitle = $state('');
@@ -57,7 +62,7 @@
   const ru = {
     market: 'Маркет', orders: 'Активность', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'ТОЛЬКО ПРОСМОТР', catalogOnly: 'Актуальные объявления Portals. Просмотр и поиск доступны; управление сделками в GIFT RADAR пока не включено.',
     headline: 'Подарки, которые находят своих владельцев', subtitle: 'Единое пространство Telegram-подарков на базе каталога Portals.',
-    portals: 'Единственный источник каталога · Portals', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
+    brandEyebrow: 'ОТКРЫВАЙ РЕДКОЕ · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Открой редкие подарки.', heroDescription: 'Исследуй коллекции Telegram-подарков, объявления и историю характеристик в одном месте.', openCatalogue: 'Открыть каталог', connectedLabel: 'КАТАЛОГ PORTALS · ТОЛЬКО ПРОСМОТР', exploreMarket: 'ИССЛЕДУЙ МАРКЕТ', collectionsTitle: 'Коллекции', collectionsCount: 'коллекций в каталоге', discoverLabel: 'ОТКРЫВАЙ', portals: 'Единственный источник каталога · Portals', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
     listings: 'Предложения Portals', results: 'найдено', loading: 'Загружаем каталог…', loadMore: 'Показать ещё',
     empty: 'По этому запросу ничего не найдено.', failed: 'Не удалось загрузить каталог.',
     details: 'О подарке', floor: 'Флор', price: 'Цена', traits: 'Характеристики',
@@ -76,7 +81,7 @@
   const en = {
     market: 'Market', orders: 'Activity', create: 'Create', favorites: 'Favorites', profile: 'Profile', readonly: 'READ ONLY', catalogOnly: 'Live Portals listings. Browse and search are available; trade execution is not enabled in GIFT RADAR.',
     headline: 'Discover gifts worth keeping', subtitle: 'A unified Telegram gifts experience powered by the Portals catalogue.',
-    portals: 'Single catalogue source · Portals', search: 'Gift name or number', min: 'Min price', max: 'Max price',
+    brandEyebrow: 'DISCOVER THE RARE · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Discover rare finds.', heroDescription: 'Explore Telegram gift collections, marketplace listings and item history in one place.', openCatalogue: 'Explore catalogue', connectedLabel: 'PORTALS CATALOGUE · READ ONLY', exploreMarket: 'EXPLORE THE MARKET', collectionsTitle: 'Collections', collectionsCount: 'collections in catalogue', discoverLabel: 'DISCOVER', portals: 'Single catalogue source · Portals', search: 'Gift name or number', min: 'Min price', max: 'Max price',
     listings: 'Portals listings', results: 'found', loading: 'Loading catalogue…', loadMore: 'Load more',
     empty: 'No gifts match this search.', failed: 'Could not load the catalogue.',
     details: 'Gift details', floor: 'Floor', price: 'Price', traits: 'Attributes',
@@ -121,7 +126,7 @@
     try {
       const [publicData, mineData, statsData] = await Promise.all([
         request('/api/marketplace/orders?status=active&limit=100'),
-        window.Telegram?.WebApp?.initData ? request('/api/marketplace/history') : Promise.resolve({items:[]}),
+        window.Telegram?.WebApp?.initData ? request('/api/marketplace/mine') : Promise.resolve({items:[]}),
         request('/api/marketplace/stats'),
       ]);
       const combined = new Map<string, DemoOrder>();
@@ -139,6 +144,24 @@
       collections = Array.isArray(data.items) ? data.items : [];
     } catch {
       collections = [];
+    }
+  }
+
+  async function openGift(gift: Gift) {
+    selected = gift;
+    selectedHistory = [];
+    historyLoading = true;
+    const giftId = keyOf(gift);
+    try {
+      const data = await request('/api/catalog/items/' + encodeURIComponent(giftId) + '/history?limit=5');
+      if (selected && keyOf(selected) === giftId) {
+        selectedHistory = Array.isArray(data.history) ? data.history : [];
+      }
+    } catch {
+      // Ignore stale responses when the user has opened a different gift.
+      if (selected && keyOf(selected) === giftId) selectedHistory = [];
+    } finally {
+      if (selected && keyOf(selected) === giftId) historyLoading = false;
     }
   }
 
@@ -239,9 +262,49 @@
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
+  async function loadAdminOverview() {
+    if (!isAdmin) return;
+    try {
+      const data = await request('/api/admin/overview');
+      adminMarketplaceEnabled = data.marketplace_visibility?.portals !== false;
+    } catch (e) {
+      // Do not render privileged controls if the protected overview cannot be loaded.
+      isAdmin = false;
+      notice = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function toggleAdminMarketplace() {
+    if (!isAdmin || adminBusy) return;
+    adminBusy = true;
+    try {
+      const data = await request('/api/admin/marketplaces/portals', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !adminMarketplaceEnabled }),
+      });
+      adminMarketplaceEnabled = data.enabled === true;
+      notice = lang === 'ru'
+        ? (adminMarketplaceEnabled ? 'Каталог Portals включён.' : 'Каталог Portals выключен.')
+        : (adminMarketplaceEnabled ? 'Portals catalogue enabled.' : 'Portals catalogue disabled.');
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      adminBusy = false;
+    }
+  }
+
   async function telegramLogin(showNotice = true) {
     const initData = window.Telegram?.WebApp?.initData || '';
-    if (!initData) { if (showNotice) notice = t.authHint; return; }
+    if (!initData) {
+      isAdmin = false;
+      signedIn = false;
+      if (showNotice) notice = t.authHint;
+      return;
+    }
+    // Fail closed while refreshing the signed Telegram session.
+    isAdmin = false;
+    signedIn = false;
     try {
       const response = await fetch(API + '/api/auth/telegram', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -253,10 +316,18 @@
       telegramPhoto = data.user?.photo_url || '';
       telegramUsername = data.user?.username ? '@' + data.user.username : '';
       telegramPremium = data.user?.is_premium === true;
+      isAdmin = data.is_admin === true;
       signedIn = true;
+      if (isAdmin) await loadAdminOverview();
       await loadAccountFavorites();
       if (showNotice) notice = t.signed;
     } catch (e) {
+      isAdmin = false;
+      signedIn = false;
+      telegramUser = '';
+      telegramPhoto = '';
+      telegramUsername = '';
+      telegramPremium = false;
       if (showNotice) notice = e instanceof Error ? e.message : String(e);
     }
   }
@@ -309,10 +380,10 @@
     {#if view==='market'}
       <section class="hero hero-market">
         <div class="hero-copy">
-          <div class="eyebrow"><span class="spark"></span> PORTALS MARKET DATA · LIVE CATALOGUE</div>
-          <h1>Telegram Gifts.<br/><span>Найди свой следующий коллекционный подарок.</span></h1>
-          <p>Каталог объявлений Portals, коллекции и характеристики в одном пространстве. Данные каталога обновляются из источника; GIFT RADAR пока работает в режиме просмотра.</p>
-          <div class="hero-actions"><button class="search-button" onclick={()=>document.getElementById('catalogue')?.scrollIntoView({behavior:'smooth',block:'start'})}>Открыть каталог <span>↘</span></button><span class="hero-live"><i></i> Portals connected · read only</span></div>
+          <div class="eyebrow"><span class="spark"></span> {t.brandEyebrow}</div>
+          <h1>{t.heroLine1}<br/><span>{t.heroLine2}</span></h1>
+          <p>{t.heroDescription}</p>
+          <div class="hero-actions"><button class="search-button" onclick={()=>document.getElementById('catalogue')?.scrollIntoView({behavior:'smooth',block:'start'})}>{t.openCatalogue} <span>↘</span></button><span class="hero-live"><i></i> {t.connectedLabel}</span></div>
         </div>
         <div class="hero-art" aria-hidden="true">
           {#each collections.slice(0,3) as collection, index}
@@ -323,7 +394,7 @@
       </section>
       {#if collections.length}
         <section class="collection-shelf">
-          <div class="shelf-heading"><div><div class="eyebrow">EXPLORE THE MARKET</div><h2>Коллекции</h2></div><span>{collections.length} коллекций в Portals</span></div>
+          <div class="shelf-heading"><div><div class="eyebrow">{t.exploreMarket}</div><h2>{t.collectionsTitle}</h2></div><span>{collections.length} {t.collectionsCount}</span></div>
           <div class="collection-rail">
             {#each collections.slice(0,8) as collection (String(collection.id ?? collection.short_name ?? collection.name))}
               <button class:chosen={collectionFilter===String(collection.id ?? collection.short_name ?? '')} class="collection-tile" onclick={()=>{collectionFilter=String(collection.id ?? collection.short_name ?? 'all');loadCatalogue();}}>
@@ -337,7 +408,7 @@
       {/if}
       <section class="market-stats" aria-label="Catalogue overview"><article><span>▦</span><div><strong>{total.toLocaleString()}</strong><small>{t.statsCatalog}</small></div></article><p>{t.catalogOnly}</p></section>
       <section class="market-section" id="catalogue">
-        <div class="section-title"><div><div class="eyebrow">DISCOVER</div><h2>{t.listings}</h2><p>{total.toLocaleString()} {t.results}</p></div><button class="refresh-button" onclick={()=>loadCatalogue()} disabled={busy}>↻ {t.refresh}</button></div>
+        <div class="section-title"><div><div class="eyebrow">{t.discoverLabel}</div><h2>{t.listings}</h2><p>{total.toLocaleString()} {t.results}</p></div><button class="refresh-button" onclick={()=>loadCatalogue()} disabled={busy}>↻ {t.refresh}</button></div>
         <div class="filter-bar">
           <div class="search-field"><span>⌕</span><input bind:value={search} placeholder={t.search} onkeydown={e=>e.key==="Enter"&&loadCatalogue()}/></div>
           <select class="filter-input" bind:value={collectionFilter} aria-label="Collection">
@@ -364,11 +435,11 @@
           <div class="gift-grid">
             {#each gifts as gift (keyOf(gift))}
               <article class="gift-card">
-                <button class="gift-visual" onclick={()=>selected=gift} aria-label={t.details}>
+                <button class="gift-visual" onclick={()=>void openGift(gift)} aria-label={t.details}>
                   <GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/>
                   <span class="source-tag">PORTALS</span>
                 </button>
-                <div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'} <span>{gift.number?'#'+gift.number:''}</span></div><div class="gift-card-meta">Telegram collectible · {gift.status||'Listed'}</div><div class="gift-card-bottom"><div><small>{t.price}</small><strong>{fmt(gift.price,gift.currency||'TON')}</strong></div><button class:hearted={favorites.includes(keyOf(gift))} class="heart-button" onclick={()=>toggleFavorite(gift)}>{favorites.includes(keyOf(gift))?'♥':'♡'}</button></div><button class="card-details" onclick={()=>selected=gift}>{t.details} <span>↗</span></button></div>
+                <div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'} <span>{gift.number?'#'+gift.number:''}</span></div><div class="gift-card-meta">Telegram collectible · {gift.status||'Listed'}</div><div class="gift-card-bottom"><div><small>{t.price}</small><strong>{fmt(gift.price,gift.currency||'TON')}</strong></div><button class:hearted={favorites.includes(keyOf(gift))} class="heart-button" onclick={()=>toggleFavorite(gift)}>{favorites.includes(keyOf(gift))?'♥':'♡'}</button></div><button class="card-details" onclick={()=>void openGift(gift)}>{t.details} <span>↗</span></button></div>
               </article>
             {/each}
           </div>
@@ -391,10 +462,10 @@
       </div><div class="create-aside"><div class="aside-icon">✳</div><div class="eyebrow">GIFT RADAR</div><h2>Make your next move visible.</h2><p>Заявки хранятся на сервере и видны другим пользователям. TON и Stars — только обозначения тестовых цен.</p><div class="aside-stats"><div><strong>{orders.length}</strong><span>DEMO ORDERS</span></div><div><strong>{favorites.length}</strong><span>SAVED GIFTS</span></div></div></div></section>
     {:else if view==='favorites'}
       <section class="page-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{t.favoritesTitle}</h1><p>{favorites.length} saved items</p></section>
-      {#if shownGifts.length}<div class="gift-grid">{#each shownGifts as gift (keyOf(gift))}<article class="gift-card"><button class="gift-visual" onclick={()=>selected=gift}><GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/></button><div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'}</div><div class="gift-card-bottom"><strong>{fmt(gift.price,gift.currency||'TON')}</strong><button class="heart-button hearted" onclick={()=>toggleFavorite(gift)}>♥</button></div></div></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='market'}>{t.market}</button></div>{/if}
+      {#if shownGifts.length}<div class="gift-grid">{#each shownGifts as gift (keyOf(gift))}<article class="gift-card"><button class="gift-visual" onclick={()=>void openGift(gift)}><GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/></button><div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'}</div><div class="gift-card-bottom"><strong>{fmt(gift.price,gift.currency||'TON')}</strong><button class="heart-button hearted" onclick={()=>toggleFavorite(gift)}>♥</button></div></div></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='market'}>{t.market}</button></div>{/if}
     {:else}
       <section class="page-heading"><div class="eyebrow">ACCOUNT CENTER</div><h1>{t.profile}</h1><p>{t.profileText}</p></section>
-      <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div><button class="publish-button" onclick={()=>telegramLogin()}>{t.signIn} →</button></article><article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>Wallet connection disabled</strong><small>Demo profile · no assets stored</small></div><b>DEMO</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>Portals catalogue · TON / Stars demo labels · RU / EN</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article></section>
+      <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div><button class="publish-button" onclick={()=>telegramLogin()}>{t.signIn} →</button></article><article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>Wallet connection disabled</strong><small>Demo profile · no assets stored</small></div><b>DEMO</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>Portals catalogue · TON / Stars demo labels · RU / EN</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article>{#if isAdmin}<article class="profile-card"><div class="eyebrow">ADMINISTRATION</div><h2>{lang==='ru'?'Управление каталогом':'Catalogue controls'}</h2><p>{lang==='ru'?'Доступ подтверждён сервером Telegram. Здесь можно только включать или отключать отображение каталога Portals.':'Access verified by the server through Telegram. You can only enable or disable the Portals catalogue visibility here.'}</p><div class="wallet-placeholder"><span>◈</span><div><strong>{lang==='ru'?'Каталог Portals':'Portals catalogue'}</strong><small>{adminMarketplaceEnabled?(lang==='ru'?'Включён':'Enabled'):(lang==='ru'?'Отключён':'Disabled')}</small></div><b>ADMIN</b></div><button class="publish-button" onclick={toggleAdminMarketplace} disabled={adminBusy}>{adminBusy?'…':(adminMarketplaceEnabled?(lang==='ru'?'Отключить каталог':'Disable catalogue'):(lang==='ru'?'Включить каталог':'Enable catalogue'))}</button></article>{/if}</section>
     {/if}
 
     {#if notice}<div class="toast" role="status">{notice}<button onclick={()=>notice=''}>×</button></div>{/if}
@@ -413,7 +484,7 @@
     <div class="gift-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label={selected.name||'Gift details'} onclick={e=>e.stopPropagation()} onkeydown={e=>e.stopPropagation()}>
       <button class="modal-close" onclick={()=>selected=null}>×</button>
       <div class="modal-media"><GiftMedia image={selected.image} animationUrl={selected.animation_url} hasAnimation={selected.has_animation} alt={selected.name||'Gift'} className="gift-media"/></div>
-      <div class="modal-content"><div class="eyebrow">PORTALS COLLECTIBLE</div><h2>{selected.name||'Telegram Gift'} {selected.number?'#'+selected.number:''}</h2><div class="modal-price"><span>{t.price}</span><strong>{fmt(selected.price,selected.currency||'TON')}</strong></div><div class="modal-price"><span>{t.floor}</span><strong>{fmt(selected.floor_price,selected.currency||'TON')}</strong></div><h3>{t.traits}</h3>{#each selected.attributes||[] as trait}<div class="trait-row"><span>{trait.type||trait.name}</span><strong>{trait.value||'—'}</strong></div>{/each}<button class="publish-button" onclick={()=>toggleFavorite(selected!)}>{favorites.includes(keyOf(selected))?t.saved:t.save} <span>♡</span></button></div>
+      <div class="modal-content"><div class="eyebrow">PORTALS COLLECTIBLE</div><h2>{selected.name||'Telegram Gift'} {selected.number?'#'+selected.number:''}</h2><div class="modal-price"><span>{t.price}</span><strong>{fmt(selected.price,selected.currency||'TON')}</strong></div><div class="modal-price"><span>{t.floor}</span><strong>{fmt(selected.floor_price,selected.currency||'TON')}</strong></div><h3>{t.traits}</h3>{#each selected.attributes||[] as trait}<div class="trait-row"><span>{trait.type||trait.name}</span><strong>{trait.value||'—'}</strong></div>{/each}<h3>{lang==='ru'?'История данных':'Metadata history'}</h3>{#if historyLoading}<div class="trait-row"><span>{lang==='ru'?'Загружаем снимки…':'Loading snapshots…'}</span></div>{:else if selectedHistory.length}{#each selectedHistory as snapshot}<div class="trait-row"><span>{new Date(snapshot.observed_at * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</span><strong>{fmt(snapshot.item.price, String(snapshot.item.currency||'GRAM'))}</strong></div>{/each}{:else}<div class="trait-row"><span>{lang==='ru'?'История пока не накоплена':'No history snapshots yet'}</span></div>{/if}<button class="publish-button" onclick={()=>toggleFavorite(selected!)}>{favorites.includes(keyOf(selected))?t.saved:t.save} <span>♡</span></button></div>
     </div>
   </div>
 {/if}

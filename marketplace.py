@@ -98,7 +98,43 @@ def init_marketplace_db() -> None:
             request_count INTEGER NOT NULL,
             PRIMARY KEY(user_id, action)
         );
+        CREATE TABLE IF NOT EXISTS app_settings (
+            setting_key TEXT PRIMARY KEY,
+            setting_value TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
         """)
+
+
+
+def get_app_setting(key: str, default: str = "") -> str:
+    """Read a small durable runtime setting from SQLite."""
+    safe_key = str(key or "").strip()[:100]
+    if not safe_key:
+        return default
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT setting_value FROM app_settings WHERE setting_key = ?",
+            (safe_key,),
+        ).fetchone()
+    return str(row["setting_value"]) if row is not None else default
+
+
+def set_app_setting(key: str, value: str) -> None:
+    """Persist a bounded runtime setting across backend restarts."""
+    safe_key = str(key or "").strip()[:100]
+    safe_value = str(value)[:500]
+    if not safe_key:
+        raise ValueError("A setting key is required")
+    with _db() as conn:
+        conn.execute(
+            """INSERT INTO app_settings(setting_key, setting_value, updated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(setting_key) DO UPDATE SET
+                 setting_value=excluded.setting_value,
+                 updated_at=excluded.updated_at""",
+            (safe_key, safe_value, int(time.time())),
+        )
 
 
 def upsert_telegram_user(user: dict[str, Any]) -> dict[str, Any]:
@@ -220,10 +256,20 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
     ):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         _enforce_user_rate_limit(str(user["id"]), "save_favorite", 30)
-        gift_id = gift_id.strip()[:160]
         gift = payload.get("gift")
-        if not gift_id or not isinstance(gift, dict):
+        if not isinstance(gift, dict):
             raise HTTPException(status_code=422, detail="A gift and its ID are required")
+        if not gift_id or gift_id != gift_id.strip() or len(gift_id) > 160:
+            raise HTTPException(status_code=422, detail="Gift ID must be between 1 and 160 characters")
+        item_key = gift.get("id")
+        if item_key is None:
+            item_key = gift.get("number")
+        if item_key is None:
+            item_key = gift.get("name")
+        if item_key is None:
+            item_key = "gift"
+        if not isinstance(item_key, (str, int, float)) or str(item_key) != gift_id:
+            raise HTTPException(status_code=422, detail="Gift ID does not match the gift data")
         import json
         encoded = json.dumps(gift, ensure_ascii=False, separators=(",", ":"))
         if len(encoded.encode("utf-8")) > 16000:
@@ -259,12 +305,14 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
     ):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         _enforce_user_rate_limit(str(user["id"]), "remove_favorite", 30)
+        if not gift_id or gift_id != gift_id.strip() or len(gift_id) > 160:
+            raise HTTPException(status_code=422, detail="Gift ID must be between 1 and 160 characters")
         with _db() as conn:
             conn.execute(
                 "DELETE FROM user_favorites WHERE telegram_id = ? AND gift_id = ?",
-                (str(user["id"]), gift_id[:160]),
+                (str(user["id"]), gift_id),
             )
-        return {"removed": True, "gift_id": gift_id[:160]}
+        return {"removed": True, "gift_id": gift_id}
 
     @router.get("/orders")
     async def list_orders(

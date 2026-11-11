@@ -14,7 +14,8 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from marketplace import create_marketplace_router, init_marketplace_db, upsert_telegram_user
+from marketplace import create_marketplace_router, get_app_setting, init_marketplace_db, set_app_setting, upsert_telegram_user
+from catalog_store import get_catalogue_history, get_catalogue_item, search_catalogue_items, upsert_catalogue_items
 
 app = FastAPI(title="GIFT RADAR API", version="0.4.0")
 app.include_router(create_marketplace_router(lambda value: _verify_telegram_init_data(value)))
@@ -57,6 +58,26 @@ _gifts_cache: dict[str, tuple[float, Any]] = {}
 GIFTS_CACHE_SECONDS = 60
 
 
+def _safe_gift_attributes(raw_attributes: Any) -> list[dict[str, str]]:
+    """Keep upstream attribute payloads small and aligned with the Mini App schema."""
+    if not isinstance(raw_attributes, list):
+        return []
+    safe: list[dict[str, str]] = []
+    for attribute in raw_attributes[:40]:
+        if not isinstance(attribute, dict):
+            continue
+        normalized: dict[str, str] = {}
+        for field in ("type", "name", "value"):
+            value = attribute.get(field)
+            if value is None or isinstance(value, (dict, list)):
+                normalized[field] = ""
+            else:
+                normalized[field] = str(value).strip()[:160]
+        if any(normalized.values()):
+            safe.append(normalized)
+    return safe
+
+
 def _safe_total_count(reported_total: Any, item_count: int) -> int:
     try:
         return max(item_count, int(reported_total or 0))
@@ -82,9 +103,14 @@ class MarketplaceSettingRequest(BaseModel):
     enabled: bool
 
 
-# Runtime controls are deliberately limited to read-only market visibility.
-# For durable configuration across deploys, set ADMIN_TELEGRAM_IDS in Railway.
-_marketplace_visibility = {"portals": True}
+# Admin controls are limited to catalogue visibility; the setting is persisted in SQLite.
+# Administrator identities are verified server-side from Telegram initData and env configuration.
+def _marketplace_visibility() -> dict[str, bool]:
+    return {"portals": get_app_setting("marketplace.portals.enabled", "true").lower() == "true"}
+
+
+def _marketplace_enabled(market: str) -> bool:
+    return _marketplace_visibility().get(market, False)
 
 
 def _admin_ids() -> set[str]:
@@ -149,8 +175,8 @@ async def admin_overview(x_telegram_init_data: str | None = Header(default=None)
         "admin": {"id": str(user["id"]), "first_name": user.get("first_name", ""), "username": user.get("username", "")},
         "mode": "catalogue_read_only_with_shared_demo_marketplace",
         "sources": source_status(),
-        "marketplace_visibility": dict(_marketplace_visibility),
-        "settings_persistence": "runtime_only_resets_on_backend_restart",
+        "marketplace_visibility": _marketplace_visibility(),
+        "settings_persistence": "persistent_sqlite",
     }
 
 
@@ -161,10 +187,10 @@ async def admin_set_marketplace(
     x_telegram_init_data: str | None = Header(default=None),
 ):
     _require_admin(x_telegram_init_data)
-    if market not in _marketplace_visibility:
+    if market != "portals":
         raise HTTPException(status_code=404, detail="Unknown marketplace")
-    _marketplace_visibility[market] = bool(payload.enabled)
-    return {"market": market, "enabled": _marketplace_visibility[market]}
+    set_app_setting(f"marketplace.{market}.enabled", "true" if payload.enabled else "false")
+    return {"market": market, "enabled": _marketplace_enabled(market)}
 
 
 
@@ -302,13 +328,16 @@ async def status():
             "gift_changes": ["public_gift_metadata_changes_beta"],
             "tg_gifts_daily": ["daily_collection_floor_history_cc_by_4_0"],
         },
-        "marketplace_visibility": dict(_marketplace_visibility),
+        "marketplace_visibility": _marketplace_visibility(),
         "cross_market_comparison": False,
         "data_pipeline": {
             "delivery": "server_to_app_api",
             "cache": "server_memory_cache",
             "refresh_interval_seconds": _refresh_interval_seconds(),
-            "persistent_history": False,
+            "persistent_history": True,
+            "history_kind": "portals_metadata_snapshots",
+            "history_limit_per_gift": 50,
+            "history_requires_persistent_volume_for_deploys": True,
         },
         "demo_marketplace": {
             "enabled": True,
@@ -323,7 +352,7 @@ async def status():
 
 @app.get("/api/collections")
 async def collections():
-    if not _marketplace_visibility["portals"]:
+    if not _marketplace_enabled("portals"):
         return {"items": [], "sources": source_status(), "updated_at": None, "note": "Portals collection feed is disabled by the administrator."}
     if not os.getenv("PORTALS_API_KEY", "").strip():
         return {
@@ -396,7 +425,7 @@ async def gifts(
     status: str | None = Query(default=None, max_length=16),
 ):
     """Read-only page of currently listed gifts from the documented Portals search endpoint."""
-    if not _marketplace_visibility["portals"]:
+    if not _marketplace_enabled("portals"):
         raise HTTPException(status_code=503, detail="Portals catalogue is temporarily disabled by the administrator")
     if not os.getenv("PORTALS_API_KEY", "").strip():
         return {"items": [], "total_count": 0, "connected": False, "sources": source_status(), "updated_at": None}
@@ -484,7 +513,7 @@ async def gifts(
             "has_animation": bool(gift.get("has_animation") or gift.get("hasAnimation") or gift.get("animation_url") or gift.get("animationUrl")),
             "price": gift.get("price"),
             "floor_price": gift.get("floor_price"),
-            "attributes": gift.get("attributes", []),
+            "attributes": _safe_gift_attributes(gift.get("attributes")),
             "status": gift.get("status"),
             "listed_at": gift.get("listed_at"),
             "source": "Portals",
@@ -498,6 +527,9 @@ async def gifts(
         "sources": {**source_status(), "portals": "online_read_only"},
         "updated_at": int(time.time()),
     }
+    # Persist only authoritative Portals catalogue metadata. This is a metadata index,
+    # not custody, ownership proof, or a transfer of the underlying NFT.
+    upsert_catalogue_items(items)
     _gifts_cache[cache_key] = (time.monotonic(), result)
     if len(_gifts_cache) > 200:
         oldest = sorted(_gifts_cache, key=lambda key: _gifts_cache[key][0])[:-150]
@@ -505,6 +537,37 @@ async def gifts(
             _gifts_cache.pop(old_key, None)
     return result
 
+
+
+@app.get("/api/catalog/items/{gift_id}")
+async def catalogue_item(gift_id: str):
+    """Return the latest Portals metadata snapshot previously indexed by GIFT RADAR."""
+    item = get_catalogue_item(gift_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Gift is not present in the indexed Portals catalogue")
+    return {"item": item, "source": "Portals", "metadata_only": True}
+
+
+@app.get("/api/catalog/items")
+async def catalogue_items(
+    limit: int = Query(default=24, ge=1, le=50),
+    offset: int = Query(default=0, ge=0, le=100000),
+    search: str | None = Query(default=None, max_length=80),
+    collection_id: str | None = Query(default=None, max_length=160),
+):
+    """Search the persistent Portals metadata index; results are not ownership claims."""
+    return {**search_catalogue_items(search or "", collection_id or "", limit, offset), "source": "Portals", "metadata_only": True}
+
+
+@app.get("/api/catalog/items/{gift_id}/history")
+async def catalogue_item_history(
+    gift_id: str,
+    limit: int = Query(default=20, ge=1, le=50),
+):
+    """Return previous Portals metadata snapshots for an indexed item."""
+    if get_catalogue_item(gift_id) is None:
+        raise HTTPException(status_code=404, detail="Gift is not present in the indexed Portals catalogue")
+    return {"gift_id": gift_id, "history": get_catalogue_history(gift_id, limit), "metadata_only": True}
 
 
 _REFERENCE_CACHE: dict[str, tuple[float, Any]] = {}
@@ -600,7 +663,7 @@ async def _refresh_public_catalogues():
     """Warm backend caches from upstream public APIs independently of browser visits."""
     interval = _refresh_interval_seconds()
     while True:
-        if _marketplace_visibility["portals"] and os.getenv("PORTALS_API_KEY", "").strip():
+        if _marketplace_enabled("portals") and os.getenv("PORTALS_API_KEY", "").strip():
             try:
                 await collections()
             except Exception:
