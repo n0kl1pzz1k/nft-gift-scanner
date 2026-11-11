@@ -176,7 +176,7 @@ async def admin_overview(x_telegram_init_data: str | None = Header(default=None)
         "mode": "catalogue_read_only_with_shared_demo_marketplace",
         "sources": source_status(),
         "marketplace_visibility": _marketplace_visibility(),
-        "settings_persistence": "runtime_only_resets_on_backend_restart",
+        "settings_persistence": "persistent_sqlite",
     }
 
 
