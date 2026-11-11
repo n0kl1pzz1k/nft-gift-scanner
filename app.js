@@ -106,6 +106,20 @@ function formatTime(value){
   const date=typeof value==="number"?new Date(value*1000):new Date(value);
   return Number.isNaN(date.getTime())?String(value):date.toLocaleString(lang==="ru"?"ru-RU":"en-GB");
 }
+async function loadReferenceFeeds(){
+  const [changesResult,dailyResult]=await Promise.allSettled([
+    fetch(window.API_BASE+"/api/reference/gift-changes?limit=25",{cache:"no-store"}),
+    fetch(window.API_BASE+"/api/reference/daily-floors",{cache:"no-store"})
+  ]);
+  let changesPayload=null;
+  if(changesResult.status==="fulfilled"&&changesResult.value.ok){
+    changesPayload=await changesResult.value.json();
+    sourceStates.gift_changes="public_read_only";
+  }else sourceStates.gift_changes="temporarily_unavailable";
+  sourceStates.tg_gifts_daily=(dailyResult.status==="fulfilled"&&dailyResult.value.ok)?"public_daily_read_only":"temporarily_unavailable";
+  $("sources").innerHTML=sourceLabel(copy[lang].portals,sourceStates.portals,"portals","P")+sourceLabel(copy[lang].tonnel,sourceStates.tonnel,"tonnel","T")+sourceLabel(copy[lang].mrkt,sourceStates.mrkt,"mrkt","M")+sourceLabel(lang==="ru"?"Метаданные подарков":"Gift metadata",sourceStates.gift_changes,"changes","✦")+sourceLabel(lang==="ru"?"История флоров":"Daily floor archive",sourceStates.tg_gifts_daily,"daily","D");
+  renderGiftChanges(changesPayload);
+}
 function renderGiftChanges(payload){
   const target=$("gift-changes");
   if(!target)return;
@@ -153,11 +167,9 @@ async function load(){
     nftMarketVisibility={portals:true,tonnel:true,mrkt:false,...(status.marketplace_visibility||{})};
     nftApplyMarketVisibility();
 
-    const [collectionsResult,giftsResult,changesResult,dailyFloorsResult]=await Promise.allSettled([
+    const [collectionsResult,giftsResult]=await Promise.allSettled([
       fetch(window.API_BASE+"/api/collections",{cache:"no-store"}),
-      fetch(window.API_BASE+"/api/gifts?limit=24&offset=0",{cache:"no-store"}),
-      fetch(window.API_BASE+"/api/reference/gift-changes?limit=25",{cache:"no-store"}),
-      fetch(window.API_BASE+"/api/reference/daily-floors",{cache:"no-store"})
+      fetch(window.API_BASE+"/api/gifts?limit=24&offset=0",{cache:"no-store"})
     ]);
     let collectionsData={items:[],updated_at:null};
     if(collectionsResult.status==="fulfilled"&&collectionsResult.value.ok){
@@ -171,16 +183,9 @@ async function load(){
       giftsData=await giftsResult.value.json();
       sourceStates={...sourceStates,...(giftsData.sources||{})};
     }
-    let changesPayload=null;
-    if(changesResult.status==="fulfilled"&&changesResult.value.ok){
-      changesPayload=await changesResult.value.json();
-      sourceStates.gift_changes="public_read_only";
-    }else sourceStates.gift_changes="temporarily_unavailable";
-    if(dailyFloorsResult.status==="fulfilled"&&dailyFloorsResult.value.ok)sourceStates.tg_gifts_daily="public_daily_read_only";
-    else sourceStates.tg_gifts_daily="temporarily_unavailable";
     $("api-status").textContent=t.online;
     $("sources").innerHTML=sourceLabel(t.portals,sourceStates.portals,"portals","P")+sourceLabel(t.tonnel,sourceStates.tonnel,"tonnel","T")+sourceLabel(t.mrkt,sourceStates.mrkt,"mrkt","M")+sourceLabel(lang==="ru"?"Метаданные подарков":"Gift metadata",sourceStates.gift_changes,"changes","✦")+sourceLabel(lang==="ru"?"История флоров":"Daily floor archive",sourceStates.tg_gifts_daily,"daily","D");
-    renderGiftChanges(changesPayload);
+    loadReferenceFeeds();
     collectionItems=Array.isArray(collectionsData.items)?collectionsData.items:[];
     $("collections-count").textContent=collectionItems.length;
     $("updated").textContent=t.updated+": "+formatTime(collectionsData.updated_at);
