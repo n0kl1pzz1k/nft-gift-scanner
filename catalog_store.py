@@ -45,6 +45,7 @@ def upsert_catalogue_items(items: list[dict[str, Any]]) -> int:
     """Persist validated-by-source catalogue metadata returned by Portals."""
     _ensure_table()
     now = int(time.time())
+    observed_at = time.time()
     saved = 0
     with _db() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -64,7 +65,7 @@ def upsert_catalogue_items(items: list[dict[str, Any]]) -> int:
             conn.execute(
                 """INSERT OR IGNORE INTO catalogue_gift_snapshots(gift_id, fingerprint, gift_json, observed_at)
                    VALUES (?, ?, ?, ?)""",
-                (gift_id, fingerprint, encoded, now),
+                (gift_id, fingerprint, encoded, observed_at),
             )
             conn.execute(
                 """DELETE FROM catalogue_gift_snapshots
