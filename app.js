@@ -367,9 +367,7 @@ function setupMotionAndViewport(){
   const updateProgress=()=>{if(!progress)return;const max=document.documentElement.scrollHeight-window.innerHeight;progress.style.width=(max>0?Math.min(100,window.scrollY/max*100):0)+"%";ticking=false;};
   window.addEventListener("scroll",()=>{if(!ticking){ticking=true;window.requestAnimationFrame(updateProgress);}},{passive:true});
   updateProgress();
-  // Prevent accidental pinch zoom inside the mini app as requested.
-  document.addEventListener("gesturestart",event=>event.preventDefault(),{passive:false});
-  document.addEventListener("touchmove",event=>{if(event.touches&&event.touches.length>1)event.preventDefault();},{passive:false});
+  // Keep native browser zoom available for accessibility; avoid blocking touch gestures.
 }
 
 setupMotionAndViewport();
