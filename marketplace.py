@@ -5,8 +5,10 @@ No wallet, payment, blockchain or transfer operations are performed.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import secrets
 import sqlite3
 import time
 import uuid
@@ -56,6 +58,15 @@ def init_marketplace_db() -> None:
             updated_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_telegram_users_updated ON telegram_users(updated_at DESC);
+        CREATE TABLE IF NOT EXISTS telegram_sessions (
+            token_hash TEXT PRIMARY KEY,
+            telegram_id TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL,
+            revoked_at INTEGER,
+            FOREIGN KEY(telegram_id) REFERENCES telegram_users(telegram_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_telegram_sessions_user ON telegram_sessions(telegram_id, expires_at DESC);
         CREATE TABLE IF NOT EXISTS user_favorites (
             telegram_id TEXT NOT NULL,
             gift_id TEXT NOT NULL,
@@ -175,6 +186,64 @@ def upsert_telegram_user(user: dict[str, Any]) -> dict[str, Any]:
         conn.execute("INSERT INTO telegram_users (telegram_id, username, first_name, last_name, photo_url, language_code, is_premium, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(telegram_id) DO UPDATE SET username=excluded.username, first_name=excluded.first_name, last_name=excluded.last_name, photo_url=excluded.photo_url, language_code=excluded.language_code, is_premium=excluded.is_premium, updated_at=excluded.updated_at", values)
         row = conn.execute("SELECT * FROM telegram_users WHERE telegram_id = ?", (telegram_id,)).fetchone()
     return {"id": row["telegram_id"], "username": row["username"], "first_name": row["first_name"], "last_name": row["last_name"], "photo_url": row["photo_url"], "language_code": row["language_code"], "is_premium": bool(row["is_premium"]), "created_at": row["created_at"], "updated_at": row["updated_at"]}
+
+
+def create_telegram_session(telegram_id: str, ttl_seconds: int = 43200) -> str:
+    """Create an opaque bearer session; only its SHA-256 digest is stored."""
+    safe_id = str(telegram_id).strip()
+    if not safe_id.isdigit():
+        raise ValueError("A verified Telegram user ID is required")
+    now = int(time.time())
+    ttl = max(300, min(int(ttl_seconds), 43200))
+    token = "grs_" + secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    with _db() as conn:
+        conn.execute(
+            "INSERT INTO telegram_sessions(token_hash, telegram_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (token_hash, safe_id, now, now + ttl),
+        )
+    return token
+
+
+def get_telegram_session_user(token: str) -> dict[str, Any] | None:
+    """Resolve an unexpired session without ever storing or logging its bearer token."""
+    if not isinstance(token, str) or not token.startswith("grs_") or len(token) > 128:
+        return None
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    now = int(time.time())
+    with _db() as conn:
+        row = conn.execute(
+            """SELECT u.telegram_id, u.username, u.first_name, u.last_name,
+                      u.photo_url, u.language_code, u.is_premium
+               FROM telegram_sessions s
+               JOIN telegram_users u ON u.telegram_id = s.telegram_id
+               WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > ?""",
+            (token_hash, now),
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row["telegram_id"],
+        "username": row["username"],
+        "first_name": row["first_name"],
+        "last_name": row["last_name"],
+        "photo_url": row["photo_url"],
+        "language_code": row["language_code"],
+        "is_premium": bool(row["is_premium"]),
+    }
+
+
+def revoke_telegram_session(token: str) -> bool:
+    if not isinstance(token, str) or not token.startswith("grs_") or len(token) > 128:
+        return False
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    with _db() as conn:
+        cursor = conn.execute(
+            "UPDATE telegram_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL",
+            (int(time.time()), token_hash),
+        )
+    return cursor.rowcount == 1
+
 
 def _user(init_data: str | None, verify: Callable[[str], dict]) -> dict:
     if not init_data:
