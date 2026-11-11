@@ -82,6 +82,7 @@
   let telegramUsername = $state('');
   let telegramPremium = $state(false);
   let signedIn = $state(false);
+  let authToken = $state('');
   let isAdmin = $state(false);
   let adminMarketplaceEnabled = $state(true);
   let adminBusy = $state(false);
@@ -192,9 +193,8 @@
   }
 
   const authHeaders = (): Record<string, string> => {
-    const initData = window.Telegram?.WebApp?.initData || '';
     const headers: Record<string, string> = {};
-    if (initData) headers['X-Telegram-Init-Data'] = initData;
+    if (authToken) headers['X-Telegram-Init-Data'] = authToken;
     return headers;
   };
 
@@ -695,6 +695,7 @@
     // Fail closed while refreshing the signed Telegram session.
     isAdmin = false;
     signedIn = false;
+    authToken = '';
     try {
       const response = await fetch(API + '/api/auth/telegram', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -702,6 +703,8 @@
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Authentication failed');
+      if (typeof data.session_token !== 'string' || !data.session_token.startsWith('grs_')) throw new Error('Server did not issue a valid session');
+      authToken = data.session_token;
       telegramUser = data.user?.first_name || 'Telegram user';
       telegramPhoto = data.user?.photo_url || '';
       telegramUsername = data.user?.username ? '@' + data.user.username : '';
@@ -715,6 +718,7 @@
     } catch (e) {
       isAdmin = false;
       signedIn = false;
+      authToken = '';
       telegramUser = '';
       telegramPhoto = '';
       telegramUsername = '';
