@@ -9,6 +9,7 @@ import os
 import sqlite3
 import time
 import uuid
+from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Callable, Literal, Any
@@ -29,8 +30,17 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+@contextmanager
+def _db():
+    conn = _connect()
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 def init_marketplace_db() -> None:
-    with _connect() as conn:
+    with _db() as conn:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS demo_orders (
@@ -133,7 +143,7 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
             clauses.append("kind = ?")
             values.append(kind)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-        with _connect() as conn:
+        with _db() as conn:
             rows = conn.execute(
                 f"SELECT * FROM demo_orders{where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
                 (*values, limit, offset),
