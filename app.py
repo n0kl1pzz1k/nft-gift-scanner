@@ -148,8 +148,6 @@ async def admin_set_marketplace(
     _require_admin(x_telegram_init_data)
     if market not in _marketplace_visibility:
         raise HTTPException(status_code=404, detail="Unknown marketplace")
-    if market == "mrkt" and payload.enabled:
-        raise HTTPException(status_code=409, detail="MRKT has no verified public read-only feed enabled")
     _marketplace_visibility[market] = bool(payload.enabled)
     return {"market": market, "enabled": _marketplace_visibility[market]}
 
