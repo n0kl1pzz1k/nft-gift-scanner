@@ -195,9 +195,9 @@
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
-  async function telegramLogin() {
+  async function telegramLogin(showNotice = true) {
     const initData = window.Telegram?.WebApp?.initData || '';
-    if (!initData) { notice = t.authHint; return; }
+    if (!initData) { if (showNotice) notice = t.authHint; return; }
     try {
       const response = await fetch(API + '/api/auth/telegram', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -208,9 +208,9 @@
       telegramUser = data.user?.first_name || 'Telegram user';
       telegramPhoto = data.user?.photo_url || '';
       signedIn = true;
-      notice = t.signed;
+      if (showNotice) notice = t.signed;
     } catch (e) {
-      notice = e instanceof Error ? e.message : String(e);
+      if (showNotice) notice = e instanceof Error ? e.message : String(e);
     }
   }
 
@@ -230,6 +230,7 @@
     } catch {}
     void loadCatalogue();
     void loadMarketplace();
+    if (window.Telegram?.WebApp?.initData) void telegramLogin(false);
   });
 </script>
 
