@@ -63,3 +63,7 @@ Catalogue and provider integrations are read-only. The separate order-book inter
 - The webhook inbox is transport-level idempotency, not a payment ledger. Telegram Stars invoices, pre-checkout approval, successful-payment fulfillment, refunds and real settlement remain **disabled**. Never mark an order paid from a client callback, screenshot, browser request or unverified webhook.
 - If Telegram Stars is approved for a future release, the server must create invoices from server-owned order/price data in `XTR`, validate `pre_checkout_query` (user, payload, amount, currency, expiry and order state), and treat only Telegram's authenticated `successful_payment` update as payment evidence. Persist charge IDs and a unique transaction record inside one database transaction; make duplicate updates and charge IDs harmless. Do not enable fulfilment until that separate implementation has passed review and tests.
 - GIFT RADAR does not request, store or operate users' seed phrases, private keys, wallet passwords, exchange API keys or account API tokens. It cannot debit, credit or otherwise mutate user balances. Current orders and deal states remain simulation-only.
+
+## Full marketplace architecture
+
+The end-to-end product design, 13 security/domain areas, logical data model, API surface, payment boundaries, launch gates and implementation roadmap are documented in [docs/FULL_MARKETPLACE_ARCHITECTURE.md](docs/FULL_MARKETPLACE_ARCHITECTURE.md). This is the target blueprint; see its implementation-status section for what is already deployed versus still planned.
