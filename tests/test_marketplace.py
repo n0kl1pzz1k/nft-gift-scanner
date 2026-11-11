@@ -50,6 +50,15 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(row["username"], "updated_handle")
         self.assertEqual(row["is_premium"], 1)
 
+    def test_telegram_auth_reports_server_verified_admin_role(self):
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
+            admin = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
+            regular = self.client.post("/api/auth/telegram", json={"init_data": "user-b"})
+        self.assertEqual(admin.status_code, 200)
+        self.assertTrue(admin.json()["is_admin"])
+        self.assertEqual(regular.status_code, 200)
+        self.assertFalse(regular.json()["is_admin"])
+
     def test_favorites_are_private_persistent_and_removable(self):
         headers_a = {"X-Telegram-Init-Data": "user-a"}
         headers_b = {"X-Telegram-Init-Data": "user-b"}
@@ -88,6 +97,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             overview = self.client.get("/api/admin/overview", headers=headers)
             self.assertEqual(overview.status_code, 200)
             self.assertFalse(overview.json()["marketplace_visibility"]["portals"])
+            self.assertEqual(overview.json()["settings_persistence"], "persistent_sqlite")
             enabled = self.client.post(
                 "/api/admin/marketplaces/portals",
                 headers=headers,
