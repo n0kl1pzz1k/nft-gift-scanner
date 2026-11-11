@@ -20,6 +20,7 @@
   type AccountNotification = { id:string; type:'offer_received'|'offer_accepted'|'offer_declined'|'offer_withdrawn'; offer_id:string; order_id:string; order_title:string; actor_name:string; created_at:number; read_at:number|null };
   type AccountStats = { active_orders:number; completed_orders:number; pending_offers_sent:number; pending_offers_received:number; simulated_deals:number; unread_notifications:number };
   type AccountActivity = { id:string; type:string; order_id:string; title:string; actor_name:string; created_at:number; amount:string; currency:'TON'|'XTR'; simulation_only:boolean };
+  type OrderReport = { id:string; order_id:string; reporter_name:string; reason:'scam'|'misleading'|'inappropriate'|'spam'|'other'; details:string; status:'open'|'dismissed'|'removed'; created_at:number; order_title:string; order_status:string; order_owner:string };
   type MarketplaceStats = {
     active_listings: number; active_buy_requests: number; matched_orders: number;
     volume_ton: number; volume_stars: number; total_orders: number;
@@ -95,6 +96,13 @@
   let editPrice = $state('');
   let editNote = $state('');
   let orderEditBusy = $state(false);
+  let reportingOrderId = $state('');
+  let reportReason = $state<OrderReport['reason']>('other');
+  let reportDetails = $state('');
+  let reportBusy = $state(false);
+  let adminReports = $state<OrderReport[]>([]);
+  let adminReportsBusy = $state(false);
+  let adminReportActionBusy = $state('');
   let collectionFilter = $state('all');
   let statusFilter = $state('listed');
   let sortBy = $state('listed_at desc');
@@ -112,6 +120,7 @@
     createTitle: 'Создать объявление', sell: 'Предложение', buy: 'Заявка на поиск', titleLabel: 'Название подарка',
     priceLabel: 'Цена (демо)', noteLabel: 'Комментарий', publish: 'Создать демо-объявление',
     createHint: 'Общие тестовые заявки видны всем пользователям GIFT RADAR. Реальные сделки и платежи не выполняются.',
+    reportOrder: 'Пожаловаться', reportReason: 'Причина жалобы', reportDetails: 'Подробности', sendReport: 'Отправить жалобу', cancelReport: 'Отмена', reportSent: 'Жалоба отправлена на проверку.', reportScam: 'Мошенничество', reportMisleading: 'Вводящее в заблуждение объявление', reportInappropriate: 'Недопустимый контент', reportSpam: 'Спам', reportOther: 'Другое', adminReports: 'Жалобы на объявления', noAdminReports: 'Открытых жалоб нет.', dismissReport: 'Отклонить', removeReportedOrder: 'Снять объявление', reportResolved: 'Решение по жалобе сохранено.',
     ordersTitle: 'Ордера маркетплейса', noOrders: 'Пока нет активных предложений или заявок.',
     offersTitle: 'Офферы', dealsTitle: 'Демо-сделки', sendOffer: 'Отправить оффер', offerAmount: 'Сумма оффера', acceptOffer: 'Принять', declineOffer: 'Отклонить', withdrawOffer: 'Отозвать', noOffers: 'Офферов пока нет.', noDeals: 'Демо-сделок пока нет.', incoming: 'Входящий', outgoing: 'Исходящий', offerStatusFilter: 'Статус оффера', offerPending: 'Ожидает ответа', offerAccepted: 'Принят', offerDeclined: 'Отклонён', offerWithdrawn: 'Отозван',
     accountStatsTitle: 'Статистика аккаунта', activeOrdersStat: 'Активные заявки', completedOrdersStat: 'Завершённые', sentOffersStat: 'Мои офферы', receivedOffersStat: 'Входящие офферы', notificationsTitle: 'Уведомления', markAllRead: 'Прочитать все', noNotifications: 'Новых уведомлений нет.', offerReceivedNotice: 'отправил(а) оффер', offerAcceptedNotice: 'принят оффер по', offerDeclinedNotice: 'отклонил(а) оффер по', offerWithdrawnNotice: 'отозвал(а) оффер по', activityTitle: 'История активности', noActivity: 'Активность пока не появилась.', loadMoreActivity: 'Показать ещё', orderCreatedActivity: 'Создана заявка', orderUpdatedActivity: 'Заявка изменена', orderFilledActivity: 'Заявка отмечена как исполненная (демо)', orderCancelledActivity: 'Заявка снята', offerReceivedActivity: 'Получен оффер', offerAcceptedActivity: 'Оффер принят', offerDeclinedActivity: 'Оффер отклонён', offerWithdrawnActivity: 'Оффер отозван', dealCreatedActivity: 'Создана демо-сделка',
@@ -134,6 +143,7 @@
     createTitle: 'Create an order', sell: 'Sell listing', buy: 'Buy request', titleLabel: 'Gift name',
     priceLabel: 'Demo price', noteLabel: 'Note', publish: 'Create demo order',
     createHint: 'Shared demo orders are visible to GIFT RADAR users. No real trades or payments take place.',
+    reportOrder: 'Report', reportReason: 'Report reason', reportDetails: 'Details', sendReport: 'Submit report', cancelReport: 'Cancel', reportSent: 'Report submitted for review.', reportScam: 'Scam', reportMisleading: 'Misleading listing', reportInappropriate: 'Inappropriate content', reportSpam: 'Spam', reportOther: 'Other', adminReports: 'Listing reports', noAdminReports: 'No open reports.', dismissReport: 'Dismiss', removeReportedOrder: 'Remove listing', reportResolved: 'Report action saved.',
     ordersTitle: 'Marketplace orders', noOrders: 'No active listings or requests yet.',
     offersTitle: 'Offers', dealsTitle: 'Demo deals', sendOffer: 'Send offer', offerAmount: 'Offer amount', acceptOffer: 'Accept', declineOffer: 'Decline', withdrawOffer: 'Withdraw', noOffers: 'No offers yet.', noDeals: 'No demo deals yet.', incoming: 'Incoming', outgoing: 'Outgoing', offerStatusFilter: 'Offer status', offerPending: 'Awaiting response', offerAccepted: 'Accepted', offerDeclined: 'Declined', offerWithdrawn: 'Withdrawn',
     accountStatsTitle: 'Account stats', activeOrdersStat: 'Active orders', completedOrdersStat: 'Completed', sentOffersStat: 'Offers sent', receivedOffersStat: 'Offers received', notificationsTitle: 'Notifications', markAllRead: 'Mark all read', noNotifications: 'No notifications yet.', offerReceivedNotice: 'sent you an offer for', offerAcceptedNotice: 'accepted your offer for', offerDeclinedNotice: 'declined your offer for', offerWithdrawnNotice: 'withdrew an offer for', activityTitle: 'Activity history', noActivity: 'No activity yet.', loadMoreActivity: 'Load more', orderCreatedActivity: 'Order created', orderUpdatedActivity: 'Order updated', orderFilledActivity: 'Order marked as filled (demo)', orderCancelledActivity: 'Order cancelled', offerReceivedActivity: 'Offer received', offerAcceptedActivity: 'Offer accepted', offerDeclinedActivity: 'Offer declined', offerWithdrawnActivity: 'Offer withdrawn', dealCreatedActivity: 'Demo deal created',
@@ -159,6 +169,11 @@
   const demoVolumeTon = $derived(marketplaceStats.volume_ton);
   const demoVolumeStars = $derived(marketplaceStats.volume_stars);
   const fmt = (value: unknown, currency = '') => value === null || value === undefined || value === '' ? '—' : String(value) + (currency ? ' ' + currency : '');
+
+  function reportReasonLabel(reason: OrderReport['reason']) {
+    const labels = {scam:t.reportScam,misleading:t.reportMisleading,inappropriate:t.reportInappropriate,spam:t.reportSpam,other:t.reportOther};
+    return labels[reason] || reason;
+  }
 
   function offerStatusLabel(status: DemoOffer['status']) {
     return status === 'pending' ? t.offerPending : status === 'accepted' ? t.offerAccepted : status === 'declined' ? t.offerDeclined : t.offerWithdrawn;
@@ -588,10 +603,64 @@
     try {
       const data = await request('/api/admin/overview');
       adminMarketplaceEnabled = data.marketplace_visibility?.portals !== false;
+      await loadAdminReports();
     } catch (e) {
       // Do not render privileged controls if the protected overview cannot be loaded.
       isAdmin = false;
       notice = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function loadAdminReports() {
+    if (!isAdmin || adminReportsBusy) return;
+    adminReportsBusy = true;
+    try {
+      const data = await request('/api/marketplace/admin/reports?status=open&limit=50');
+      adminReports = Array.isArray(data.items) ? data.items as OrderReport[] : [];
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      adminReportsBusy = false;
+    }
+  }
+
+  async function moderateOrderReport(id: string, action: 'dismiss'|'remove_order') {
+    if (!isAdmin || adminReportActionBusy) return;
+    adminReportActionBusy = id;
+    try {
+      await request('/api/marketplace/admin/reports/' + encodeURIComponent(id), undefined, {
+        method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action}),
+      });
+      adminReports = adminReports.filter(report => report.id !== id);
+      notice = t.reportResolved;
+      if (action === 'remove_order') await loadMarketplace();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      adminReportActionBusy = '';
+    }
+  }
+
+  function startOrderReport(orderId: string) {
+    reportingOrderId = orderId;
+    reportReason = 'other';
+    reportDetails = '';
+  }
+
+  async function submitOrderReport(orderId: string) {
+    if (reportBusy) return;
+    reportBusy = true;
+    try {
+      await request('/api/marketplace/orders/' + encodeURIComponent(orderId) + '/reports', undefined, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({reason:reportReason,details:reportDetails.trim()}),
+      });
+      reportingOrderId = '';
+      reportDetails = '';
+      notice = t.reportSent;
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      reportBusy = false;
     }
   }
 
@@ -801,7 +870,7 @@
                       <label>{t.editNote}<textarea class="form-input note-input" bind:value={editNote} maxlength="300"></textarea></label>
                       <div class="order-actions"><button class="match-button" onclick={()=>saveOrderEdit(order.id)} disabled={orderEditBusy}>{orderEditBusy?'…':t.saveOrder}</button><button class="cancel-button" onclick={()=>editingOrderId=''} disabled={orderEditBusy}>{t.cancelEdit}</button></div>
                     </div>
-                  {/if}{:else if order.status==='active' && signedIn}<div class="order-actions"><input class="form-input" type="number" min="0.01" step="0.01" bind:value={offerAmount} placeholder={t.offerAmount}/><button class="match-button" onclick={()=>createOffer(order.id)}>{t.sendOffer}</button></div>{/if}</article>{/each}</div>{#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}{/if}
+                  {/if}{:else if order.status==='active' && signedIn}<div class="order-actions"><input class="form-input" type="number" min="0.01" step="0.01" bind:value={offerAmount} placeholder={t.offerAmount}/><button class="match-button" onclick={()=>createOffer(order.id)}>{t.sendOffer}</button><button class="cancel-button" onclick={()=>startOrderReport(order.id)}>{t.reportOrder}</button></div>{#if reportingOrderId===order.id}<div class="order-edit-form"><label>{t.reportReason}<select class="form-input" bind:value={reportReason}><option value="scam">{t.reportScam}</option><option value="misleading">{t.reportMisleading}</option><option value="inappropriate">{t.reportInappropriate}</option><option value="spam">{t.reportSpam}</option><option value="other">{t.reportOther}</option></select></label><label>{t.reportDetails}<textarea class="form-input note-input" bind:value={reportDetails} maxlength="500"></textarea></label><div class="order-actions"><button class="match-button" onclick={()=>submitOrderReport(order.id)} disabled={reportBusy}>{reportBusy?'…':t.sendReport}</button><button class="cancel-button" onclick={()=>reportingOrderId=''} disabled={reportBusy}>{t.cancelReport}</button></div></div>{/if}{/if}</article>{/each}</div>{#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}{/if}
       <section class="market-section account-offers">
         <div class="section-title"><div><div class="eyebrow">ACCOUNT ACTIVITY</div><h2>{t.offersTitle}</h2></div><button class="refresh-button" onclick={()=>loadOffersAndDeals()} disabled={offersBusy}>↻ {t.refresh}</button></div>
         <label class="offer-filter-label">{t.offerStatusFilter}<select class="filter-input" value={offerStatusFilter} onchange={changeOfferStatus}><option value="all">{t.all}</option><option value="pending">{t.offerPending}</option><option value="accepted">{t.offerAccepted}</option><option value="declined">{t.offerDeclined}</option><option value="withdrawn">{t.offerWithdrawn}</option></select></label>
@@ -874,7 +943,7 @@
           {#if notifications.length < notificationTotal}<button class="refresh-button activity-more" onclick={loadMoreNotifications} disabled={notificationsLoadingMore}>{notificationsLoadingMore?'…':t.loadMoreActivity}</button>{/if}
         {:else}<div class="state-panel">{t.noNotifications}</div>{/if}
       </article>
-      <article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>Wallet connection disabled</strong><small>Demo profile · no assets stored</small></div><b>DEMO</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>Portals catalogue · TON / Stars demo labels · RU / EN</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article>{#if isAdmin}<article class="profile-card"><div class="eyebrow">ADMINISTRATION</div><h2>{lang==='ru'?'Управление каталогом':'Catalogue controls'}</h2><p>{lang==='ru'?'Доступ подтверждён сервером Telegram. Здесь можно только включать или отключать отображение каталога Portals.':'Access verified by the server through Telegram. You can only enable or disable the Portals catalogue visibility here.'}</p><div class="wallet-placeholder"><span>◈</span><div><strong>{lang==='ru'?'Каталог Portals':'Portals catalogue'}</strong><small>{adminMarketplaceEnabled?(lang==='ru'?'Включён':'Enabled'):(lang==='ru'?'Отключён':'Disabled')}</small></div><b>ADMIN</b></div><button class="publish-button" onclick={toggleAdminMarketplace} disabled={adminBusy}>{adminBusy?'…':(adminMarketplaceEnabled?(lang==='ru'?'Отключить каталог':'Disable catalogue'):(lang==='ru'?'Включить каталог':'Enable catalogue'))}</button></article>{/if}</section>
+      <article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>Wallet connection disabled</strong><small>Demo profile · no assets stored</small></div><b>DEMO</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>Portals catalogue · TON / Stars demo labels · RU / EN</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article>{#if isAdmin}<article class="profile-card"><div class="eyebrow">ADMINISTRATION</div><h2>{lang==='ru'?'Управление каталогом':'Catalogue controls'}</h2><p>{lang==='ru'?'Доступ подтверждён сервером Telegram. Здесь можно только включать или отключать отображение каталога Portals.':'Access verified by the server through Telegram. You can only enable or disable the Portals catalogue visibility here.'}</p><div class="wallet-placeholder"><span>◈</span><div><strong>{lang==='ru'?'Каталог Portals':'Portals catalogue'}</strong><small>{adminMarketplaceEnabled?(lang==='ru'?'Включён':'Enabled'):(lang==='ru'?'Отключён':'Disabled')}</small></div><b>ADMIN</b></div><button class="publish-button" onclick={toggleAdminMarketplace} disabled={adminBusy}>{adminBusy?'…':(adminMarketplaceEnabled?(lang==='ru'?'Отключить каталог':'Disable catalogue'):(lang==='ru'?'Включить каталог':'Enable catalogue'))}</button></article><article class="profile-card"><div class="notification-heading"><div><div class="eyebrow">MODERATION</div><h2>{t.adminReports}</h2></div><button class="refresh-button" onclick={loadAdminReports} disabled={adminReportsBusy}>{adminReportsBusy?'…':t.refresh}</button></div>{#if adminReportsBusy}<div class="state-panel">{t.loading}</div>{:else if adminReports.length===0}<div class="state-panel">{t.noAdminReports}</div>{:else}<div class="orders-list">{#each adminReports as report (report.id)}<article class="order-card"><div class="order-main"><div class="order-kind">{report.order_title} · {report.order_owner}</div><h3>{reportReasonLabel(report.reason)}</h3><p>{report.reporter_name} · {new Date(report.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p>{#if report.details}<p>{report.details}</p>{/if}</div><div class="order-actions"><button class="match-button" onclick={()=>moderateOrderReport(report.id,'dismiss')} disabled={adminReportActionBusy===report.id}>{t.dismissReport}</button><button class="cancel-button" onclick={()=>moderateOrderReport(report.id,'remove_order')} disabled={adminReportActionBusy===report.id}>{t.removeReportedOrder}</button></div></article>{/each}</div>{/if}</article>{/if}</section>
     {/if}
 
     {#if notice}<div class="toast" role="status">{notice}<button onclick={()=>notice=''}>×</button></div>{/if}
