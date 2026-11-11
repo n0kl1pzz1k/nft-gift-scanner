@@ -6,14 +6,24 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, WebAppInfo, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import (
+    Message,
+    WebAppInfo,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
 from dotenv import load_dotenv
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
-APP_URL = os.getenv("PUBLIC_APP_URL", "")
+APP_URL = os.getenv("PUBLIC_APP_URL", "").strip()
+WELCOME_IMAGE_URL = os.getenv(
+    "WELCOME_IMAGE_URL",
+    "https://nft-gift-scanner.pages.dev/welcome.jpg",
+).strip()
 API_BASE = os.getenv("API_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
 ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID", "").strip()
+CHANNEL_URL = "https://t.me/nopzw"
 
 
 def is_admin(message: Message) -> bool:
@@ -30,21 +40,47 @@ async def main():
     @dp.message(Command("myid"))
     async def my_id(message: Message):
         if message.from_user:
-            await message.answer(f"Твой Telegram ID: <code>{message.from_user.id}</code>\nЭто твой собственный ID. Не отправляй токены и пароли.")
-    
+            await message.answer(
+                f"Твой Telegram ID: <code>{message.from_user.id}</code>\n"
+                "Это твой собственный ID. Не отправляй токены и пароли."
+            )
+
     @dp.message(CommandStart())
     async def start(message: Message):
+        text = (
+            "👋 <b>Ты попал на GIFT RADAR!</b>\n\n"
+            "Здесь собраны данные о Telegram NFT-подарках из разных маркетплейсов. "
+            "Изучай коллекции, просматривай доступные подарки, сравнивай характеристики "
+            "и находи интересные экземпляры.\n\n"
+            "Твой радар подарков уже готов — запускай! 🚀"
+        )
+
+        buttons = [[
+            InlineKeyboardButton(text="📢 Мой Telegram", url=CHANNEL_URL),
+        ]]
         if APP_URL.startswith("https://"):
-            keyboard = ReplyKeyboardMarkup(
-                keyboard=[[KeyboardButton(text="Open Gift Scanner", web_app=WebAppInfo(url=APP_URL))]],
-                resize_keyboard=True
-            )
-            await message.answer(
-                "NFT Gift Scanner is ready. The scanner shows public marketplace information.",
-                reply_markup=keyboard
-            )
-        else:
-            await message.answer("Bot is running. Configure PUBLIC_APP_URL to enable the Mini App.")
+            buttons.append([
+                InlineKeyboardButton(
+                    text="🚀 Открыть GIFT RADAR",
+                    web_app=WebAppInfo(url=APP_URL),
+                )
+            ])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+        if WELCOME_IMAGE_URL.startswith("https://"):
+            try:
+                await message.answer_photo(
+                    photo=WELCOME_IMAGE_URL,
+                    caption=text,
+                    reply_markup=keyboard,
+                )
+                return
+            except Exception:
+                # Keep the welcome flow available if the image URL is not deployed yet.
+                pass
+
+        await message.answer(text, reply_markup=keyboard)
 
     @dp.message(Command("admin"))
     async def admin_panel(message: Message):
@@ -54,7 +90,7 @@ async def main():
         portals = "настроен" if os.getenv("PORTALS_API_KEY", "").strip() else "не настроен"
         app = "настроен" if APP_URL.startswith("https://") else "не настроен"
         await message.answer(
-            "🔐 <b>NFT Gift Scanner — админ-панель</b>\n\n"
+            "🔐 <b>GIFT RADAR — админ-панель</b>\n\n"
             f"Mini App: {app}\n"
             f"Portals: {portals}\n"
             "Tonnel: официальный read-only API не подтверждён\n"
@@ -82,7 +118,7 @@ async def main():
             tonnel = sources.get("tonnel", "unknown")
             mrkt = sources.get("mrkt", "unknown")
             await message.answer(
-                "📊 <b>Статус NFT Gift Scanner</b>\n\n"
+                "📊 <b>Статус GIFT RADAR</b>\n\n"
                 "Backend: 🟢 онлайн\n"
                 f"Portals: <code>{portals}</code>\n"
                 f"Tonnel: <code>{tonnel}</code>\n"
@@ -90,7 +126,10 @@ async def main():
                 "Режим: <code>read_only</code>"
             )
         except Exception:
-            await message.answer("🔴 Backend недоступен или не ответил вовремя. Проверь Railway Deployments и Logs.")
+            await message.answer(
+                "🔴 Backend недоступен или не ответил вовремя. "
+                "Проверь Railway Deployments и Logs."
+            )
 
     await dp.start_polling(bot)
 
