@@ -1088,10 +1088,9 @@ class TelegramInitDataValidationTests(unittest.TestCase):
     def test_failed_telegram_webhook_update_can_be_retried(self):
         payload = {"update_id": 778, "message": {"text": "/start"}}
         self.assertEqual(marketplace.claim_telegram_update(778, payload), "claimed")
+        marketplace.release_telegram_update(778)
+        self.assertEqual(marketplace.claim_telegram_update(778, payload), "claimed")
 
 
 if __name__ == "__main__":
     unittest.main()
-        marketplace.release_telegram_update(778)
-        self.assertEqual(marketplace.claim_telegram_update(778, payload), "claimed")
-
