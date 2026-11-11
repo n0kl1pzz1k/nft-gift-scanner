@@ -9,6 +9,7 @@
     currency?: string; source?: string; status?: string;
     attributes?: { type?: string; name?: string; value?: string }[];
   };
+  type Collection = { id?: string | number; name?: string; short_name?: string; image?: string };
   type DemoOrder = {
     id: string; kind: 'listing' | 'buy-order'; title: string;
     price: string | number; currency: 'TON' | 'XTR'; status: 'active' | 'matched' | 'cancelled';
@@ -24,6 +25,7 @@
   let lang = $state<'ru' | 'en'>('ru');
   let view = $state<View>('market');
   let gifts = $state<Gift[]>([]);
+  let collections = $state<Collection[]>([]);
   let favorites = $state<string[]>([]);
   let favoriteItems = $state<Gift[]>([]);
   let orders = $state<DemoOrder[]>([]);
@@ -49,6 +51,8 @@
   let createCurrency = $state<'TON' | 'XTR'>('TON');
   let createNote = $state('');
   let collectionFilter = $state('all');
+  let statusFilter = $state('listed');
+  let sortBy = $state('listed_at desc');
 
   const ru = {
     market: 'Маркет', orders: 'Ордера', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль',
@@ -129,6 +133,15 @@
     }
   }
 
+  async function loadCollections() {
+    try {
+      const data = await request('/api/collections');
+      collections = Array.isArray(data.items) ? data.items : [];
+    } catch {
+      collections = [];
+    }
+  }
+
   async function loadCatalogue(append = false) {
     if (append) loadingMore = true; else { busy = true; error = ''; offset = 0; }
     try {
@@ -136,6 +149,9 @@
       const params = new URLSearchParams({ limit: '40', offset: String(nextOffset), search });
       if (minPrice) params.set('min_price', minPrice);
       if (maxPrice) params.set('max_price', maxPrice);
+      if (collectionFilter !== 'all') params.set('collection_id', collectionFilter);
+      if (statusFilter !== 'all') params.set('status', statusFilter);
+      if (sortBy) params.set('sort_by', sortBy);
       const data = await request('/api/gifts?' + params.toString());
       const items = Array.isArray(data.items) ? data.items : [];
       gifts = append ? [...gifts, ...items] : items;
@@ -260,6 +276,7 @@
       }
     } catch {}
     void loadCatalogue();
+    void loadCollections();
     void loadMarketplace();
     if (window.Telegram?.WebApp?.initData) void telegramLogin(false);
   });
