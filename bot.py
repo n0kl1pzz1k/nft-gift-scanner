@@ -15,14 +15,21 @@ from aiogram.types import (
 from dotenv import load_dotenv
 
 load_dotenv()
-TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = os.getenv("BOT_TOKEN", "").strip()
 APP_URL = os.getenv("PUBLIC_APP_URL", "").strip()
 WELCOME_IMAGE_URL = os.getenv(
     "WELCOME_IMAGE_URL",
     "https://nft-gift-scanner.pages.dev/welcome_640x360.jpg",
 ).strip()
-API_BASE = os.getenv("API_BASE_URL", f"http://127.0.0.1:{os.getenv('PORT', '8080')}").rstrip("/")
-ADMIN_TELEGRAM_IDS = {part.strip() for part in os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", "")).split(",") if part.strip().isdigit()}
+API_BASE = os.getenv(
+    "API_BASE_URL",
+    "https://nft-gift-scanner-production.up.railway.app",
+).rstrip("/")
+ADMIN_TELEGRAM_IDS = {
+    part.strip()
+    for part in os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", "")).split(",")
+    if part.strip().isdigit()
+}
 CHANNEL_URL = "https://t.me/nopzw"
 
 
@@ -31,10 +38,13 @@ def is_admin(message: Message) -> bool:
     return bool(user and str(user.id) in ADMIN_TELEGRAM_IDS)
 
 
-async def main():
+def create_bot() -> Bot:
     if not TOKEN:
-        raise RuntimeError("Set BOT_TOKEN in Railway Variables; never commit it.")
-    bot = Bot(TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+        raise RuntimeError("BOT_TOKEN is not configured")
+    return Bot(TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+
+
+def create_dispatcher() -> Dispatcher:
     dp = Dispatcher()
 
     @dp.message(Command("myid"))
@@ -57,16 +67,18 @@ async def main():
             "⭐ <b>Избранное</b> — сохраняй интересные экземпляры.\n"
             "👤 <b>Профиль</b> — настройки и история.\n\n"
             "В интерфейсе доступны обозначения TON и Telegram Stars. "
-            "Все заявки и объёмы сейчас демонстрационные: реальные платежи и операции с кошельками не выполняются.\n\n"
+            "Все заявки и объёмы демонстрационные: реальные платежи и операции с кошельками не выполняются.\n\n"
             "<b>Нажми кнопку ниже, чтобы открыть маркетплейс.</b> 🚀"
         )
-
-        buttons = [[
-            InlineKeyboardButton(text="🚀 Открыть GIFT RADAR", web_app=WebAppInfo(url=APP_URL))
-        ]] if APP_URL.startswith("https://") else []
-        buttons.append([
-            InlineKeyboardButton(text="📢 Telegram-канал", url=CHANNEL_URL),
-        ])
+        buttons = []
+        if APP_URL.startswith("https://"):
+            buttons.append([
+                InlineKeyboardButton(
+                    text="🚀 Открыть GIFT RADAR",
+                    web_app=WebAppInfo(url=APP_URL),
+                )
+            ])
+        buttons.append([InlineKeyboardButton(text="📢 Telegram-канал", url=CHANNEL_URL)])
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
         if WELCOME_IMAGE_URL.startswith("https://"):
@@ -78,9 +90,7 @@ async def main():
                 )
                 return
             except Exception:
-                # Keep the welcome flow available if the image URL is not deployed yet.
                 pass
-
         await message.answer(text, reply_markup=keyboard)
 
     @dp.message(Command("admin"))
@@ -89,15 +99,15 @@ async def main():
             await message.answer("Доступ запрещён.")
             return
         portals = "настроен" if os.getenv("PORTALS_API_KEY", "").strip() else "не настроен"
-        app = "настроен" if APP_URL.startswith("https://") else "не настроен"
+        app_ready = "настроен" if APP_URL.startswith("https://") else "не настроен"
         await message.answer(
             "🔐 <b>GIFT RADAR — админ-панель</b>\n\n"
-            f"Mini App: {app}\n"
+            f"Mini App: {app_ready}\n"
             f"Portals: {portals}\n"
             "<b>Команды:</b>\n"
             "/admin_status — проверить backend и источники\n"
             "/admin — открыть эту панель\n\n"
-            "Панель управляет только мониторингом. Торговых и кошельковых операций нет."
+            "Панель управляет мониторингом. Все заявки остаются демонстрационными."
         )
 
     @dp.message(Command("admin_status"))
@@ -109,16 +119,19 @@ async def main():
             async with httpx.AsyncClient(timeout=8.0) as client:
                 health_response = await client.get(f"{API_BASE}/health")
                 status_response = await client.get(f"{API_BASE}/api/status")
-            if not health_response.is_success or not status_response.is_success:
+                marketplace_response = await client.get(f"{API_BASE}/api/marketplace/stats")
+            if not health_response.is_success or not status_response.is_success or not marketplace_response.is_success:
                 raise RuntimeError("Backend returned an error")
             status_data = status_response.json()
             sources = status_data.get("sources", {})
             portals = sources.get("portals", "unknown")
+            stats = marketplace_response.json()
             await message.answer(
                 "📊 <b>Статус GIFT RADAR</b>\n\n"
                 "Backend: 🟢 онлайн\n"
                 f"Portals: <code>{portals}</code>\n"
-                "Режим: <code>read_only</code>"
+                f"Демо-ордера: <code>{stats.get('total_orders', 0)}</code>\n"
+                "Режим: <code>shared_demo</code>"
             )
         except Exception:
             await message.answer(
@@ -126,7 +139,17 @@ async def main():
                 "Проверь Railway Deployments и Logs."
             )
 
-    await dp.start_polling(bot)
+    return dp
+
+
+async def main():
+    """Optional local polling runner. Railway production uses the FastAPI webhook."""
+    bot = create_bot()
+    dp = create_dispatcher()
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await bot.session.close()
 
 
 if __name__ == "__main__":
