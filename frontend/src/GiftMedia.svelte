@@ -80,8 +80,8 @@
   }
 
   let { image, animationUrl, hasAnimation, alt = 'Telegram gift', className = 'gift-image' }: Props = $props();
-  let container: HTMLDivElement;
-  let video: HTMLVideoElement | undefined;
+  let container = $state<HTMLDivElement>();
+  let video = $state<HTMLVideoElement | undefined>();
   let visible = $state(false);
   let mode = $state<'image'|'lottie'|'video'>('image');
   let failed = $state(false);
@@ -108,7 +108,7 @@
       if (!animation) return;
       animation.destroy();
       animation = undefined;
-      if (container) container.replaceChildren();
+      container?.replaceChildren();
     };
 
     const stop = () => {
@@ -177,7 +177,6 @@
           // Render at the animation's authored frame rate. Subframe
           // interpolation burns CPU without inventing real source frames.
           animation.setSubframe(false);
-          animation.setQuality('medium');
         }
         if (visible && !disposed && version === startVersion) animation.play();
       } catch {
