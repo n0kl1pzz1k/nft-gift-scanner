@@ -267,6 +267,22 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
 
     @router.get("/history")
     async def history(x_telegram_init_data: str | None = Header(default=None)):
-        return await my_orders(x_telegram_init_data)
+        user = _user(x_telegram_init_data, verify_telegram_init_data)
+        user_id = str(user["id"])
+        with _db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM demo_orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 200",
+                (user_id,),
+            ).fetchall()
+            result = []
+            for row in rows:
+                events = conn.execute(
+                    "SELECT event_type, created_at FROM demo_order_events WHERE order_id = ? ORDER BY created_at ASC, id ASC",
+                    (row["id"],),
+                ).fetchall()
+                item = _order_dict(row, user_id)
+                item["events"] = [{"type": event["event_type"], "createdAt": event["created_at"]} for event in events]
+                result.append(item)
+        return {"items": result}
 
     return router
