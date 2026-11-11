@@ -307,12 +307,36 @@
     </header>
 
     {#if view==='market'}
-      <section class="hero">
-        <div class="hero-copy"><div class="eyebrow"><span class="spark"></span> {t.portals}</div><h1>{t.headline}</h1><p>{t.subtitle}</p><div class="hero-tags"><span>✦ Animated gifts</span><span>◈ Portals catalogue</span><span>◎ Live listings · read only</span></div></div>
-        <div class="hero-art" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="hero-gem">✳</div><span class="float-chip chip-a">GIFT #042</span><span class="float-chip chip-b">PORTALS</span><span class="float-chip chip-c">✦ RARE FIND</span></div>
+      <section class="hero hero-market">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="spark"></span> PORTALS MARKET DATA · LIVE CATALOGUE</div>
+          <h1>Telegram Gifts.<br/><span>Найди свой следующий коллекционный подарок.</span></h1>
+          <p>Каталог объявлений Portals, коллекции и характеристики в одном пространстве. Данные каталога обновляются из источника; GIFT RADAR пока работает в режиме просмотра.</p>
+          <div class="hero-actions"><button class="search-button" onclick={()=>document.getElementById('catalogue')?.scrollIntoView({behavior:'smooth',block:'start'})}>Открыть каталог <span>↘</span></button><span class="hero-live"><i></i> Portals connected · read only</span></div>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          {#each collections.slice(0,3) as collection, index}
+            <div class={'collection-orb orb-'+index}>{#if collection.image}<img src={collection.image} alt=""/>{:else}<span>✳</span>{/if}</div>
+          {/each}
+          <span class="float-chip chip-a">TELEGRAM GIFTS</span><span class="float-chip chip-b">PORTALS DATA</span><span class="float-chip chip-c">COLLECT · DISCOVER</span>
+        </div>
       </section>
+      {#if collections.length}
+        <section class="collection-shelf">
+          <div class="shelf-heading"><div><div class="eyebrow">EXPLORE THE MARKET</div><h2>Коллекции</h2></div><span>{collections.length} коллекций в Portals</span></div>
+          <div class="collection-rail">
+            {#each collections.slice(0,8) as collection (String(collection.id ?? collection.short_name ?? collection.name))}
+              <button class:chosen={collectionFilter===String(collection.id ?? collection.short_name ?? '')} class="collection-tile" onclick={()=>{collectionFilter=String(collection.id ?? collection.short_name ?? 'all');loadCatalogue();}}>
+                <span class="collection-image">{#if collection.image}<img src={collection.image} alt="" loading="lazy"/>{:else}<span>✳</span>{/if}</span>
+                <span class="collection-info"><strong>{collection.name || collection.short_name || 'Telegram Gifts'}</strong><small>{collection.short_name || 'PORTALS COLLECTION'}</small></span>
+                <span class="collection-arrow">↗</span>
+              </button>
+            {/each}
+          </div>
+        </section>
+      {/if}
       <section class="market-stats" aria-label="Catalogue overview"><article><span>▦</span><div><strong>{total.toLocaleString()}</strong><small>{t.statsCatalog}</small></div></article><p>{t.catalogOnly}</p></section>
-      <section class="market-section">
+      <section class="market-section" id="catalogue">
         <div class="section-title"><div><div class="eyebrow">DISCOVER</div><h2>{t.listings}</h2><p>{total.toLocaleString()} {t.results}</p></div><button class="refresh-button" onclick={()=>loadCatalogue()} disabled={busy}>↻ {t.refresh}</button></div>
         <div class="filter-bar">
           <div class="search-field"><span>⌕</span><input bind:value={search} placeholder={t.search} onkeydown={e=>e.key==="Enter"&&loadCatalogue()}/></div>
