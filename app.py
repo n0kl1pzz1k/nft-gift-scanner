@@ -14,7 +14,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from marketplace import create_marketplace_router, create_telegram_session, get_telegram_session_user, get_app_setting, init_marketplace_db, set_app_setting, upsert_telegram_user
+from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, get_app_setting, init_marketplace_db, set_app_setting, upsert_telegram_user
 from demo_offers import create_demo_offers_router, init_demo_offers_db
 from catalog_store import get_catalogue_history, get_catalogue_item, search_catalogue_items, upsert_catalogue_items
 
@@ -196,6 +196,8 @@ def _require_admin(credential: str | None) -> dict:
 @app.post("/api/auth/telegram")
 async def telegram_auth(payload: TelegramAuthRequest):
     user = _verify_telegram_init_data(payload.init_data)
+    if not consume_telegram_init_data(payload.init_data, str(user["id"])):
+        raise HTTPException(status_code=409, detail="This Telegram initData was already exchanged; reopen the Mini App")
     profile = upsert_telegram_user(user)
     session_token = create_telegram_session(str(user["id"]))
     is_admin = str(user["id"]) in _admin_ids()
