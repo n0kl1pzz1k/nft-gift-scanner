@@ -48,8 +48,6 @@
       }
     }, { rootMargin: '140px 0px', threshold: 0.01 });
 
-    if (container) observer.observe(container);
-
     async function loadLottie() {
       try {
         const response = await fetch(url!, { credentials: 'omit' });
@@ -83,6 +81,13 @@
         }
       }
     }
+
+    void tick().then(() => {
+      if (!disposed) {
+        const target = mode === 'video' ? video : container;
+        if (target) observer.observe(target);
+      }
+    });
 
     return () => {
       disposed = true;
