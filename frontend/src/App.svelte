@@ -55,7 +55,7 @@
   let sortBy = $state('listed_at desc');
 
   const ru = {
-    market: 'Маркет', orders: 'Ордера', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль',
+    market: 'Маркет', orders: 'Активность', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'ТОЛЬКО ПРОСМОТР', catalogOnly: 'Актуальные объявления Portals. Просмотр и поиск доступны; управление сделками в GIFT RADAR пока не включено.',
     headline: 'Подарки, которые находят своих владельцев', subtitle: 'Единое пространство Telegram-подарков на базе каталога Portals.',
     portals: 'Единственный источник каталога · Portals', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
     listings: 'Предложения Portals', results: 'найдено', loading: 'Загружаем каталог…', loadMore: 'Показать ещё',
@@ -74,7 +74,7 @@
     noImage: 'GIFT', online: 'Каталог Portals', refresh: 'Обновить', all: 'Все',
   };
   const en = {
-    market: 'Market', orders: 'Orders', create: 'Create', favorites: 'Favorites', profile: 'Profile',
+    market: 'Market', orders: 'Activity', create: 'Create', favorites: 'Favorites', profile: 'Profile', readonly: 'READ ONLY', catalogOnly: 'Live Portals listings. Browse and search are available; trade execution is not enabled in GIFT RADAR.',
     headline: 'Discover gifts worth keeping', subtitle: 'A unified Telegram gifts experience powered by the Portals catalogue.',
     portals: 'Single catalogue source · Portals', search: 'Gift name or number', min: 'Min price', max: 'Max price',
     listings: 'Portals listings', results: 'found', loading: 'Loading catalogue…', loadMore: 'Load more',
@@ -293,7 +293,7 @@
     <a class="brand" href="#market"><span class="brand-symbol">✳</span><span>GIFT RADAR<small>THE GIFT MARKET</small></span></a>
     <div class="nav-caption">WORKSPACE</div>
     <nav class="side-nav">
-      {#each [{id:'market',label:t.market,icon:'▦'},{id:'orders',label:t.orders,icon:'⇄'},{id:'create',label:t.create,icon:'＋'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
+      {#each [{id:'market',label:t.market,icon:'▦'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
         <button class:active={view===item.id} class="nav-item" onclick={()=>{view=item.id as View;notice='';}}><span>{item.icon}</span>{item.label}</button>
       {/each}
     </nav>
@@ -303,15 +303,15 @@
   <main class="main-content">
     <header class="topbar">
       <div class="crumb"><span>GIFT RADAR</span><b>/</b><span>{view.toUpperCase()}</span></div>
-      <div class="top-actions"><span class="demo-pill">{t.demo}</span><button class="language" onclick={()=>createCurrency=createCurrency==='TON'?'XTR':'TON'}>{createCurrency==='TON'?'TON':'⭐ Stars'}</button><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>view='profile'}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
+      <div class="top-actions"><span class="demo-pill">{t.readonly}</span><button class="language" onclick={()=>createCurrency=createCurrency==='TON'?'XTR':'TON'}>{createCurrency==='TON'?'TON':'⭐ Stars'}</button><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>view='profile'}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
     </header>
 
     {#if view==='market'}
       <section class="hero">
-        <div class="hero-copy"><div class="eyebrow"><span class="spark"></span> {t.portals}</div><h1>{t.headline}</h1><p>{t.subtitle}</p><div class="hero-tags"><span>✦ Animated gifts</span><span>◈ Portals catalogue</span><span>◎ Demo orders</span></div></div>
+        <div class="hero-copy"><div class="eyebrow"><span class="spark"></span> {t.portals}</div><h1>{t.headline}</h1><p>{t.subtitle}</p><div class="hero-tags"><span>✦ Animated gifts</span><span>◈ Portals catalogue</span><span>◎ Live listings · read only</span></div></div>
         <div class="hero-art" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="hero-gem">✳</div><span class="float-chip chip-a">GIFT #042</span><span class="float-chip chip-b">PORTALS</span><span class="float-chip chip-c">✦ RARE FIND</span></div>
       </section>
-      <section class="market-stats" aria-label="Marketplace overview"><article><span>↗</span><div><strong>{demoListings}</strong><small>{t.statsListings}</small></div></article><article><span>⌕</span><div><strong>{demoBuyRequests}</strong><small>{t.statsBuys}</small></div></article><article><span>◈</span><div><strong>{demoVolumeTon.toFixed(2)} TON</strong><small>{t.statsVolume}</small></div></article><article><span>★</span><div><strong>{demoVolumeStars} ⭐</strong><small>{t.statsVolume}</small></div></article><article><span>▦</span><div><strong>{total.toLocaleString()}</strong><small>{t.statsCatalog}</small></div></article><p>{t.statsVolumeHint}</p></section>
+      <section class="market-stats" aria-label="Catalogue overview"><article><span>▦</span><div><strong>{total.toLocaleString()}</strong><small>{t.statsCatalog}</small></div></article><p>{t.catalogOnly}</p></section>
       <section class="market-section">
         <div class="section-title"><div><div class="eyebrow">DISCOVER</div><h2>{t.listings}</h2><p>{total.toLocaleString()} {t.results}</p></div><button class="refresh-button" onclick={()=>loadCatalogue()} disabled={busy}>↻ {t.refresh}</button></div>
         <div class="filter-bar">
