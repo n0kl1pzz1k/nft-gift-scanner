@@ -511,6 +511,84 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(unrelated.json()["items"], [])
         self.assertEqual(unrelated.json()["total"], 0)
 
+    def test_order_reports_require_auth_and_prevent_duplicates_and_self_reports(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        reporter_headers = {"X-Telegram-Init-Data": "user-b"}
+        created = self.client.post(
+            "/api/marketplace/orders", headers=owner_headers,
+            json={"kind": "listing", "title": "Reportable gift", "price": "2", "currency": "TON"},
+        )
+        order_id = created.json()["item"]["id"]
+
+        missing_auth = self.client.post(
+            f"/api/marketplace/orders/{order_id}/reports", json={"reason": "scam"},
+        )
+        self.assertEqual(missing_auth.status_code, 401)
+        self_report = self.client.post(
+            f"/api/marketplace/orders/{order_id}/reports",
+            headers=owner_headers, json={"reason": "scam"},
+        )
+        self.assertEqual(self_report.status_code, 403)
+
+        reported = self.client.post(
+            f"/api/marketplace/orders/{order_id}/reports",
+            headers=reporter_headers,
+            json={"reason": "misleading", "details": "  Description does not match the gift.  "},
+        )
+        self.assertEqual(reported.status_code, 201)
+        self.assertEqual(reported.json()["report"]["status"], "open")
+        duplicate = self.client.post(
+            f"/api/marketplace/orders/{order_id}/reports",
+            headers=reporter_headers, json={"reason": "spam"},
+        )
+        self.assertEqual(duplicate.status_code, 409)
+
+    def test_admin_can_dismiss_or_remove_reported_orders(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        reporter_headers = {"X-Telegram-Init-Data": "user-b"}
+        created = self.client.post(
+            "/api/marketplace/orders", headers=owner_headers,
+            json={"kind": "listing", "title": "Moderated gift", "price": "3", "currency": "TON"},
+        )
+        order_id = created.json()["item"]["id"]
+        report = self.client.post(
+            f"/api/marketplace/orders/{order_id}/reports",
+            headers=reporter_headers, json={"reason": "scam", "details": "Suspicious listing"},
+        )
+        report_id = report.json()["report"]["id"]
+
+        def admin_check(value):
+            if value != "admin-session":
+                raise api.HTTPException(status_code=403, detail="Administrator access only")
+            return {"id": "999"}
+
+        with patch.object(api, "_require_admin", side_effect=admin_check):
+            forbidden = self.client.get("/api/marketplace/admin/reports", headers=reporter_headers)
+            self.assertEqual(forbidden.status_code, 403)
+            queue = self.client.get(
+                "/api/marketplace/admin/reports",
+                headers={"X-Telegram-Init-Data": "admin-session"},
+            )
+            self.assertEqual(queue.status_code, 200)
+            self.assertEqual(queue.json()["total"], 1)
+            self.assertEqual(queue.json()["items"][0]["reason"], "scam")
+
+            removed = self.client.patch(
+                f"/api/marketplace/admin/reports/{report_id}",
+                headers={"X-Telegram-Init-Data": "admin-session"},
+                json={"action": "remove_order"},
+            )
+            self.assertEqual(removed.status_code, 200)
+            self.assertTrue(removed.json()["order_removed"])
+
+        mine = self.client.get("/api/marketplace/mine", headers=owner_headers)
+        self.assertEqual(mine.json()["items"][0]["status"], "cancelled")
+        with marketplace._db() as conn:
+            status = conn.execute(
+                "SELECT status FROM demo_order_reports WHERE id = ?", (report_id,),
+            ).fetchone()["status"]
+        self.assertEqual(status, "removed")
+
     def test_order_edit_rejects_non_owner_and_inactive_orders(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         other_headers = {"X-Telegram-Init-Data": "user-b"}
