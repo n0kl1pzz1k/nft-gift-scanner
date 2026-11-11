@@ -166,7 +166,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             "/api/marketplace/orders",
             headers={
                 "Origin": "https://nft-gift-scanner.fj7kmzkhn9.workers.dev",
-                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Method": "PUT",
                 "Access-Control-Request-Headers": "content-type,x-telegram-init-data",
             },
         )
