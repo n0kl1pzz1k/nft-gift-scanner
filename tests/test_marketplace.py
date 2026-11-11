@@ -484,6 +484,33 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(updated.json()["item"]["note"], "new note")
         self.assertGreaterEqual(updated.json()["item"]["updatedAt"], created.json()["item"]["updatedAt"])
 
+    def test_order_edits_are_recorded_in_private_history_and_activity(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        other_headers = {"X-Telegram-Init-Data": "user-b"}
+        created = self.client.post(
+            "/api/marketplace/orders", headers=owner_headers,
+            json={"kind": "listing", "title": "Before edit", "price": "2", "currency": "TON"},
+        )
+        order_id = created.json()["item"]["id"]
+        updated = self.client.patch(
+            f"/api/marketplace/orders/{order_id}", headers=owner_headers,
+            json={"title": "After edit", "price": "2.5"},
+        )
+        self.assertEqual(updated.status_code, 200)
+
+        history = self.client.get("/api/marketplace/history", headers=owner_headers)
+        own_order = next(item for item in history.json()["items"] if item["id"] == order_id)
+        self.assertEqual([event["type"] for event in own_order["events"]], ["created", "updated"])
+
+        activity = self.client.get("/api/marketplace/activity", headers=owner_headers)
+        self.assertEqual(activity.status_code, 200)
+        self.assertEqual(activity.json()["total"], 2)
+        self.assertIn("order_updated", {item["type"] for item in activity.json()["items"]})
+
+        unrelated = self.client.get("/api/marketplace/activity", headers=other_headers)
+        self.assertEqual(unrelated.json()["items"], [])
+        self.assertEqual(unrelated.json()["total"], 0)
+
     def test_order_edit_rejects_non_owner_and_inactive_orders(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         other_headers = {"X-Telegram-Init-Data": "user-b"}
