@@ -6,7 +6,7 @@ const copy={
     noData:"No collection data is connected yet. The app will not invent market values.",
     portals:"Portals",tonnel:"Tonnel",mrkt:"MRKT",needsKey:"Access not configured",
     unavailable:"Partner data source not configured",configured:"Read-only partner access configured",
-    sourceOnline:"Data endpoint responded",floor:"Collection floor",volume:"Reported 24h volume",supply:"Reported supply",
+    sourceOnline:"Data endpoint responded",partialCoverage:"Provider responded · partial coverage",floor:"Collection floor",volume:"Reported 24h volume",supply:"Reported supply",
     sourceNote:"Coverage: Portals collection data plus Tonnel and MRKT public listings through the partner feed when configured. Partial provider coverage is reported separately.",
     dataNote:"Collection-level figures are not individual gift listings and cannot be compared across marketplaces.",
     updated:"Last response",never:"Not available",error:"Could not load marketplace data.",
@@ -21,7 +21,7 @@ const copy={
     noData:"Данные коллекций пока не подключены. Приложение не будет придумывать рыночные значения.",
     portals:"Portals",tonnel:"Tonnel",mrkt:"MRKT",needsKey:"Доступ не настроен",
     unavailable:"Партнёрский источник данных не настроен",configured:"Партнёрский read-only доступ настроен",
-    sourceOnline:"Источник ответил",floor:"Флор коллекции",volume:"Объём за 24 ч (по данным источника)",supply:"Количество выпущенных",
+    sourceOnline:"Источник ответил",partialCoverage:"Источник ответил · покрытие частичное",floor:"Флор коллекции",volume:"Объём за 24 ч (по данным источника)",supply:"Количество выпущенных",
     sourceNote:"Доступны данные коллекций Portals и публичные объявления Tonnel и MRKT через партнёрский источник после настройки ключа. Частичное покрытие источников показывается отдельно.",
     dataNote:"Показатели коллекций — не объявления отдельных подарков и не основание для сравнения цен между маркетами.",
     updated:"Последний ответ",never:"Нет данных",error:"Не удалось загрузить данные маркетплейсов.",
@@ -79,8 +79,8 @@ function renderText(){
   $("modal-id-label").textContent=t.giftIdLabel;
   $("lang").textContent=lang==="en"?"RU":"EN";
   renderMarketTabs();
-  if(activeMarket==="tonnel"&&sourceStates.tonnel==="online_read_only") renderGifts({items:tonnelGiftItems,total_count:tonnelTotalCount||tonnelGiftItems.length,connected:true});
-  else if(activeMarket==="mrkt"&&sourceStates.mrkt==="online_read_only") renderGifts({items:mrktGiftItems,total_count:mrktTotalCount||mrktGiftItems.length,connected:true});
+  if(activeMarket==="tonnel"&&(sourceStates.tonnel==="online_read_only"||sourceStates.tonnel==="partial_read_only")) renderGifts({items:tonnelGiftItems,total_count:tonnelTotalCount||tonnelGiftItems.length,connected:true});
+  else if(activeMarket==="mrkt"&&(sourceStates.mrkt==="online_read_only"||sourceStates.mrkt==="partial_read_only")) renderGifts({items:mrktGiftItems,total_count:mrktTotalCount||mrktGiftItems.length,connected:true});
   else if(activeMarket!=="portals") renderUnavailableMarket(activeMarket);
   else if(selectedCollection) renderGifts({items:selectedCollectionItems,total_count:selectedCollectionTotal,connected:true});
   else renderGifts({items:portalsGiftItems,total_count:portalsGiftItems.length,connected:sourceStates.portals!=="needs_api_key"});
@@ -93,7 +93,8 @@ function marketLogo(kind,letter){
 function sourceLabel(name,state,kind,letter){
   const t=copy[lang];
   let label=t.unavailable;
-  if(state==="online"||state==="online_read_only") label=t.sourceOnline;
+  if(state==="partial_read_only") label=t.partialCoverage;
+  else if(state==="online"||state==="online_read_only") label=t.sourceOnline;
   else if(state==="configured_read_only") label=t.configured;
   else if(state==="needs_api_key") label=t.needsKey;
   return '<div class="source"><span class="source-logo source-'+kind+'">'+marketLogo(kind,letter)+'</span><span class="source-copy"><b>'+name+'</b><small>'+label+'</small></span></div>';
@@ -109,7 +110,7 @@ function renderMarketTabs(){
     const market=button.dataset.market;
     button.classList.toggle("active",market===activeMarket);
     const state=sourceStates[market]||"official_api_not_verified";
-    const connected=state==="online_read_only"||state==="configured_read_only"||(market==="portals"&&state==="online");
+    const connected=state==="online_read_only"||state==="partial_read_only"||state==="configured_read_only"||(market==="portals"&&state==="online");
     $("tab-state-"+market).textContent=connected?t.connected:t.pending;
     $("tab-state-"+market).classList.toggle("is-connected",connected);
   });
@@ -213,7 +214,7 @@ async function loadTonnelGifts(search="",renderActive=true){
     if(!response.ok) throw new Error(data.detail||"Tonnel unavailable");
     tonnelGiftItems=Array.isArray(data.items)?data.items:[];
     tonnelTotalCount=Number(data.total_count??tonnelGiftItems.length)||tonnelGiftItems.length;
-    sourceStates.tonnel="online_read_only";
+    sourceStates.tonnel=data.partial?"partial_read_only":"online_read_only";
     // If Portals is not configured and Tonnel returned real listings, show
     // those cards by default instead of leaving an empty catalogue on screen.
     if(activeMarket==="portals"&&!portalsGiftItems.length&&tonnelGiftItems.length){
@@ -409,10 +410,10 @@ document.querySelectorAll(".market-tab").forEach(button=>button.addEventListener
   renderMarketTabs();
   if(activeMarket==="portals") renderGifts(selectedCollection?{items:selectedCollectionItems,total_count:selectedCollectionTotal,connected:true}:{items:portalsGiftItems,total_count:portalsGiftItems.length,connected:sourceStates.portals!=="needs_api_key"});
   else if(activeMarket==="tonnel"){
-    if(sourceStates.tonnel==="online_read_only") renderGifts({items:tonnelGiftItems,total_count:tonnelTotalCount||tonnelGiftItems.length,connected:true});
+    if(sourceStates.tonnel==="online_read_only"||sourceStates.tonnel==="partial_read_only") renderGifts({items:tonnelGiftItems,total_count:tonnelTotalCount||tonnelGiftItems.length,connected:true});
     else loadTonnelGifts();
   }else if(activeMarket==="mrkt"){
-    if(sourceStates.mrkt==="online_read_only") renderGifts({items:mrktGiftItems,total_count:mrktTotalCount||mrktGiftItems.length,connected:true});
+    if(sourceStates.mrkt==="online_read_only"||sourceStates.mrkt==="partial_read_only") renderGifts({items:mrktGiftItems,total_count:mrktTotalCount||mrktGiftItems.length,connected:true});
     else loadMrktGifts();
   }else renderUnavailableMarket(activeMarket);
 }));
