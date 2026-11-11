@@ -1212,5 +1212,36 @@ class TelegramSessionSecurityTests(unittest.TestCase):
             own = next(item for item in offers.json()["items"] if item["order_id"] == order_id)
             self.assertEqual(own["status"], expected)
 
+    def test_buy_request_deal_reports_buyer_and_seller_roles_correctly(self):
+        created = self.client.post(
+            "/api/marketplace/orders",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"kind": "buy-order", "title": "Looking for Rare Gift", "price": "9", "currency": "TON"},
+        )
+        order_id = created.json()["item"]["id"]
+        offered = self.client.post(
+            "/api/marketplace/offers",
+            headers={"X-Telegram-Init-Data": "user-b"},
+            json={"order_id": order_id, "amount": "8.5"},
+        )
+        self.assertEqual(offered.status_code, 201)
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offered.json()['item']['id']}",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200)
+
+        buyer_view = self.client.get("/api/marketplace/deals", headers={"X-Telegram-Init-Data": "user-a"})
+        seller_view = self.client.get("/api/marketplace/deals", headers={"X-Telegram-Init-Data": "user-b"})
+        buyer_deal = buyer_view.json()["items"][0]
+        seller_deal = seller_view.json()["items"][0]
+        self.assertEqual(buyer_deal["buyer"], "Tester A")
+        self.assertEqual(buyer_deal["seller"], "Tester B")
+        self.assertEqual(buyer_deal["my_role"], "buyer")
+        self.assertEqual(seller_deal["my_role"], "seller")
+        self.assertEqual(buyer_deal["order_kind"], "buy-order")
+        self.assertTrue(buyer_deal["simulation_only"])
+
 if __name__ == "__main__":
     unittest.main()
