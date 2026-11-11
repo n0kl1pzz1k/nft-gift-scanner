@@ -1,5 +1,6 @@
 import os
 import tempfile
+import sqlite3
 import unittest
 import hashlib
 import hmac
@@ -1116,6 +1117,100 @@ class TelegramSessionSecurityTests(unittest.TestCase):
         marketplace.release_telegram_update(778)
         self.assertEqual(marketplace.claim_telegram_update(778, payload), "claimed")
 
+
+    def test_deal_events_are_immutable_and_visible_only_to_participants(self):
+        created = self.client.post(
+            "/api/marketplace/orders",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"kind": "listing", "title": "Rare Gift", "price": "5", "currency": "TON"},
+        )
+        order_id = created.json()["item"]["id"]
+        offered = self.client.post(
+            "/api/marketplace/offers",
+            headers={"X-Telegram-Init-Data": "user-b"},
+            json={"order_id": order_id, "amount": "4.5"},
+        )
+        offer_id = offered.json()["item"]["id"]
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer_id}",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200)
+
+        deals = self.client.get("/api/marketplace/deals", headers={"X-Telegram-Init-Data": "user-b"})
+        deal_id = deals.json()["items"][0]["id"]
+        events = self.client.get(
+            f"/api/marketplace/deals/{deal_id}/events",
+            headers={"X-Telegram-Init-Data": "user-b"},
+        )
+        self.assertEqual(events.status_code, 200)
+        self.assertEqual(
+            [item["type"] for item in events.json()["items"]],
+            ["deal_created", "listing_reserved", "payment_not_enabled"],
+        )
+        self.assertTrue(all(item["simulation_only"] for item in events.json()["items"]))
+        self.assertEqual(events.json()["items"][-1]["data"]["reason"], "payment_integration_not_live")
+
+        outsider = self.client.get(
+            f"/api/marketplace/deals/{deal_id}/events",
+            headers={"X-Telegram-Init-Data": "user-c"},
+        )
+        self.assertEqual(outsider.status_code, 404)
+
+        with demo_offers._db() as conn:
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute(
+                    "UPDATE demo_deal_events SET event_data='{}' WHERE deal_id=?",
+                    (deal_id,),
+                )
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute(
+                    "DELETE FROM demo_deal_events WHERE deal_id=?",
+                    (deal_id,),
+                )
+
+    def test_accepting_one_offer_atomically_reserves_listing_and_declines_competing_offers(self):
+        created = self.client.post(
+            "/api/marketplace/orders",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"kind": "listing", "title": "One of One", "price": "8", "currency": "TON"},
+        )
+        order_id = created.json()["item"]["id"]
+        offer_ids = []
+        for user_token, amount in (("user-b", "7"), ("user-c", "6.5")):
+            offered = self.client.post(
+                "/api/marketplace/offers",
+                headers={"X-Telegram-Init-Data": user_token},
+                json={"order_id": order_id, "amount": amount},
+            )
+            self.assertEqual(offered.status_code, 201)
+            offer_ids.append(offered.json()["item"]["id"])
+
+        first = self.client.patch(
+            f"/api/marketplace/offers/{offer_ids[0]}",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"action": "accept"},
+        )
+        self.assertEqual(first.status_code, 200)
+        second = self.client.patch(
+            f"/api/marketplace/offers/{offer_ids[1]}",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"action": "accept"},
+        )
+        self.assertEqual(second.status_code, 409)
+
+        order = self.client.get(
+            f"/api/marketplace/orders?status=matched",
+        )
+        self.assertTrue(any(item["id"] == order_id for item in order.json()["items"]))
+        for user_token, expected in (("user-b", "accepted"), ("user-c", "declined")):
+            offers = self.client.get(
+                "/api/marketplace/offers",
+                headers={"X-Telegram-Init-Data": user_token},
+            )
+            own = next(item for item in offers.json()["items"] if item["order_id"] == order_id)
+            self.assertEqual(own["status"], expected)
 
 if __name__ == "__main__":
     unittest.main()
