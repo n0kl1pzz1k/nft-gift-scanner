@@ -1138,6 +1138,24 @@ class SharedMarketplaceTests(unittest.TestCase):
         )
         self.assertEqual(len(history_again.json()["items"]), 4)
 
+        # A cancelled reservation must not permanently consume the order's unique deal slot.
+        second_offer = self.client.post(
+            "/api/marketplace/offers", headers=outsider,
+            json={"order_id": order_id, "amount": "2.7"},
+        )
+        self.assertEqual(second_offer.status_code, 201)
+        second_accept = self.client.patch(
+            f"/api/marketplace/offers/{second_offer.json()['item']['id']}",
+            headers=owner, json={"action": "accept"},
+        )
+        self.assertEqual(second_accept.status_code, 200)
+        all_deals = self.client.get("/api/marketplace/deals", headers=owner).json()["items"]
+        self.assertEqual(len([item for item in all_deals if item["order_id"] == order_id]), 2)
+        self.assertEqual(
+            next(item for item in all_deals if item["id"] == deal_id)["status"],
+            "cancelled",
+        )
+
     def test_cannot_cancel_deal_when_payment_state_is_not_unpaid(self):
         owner = {"X-Telegram-Init-Data": "user-a"}
         buyer = {"X-Telegram-Init-Data": "user-b"}
