@@ -21,6 +21,7 @@
   let view = $state<View>('market');
   let gifts = $state<Gift[]>([]);
   let favorites = $state<string[]>([]);
+  let favoriteItems = $state<Gift[]>([]);
   let orders = $state<DemoOrder[]>([]);
   let search = $state('');
   let minPrice = $state('');
@@ -81,7 +82,7 @@
   };
   const t = $derived(lang === 'ru' ? ru : en);
   const keyOf = (g: Gift) => String(g.id ?? g.number ?? g.name ?? 'gift');
-  const shownGifts = $derived(view === 'favorites' ? gifts.filter(g => favorites.includes(keyOf(g))) : gifts);
+  const shownGifts = $derived(view === 'favorites' ? favoriteItems : gifts);
   const fmt = (value: unknown, currency = '') => value === null || value === undefined || value === '' ? '—' : String(value) + (currency ? ' ' + currency : '');
 
   async function request(path: string, signal?: AbortSignal) {
@@ -113,8 +114,12 @@
 
   function toggleFavorite(gift: Gift) {
     const id = keyOf(gift);
-    favorites = favorites.includes(id) ? favorites.filter(x => x !== id) : [...favorites, id];
-    try { localStorage.setItem('gift-radar-favorites-v2', JSON.stringify(favorites)); } catch {}
+    const exists = favorites.includes(id);
+    favorites = exists ? favorites.filter(x => x !== id) : [...favorites, id];
+    favoriteItems = exists
+      ? favoriteItems.filter(item => keyOf(item) !== id)
+      : [gift, ...favoriteItems.filter(item => keyOf(item) !== id)];
+    try { localStorage.setItem('gift-radar-favorites-v2', JSON.stringify(favoriteItems)); } catch {}
   }
 
   function saveOrders() {
@@ -172,7 +177,14 @@
     window.Telegram?.WebApp?.expand?.();
     try {
       const fav = JSON.parse(localStorage.getItem('gift-radar-favorites-v2') || '[]');
-      if (Array.isArray(fav)) favorites = fav;
+      if (Array.isArray(fav)) {
+        if (fav.length && typeof fav[0] === 'object') {
+          favoriteItems = fav as Gift[];
+          favorites = favoriteItems.map(keyOf);
+        } else {
+          favorites = fav as string[];
+        }
+      }
       const saved = JSON.parse(localStorage.getItem('gift-radar-demo-orders') || '[]');
       if (Array.isArray(saved)) orders = saved;
     } catch {}
