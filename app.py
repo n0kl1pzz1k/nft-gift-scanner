@@ -23,14 +23,25 @@ _telegram_bot = None
 _telegram_dispatcher = None
 _telegram_webhook_secret = None
 
+# Browser access is restricted to the production Mini App origins.
+# Extra origins may be supplied explicitly for a controlled preview environment.
+_CORS_DEFAULT_ORIGINS = [
+    "https://nft-gift-scanner.fj7kmzkhn9.workers.dev",
+    "https://nft-gift-scanner.pages.dev",
+]
+_CORS_ALLOWED_ORIGINS = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", ",".join(_CORS_DEFAULT_ORIGINS)).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_CORS_ALLOWED_ORIGINS,
     allow_credentials=False,
-    # The Mini App reads public data with GET and verifies Telegram identity
-    # with POST. Keep CORS aligned with the actual read-only/auth API surface.
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-Telegram-Init-Data"],
+    max_age=600,
 )
 
 PORTALS_BASE = "https://portal-market.com/partners"
