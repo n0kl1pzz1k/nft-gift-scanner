@@ -70,6 +70,23 @@
           <article class="profile-card"><span class="profile-card-kicker" id="profile-data">ДАННЫЕ</span><b id="profile-data-title">Источники данных</b><p id="profile-data-description">Показываем только публичные сведения, которые реально возвращают подключённые площадки.</p><div id="profile-sources" class="profile-source-list"></div></article>
           <article class="profile-card"><span class="profile-card-kicker" id="profile-privacy">ПРИВАТНОСТЬ</span><b id="profile-privacy-title">Безопасный режим</b><p id="profile-privacy-description">Нет покупок, продаж, переводов, ставок, кошельковых действий или сбора Telegram-сессий.</p></article>
         </div>
+          <article class="profile-card telegram-auth-card">
+            <span class="profile-card-kicker">TELEGRAM IDENTITY</span>
+            <b id="telegram-auth-title">Вход через Telegram</b>
+            <p id="telegram-auth-description">Без паролей и подключения кошелька. Telegram подтверждает личность внутри Mini App.</p>
+            <button class="profile-action" id="telegram-auth-button" type="button">Авторизоваться через Telegram</button>
+          </article>
+          <article class="profile-card admin-panel" id="admin-panel" hidden>
+            <span class="profile-card-kicker">ADMIN CONTROL</span>
+            <b id="admin-panel-title">Управление источниками</b>
+            <p id="admin-panel-description">Только просмотр и управление доступностью каталогов. Настройки действуют до перезапуска backend.</p>
+            <div class="admin-market-controls">
+              <div><span>Portals</span><button type="button" data-admin-market="portals">...</button></div>
+              <div><span>Tonnel</span><button type="button" data-admin-market="tonnel">...</button></div>
+              <div><span>MRKT</span><button type="button" data-admin-market="mrkt">...</button></div>
+            </div>
+            <p class="note" id="admin-auth-note">Сервер проверяет Telegram-подпись и ID администратора.</p>
+          </article>
       </section>
       <footer><span class="footer-mark">✳ NFT GIFT SCANNER</span><span id="foot">Только просмотр публичной информации. Без покупок, продаж и переводов.</span></footer>
     </main>
@@ -94,5 +111,6 @@
       </div>
     </article>
   </div>
-  <script src="app.js?v=market-logos-1"></script>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="app.js?v=telegram-admin-1"></script>
 </body></html>
