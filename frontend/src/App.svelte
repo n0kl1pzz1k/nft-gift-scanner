@@ -21,6 +21,7 @@
   type AccountStats = { active_orders:number; completed_orders:number; pending_offers_sent:number; pending_offers_received:number; simulated_deals:number; unread_notifications:number };
   type AccountActivity = { id:string; type:string; order_id:string; title:string; actor_name:string; created_at:number; amount:string; currency:'TON'|'XTR'; simulation_only:boolean };
   type OrderReport = { id:string; order_id:string; reporter_name:string; reason:'scam'|'misleading'|'inappropriate'|'spam'|'other'; details:string; status:'open'|'dismissed'|'removed'; created_at:number; order_title:string; order_status:string; order_owner:string };
+  type SellerProfile = { profile_id:string; display_name:string; bio:string; created_at:number; updated_at:number; username:string };
   type MarketplaceStats = {
     active_listings: number; active_buy_requests: number; matched_orders: number;
     volume_ton: number; volume_stars: number; total_orders: number;
@@ -56,6 +57,10 @@
   let activityTotal = $state(0);
   let activityBusy = $state(false);
   let accountStats = $state<AccountStats>({active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,simulated_deals:0,unread_notifications:0});
+  let sellerProfile = $state<SellerProfile | null>(null);
+  let sellerDisplayName = $state('');
+  let sellerBio = $state('');
+  let sellerProfileBusy = $state(false);
   let offerAmount = $state('');
   let offerNote = $state('');
   let offersBusy = $state(false);
@@ -128,7 +133,7 @@
     active: 'Активен', matched: 'Смоделирован', cancelled: 'Отменён', cancel: 'Снять', match: 'Симулировать исполнение', editOrder: 'Изменить', saveOrder: 'Сохранить', cancelEdit: 'Отмена', editTitle: 'Название', editPrice: 'Демо-цена', editNote: 'Комментарий', orderUpdated: 'Объявление обновлено.',
     demo: 'PORTALS LIVE · READ ONLY', demoWallet: 'Кошелёк не подключён', demoWalletText: 'Подключение кошельков и операции с активами пока не поддерживаются.',
     signIn: 'Подтвердить Telegram', guest: 'Гость', authHint: 'Открой Mini App через Telegram, чтобы подтвердить профиль.',
-    signed: 'Telegram подтверждён', profileText: 'Профиль Telegram и общая история демонстрационных заявок.',
+    signed: 'Telegram подтверждён', profileText: 'Профиль Telegram и управление публичной карточкой продавца.', sellerCardTitle: 'Публичная карточка продавца', sellerDisplayName: 'Отображаемое имя', sellerBio: 'О себе', sellerSave: 'Сохранить профиль', sellerSaved: 'Профиль продавца обновлён.', sellerProfileId: 'Публичный ID',
     favoritesTitle: 'Избранные подарки', noFavorites: 'Добавьте подарки в избранное из каталога.',
     save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Демо-запись добавлена.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Демо-оборот', statsVolumeHint: 'Только смоделированные записи', statsCatalog: 'Подарков в каталоге', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'Каталог Portals', refresh: 'Обновить', all: 'Все', orderStatus: 'Статус', orderKind: 'Тип заявки', activeOrders: 'Активные', matchedOrders: 'Смоделированные', cancelledOrders: 'Снятые', listingsOnly: 'Предложения', buyRequestsOnly: 'Заявки на поиск', invalidPrice: 'Проверь диапазон цены: значения должны быть неотрицательными, а минимальная цена — не выше максимальной.',
@@ -151,7 +156,7 @@
     active: 'Active', matched: 'Simulated', cancelled: 'Cancelled', cancel: 'Cancel', match: 'Simulate fill', editOrder: 'Edit', saveOrder: 'Save changes', cancelEdit: 'Discard', editTitle: 'Title', editPrice: 'Demo price', editNote: 'Note', orderUpdated: 'Order updated.',
     demo: 'PORTALS LIVE · READ ONLY', demoWallet: 'Wallet not connected', demoWalletText: 'Wallet connections and asset operations are not supported yet.',
     signIn: 'Verify Telegram', guest: 'Guest', authHint: 'Open the Mini App in Telegram to verify your profile.',
-    signed: 'Telegram verified', profileText: 'Telegram profile and shared demo order history.',
+    signed: 'Telegram verified', profileText: 'Your Telegram account and public seller card.', sellerCardTitle: 'Public seller card', sellerDisplayName: 'Display name', sellerBio: 'About', sellerSave: 'Save profile', sellerSaved: 'Seller profile updated.', sellerProfileId: 'Public ID',
     favoritesTitle: 'Saved gifts', noFavorites: 'Save gifts from the catalogue to see them here.',
     save: 'Save', saved: 'Saved', currency: 'TON', success: 'Demo entry created.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Demo volume', statsVolumeHint: 'Simulated entries only', statsCatalog: 'Catalogue gifts', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'Portals catalogue', refresh: 'Refresh', all: 'All', orderStatus: 'Status', orderKind: 'Order type', activeOrders: 'Active', matchedOrders: 'Simulated', cancelledOrders: 'Cancelled', listingsOnly: 'Listings', buyRequestsOnly: 'Buy requests', invalidPrice: 'Check the price range: values must be non-negative and the minimum cannot exceed the maximum.',
@@ -254,6 +259,34 @@
       notice = e instanceof Error ? e.message : String(e);
     } finally {
       ordersLoadingMore = false;
+    }
+  }
+
+  async function loadSellerProfile() {
+    if (!signedIn) { sellerProfile = null; return; }
+    const data = await request('/api/marketplace/profiles/me');
+    sellerProfile = data.profile as SellerProfile;
+    sellerDisplayName = sellerProfile.display_name || '';
+    sellerBio = sellerProfile.bio || '';
+  }
+
+  async function saveSellerProfile() {
+    if (!signedIn || sellerProfileBusy) return;
+    sellerProfileBusy = true;
+    try {
+      const data = await request('/api/marketplace/profiles/me', undefined, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_name: sellerDisplayName, bio: sellerBio }),
+      });
+      sellerProfile = data.profile as SellerProfile;
+      sellerDisplayName = sellerProfile.display_name;
+      sellerBio = sellerProfile.bio;
+      notice = t.sellerSaved;
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      sellerProfileBusy = false;
     }
   }
 
@@ -905,7 +938,16 @@
     {:else}
       <section class="page-heading"><div class="eyebrow">ACCOUNT CENTER</div><h1>{t.profile}</h1><p>{t.profileText}</p></section>
       <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div><button class="publish-button" onclick={()=>telegramLogin()}>{t.signIn} →</button></article>
-      <article class="profile-card account-stats-card">
+      {#if signedIn}
+         <article class="profile-card seller-profile-editor">
+           <div class="eyebrow">{t.sellerCardTitle}</div>
+           <label>{t.sellerDisplayName}<input class="form-input" bind:value={sellerDisplayName} maxlength="48" /></label>
+           <label>{t.sellerBio}<textarea class="form-input note-input" bind:value={sellerBio} maxlength="280"></textarea></label>
+           {#if sellerProfile}<small class="profile-handle">{t.sellerProfileId}: {sellerProfile.profile_id}</small>{/if}
+           <button class="publish-button" onclick={saveSellerProfile} disabled={sellerProfileBusy || !sellerDisplayName.trim()}>{sellerProfileBusy?'…':t.sellerSave}</button>
+         </article>
+       {/if}
+       <article class="profile-card account-stats-card">
         <div class="eyebrow">{t.accountStatsTitle}</div>
         <div class="account-stat-grid">
           <div><strong>{accountStats.active_orders}</strong><span>{t.activeOrdersStat}</span></div>
