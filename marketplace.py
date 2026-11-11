@@ -154,7 +154,7 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
     @router.get("/mine")
     async def my_orders(x_telegram_init_data: str | None = Header(default=None)):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
-        with _connect() as conn:
+        with _db() as conn:
             rows = conn.execute(
                 "SELECT * FROM demo_orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 200",
                 (str(user["id"]),),
@@ -163,7 +163,7 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
 
     @router.get("/stats")
     async def marketplace_stats():
-        with _connect() as conn:
+        with _db() as conn:
             counts = conn.execute("""
                 SELECT
                     SUM(CASE WHEN status='active' AND kind='listing' THEN 1 ELSE 0 END) AS active_listings,
@@ -185,7 +185,7 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
         now = int(time.time())
         order_id = "gr-" + uuid.uuid4().hex[:16]
         owner = (user.get("first_name") or user.get("username") or "Telegram user")[:64]
-        with _connect() as conn:
+        with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute("""
                 INSERT INTO demo_orders
@@ -209,7 +209,7 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         actor_id = str(user["id"])
         now = int(time.time())
-        with _connect() as conn:
+        with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (order_id,)).fetchone()
             if row is None:
@@ -241,7 +241,7 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         actor_id = str(user["id"])
         now = int(time.time())
-        with _connect() as conn:
+        with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (order_id,)).fetchone()
             if row is None:
