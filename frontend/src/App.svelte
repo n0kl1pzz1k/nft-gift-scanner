@@ -82,6 +82,7 @@
   let collectionFilter = $state('all');
   let statusFilter = $state('listed');
   let sortBy = $state('listed_at desc');
+  let catalogueRequestId = 0;
 
   const ru = {
     market: 'Маркет', orders: 'Активность', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'ТОЛЬКО ПРОСМОТР', catalogOnly: 'Актуальные объявления Portals. Просмотр и поиск доступны; управление сделками в GIFT RADAR пока не включено.',
@@ -102,7 +103,7 @@
     signed: 'Telegram подтверждён', profileText: 'Профиль Telegram и общая история демонстрационных заявок.',
     favoritesTitle: 'Избранные подарки', noFavorites: 'Добавьте подарки в избранное из каталога.',
     save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Демо-запись добавлена.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Демо-оборот', statsVolumeHint: 'Только смоделированные записи', statsCatalog: 'Подарков в каталоге', stars: 'Stars', ton: 'TON',
-    noImage: 'GIFT', online: 'Каталог Portals', refresh: 'Обновить', all: 'Все',
+    noImage: 'GIFT', online: 'Каталог Portals', refresh: 'Обновить', all: 'Все', invalidPrice: 'Проверь диапазон цены: значения должны быть неотрицательными, а минимальная цена — не выше максимальной.',
     sourceStatusTitle: 'СОСТОЯНИЕ ИСТОЧНИКОВ', sourceStatusSubtitle: 'Что подключено к приложению', sourcePortals: 'Каталог объявлений', sourceChanges: 'Изменения подарков', sourceDailyFloors: 'История floor-цен', sourceStatusChecked: 'Проверено', sourceStatusChecking: 'Проверяем статус…', sourceStatusUnavailable: 'Не удалось получить статус API.', sourceRefreshInterval: 'Интервал фонового обновления', sourceConfigured: 'Настроен · только чтение', sourceNeedsKey: 'Требуется API-ключ', sourcePublic: 'Публичный источник', sourceDaily: 'Публичная ежедневная история', sourceUnknown: 'Нет данных',
   };
   const en = {
@@ -124,7 +125,7 @@
     signed: 'Telegram verified', profileText: 'Telegram profile and shared demo order history.',
     favoritesTitle: 'Saved gifts', noFavorites: 'Save gifts from the catalogue to see them here.',
     save: 'Save', saved: 'Saved', currency: 'TON', success: 'Demo entry created.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Demo volume', statsVolumeHint: 'Simulated entries only', statsCatalog: 'Catalogue gifts', stars: 'Stars', ton: 'TON',
-    noImage: 'GIFT', online: 'Portals catalogue', refresh: 'Refresh', all: 'All',
+    noImage: 'GIFT', online: 'Portals catalogue', refresh: 'Refresh', all: 'All', invalidPrice: 'Check the price range: values must be non-negative and the minimum cannot exceed the maximum.',
     sourceStatusTitle: 'SOURCE STATUS', sourceStatusSubtitle: 'Connected data sources', sourcePortals: 'Marketplace catalogue', sourceChanges: 'Gift metadata changes', sourceDailyFloors: 'Floor price history', sourceStatusChecked: 'Checked', sourceStatusChecking: 'Checking status…', sourceStatusUnavailable: 'Could not load API status.', sourceRefreshInterval: 'Background refresh interval', sourceConfigured: 'Configured · read-only', sourceNeedsKey: 'API key required', sourcePublic: 'Public source', sourceDaily: 'Public daily history', sourceUnknown: 'No data',
   };
   const t = $derived(lang === 'ru' ? ru : en);
@@ -318,25 +319,40 @@
   }
 
   async function loadCatalogue(append = false) {
+    if (append && (loadingMore || busy)) return;
+    const requestId = ++catalogueRequestId;
     if (append) loadingMore = true; else { busy = true; error = ''; offset = 0; }
+    const minValue = minPrice.trim() === '' ? null : Number(minPrice);
+    const maxValue = maxPrice.trim() === '' ? null : Number(maxPrice);
+    if ((minValue !== null && (!Number.isFinite(minValue) || minValue < 0)) ||
+        (maxValue !== null && (!Number.isFinite(maxValue) || maxValue < 0)) ||
+        (minValue !== null && maxValue !== null && minValue > maxValue)) {
+      error = t.invalidPrice;
+      busy = false;
+      loadingMore = false;
+      return;
+    }
     try {
       const nextOffset = append ? offset : 0;
-      const params = new URLSearchParams({ limit: '40', offset: String(nextOffset), search });
-      if (minPrice) params.set('min_price', minPrice);
-      if (maxPrice) params.set('max_price', maxPrice);
+      const params = new URLSearchParams({ limit: '40', offset: String(nextOffset), search: search.trim() });
+      if (minValue !== null) params.set('min_price', String(minValue));
+      if (maxValue !== null) params.set('max_price', String(maxValue));
       if (collectionFilter !== 'all') params.set('collection_id', collectionFilter);
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (sortBy) params.set('sort_by', sortBy);
       const data = await request('/api/gifts?' + params.toString());
+      if (requestId !== catalogueRequestId) return;
       const items = Array.isArray(data.items) ? data.items : [];
       gifts = append ? [...gifts, ...items] : items;
       total = Math.max(Number(data.total_count) || 0, gifts.length);
       offset = nextOffset + items.length;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      if (requestId === catalogueRequestId) error = e instanceof Error ? e.message : String(e);
     } finally {
-      busy = false;
-      loadingMore = false;
+      if (requestId === catalogueRequestId) {
+        busy = false;
+        loadingMore = false;
+      }
     }
   }
 
