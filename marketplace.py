@@ -98,7 +98,43 @@ def init_marketplace_db() -> None:
             request_count INTEGER NOT NULL,
             PRIMARY KEY(user_id, action)
         );
+        CREATE TABLE IF NOT EXISTS app_settings (
+            setting_key TEXT PRIMARY KEY,
+            setting_value TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
         """)
+
+
+
+def get_app_setting(key: str, default: str = "") -> str:
+    """Read a small durable runtime setting from SQLite."""
+    safe_key = str(key or "").strip()[:100]
+    if not safe_key:
+        return default
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT setting_value FROM app_settings WHERE setting_key = ?",
+            (safe_key,),
+        ).fetchone()
+    return str(row["setting_value"]) if row is not None else default
+
+
+def set_app_setting(key: str, value: str) -> None:
+    """Persist a bounded runtime setting across backend restarts."""
+    safe_key = str(key or "").strip()[:100]
+    safe_value = str(value)[:500]
+    if not safe_key:
+        raise ValueError("A setting key is required")
+    with _db() as conn:
+        conn.execute(
+            """INSERT INTO app_settings(setting_key, setting_value, updated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(setting_key) DO UPDATE SET
+                 setting_value=excluded.setting_value,
+                 updated_at=excluded.updated_at""",
+            (safe_key, safe_value, int(time.time())),
+        )
 
 
 def upsert_telegram_user(user: dict[str, Any]) -> dict[str, Any]:
