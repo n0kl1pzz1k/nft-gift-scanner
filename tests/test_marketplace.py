@@ -411,6 +411,34 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(limited.status_code, 429)
         self.assertIn("Retry-After", limited.headers)
 
+    def test_create_offer_rate_limit_is_persistent_and_returns_retry_after(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        sender_headers = {"X-Telegram-Init-Data": "user-b"}
+        order_ids = []
+        with marketplace._db() as conn:
+            now = 1700000000
+            for index in range(16):
+                order_id = f"gr-rate-{index:02d}"
+                conn.execute(
+                    """INSERT INTO demo_orders
+                    (id, user_id, owner_name, kind, title, price, currency, status, created_at, updated_at, note)
+                    VALUES (?, '101', 'Tester A', 'listing', ?, '1', 'TON', 'active', ?, ?, '')""",
+                    (order_id, f"Gift {index}", now, now),
+                )
+                order_ids.append(order_id)
+        for order_id in order_ids[:15]:
+            response = self.client.post(
+                "/api/marketplace/offers", headers=sender_headers,
+                json={"order_id": order_id, "amount": "1"},
+            )
+            self.assertEqual(response.status_code, 201)
+        limited = self.client.post(
+            "/api/marketplace/offers", headers=sender_headers,
+            json={"order_id": order_ids[15], "amount": "1"},
+        )
+        self.assertEqual(limited.status_code, 429)
+        self.assertIn("Retry-After", limited.headers)
+
     def test_cors_rejects_untrusted_origins(self):
         response = self.client.options(
             "/api/marketplace/orders",
