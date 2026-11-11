@@ -282,8 +282,11 @@ async def _fetch_swift_market_page(
     partial_providers = meta.get("partialProviders") or []
     disabled_providers = meta.get("providers_disabled") or []
     provider_errors = meta.get("providerErrors") or {}
-    partial = market in partial_providers or market in disabled_providers
+    completed_providers = meta.get("providers_completed")
+    partial = bool(meta.get("partial")) or market in partial_providers or market in disabled_providers
     if isinstance(provider_errors, dict) and market in provider_errors:
+        partial = True
+    if isinstance(completed_providers, list) and market not in completed_providers:
         partial = True
 
     normalized = [
