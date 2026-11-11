@@ -33,6 +33,22 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.db_patch.stop()
         self.temp_dir.cleanup()
 
+    def test_telegram_auth_persists_and_updates_user_profile(self):
+        first = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()["user"]["id"], "101")
+        with marketplace._db() as conn:
+            row = conn.execute("SELECT telegram_id, first_name, username FROM telegram_users WHERE telegram_id = ?", ("101",)).fetchone()
+        self.assertEqual(row["first_name"], "Tester A")
+        self.assertEqual(row["username"], "tester")
+        marketplace.upsert_telegram_user({"id":"101", "first_name":"Updated", "last_name":"Name", "username":"updated_handle", "photo_url":"https://t.me/i/userpic/1.jpg", "language_code":"ru", "is_premium":True})
+        with marketplace._db() as conn:
+            row = conn.execute("SELECT first_name, last_name, username, is_premium FROM telegram_users WHERE telegram_id = ?", ("101",)).fetchone()
+        self.assertEqual(row["first_name"], "Updated")
+        self.assertEqual(row["last_name"], "Name")
+        self.assertEqual(row["username"], "updated_handle")
+        self.assertEqual(row["is_premium"], 1)
+
     def test_orders_are_shared_and_stats_are_server_calculated(self):
         created = self.client.post(
             "/api/marketplace/orders",
