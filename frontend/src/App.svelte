@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { animate as motionAnimateRaw } from 'motion';
+  import GiftMedia from './GiftMedia.svelte';
   const motionAnimate = motionAnimateRaw as unknown as (target: Element, keyframes: Record<string, Array<number|string>>, options: {delay:number;duration:number;easing:string}) => unknown;
 
-  type Gift = { id?: string|number; name?: string; number?: string|number; image?: string; price?: string|number; floor_price?: string|number|null; currency?: string; source?: string; status?: string; listed_at?: string|number; attributes?: {type?:string;name?:string;value?:string}[]; collection_id?: string|number };
+  type Gift = { id?: string|number; name?: string; number?: string|number; image?: string; animation_url?: string; has_animation?: boolean; price?: string|number; floor_price?: string|number|null; currency?: string; source?: string; status?: string; listed_at?: string|number; attributes?: {type?:string;name?:string;value?:string}[]; collection_id?: string|number };
   type Collection = { id?: string|number; name?: string; short_name?: string; image?: string; floor_price?: string|number; day_volume?: string|number; supply?: string|number };
   type Status = { sources?: Record<string,string>; marketplace_visibility?: Record<string,boolean>; note?:string; data_pipeline?:Record<string,unknown> };
   type GiftChange = { id?:string|number; type?:string; gift?:string; giftName?:string; gift_name?:string; giftId?:string|number; at?:string|number; timestamp?:string|number; created_at?:string; model?:string; symbol?:string; backdrop?:string; name?:string };
@@ -164,7 +165,7 @@
           {#each gifts as gift (keyOf(gift))}
             <div class="gift-card">
               <button type="button" class="gift-open" onclick={()=>selected=gift}>
-                {#if gift.image}<img class="gift-image" src={gift.image} alt={gift.name||'Telegram gift'} loading="lazy" onerror={(e)=>((e.currentTarget as HTMLImageElement).style.display='none')}/>{:else}<div class="gift-placeholder">🎁</div>{/if}
+                <GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-image"/>
                 <div class="gift-info"><div class="gift-title">{gift.name||'Telegram Gift'} {gift.number?'#'+gift.number:''}</div><div class="gift-meta">{gift.source||market.toUpperCase()} · {gift.status||'—'}</div><div class="price-row"><span class="price">{formatPrice(gift.price,gift.currency||'GRAM')}</span></div></div>
               </button>
               <button class="favorite card-favorite" aria-label={t.favorite} onclick={()=>toggleFavorite(gift)}>{favorites.includes(keyOf(gift))?'♥':'♡'}</button>
@@ -200,7 +201,7 @@
       </section>
     {:else if view==='favorites'}
       <section><div class="section-head"><div class="kicker">PERSONAL LIST</div><h2>{t.favorites}</h2></div>
-        {#if shownGifts.length}<div class="grid">{#each shownGifts as gift (keyOf(gift))}<div class="gift-card"><button type="button" class="gift-open" onclick={()=>selected=gift}>{#if gift.image}<img class="gift-image" src={gift.image} alt="" loading="lazy"/>{:else}<div class="gift-placeholder">🎁</div>{/if}<div class="gift-info"><div class="gift-title">{gift.name||'Telegram Gift'}</div><div class="price-row"><span class="price">{formatPrice(gift.price,gift.currency)}</span></div></div></button><button class="favorite card-favorite" onclick={()=>toggleFavorite(gift)}>♥</button></div>{/each}</div>{:else}<div class="empty">{t.noFav}</div>{/if}
+        {#if shownGifts.length}<div class="grid">{#each shownGifts as gift (keyOf(gift))}<div class="gift-card"><button type="button" class="gift-open" onclick={()=>selected=gift}><GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-image"/><div class="gift-info"><div class="gift-title">{gift.name||'Telegram Gift'}</div><div class="price-row"><span class="price">{formatPrice(gift.price,gift.currency)}</span></div></div></button><button class="favorite card-favorite" onclick={()=>toggleFavorite(gift)}>♥</button></div>{/each}</div>{:else}<div class="empty">{t.noFav}</div>{/if}
       </section>
     {:else}
       <section class="profile-screen"><div class="section-head"><div><div class="kicker">ACCOUNT & PREFERENCES</div><h2>{t.profile}</h2></div><span class="market-live"><i></i> PERSONAL SPACE</span></div>
@@ -226,7 +227,7 @@
   <div class="modal-backdrop" role="presentation" onclick={()=>selected=null} onkeydown={(e)=>e.key==='Escape'&&(selected=null)}>
     <div class="modal" role="dialog" tabindex="-1" aria-modal="true" aria-label={selected.name||'Gift details'} onclick={(e)=>e.stopPropagation()} onkeydown={(e)=>e.stopPropagation()}>
       <button class="modal-close" onclick={()=>selected=null}>×</button>
-      {#if selected.image}<img src={selected.image} alt={selected.name||'Gift'}/>{:else}<div class="gift-placeholder">🎁</div>{/if}
+      <GiftMedia image={selected.image} animationUrl={selected.animation_url} hasAnimation={selected.has_animation} alt={selected.name||'Gift'} className="modal-gift-media"/>
       <div class="modal-body"><div class="kicker">{selected.source||market}</div><h2>{selected.name||'Telegram Gift'} #{selected.number??'—'}</h2>
         <div class="price-row"><span class="muted">Listing price</span><strong>{formatPrice(selected.price,selected.currency||'GRAM')}</strong></div>
         <div class="price-row"><span class="muted">{t.floor}</span><strong>{formatPrice(selected.floor_price,selected.currency||'GRAM')}</strong></div>
