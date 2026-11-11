@@ -46,6 +46,9 @@
   let telegramUsername = $state('');
   let telegramPremium = $state(false);
   let signedIn = $state(false);
+  let isAdmin = $state(false);
+  let adminMarketplaceEnabled = $state(true);
+  let adminBusy = $state(false);
   let notice = $state('');
   let createKind = $state<'listing' | 'buy-order'>('listing');
   let createTitle = $state('');
@@ -259,6 +262,36 @@
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
+  async function loadAdminOverview() {
+    if (!isAdmin) return;
+    try {
+      const data = await request('/api/admin/overview');
+      adminMarketplaceEnabled = data.marketplace_visibility?.portals !== false;
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function toggleAdminMarketplace() {
+    if (!isAdmin || adminBusy) return;
+    adminBusy = true;
+    try {
+      const data = await request('/api/admin/marketplaces/portals', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !adminMarketplaceEnabled }),
+      });
+      adminMarketplaceEnabled = data.enabled === true;
+      notice = lang === 'ru'
+        ? (adminMarketplaceEnabled ? 'Каталог Portals включён.' : 'Каталог Portals выключен.')
+        : (adminMarketplaceEnabled ? 'Portals catalogue enabled.' : 'Portals catalogue disabled.');
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      adminBusy = false;
+    }
+  }
+
   async function telegramLogin(showNotice = true) {
     const initData = window.Telegram?.WebApp?.initData || '';
     if (!initData) { if (showNotice) notice = t.authHint; return; }
@@ -273,10 +306,13 @@
       telegramPhoto = data.user?.photo_url || '';
       telegramUsername = data.user?.username ? '@' + data.user.username : '';
       telegramPremium = data.user?.is_premium === true;
+      isAdmin = data.is_admin === true;
       signedIn = true;
+      if (isAdmin) await loadAdminOverview();
       await loadAccountFavorites();
       if (showNotice) notice = t.signed;
     } catch (e) {
+      isAdmin = false;
       if (showNotice) notice = e instanceof Error ? e.message : String(e);
     }
   }
@@ -414,7 +450,7 @@
       {#if shownGifts.length}<div class="gift-grid">{#each shownGifts as gift (keyOf(gift))}<article class="gift-card"><button class="gift-visual" onclick={()=>void openGift(gift)}><GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/></button><div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'}</div><div class="gift-card-bottom"><strong>{fmt(gift.price,gift.currency||'TON')}</strong><button class="heart-button hearted" onclick={()=>toggleFavorite(gift)}>♥</button></div></div></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='market'}>{t.market}</button></div>{/if}
     {:else}
       <section class="page-heading"><div class="eyebrow">ACCOUNT CENTER</div><h1>{t.profile}</h1><p>{t.profileText}</p></section>
-      <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div><button class="publish-button" onclick={()=>telegramLogin()}>{t.signIn} →</button></article><article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>Wallet connection disabled</strong><small>Demo profile · no assets stored</small></div><b>DEMO</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>Portals catalogue · TON / Stars demo labels · RU / EN</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article></section>
+      <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div><button class="publish-button" onclick={()=>telegramLogin()}>{t.signIn} →</button></article><article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>Wallet connection disabled</strong><small>Demo profile · no assets stored</small></div><b>DEMO</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>Portals catalogue · TON / Stars demo labels · RU / EN</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article>{#if isAdmin}<article class="profile-card"><div class="eyebrow">ADMINISTRATION</div><h2>{lang==='ru'?'Управление каталогом':'Catalogue controls'}</h2><p>{lang==='ru'?'Доступ подтверждён сервером Telegram. Здесь можно только включать или отключать отображение каталога Portals.':'Access verified by the server through Telegram. You can only enable or disable the Portals catalogue visibility here.'}</p><div class="wallet-placeholder"><span>◈</span><div><strong>{lang==='ru'?'Каталог Portals':'Portals catalogue'}</strong><small>{adminMarketplaceEnabled?(lang==='ru'?'Включён':'Enabled'):(lang==='ru'?'Отключён':'Disabled')}</small></div><b>ADMIN</b></div><button class="publish-button" onclick={toggleAdminMarketplace} disabled={adminBusy}>{adminBusy?'…':(adminMarketplaceEnabled?(lang==='ru'?'Отключить каталог':'Disable catalogue'):(lang==='ru'?'Включить каталог':'Enable catalogue'))}</button></article>{/if}</section>
     {/if}
 
     {#if notice}<div class="toast" role="status">{notice}<button onclick={()=>notice=''}>×</button></div>{/if}
