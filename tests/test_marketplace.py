@@ -1,6 +1,11 @@
 import os
 import tempfile
 import unittest
+import hashlib
+import hmac
+import json
+import time
+from urllib.parse import urlencode
 from unittest.mock import AsyncMock, patch
 import asyncio
 
@@ -30,19 +35,45 @@ class SharedMarketplaceTests(unittest.TestCase):
             },
         )
         self.auth_patch.start()
+        self.credential_patch = patch.object(
+            api,
+            "_authenticate_telegram_credential",
+            side_effect=lambda value: (
+                api._verify_telegram_init_data(value)
+                if value in ("user-a", "user-b", "user-c")
+                else marketplace.get_telegram_session_user(value)
+            ),
+        )
+        self.credential_patch.start()
         self.client = TestClient(api.app)
 
     def tearDown(self):
         self.client.close()
+        self.credential_patch.stop()
         self.auth_patch.stop()
         self.offers_db_patch.stop()
         self.db_patch.stop()
         self.temp_dir.cleanup()
 
+    def test_initdata_replay_protection_is_independent_of_query_parameter_order(self):
+        signature = "a" * 64
+        first = "auth_date=123&user=%7B%7D&hash=" + signature
+        reordered = "hash=" + signature + "&auth_date=123&user=%7B%7D"
+        self.assertTrue(marketplace.consume_telegram_init_data(first, "101"))
+        self.assertFalse(marketplace.consume_telegram_init_data(reordered, "101"))
+
     def test_telegram_auth_persists_and_updates_user_profile(self):
         first = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
         self.assertEqual(first.status_code, 200)
         self.assertEqual(first.json()["user"]["id"], "101")
+        token = first.json()["session_token"]
+        self.assertTrue(token.startswith("grs_"))
+        self.assertEqual(first.json()["expires_in"], 43200)
+        replay = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
+        self.assertEqual(replay.status_code, 409)
+        session_user = api._authenticate_telegram_credential(token)
+        self.assertEqual(session_user["id"], "101")
+        self.assertIsNone(marketplace.get_telegram_session_user("grs_invalid-token"))
         with marketplace._db() as conn:
             row = conn.execute("SELECT telegram_id, first_name, username FROM telegram_users WHERE telegram_id = ?", ("101",)).fetchone()
         self.assertEqual(row["first_name"], "Tester A")
@@ -969,6 +1000,50 @@ class PortalsReadOnlyClientTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(api.HTTPException) as raised:
             await api._portals_get_json("/partners/market/buy", {})
         self.assertEqual(raised.exception.status_code, 400)
+
+
+
+class TelegramInitDataValidationTests(unittest.TestCase):
+    def _signed_init_data(self, auth_date: int | None = None) -> str:
+        bot_token = "test-bot-token"
+        values = {
+            "auth_date": str(auth_date if auth_date is not None else int(time.time())),
+            "query_id": "AAE-test-query",
+            "user": json.dumps({"id": 123456, "first_name": "Test"}, separators=(",", ":")),
+        }
+        check_string = "\n".join(f"{key}={value}" for key, value in sorted(values.items()))
+        secret = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
+        values["hash"] = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
+        return urlencode(values)
+
+    def test_raw_init_data_cannot_be_used_directly_as_an_api_session(self):
+        with self.assertRaises(api.HTTPException) as raised:
+            api._authenticate_telegram_credential("auth_date=123&hash=" + "a" * 64)
+        self.assertEqual(raised.exception.status_code, 401)
+
+    def test_valid_telegram_init_data_is_verified(self):
+        with patch.dict(os.environ, {"BOT_TOKEN": "test-bot-token", "TELEGRAM_INITDATA_MAX_AGE_SECONDS": "300"}):
+            user = api._verify_telegram_init_data(self._signed_init_data())
+        self.assertEqual(user["id"], 123456)
+
+    def test_tampered_or_duplicate_init_data_is_rejected(self):
+        signed = self._signed_init_data()
+        tampered = signed.replace("first_name", "last_name")
+        with patch.dict(os.environ, {"BOT_TOKEN": "test-bot-token"}):
+            with self.assertRaises(api.HTTPException) as invalid_signature:
+                api._verify_telegram_init_data(tampered)
+            self.assertEqual(invalid_signature.exception.status_code, 401)
+            with self.assertRaises(api.HTTPException) as duplicate:
+                api._verify_telegram_init_data("auth_date=1&auth_date=2&hash=" + "0" * 64)
+            self.assertEqual(duplicate.exception.status_code, 401)
+
+    def test_expired_and_future_init_data_is_rejected(self):
+        now = int(time.time())
+        with patch.dict(os.environ, {"BOT_TOKEN": "test-bot-token", "TELEGRAM_INITDATA_MAX_AGE_SECONDS": "60"}):
+            with self.assertRaises(api.HTTPException):
+                api._verify_telegram_init_data(self._signed_init_data(now - 120))
+            with self.assertRaises(api.HTTPException):
+                api._verify_telegram_init_data(self._signed_init_data(now + 120))
 
 
 if __name__ == "__main__":
