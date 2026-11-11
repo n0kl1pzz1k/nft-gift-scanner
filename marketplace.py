@@ -58,6 +58,16 @@ def init_marketplace_db() -> None:
             updated_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_telegram_users_updated ON telegram_users(updated_at DESC);
+        CREATE TABLE IF NOT EXISTS user_profiles (
+            profile_id TEXT PRIMARY KEY,
+            telegram_id TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            bio TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY(telegram_id) REFERENCES telegram_users(telegram_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_profiles_updated ON user_profiles(updated_at DESC);
         CREATE TABLE IF NOT EXISTS telegram_sessions (
             token_hash TEXT PRIMARY KEY,
             telegram_id TEXT NOT NULL,
@@ -458,6 +468,24 @@ def _order_dict(row: sqlite3.Row, current_user_id: str | None = None) -> dict[st
     }
 
 
+class UpdateSellerProfile(BaseModel):
+    display_name: str = Field(min_length=1, max_length=48)
+    bio: str = Field(default="", max_length=280)
+
+    @field_validator("display_name")
+    @classmethod
+    def clean_display_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Display name is required")
+        return value
+
+    @field_validator("bio")
+    @classmethod
+    def clean_bio(cls, value: str) -> str:
+        return value.strip()
+
+
 class CreateDemoOrder(BaseModel):
     kind: Literal["listing", "buy-order"]
     title: str = Field(min_length=1, max_length=120)
@@ -529,7 +557,87 @@ def create_marketplace_router(
     verify_telegram_init_data: Callable[[str], dict],
     verify_admin: Callable[[str | None], dict] | None = None,
 ) -> APIRouter:
-    router = APIRouter(prefix="/api/marketplace", tags=["demo-marketplace"])
+    router = APIRouter(prefix="/api/marketplace", tags=["marketplace"])
+
+    @router.get("/profiles/me")
+    async def get_my_seller_profile(
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        user = _user(x_telegram_init_data, verify_telegram_init_data)
+        telegram_id = str(user["id"])
+        now = int(time.time())
+        fallback_name = (user.get("first_name") or user.get("username") or "Telegram user")[:48]
+        with _db() as conn:
+            conn.execute(
+                """INSERT OR IGNORE INTO user_profiles
+                   (profile_id, telegram_id, display_name, bio, created_at, updated_at)
+                   VALUES (?, ?, ?, '', ?, ?)""",
+                ("usr_" + secrets.token_urlsafe(12), telegram_id, fallback_name, now, now),
+            )
+            row = conn.execute(
+                """SELECT p.profile_id, p.display_name, p.bio, p.created_at, p.updated_at,
+                          u.username
+                   FROM user_profiles p JOIN telegram_users u ON u.telegram_id = p.telegram_id
+                   WHERE p.telegram_id = ?""",
+                (telegram_id,),
+            ).fetchone()
+        return {"profile": dict(row)}
+
+    @router.put("/profiles/me")
+    async def update_my_seller_profile(
+        payload: UpdateSellerProfile,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        user = _user(x_telegram_init_data, verify_telegram_init_data)
+        telegram_id = str(user["id"])
+        _enforce_user_rate_limit(telegram_id, "update_seller_profile", 8)
+        now = int(time.time())
+        fallback_name = (user.get("first_name") or user.get("username") or "Telegram user")[:48]
+        with _db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                """INSERT OR IGNORE INTO user_profiles
+                   (profile_id, telegram_id, display_name, bio, created_at, updated_at)
+                   VALUES (?, ?, ?, '', ?, ?)""",
+                ("usr_" + secrets.token_urlsafe(12), telegram_id, fallback_name, now, now),
+            )
+            conn.execute(
+                """UPDATE user_profiles SET display_name = ?, bio = ?, updated_at = ?
+                   WHERE telegram_id = ?""",
+                (payload.display_name, payload.bio, now, telegram_id),
+            )
+            row = conn.execute(
+                """SELECT p.profile_id, p.display_name, p.bio, p.created_at, p.updated_at,
+                          u.username
+                   FROM user_profiles p JOIN telegram_users u ON u.telegram_id = p.telegram_id
+                   WHERE p.telegram_id = ?""",
+                (telegram_id,),
+            ).fetchone()
+            conn.commit()
+        return {"profile": dict(row)}
+
+    @router.get("/profiles/{profile_id}")
+    async def get_public_seller_profile(profile_id: str):
+        if not profile_id.startswith("usr_") or len(profile_id) > 64:
+            raise HTTPException(status_code=404, detail="Seller profile not found")
+        with _db() as conn:
+            row = conn.execute(
+                """SELECT p.profile_id, p.display_name, p.bio, p.created_at,
+                          u.username,
+                          (SELECT COUNT(*) FROM demo_orders o
+                           WHERE o.user_id = p.telegram_id AND o.kind = 'listing'
+                             AND o.status = 'active') AS active_listings
+                   FROM user_profiles p JOIN telegram_users u ON u.telegram_id = p.telegram_id
+                   WHERE p.profile_id = ?""",
+                (profile_id,),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Seller profile not found")
+        # No Telegram numeric ID, session data, private fields or unverified reputation
+        # are exposed in the public seller card.
+        return {"profile": {**dict(row), "completed_trades": 0, "rating": None}}
+
+
 
     @router.post("/orders/{order_id}/reports", status_code=201)
     async def create_order_report(

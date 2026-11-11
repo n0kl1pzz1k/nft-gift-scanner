@@ -1117,5 +1117,77 @@ class TelegramSessionSecurityTests(unittest.TestCase):
         self.assertEqual(marketplace.claim_telegram_update(778, payload), "claimed")
 
 
+
+class SellerProfileTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_patch = patch.object(marketplace, "DB_PATH", os.path.join(self.temp_dir.name, "profiles.sqlite3"))
+        self.db_patch.start()
+        marketplace.init_marketplace_db()
+        marketplace.upsert_telegram_user({"id": "101", "first_name": "Profile Tester", "username": "profile_tester"})
+        self.auth_patch = patch.object(
+            api,
+            "_authenticate_telegram_credential",
+            side_effect=lambda token: (
+                {"id": "101", "first_name": "Profile Tester", "username": "profile_tester"}
+                if token == "profile-session" else None
+            ),
+        )
+        self.auth_patch.start()
+        self.client = TestClient(api.app)
+
+    def tearDown(self):
+        self.client.close()
+        self.auth_patch.stop()
+        self.db_patch.stop()
+        self.temp_dir.cleanup()
+
+    def test_seller_profile_can_be_created_updated_and_viewed_publicly(self):
+        headers = {"X-Telegram-Init-Data": "profile-session"}
+        initial = self.client.get("/api/marketplace/profiles/me", headers=headers)
+        self.assertEqual(initial.status_code, 200)
+        profile = initial.json()["profile"]
+        self.assertEqual(profile["display_name"], "Profile Tester")
+        self.assertTrue(profile["profile_id"].startswith("usr_"))
+
+        updated = self.client.put(
+            "/api/marketplace/profiles/me",
+            headers=headers,
+            json={"display_name": "Gift Seller", "bio": "Collecting rare Telegram gifts."},
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json()["profile"]["display_name"], "Gift Seller")
+        self.assertEqual(updated.json()["profile"]["bio"], "Collecting rare Telegram gifts.")
+
+        public = self.client.get(f"/api/marketplace/profiles/{profile['profile_id']}")
+        self.assertEqual(public.status_code, 200)
+        public_profile = public.json()["profile"]
+        self.assertEqual(public_profile["display_name"], "Gift Seller")
+        self.assertEqual(public_profile["username"], "profile_tester")
+        self.assertNotIn("telegram_id", public_profile)
+        self.assertNotIn("session_token", public_profile)
+        self.assertEqual(public_profile["completed_trades"], 0)
+        self.assertIsNone(public_profile["rating"])
+
+    def test_profile_update_rejects_blank_name_and_oversized_bio(self):
+        headers = {"X-Telegram-Init-Data": "profile-session"}
+        blank = self.client.put(
+            "/api/marketplace/profiles/me",
+            headers=headers,
+            json={"display_name": "   ", "bio": ""},
+        )
+        self.assertEqual(blank.status_code, 422)
+        oversized = self.client.put(
+            "/api/marketplace/profiles/me",
+            headers=headers,
+            json={"display_name": "Seller", "bio": "x" * 281},
+        )
+        self.assertEqual(oversized.status_code, 422)
+
+    def test_profile_endpoints_require_auth_for_private_profile(self):
+        response = self.client.get("/api/marketplace/profiles/me")
+        self.assertEqual(response.status_code, 401)
+
+
 if __name__ == "__main__":
     unittest.main()
