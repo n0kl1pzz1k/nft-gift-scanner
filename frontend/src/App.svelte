@@ -126,7 +126,7 @@
     try {
       const [publicData, mineData, statsData] = await Promise.all([
         request('/api/marketplace/orders?status=active&limit=100'),
-        window.Telegram?.WebApp?.initData ? request('/api/marketplace/history') : Promise.resolve({items:[]}),
+        window.Telegram?.WebApp?.initData ? request('/api/marketplace/mine') : Promise.resolve({items:[]}),
         request('/api/marketplace/stats'),
       ]);
       const combined = new Map<string, DemoOrder>();
