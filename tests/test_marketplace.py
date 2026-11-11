@@ -115,6 +115,25 @@ class SharedMarketplaceTests(unittest.TestCase):
             )
             self.assertEqual(response.status_code, 403)
 
+    def test_admin_overview_requires_admin_authentication(self):
+        missing = self.client.get("/api/admin/overview")
+        self.assertEqual(missing.status_code, 401)
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "999"}):
+            regular = self.client.get(
+                "/api/admin/overview",
+                headers={"X-Telegram-Init-Data": "user-a"},
+            )
+        self.assertEqual(regular.status_code, 403)
+
+    def test_admin_rejects_unknown_marketplace(self):
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
+            response = self.client.post(
+                "/api/admin/marketplaces/unknown",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"enabled": False},
+            )
+        self.assertEqual(response.status_code, 404)
+
     def test_status_reports_persistent_metadata_history_capability(self):
         status = self.client.get("/api/status")
         self.assertEqual(status.status_code, 200)
