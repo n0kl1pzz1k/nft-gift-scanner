@@ -95,9 +95,11 @@
   const demoVolumeStars = $derived(marketplaceStats.volume_stars);
   const fmt = (value: unknown, currency = '') => value === null || value === undefined || value === '' ? '—' : String(value) + (currency ? ' ' + currency : '');
 
-  const authHeaders = () => {
+  const authHeaders = (): Record<string, string> => {
     const initData = window.Telegram?.WebApp?.initData || '';
-    return initData ? { 'X-Telegram-Init-Data': initData } : {};
+    const headers: Record<string, string> = {};
+    if (initData) headers['X-Telegram-Init-Data'] = initData;
+    return headers;
   };
 
   async function request(path: string, signal?: AbortSignal, init: RequestInit = {}) {
