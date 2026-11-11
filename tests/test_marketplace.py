@@ -483,6 +483,34 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(limited.status_code, 429)
         self.assertIn("Retry-After", limited.headers)
 
+    def test_offer_status_mutations_are_rate_limited(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        sender_headers = {"X-Telegram-Init-Data": "user-b"}
+        order = self.client.post(
+            "/api/marketplace/orders", headers=owner_headers,
+            json={"kind": "listing", "title": "Rate limit offer update", "price": "1", "currency": "TON"},
+        )
+        self.assertEqual(order.status_code, 201)
+        offered = self.client.post(
+            "/api/marketplace/offers", headers=sender_headers,
+            json={"order_id": order.json()["item"]["id"], "amount": "1"},
+        )
+        self.assertEqual(offered.status_code, 201)
+        offer_id = offered.json()["item"]["id"]
+
+        for index in range(30):
+            response = self.client.patch(
+                f"/api/marketplace/offers/{offer_id}", headers=owner_headers,
+                json={"action": "decline"},
+            )
+            self.assertIn(response.status_code, (200, 409))
+        limited = self.client.patch(
+            f"/api/marketplace/offers/{offer_id}", headers=owner_headers,
+            json={"action": "decline"},
+        )
+        self.assertEqual(limited.status_code, 429)
+        self.assertIn("Retry-After", limited.headers)
+
     def test_create_offer_rate_limit_is_persistent_and_returns_retry_after(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         sender_headers = {"X-Telegram-Init-Data": "user-b"}
