@@ -1,6 +1,6 @@
-# NFT Gift Scanner
+# GIFT RADAR — Telegram NFT Gift Marketplace
 
-Telegram bot and bilingual Mini App for public, read-only Telegram gift marketplace information.
+Telegram bot and bilingual Mini App for browsing public NFT gift marketplace listings, collections, gift metadata and market references.
 
 ## Current verified scope
 
