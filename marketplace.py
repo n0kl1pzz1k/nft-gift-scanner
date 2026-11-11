@@ -305,12 +305,14 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
     ):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         _enforce_user_rate_limit(str(user["id"]), "remove_favorite", 30)
+        if not gift_id or gift_id != gift_id.strip() or len(gift_id) > 160:
+            raise HTTPException(status_code=422, detail="Gift ID must be between 1 and 160 characters")
         with _db() as conn:
             conn.execute(
                 "DELETE FROM user_favorites WHERE telegram_id = ? AND gift_id = ?",
-                (str(user["id"]), gift_id[:160]),
+                (str(user["id"]), gift_id),
             )
-        return {"removed": True, "gift_id": gift_id[:160]}
+        return {"removed": True, "gift_id": gift_id}
 
     @router.get("/orders")
     async def list_orders(
