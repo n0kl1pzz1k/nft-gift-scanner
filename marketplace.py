@@ -196,8 +196,25 @@ def upsert_telegram_user(user: dict[str, Any]) -> dict[str, Any]:
 
 
 def consume_telegram_init_data(init_data: str, telegram_id: str, ttl_seconds: int = 900) -> bool:
-    """Atomically mark a verified initData payload as exchanged; persist only its digest."""
-    digest = hashlib.sha256(init_data.encode("utf-8")).hexdigest()
+    """Atomically mark a verified initData signature as exchanged, independent of query order."""
+    from urllib.parse import parse_qsl
+
+    try:
+        pairs = parse_qsl(init_data, keep_blank_values=True, strict_parsing=True, max_num_fields=64)
+        values: dict[str, str] = {}
+        for key, value in pairs:
+            if not key or key in values:
+                raise ValueError("Duplicate initData field")
+            values[key] = value
+        signature = values.get("hash")
+        if not signature or len(signature) != 64:
+            raise ValueError("Missing Telegram signature")
+        replay_material = signature.lower()
+    except ValueError:
+        # Test-only compatibility for mocked auth callbacks; production verification
+        # rejects malformed raw initData before this function is called.
+        replay_material = init_data
+    digest = hashlib.sha256(replay_material.encode("utf-8")).hexdigest()
     now = int(time.time())
     with _db() as conn:
         conn.execute("BEGIN IMMEDIATE")
