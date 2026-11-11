@@ -23,13 +23,9 @@ DB_PATH = os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gif
 
 
 def _connect() -> sqlite3.Connection:
-    path = Path(DB_PATH)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=15, isolation_level=None)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA busy_timeout = 15000")
-    return conn
+    # Keep both marketplace subsystems on the same connection policy.
+    from marketplace import _connect_database
+    return _connect_database(DB_PATH)
 
 
 @contextmanager

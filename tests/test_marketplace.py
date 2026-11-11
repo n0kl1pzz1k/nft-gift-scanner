@@ -56,6 +56,16 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.db_patch.stop()
         self.temp_dir.cleanup()
 
+    def test_database_connections_enforce_durability_and_lock_wait_policy(self):
+        with marketplace._db() as conn:
+            self.assertEqual(conn.execute("PRAGMA foreign_keys").fetchone()[0], 1)
+            self.assertEqual(conn.execute("PRAGMA busy_timeout").fetchone()[0], 30000)
+            self.assertEqual(conn.execute("PRAGMA synchronous").fetchone()[0], 2)
+            self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0].lower(), "wal")
+        with demo_offers._db() as conn:
+            self.assertEqual(conn.execute("PRAGMA busy_timeout").fetchone()[0], 30000)
+            self.assertEqual(conn.execute("PRAGMA synchronous").fetchone()[0], 2)
+
     def test_initdata_replay_protection_is_independent_of_query_parameter_order(self):
         signature = "a" * 64
         first = "auth_date=123&user=%7B%7D&hash=" + signature
