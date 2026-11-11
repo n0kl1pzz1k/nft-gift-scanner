@@ -303,10 +303,18 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 "deal_created": action == "accept"}
 
     @router.get("/deals")
-    async def list_deals(x_telegram_init_data: str | None = Header(default=None)):
+    async def list_deals(
+        limit: int = Query(default=100, ge=1, le=200),
+        offset: int = Query(default=0, ge=0, le=10000),
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         user_id = str(user["id"])
         with _db() as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM demo_deals WHERE listing_owner_id = ? OR offer_sender_id = ?",
+                (user_id, user_id),
+            ).fetchone()[0]
             rows = conn.execute("""
                 SELECT d.*, o.title AS order_title, o.owner_name AS order_owner_name,
                        f.sender_name AS offer_sender_name
@@ -314,15 +322,15 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 JOIN demo_orders o ON o.id = d.order_id
                 JOIN demo_offers f ON f.id = d.offer_id
                 WHERE d.listing_owner_id = ? OR d.offer_sender_id = ?
-                ORDER BY d.created_at DESC LIMIT 200
-            """, (user_id, user_id)).fetchall()
+                ORDER BY d.created_at DESC, d.id DESC LIMIT ? OFFSET ?
+            """, (user_id, user_id, limit, offset)).fetchall()
         return {"items": [{
             "id": row["id"], "order_id": row["order_id"], "offer_id": row["offer_id"],
             "title": row["order_title"], "listing_owner": row["order_owner_name"],
             "offer_sender": row["offer_sender_name"], "amount": row["agreed_amount"],
             "currency": row["currency"], "created_at": row["created_at"],
             "status": "simulated_complete", "simulation_only": True,
-        } for row in rows]}
+        } for row in rows], "total": total, "limit": limit, "offset": offset}
 
     @router.get("/notifications")
     async def list_notifications(
