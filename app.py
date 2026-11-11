@@ -41,6 +41,12 @@ _last_request_at = 0.0
 _refresh_task: asyncio.Task | None = None
 
 
+def _refresh_interval_seconds() -> int:
+    try:
+        return max(60, min(int(os.getenv("DATA_REFRESH_SECONDS", "60")), 900))
+    except (TypeError, ValueError):
+        return 60
+
 
 class TelegramAuthRequest(BaseModel):
     init_data: str
@@ -218,6 +224,12 @@ async def status():
         },
         "marketplace_visibility": dict(_marketplace_visibility),
         "cross_market_comparison": False,
+        "data_pipeline": {
+            "delivery": "server_to_app_api",
+            "cache": "server_memory_cache",
+            "refresh_interval_seconds": _refresh_interval_seconds(),
+            "persistent_history": False,
+        },
         "note": "Portals uses documented read-only routes. Tonnel uses an experimental public-listings endpoint and may be unavailable. MRKT remains unconnected because the available integration instructions require account-linked Telegram authorization.",
     }
 
@@ -418,6 +430,10 @@ async def gifts(
         "updated_at": int(time.time()),
     }
     _gifts_cache[cache_key] = (time.monotonic(), result)
+    if len(_gifts_cache) > 200:
+        oldest = sorted(_gifts_cache, key=lambda key: _gifts_cache[key][0])[:-150]
+        for old_key in oldest:
+            _gifts_cache.pop(old_key, None)
     return result
 
 
@@ -519,6 +535,10 @@ async def _fetch_tonnel_page(page: int, limit: int, search: str | None) -> tuple
     _tonnel_runtime_status = "online_read_only"
     result = (rows, total_count)
     _tonnel_cache[cache_key] = (time.monotonic(), result)
+    if len(_tonnel_cache) > 200:
+        oldest = sorted(_tonnel_cache, key=lambda key: _tonnel_cache[key][0])[:-150]
+        for old_key in oldest:
+            _tonnel_cache.pop(old_key, None)
     return result
 
 
@@ -569,7 +589,7 @@ async def tonnel_gifts(
 
 async def _refresh_public_catalogues():
     """Warm backend caches from upstream public APIs independently of browser visits."""
-    interval = max(60, min(int(os.getenv("DATA_REFRESH_SECONDS", "60")), 900))
+    interval = _refresh_interval_seconds()
     while True:
         if _marketplace_visibility["portals"] and os.getenv("PORTALS_API_KEY", "").strip():
             try:
