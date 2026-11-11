@@ -6,6 +6,7 @@
   type Gift = { id?: string|number; name?: string; number?: string|number; image?: string; price?: string|number; floor_price?: string|number|null; currency?: string; source?: string; status?: string; listed_at?: string|number; attributes?: {type?:string;name?:string;value?:string}[]; collection_id?: string|number };
   type Collection = { id?: string|number; name?: string; short_name?: string; image?: string; floor_price?: string|number; day_volume?: string|number; supply?: string|number };
   type Status = { sources?: Record<string,string>; marketplace_visibility?: Record<string,boolean>; note?:string; data_pipeline?:Record<string,unknown> };
+  type GiftChange = { id?:string|number; type?:string; gift?:string; giftName?:string; gift_name?:string; giftId?:string|number; at?:string|number; timestamp?:string|number; created_at?:string; model?:string; symbol?:string; backdrop?:string; name?:string };
 
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://nft-gift-scanner-production.up.railway.app').replace(/\/$/,'');
   let lang = $state<'ru'|'en'>('ru');
@@ -27,11 +28,17 @@
   let visibility = $state<Record<string,boolean>>({portals:true,tonnel:true,mrkt:false});
   let total = $state(0);
   let refreshed = $state('');
+  let giftChanges = $state<GiftChange[]>([]);
+  let dailyArchiveAvailable = $state(false);
+  let referenceLoading = $state(true);
+  let referenceError = $state('');
 
   const t = $derived(lang === 'ru' ? {
-    catalog:'Каталог',collections:'Коллекции',favorites:'Избранное',profile:'Профиль',headline:'Подарки Telegram',sub:'Публичные каталоги и данные маркетплейсов — в одном рабочем пространстве.',system:'Состояние источников',listings:'Публичные объявления',search:'Поиск по названию или номеру',min:'Цена от',max:'Цена до',apply:'Найти',empty:'Нет публичных объявлений по этому запросу.',loading:'Загружаем данные…',viewOnly:'Только просмотр · без транзакций',details:'Подробнее',floor:'Флор',favorite:'В избранное',saved:'В избранном',back:'Назад',signIn:'Подтвердить Telegram',guest:'Гость',profileText:'Профиль Mini App. Авторизация доступна только внутри Telegram.',noFav:'Пока нет сохранённых карточек.',noCollections:'Источник пока не вернул коллекции.',error:'Не удалось получить данные',refresh:'Обновлено',notConnected:'Не подключён',admin:'Управление источниками',connected:'Подключён',mrktOff:'Отключён до подтверждения публичного API',public:'Публичные данные'
+    catalog:'Каталог',collections:'Коллекции',favorites:'Избранное',profile:'Профиль',headline:'Подарки Telegram',sub:'Публичные каталоги и данные маркетплейсов — в одном рабочем пространстве.',system:'Состояние источников',listings:'Публичные объявления',search:'Поиск по названию или номеру',min:'Цена от',max:'Цена до',apply:'Найти',empty:'Нет публичных объявлений по этому запросу.',loading:'Загружаем данные…',viewOnly:'Только просмотр · без транзакций',details:'Подробнее',floor:'Флор',favorite:'В избранное',saved:'В избранном',back:'Назад',signIn:'Подтвердить Telegram',guest:'Гость',profileText:'Профиль Mini App. Авторизация доступна только внутри Telegram.',noFav:'Пока нет сохранённых карточек.',noCollections:'Источник пока не вернул коллекции.',error:'Не удалось получить данные',refresh:'Обновлено',notConnected:'Не подключён',admin:'Управление источниками',connected:'Подключён',mrktOff:'Отключён до подтверждения публичного API',public:'Публичные данные',
+    changesTitle:'Обновления каталога',changesLoading:'Загружаем публичные изменения…',changesEmpty:'Свежих изменений каталога пока нет.',changesError:'Лента изменений временно недоступна.',dailyArchive:'Ежедневный архив TG Gifts · CC BY 4.0',dailyArchiveInfo:'Исторические данные по коллекциям обновляются ежедневно. Это не live-объявления.'
   } : {
-    catalog:'Catalogue',collections:'Collections',favorites:'Favorites',profile:'Profile',headline:'Telegram gifts',sub:'Public catalogues and marketplace data in one workspace.',system:'Source status',listings:'Public listings',search:'Search by name or number',min:'Min price',max:'Max price',apply:'Search',empty:'No public listings match this query.',loading:'Loading data…',viewOnly:'Read-only · no transactions',details:'Details',floor:'Floor',favorite:'Save',saved:'Saved',back:'Back',signIn:'Verify Telegram',guest:'Guest',profileText:'Mini App profile. Sign-in is available only inside Telegram.',noFav:'No saved cards yet.',noCollections:'The source has not returned collections.',error:'Could not load data',refresh:'Updated',notConnected:'Not connected',admin:'Source controls',connected:'Connected',mrktOff:'Disabled until a public API is verified',public:'Public data'
+    catalog:'Catalogue',collections:'Collections',favorites:'Favorites',profile:'Profile',headline:'Telegram gifts',sub:'Public catalogues and marketplace data in one workspace.',system:'Source status',listings:'Public listings',search:'Search by name or number',min:'Min price',max:'Max price',apply:'Search',empty:'No public listings match this query.',loading:'Loading data…',viewOnly:'Read-only · no transactions',details:'Details',floor:'Floor',favorite:'Save',saved:'Saved',back:'Back',signIn:'Verify Telegram',guest:'Guest',profileText:'Mini App profile. Sign-in is available only inside Telegram.',noFav:'No saved cards yet.',noCollections:'The source has not returned collections.',error:'Could not load data',refresh:'Updated',notConnected:'Not connected',admin:'Source controls',connected:'Connected',mrktOff:'Disabled until a public API is verified',public:'Public data',
+    changesTitle:'Catalogue updates',changesLoading:'Loading public metadata changes…',changesEmpty:'No recent catalogue changes were returned.',changesError:'The change feed is temporarily unavailable.',dailyArchive:'TG Gifts daily archive · CC BY 4.0',dailyArchiveInfo:'Historical collection data is updated daily. These are not live listings.'
   });
 
   const keyOf = (g:Gift) => String(g.source||market)+':'+String(g.id??g.number??g.name??'unknown');
@@ -44,6 +51,29 @@
     const data = await response.json().catch(()=>({detail:'Invalid server response'}));
     if(!response.ok) throw new Error(data.detail || 'Request failed');
     return data;
+  }
+  function changeTime(value:GiftChange['at']|GiftChange['timestamp']|GiftChange['created_at']) {
+    if(value===undefined||value===null||value==='')return '—';
+    const numeric=typeof value==='number'?value:Number(value);
+    const date=Number.isFinite(numeric)&&String(value).trim()!==''?new Date(numeric>(1e12)?numeric:numeric*1000):new Date(String(value));
+    return Number.isNaN(date.getTime())?String(value):date.toLocaleString(lang==='ru'?'ru-RU':'en-GB',{dateStyle:'short',timeStyle:'short'});
+  }
+  async function loadReferenceFeeds() {
+    referenceLoading=true; referenceError='';
+    const [changesResult,dailyResult]=await Promise.allSettled([
+      request('/api/reference/gift-changes?limit=25'),
+      request('/api/reference/daily-floors')
+    ]);
+    if(changesResult.status==='fulfilled'){
+      const raw=changesResult.value?.data;
+      const rows=Array.isArray(raw)?raw:(Array.isArray(raw?.changes)?raw.changes:(Array.isArray(raw?.items)?raw.items:(Array.isArray(raw?.events)?raw.events:[])));
+      giftChanges=rows.slice(0,8);
+    }else{
+      giftChanges=[];
+      referenceError=changesResult.reason instanceof Error?changesResult.reason.message:String(changesResult.reason);
+    }
+    dailyArchiveAvailable=dailyResult.status==='fulfilled';
+    referenceLoading=false;
   }
   async function loadCatalogue(term='') {
     busy=true; error='';
@@ -78,6 +108,7 @@
     window.Telegram?.WebApp?.ready?.(); window.Telegram?.WebApp?.expand?.();
     try{const saved=JSON.parse(localStorage.getItem('gift-radar-favorites')||'[]');if(Array.isArray(saved))favorites=saved;}catch{}
     void loadCatalogue();
+    void loadReferenceFeeds();
   });
 </script>
 
@@ -133,6 +164,28 @@
           {/each}
         </div>{/if}
       </section>
+        <section class="panel reference-panel">
+          <div class="panel-head"><div><div class="kicker">PUBLIC REFERENCE DATA</div><h2>{t.changesTitle}</h2></div><span class="muted">{dailyArchiveAvailable?'TG Gifts · CC BY 4.0':t.notConnected}</span></div>
+          {#if referenceLoading}
+            <p class="muted">{t.changesLoading}</p>
+          {:else if referenceError}
+            <p class="muted">{t.changesError}</p>
+          {:else if giftChanges.length}
+            <div class="change-feed">
+              {#each giftChanges as change,index (String(change.id??change.giftId??index))}
+                <article class="change-item">
+                  <div><strong>{[change.type,change.gift||change.giftName||change.gift_name].filter(Boolean).join(' · ')||'Gift metadata update'}</strong>
+                    {#if [change.model,change.symbol,change.backdrop,change.name].some(Boolean)}<span>{[change.model,change.symbol,change.backdrop,change.name].filter(Boolean).join(' · ')}</span>{/if}
+                  </div>
+                  <time>{changeTime(change.at??change.timestamp??change.created_at)}</time>
+                </article>
+              {/each}
+            </div>
+          {:else}
+            <p class="muted">{t.changesEmpty}</p>
+          {/if}
+          <p class="muted archive-note">{t.dailyArchiveInfo} <a href="https://tggifts.com/data" target="_blank" rel="noreferrer">Data: TG Gifts (tggifts.com)</a> · CC BY 4.0</p>
+        </section>
     {:else if view==='collections'}
       <section><div class="section-head"><div class="kicker">COLLECTION INDEX</div><h2>{t.collections}</h2></div>
         {#if collections.length}<div class="collection-grid">{#each collections as c (String(c.id??c.short_name))}<article class="collection-card">{#if c.image}<img src={c.image} alt="" loading="lazy"/>{:else}<div class="gift-placeholder" style="width:48px;min-width:48px;aspect-ratio:1;font-size:20px">🎁</div>{/if}<div><strong>{c.name||c.short_name}</strong><span>{t.floor}: {formatPrice(c.floor_price,'GRAM')}</span></div></article>{/each}</div>{:else}<div class="empty">{t.noCollections}</div>{/if}
