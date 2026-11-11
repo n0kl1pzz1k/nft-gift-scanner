@@ -577,7 +577,22 @@ async def _refresh_public_catalogues():
             except Exception:
                 pass
             try:
-                await gifts(limit=24, offset=0)
+                await gifts(
+                    limit=24,
+                    offset=0,
+                    search=None,
+                    collection_id=None,
+                    min_price=None,
+                    max_price=None,
+                    external_collection_number=None,
+                    filter_by_backdrops=None,
+                    filter_by_models=None,
+                    filter_by_symbols=None,
+                    mint_status=None,
+                    statuses=None,
+                    sort_by=None,
+                    status=None,
+                )
             except Exception:
                 pass
         if _marketplace_visibility["tonnel"]:
