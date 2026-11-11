@@ -316,3 +316,14 @@ footer{margin-top:32px;padding-top:15px}
  .modal-content{padding-bottom:calc(20px + env(safe-area-inset-bottom))}
  .modal-detail-row{padding:11px 2px;font-size:12px}
 }
+
+
+/* Telegram identity and admin-only controls */
+.telegram-auth-card,.admin-panel{grid-column:1/-1}
+.admin-panel[hidden]{display:none!important}
+.admin-market-controls{display:grid;gap:9px;margin-top:16px}
+.admin-market-controls>div{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 13px;border:1px solid var(--line);border-radius:12px;background:#ffffff05}
+.admin-market-controls>div span{font-size:12px;font-weight:800}
+.admin-market-controls button{min-width:104px;padding:8px 12px;border:1px solid #9382ff55;border-radius:9px;background:#8d7cff19;color:#e7e1ff;font:700 10px Manrope,sans-serif;cursor:pointer}
+.admin-market-controls button[aria-pressed="true"]{border-color:#48c99a66;background:#1a9c7022;color:#9af0c9}
+.admin-market-controls button:disabled{opacity:.55;cursor:wait}
