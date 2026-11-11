@@ -100,6 +100,12 @@ class SharedMarketplaceTests(unittest.TestCase):
         )
         self.assertEqual(oversized.status_code, 422)
 
+        oversized_delete = self.client.delete(
+            f"/api/marketplace/favorites/{oversized_id}",
+            headers=headers,
+        )
+        self.assertEqual(oversized_delete.status_code, 422)
+
         self.assertEqual(
             self.client.get("/api/marketplace/favorites", headers=headers).json()["items"],
             [],
