@@ -94,33 +94,27 @@
   </aside>
   <main class="main">
     <div class="topbar"><span class="live">READ-ONLY MARKET MONITOR</span><button class="lang" onclick={()=>{lang=lang==='ru'?'en':'ru';}}>RU / EN</button></div>
-    <section class="hero">
-      <div class="kicker">TELEGRAM NFT · MARKET DATA</div>
-      <h1>{t.headline} <span class="gradient">в одном месте.</span></h1>
-      <p>{t.sub}</p>
-      <div class="pills"><span class="pill">✦ {t.public}</span><span class="pill">◈ {t.viewOnly}</span><span class="pill">⌁ No transactions</span></div>
-    </section>
-    <section class="panel">
-      <div class="panel-head"><div><div class="kicker">{t.system}</div><h2>{t.system}</h2></div><span class="pill">{busy?'SYNCING':error?'CHECK SOURCE':'LIVE API'}</span></div>
-      <div class="status-grid">
-        {#each ['portals','tonnel','mrkt'] as key}
-          <div class="status-card"><strong><i class:ok={sourceLabel(key)==='online_read_only'||sourceLabel(key)==='configured'||sourceLabel(key)==='configured_read_only'} class="dot"></i>{key.toUpperCase()}</strong><span>{key==='mrkt'&&!visibility.mrkt?t.mrktOff:sourceLabel(key)}</span></div>
-        {/each}
+    <section class="market-heading">
+      <div>
+        <div class="kicker">GIFT RADAR <span class="heading-separator">/</span> TELEGRAM GIFTS</div>
+        <h1>{view==='catalog'?'Маркетплейс':view==='collections'?t.collections:view==='favorites'?t.favorites:t.profile}</h1>
+        <p>{view==='catalog'?'Исследуйте коллекции и публичные предложения в одном месте.':t.viewOnly}</p>
       </div>
+      <span class="market-live"><i></i> LIVE</span>
     </section>
 
     {#if view==='catalog'}
       <section>
-        <div class="section-head"><div><div class="kicker">MARKETPLACE</div><h2>{t.listings} <span class="muted">· {total}</span></h2></div><span class="muted">{refreshed? t.refresh+': '+refreshed:''}</span></div>
+        <div class="section-head"><div><h2>{t.listings} <span class="muted">· {total}</span></h2></div><span class="muted">{refreshed? t.refresh+': '+refreshed:''}</span></div>
         <div class="tabs">
           <button class:active={market==='portals'} class="market-tab" onclick={()=>selectMarket('portals')}>◈ Portals</button>
           <button class:active={market==='tonnel'} class="market-tab" onclick={()=>selectMarket('tonnel')} disabled={!visibility.tonnel||sourceLabel('tonnel')==='public_access_unavailable'}>◉ Tonnel · {sourceLabel('tonnel')==='public_access_unavailable'?'offline':'public'}</button>
           <button class:active={market==='mrkt'} class="market-tab" onclick={()=>selectMarket('mrkt')} disabled={!visibility.mrkt}>◇ MRKT</button>
         </div>
         <div class="toolbar">
-          <input class="field" bind:value={search} placeholder={t.search} onkeydown={(e)=>e.key==='Enter'&&loadCatalogue(search)}/>
-          <input class="field" type="number" min="0" bind:value={minPrice} placeholder={t.min}/>
-          <input class="field" type="number" min="0" bind:value={maxPrice} placeholder={t.max}/>
+          <div class="search-wrap"><span>⌕</span><input class="field" bind:value={search} placeholder={t.search} onkeydown={(e)=>e.key==='Enter'&&loadCatalogue(search)}/></div>
+          <input class="field price-filter" type="number" min="0" bind:value={minPrice} placeholder={t.min}/>
+          <input class="field price-filter" type="number" min="0" bind:value={maxPrice} placeholder={t.max}/>
           <button class="primary" onclick={()=>loadCatalogue(search)}>{t.apply}</button>
         </div>
         {#if busy}<div class="empty">{t.loading}</div>
