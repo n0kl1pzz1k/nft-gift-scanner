@@ -28,5 +28,14 @@ jobs:
           node-version: "22"
       - name: Check browser JavaScript syntax
         run: node --check app.js
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
+      - name: Check Svelte and TypeScript
+        working-directory: frontend
+        run: npm run check
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
       - name: Validate deployment configuration
         run: python -m json.tool railway.json > /dev/null
