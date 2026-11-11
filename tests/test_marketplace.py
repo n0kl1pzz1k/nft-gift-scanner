@@ -14,6 +14,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_patch = patch.object(marketplace, "DB_PATH", os.path.join(self.temp_dir.name, "test.sqlite3"))
         self.db_patch.start()
+        marketplace.init_marketplace_db()
         self.auth_patch = patch.object(
             api,
             "_verify_telegram_init_data",
