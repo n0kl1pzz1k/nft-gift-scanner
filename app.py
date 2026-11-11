@@ -14,7 +14,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from marketplace import create_marketplace_router, init_marketplace_db
+from marketplace import create_marketplace_router, init_marketplace_db, upsert_telegram_user
 
 app = FastAPI(title="GIFT RADAR API", version="0.4.0")
 app.include_router(create_marketplace_router(lambda value: _verify_telegram_init_data(value)))
@@ -133,16 +133,12 @@ def _require_admin(init_data: str | None) -> dict:
 @app.post("/api/auth/telegram")
 async def telegram_auth(payload: TelegramAuthRequest):
     user = _verify_telegram_init_data(payload.init_data)
+    profile = upsert_telegram_user(user)
     is_admin = str(user["id"]) in _admin_ids()
     return {
         "authenticated": True,
         "is_admin": is_admin,
-        "user": {
-            "id": str(user["id"]),
-            "first_name": user.get("first_name", ""),
-            "username": user.get("username", ""),
-            "photo_url": user.get("photo_url", ""),
-        },
+        "user": profile,
     }
 
 
