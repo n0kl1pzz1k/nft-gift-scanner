@@ -19,7 +19,10 @@ from demo_offers import create_demo_offers_router, init_demo_offers_db
 from catalog_store import get_catalogue_history, get_catalogue_item, search_catalogue_items, upsert_catalogue_items
 
 app = FastAPI(title="GIFT RADAR API", version="0.4.0")
-app.include_router(create_marketplace_router(lambda value: _verify_telegram_init_data(value)))
+app.include_router(create_marketplace_router(
+    lambda value: _verify_telegram_init_data(value),
+    lambda value: _require_admin(value),
+))
 app.include_router(create_demo_offers_router(lambda value: _verify_telegram_init_data(value)))
 
 _telegram_bot = None
