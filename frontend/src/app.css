@@ -158,3 +158,17 @@ button:active,.nav-button:active,.market-tab:active,.favorite:active{transform:n
   .profile-screen{min-height:auto}
   .profile-card{min-height:0}
 }
+
+
+/* Public reference feed */
+.reference-panel{margin-top:22px}
+.change-feed{display:grid;gap:8px}
+.change-item{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;border:1px solid #ffffff12;border-radius:12px;background:#ffffff05}
+.change-item>div{display:grid;gap:4px;min-width:0}
+.change-item strong{font-size:12px;color:#e8edff}
+.change-item span,.change-item time{font-size:10px;color:#8793ad;line-height:1.5}
+.change-item time{white-space:nowrap}
+.archive-note{margin-top:12px}
+.archive-note a{color:#a99bff;text-decoration:none}
+.archive-note a:hover{text-decoration:underline}
+@media(max-width:440px){.change-item{align-items:flex-start;flex-direction:column;gap:5px}}
