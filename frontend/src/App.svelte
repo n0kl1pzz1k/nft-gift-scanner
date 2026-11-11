@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { animate as motionAnimateRaw } from 'motion';
+  const motionAnimate = motionAnimateRaw as unknown as (target: Element, keyframes: Record<string, Array<number|string>>, options: {delay:number;duration:number;easing:string}) => unknown;
 
   type Gift = { id?: string|number; name?: string; number?: string|number; image?: string; price?: string|number; floor_price?: string|number|null; currency?: string; source?: string; status?: string; listed_at?: string|number; attributes?: {type?:string;name?:string;value?:string}[]; collection_id?: string|number };
   type Collection = { id?: string|number; name?: string; short_name?: string; image?: string; floor_price?: string|number; day_volume?: string|number; supply?: string|number };
@@ -50,9 +52,9 @@
       status=s; visibility={...visibility,...(s.marketplace_visibility||{})}; collections=Array.isArray(c.items)?c.items:[];
       let endpoint = market==='tonnel' ? '/api/tonnel/gifts?limit=30&page=1&search='+encodeURIComponent(term) : '/api/gifts?limit=40&offset=0&search='+encodeURIComponent(term)+(minPrice?'&min_price='+encodeURIComponent(minPrice):'')+(maxPrice?'&max_price='+encodeURIComponent(maxPrice):'');
       if(market==='mrkt'){gifts=[];total=0;return;}
-      const g=await request(endpoint); gifts=Array.isArray(g.items)?g.items:[]; total=Number(g.total_count??gifts.length); refreshed=new Date().toLocaleTimeString(lang==='ru'?'ru-RU':'en-US',{hour:'2-digit',minute:'2-digit'});
+      const g=await request(endpoint); gifts=Array.isArray(g.items)?g.items:[]; total=Math.max(Number(g.total_count)||0,gifts.length); refreshed=new Date().toLocaleTimeString(lang==='ru'?'ru-RU':'en-US',{hour:'2-digit',minute:'2-digit'});
     } catch(e) { error=e instanceof Error?e.message:String(e); }
-    finally { busy=false; await tick(); const cards=document.querySelectorAll('.gift-card,.collection-card'); cards.forEach((card,index)=>{(card as HTMLElement).animate([{opacity:0,transform:'translateY(12px)'},{opacity:1,transform:'translateY(0px)'}],{delay:index*35,duration:280,easing:'ease-out',fill:'both'});}); }
+    finally { busy=false; await tick(); const cards=document.querySelectorAll('.gift-card,.collection-card'); cards.forEach((card,index)=>{motionAnimate(card,{opacity:[0,1],y:[12,0]},{delay:index*.035,duration:.28,easing:'ease-out'});}); }
   }
   function toggleFavorite(g:Gift) { const k=keyOf(g); favorites=favorites.includes(k)?favorites.filter(x=>x!==k):[...favorites,k]; try{localStorage.setItem('gift-radar-favorites',JSON.stringify(favorites));}catch{} }
   function selectMarket(next:'portals'|'tonnel'|'mrkt'){market=next;void loadCatalogue(search);}
@@ -102,7 +104,7 @@
       <div class="panel-head"><div><div class="kicker">{t.system}</div><h2>{t.system}</h2></div><span class="pill">{busy?'SYNCING':error?'CHECK SOURCE':'LIVE API'}</span></div>
       <div class="status-grid">
         {#each ['portals','tonnel','mrkt'] as key}
-          <div class="status-card"><strong><i class:ok={sourceLabel(key)==='online_read_only'||sourceLabel(key)==='configured'} class="dot"></i>{key.toUpperCase()}</strong><span>{key==='mrkt'&&!visibility.mrkt?t.mrktOff:sourceLabel(key)}</span></div>
+          <div class="status-card"><strong><i class:ok={sourceLabel(key)==='online_read_only'||sourceLabel(key)==='configured'||sourceLabel(key)==='configured_read_only'} class="dot"></i>{key.toUpperCase()}</strong><span>{key==='mrkt'&&!visibility.mrkt?t.mrktOff:sourceLabel(key)}</span></div>
         {/each}
       </div>
     </section>
@@ -112,7 +114,7 @@
         <div class="section-head"><div><div class="kicker">MARKETPLACE</div><h2>{t.listings} <span class="muted">· {total}</span></h2></div><span class="muted">{refreshed? t.refresh+': '+refreshed:''}</span></div>
         <div class="tabs">
           <button class:active={market==='portals'} class="market-tab" onclick={()=>selectMarket('portals')}>◈ Portals</button>
-          <button class:active={market==='tonnel'} class="market-tab" onclick={()=>selectMarket('tonnel')}>◉ Tonnel</button>
+          <button class:active={market==='tonnel'} class="market-tab" onclick={()=>selectMarket('tonnel')} disabled={!visibility.tonnel||sourceLabel('tonnel')==='public_access_unavailable'}>◉ Tonnel · {sourceLabel('tonnel')==='public_access_unavailable'?'offline':'public'}</button>
           <button class:active={market==='mrkt'} class="market-tab" onclick={()=>selectMarket('mrkt')} disabled={!visibility.mrkt}>◇ MRKT</button>
         </div>
         <div class="toolbar">
