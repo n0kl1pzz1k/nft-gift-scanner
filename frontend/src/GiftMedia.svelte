@@ -181,7 +181,7 @@
         }
         if (visible && !disposed && version === startVersion) animation.play();
       } catch {
-        if (!disposed) {
+        if (!disposed && visible && version === startVersion) {
           failed = true;
           mode = 'image';
           releaseSlot?.();
