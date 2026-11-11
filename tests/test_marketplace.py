@@ -240,6 +240,13 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(created.status_code, 201)
         order_id = created.json()["item"]["id"]
 
+        mine = self.client.get(
+            "/api/marketplace/mine",
+            headers={"X-Telegram-Init-Data": "user-a"},
+        )
+        self.assertEqual(mine.status_code, 200)
+        self.assertEqual([item["id"] for item in mine.json()["items"]], [order_id])
+
         public = self.client.get(
             "/api/marketplace/orders",
             headers={"X-Telegram-Init-Data": "user-b"},
