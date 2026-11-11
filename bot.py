@@ -47,16 +47,26 @@ async def main():
 
     @dp.message(CommandStart())
     async def start(message: Message):
+        first_name = message.from_user.first_name if message.from_user else "друг"
         text = (
-            "👋 <b>Ты попал на GIFT RADAR!</b>\n\n"
-            "Здесь собраны Telegram NFT-подарки из каталога Portals. "
-            "Изучай коллекции, сохраняй интересные экземпляры и знакомься с интерфейсом GIFT RADAR Marketplace.\n\n"
-            "Твой радар подарков уже готов — запускай! 🚀"
+            f"✨ <b>Добро пожаловать в GIFT RADAR, {first_name}!</b>\n\n"
+            "Твой центр Telegram-подарков:\n"
+            "🎁 <b>Маркет</b> — каталог подарков Portals и поиск по коллекциям.\n"
+            "📊 <b>Обзор</b> — активность, заявки и демонстрационный объём.\n"
+            "🧾 <b>Ордера</b> — тестовые предложения покупки и продажи.\n"
+            "⭐ <b>Избранное</b> — сохраняй интересные экземпляры.\n"
+            "👤 <b>Профиль</b> — настройки и история.\n\n"
+            "В интерфейсе доступны обозначения TON и Telegram Stars. "
+            "Все заявки и объёмы сейчас демонстрационные: реальные платежи и операции с кошельками не выполняются.\n\n"
+            "<b>Нажми кнопку ниже, чтобы открыть маркетплейс.</b> 🚀"
         )
 
         buttons = [[
-            InlineKeyboardButton(text="📢 Мой Telegram", url=CHANNEL_URL),
-        ]]
+            InlineKeyboardButton(text="🚀 Открыть GIFT RADAR", web_app=WebAppInfo(url=APP_URL))
+        ]] if APP_URL.startswith("https://") else []
+        buttons.append([
+            InlineKeyboardButton(text="📢 Telegram-канал", url=CHANNEL_URL),
+        ])
         if APP_URL.startswith("https://"):
             buttons.append([
                 InlineKeyboardButton(
