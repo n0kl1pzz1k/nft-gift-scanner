@@ -24,7 +24,7 @@ button:disabled{cursor:not-allowed;opacity:.55}
 .live{display:inline-flex;align-items:center;gap:8px}.live:before{content:"";width:7px;height:7px;border-radius:50%;background:#4be0a1;box-shadow:0 0 14px #4be0a1}
 .lang{border:1px solid #ffffff20;border-radius:9px;padding:8px 11px;color:#dce3f8;background:#ffffff08}
 .hero{position:relative;overflow:hidden;margin:30px 0 22px;padding:clamp(24px,4vw,48px);border:1px solid #ffffff17;border-radius:26px;background:linear-gradient(115deg,#171c35ee,#151b2be8 60%,#22204a)}
-.hero:after{content:"✳";position:absolute;right:6%;top:-65px;font-size:300px;line-height:1;color:#ffffff08;pointer-events:none}
+.hero:after{content:"";position:absolute;right:4%;top:0;width:240px;height:100%;background:radial-gradient(ellipse at center,rgba(139,108,255,.13),transparent 68%);pointer-events:none}
 .hero h1{max-width:740px;margin:12px 0;font-size:clamp(29px,4vw,52px);line-height:1.08;letter-spacing:-.055em}
 .gradient{background:linear-gradient(90deg,#bba6ff,#79c7ff);-webkit-background-clip:text;background-clip:text;color:transparent}
 .hero p{max-width:600px;color:#aab4cc;line-height:1.7;font-size:14px}
