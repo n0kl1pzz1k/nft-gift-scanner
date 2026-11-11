@@ -102,6 +102,22 @@ def init_marketplace_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_demo_order_revisions_order
             ON demo_order_revisions(order_id, created_at DESC);
+        CREATE TABLE IF NOT EXISTS demo_order_reports (
+            id TEXT PRIMARY KEY,
+            order_id TEXT NOT NULL,
+            reporter_user_id TEXT NOT NULL,
+            reporter_name TEXT NOT NULL,
+            reason TEXT NOT NULL CHECK(reason IN ('scam', 'misleading', 'inappropriate', 'spam', 'other')),
+            details TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL CHECK(status IN ('open', 'dismissed', 'removed')),
+            created_at INTEGER NOT NULL,
+            resolved_at INTEGER,
+            resolved_by TEXT,
+            UNIQUE(order_id, reporter_user_id),
+            FOREIGN KEY(order_id) REFERENCES demo_orders(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_demo_order_reports_status_created
+            ON demo_order_reports(status, created_at DESC);
         CREATE TABLE IF NOT EXISTS api_rate_limits (
             user_id TEXT NOT NULL,
             action TEXT NOT NULL,
@@ -269,8 +285,148 @@ class UpdateDemoOrder(BaseModel):
             raise ValueError("Note cannot be null")
         return value.strip()
 
-def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) -> APIRouter:
+class CreateOrderReport(BaseModel):
+    reason: Literal["scam", "misleading", "inappropriate", "spam", "other"]
+    details: str = Field(default="", max_length=500)
+
+    @field_validator("details")
+    @classmethod
+    def clean_details(cls, value: str) -> str:
+        return value.strip()
+
+
+class ModerateOrderReport(BaseModel):
+    action: Literal["dismiss", "remove_order"]
+
+
+def create_marketplace_router(
+    verify_telegram_init_data: Callable[[str], dict],
+    verify_admin: Callable[[str | None], dict] | None = None,
+) -> APIRouter:
     router = APIRouter(prefix="/api/marketplace", tags=["demo-marketplace"])
+
+    @router.post("/orders/{order_id}/reports", status_code=201)
+    async def create_order_report(
+        order_id: str,
+        payload: CreateOrderReport,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        user = _user(x_telegram_init_data, verify_telegram_init_data)
+        reporter_id = str(user["id"])
+        _enforce_user_rate_limit(reporter_id, "create_order_report", 5)
+        now = int(time.time())
+        with _db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            order = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (order_id,)).fetchone()
+            if order is None:
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Demo order not found")
+            if order["user_id"] == reporter_id:
+                conn.rollback()
+                raise HTTPException(status_code=403, detail="You cannot report your own order")
+            if order["status"] != "active":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Only active orders can be reported")
+            duplicate = conn.execute(
+                "SELECT 1 FROM demo_order_reports WHERE order_id = ? AND reporter_user_id = ?",
+                (order_id, reporter_id),
+            ).fetchone()
+            if duplicate:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="You have already reported this order")
+            report_count = conn.execute(
+                "SELECT COUNT(*) FROM demo_order_reports WHERE order_id = ? AND status = 'open'",
+                (order_id,),
+            ).fetchone()[0]
+            if report_count >= 25:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="This order has reached its report limit")
+            report_id = "rp-" + uuid.uuid4().hex[:16]
+            reporter_name = (user.get("first_name") or user.get("username") or "Telegram user")[:64]
+            conn.execute(
+                """INSERT INTO demo_order_reports
+                   (id, order_id, reporter_user_id, reporter_name, reason, details, status, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, 'open', ?)""",
+                (report_id, order_id, reporter_id, reporter_name, payload.reason, payload.details, now),
+            )
+            conn.commit()
+        return {"report": {"id": report_id, "order_id": order_id, "status": "open", "created_at": now}}
+
+    @router.get("/admin/reports")
+    async def list_order_reports(
+        status: str = Query(default="open", pattern="^(open|dismissed|removed|all)$"),
+        limit: int = Query(default=50, ge=1, le=100),
+        offset: int = Query(default=0, ge=0, le=10000),
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        if verify_admin is None:
+            raise HTTPException(status_code=503, detail="Admin moderation is not configured")
+        verify_admin(x_telegram_init_data)
+        where = ""
+        values: list[object] = []
+        if status != "all":
+            where = " WHERE r.status = ?"
+            values.append(status)
+        with _db() as conn:
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM demo_order_reports r{where}", values,
+            ).fetchone()[0]
+            rows = conn.execute(
+                f"""SELECT r.id, r.order_id, r.reporter_name, r.reason, r.details,
+                           r.status, r.created_at, r.resolved_at, o.title AS order_title,
+                           o.status AS order_status, o.owner_name AS order_owner
+                    FROM demo_order_reports r JOIN demo_orders o ON o.id = r.order_id
+                    {where} ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?""",
+                (*values, limit, offset),
+            ).fetchall()
+        return {"items": [dict(row) for row in rows], "total": total, "limit": limit, "offset": offset}
+
+    @router.patch("/admin/reports/{report_id}")
+    async def moderate_order_report(
+        report_id: str,
+        payload: ModerateOrderReport,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        if verify_admin is None:
+            raise HTTPException(status_code=503, detail="Admin moderation is not configured")
+        admin = verify_admin(x_telegram_init_data)
+        admin_id = str(admin["id"])
+        _enforce_user_rate_limit(admin_id, "moderate_order_report", 30)
+        now = int(time.time())
+        with _db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            report = conn.execute(
+                """SELECT r.*, o.status AS order_status FROM demo_order_reports r
+                   JOIN demo_orders o ON o.id = r.order_id WHERE r.id = ?""",
+                (report_id,),
+            ).fetchone()
+            if report is None:
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Report not found")
+            if report["status"] != "open":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="This report has already been resolved")
+            if payload.action == "remove_order":
+                if report["order_status"] != "active":
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Only active orders can be removed")
+                conn.execute(
+                    "UPDATE demo_orders SET status='cancelled', updated_at=? WHERE id=? AND status='active'",
+                    (now, report["order_id"]),
+                )
+                conn.execute(
+                    "INSERT INTO demo_order_events(order_id, actor_user_id, event_type, created_at) VALUES (?, ?, 'cancelled', ?)",
+                    (report["order_id"], admin_id, now),
+                )
+                new_status = "removed"
+            else:
+                new_status = "dismissed"
+            conn.execute(
+                "UPDATE demo_order_reports SET status=?, resolved_at=?, resolved_by=? WHERE id=? AND status='open'",
+                (new_status, now, admin_id, report_id),
+            )
+            conn.commit()
+        return {"report_id": report_id, "status": new_status, "order_removed": payload.action == "remove_order"}
 
     @router.get("/favorites")
     async def list_favorites(x_telegram_init_data: str | None = Header(default=None)):
