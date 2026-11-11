@@ -144,6 +144,8 @@ def create_dispatcher() -> Dispatcher:
 
 async def main():
     """Optional local polling runner. Railway production uses the FastAPI webhook."""
+    if os.getenv("BOT_RUN_POLLING", "0") != "1":
+        return
     bot = create_bot()
     dp = create_dispatcher()
     try:
