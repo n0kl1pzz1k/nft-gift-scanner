@@ -117,3 +117,44 @@ h2{font-size:20px;margin:5px 0 0;letter-spacing:-.03em}
   .market-tab{font-size:10px}
   .toolbar{grid-template-columns:minmax(0,1fr) minmax(72px,.4fr) minmax(72px,.4fr)}
 }
+
+
+/* App-like viewport, stable touch targets and fixed profile workspace */
+html,body,#app{height:100%;min-height:100%;overscroll-behavior:none}
+body{overflow:hidden}
+.app{height:100dvh;min-height:100dvh;overflow:hidden}
+.sidebar{height:100dvh}
+.main{height:100dvh;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+button,a,.gift-open,.nav-button,.market-tab,.favorite,.primary,.secondary-button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+button:active,.nav-button:active,.market-tab:active,.favorite:active{transform:none!important}
+.profile-screen{min-height:calc(100dvh - 170px);display:flex;flex-direction:column}
+.profile-screen .section-head{flex:0 0 auto;margin-bottom:18px}
+.profile{align-items:stretch;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+.profile-card{min-width:0;min-height:210px;padding:20px;background:linear-gradient(145deg,#151d31,#101625);border-color:#ffffff18;border-radius:18px;display:flex;flex-direction:column;align-items:flex-start}
+.profile-card h3{font-size:16px;letter-spacing:-.02em}
+.profile-card .primary{margin-top:auto}
+.profile-card .price-row{width:100%;padding-top:10px;border-top:1px solid #ffffff10}
+.profile-card .muted{font-size:12px}
+.profile-screen+.muted{margin-top:auto!important;padding-top:24px}
+@media(max-width:900px){
+  .app{height:100dvh;min-height:100dvh;overflow:hidden}
+  .main{height:100dvh;overflow-y:auto;padding:14px 13px calc(92px + env(safe-area-inset-bottom));scrollbar-width:none}
+  .main::-webkit-scrollbar{display:none}
+  .profile-screen{min-height:calc(100dvh - 190px)}
+  .profile{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+  .profile-card{min-height:230px;padding:13px;border-radius:15px}
+  .profile-card h3{font-size:14px}
+  .profile-card .muted{font-size:11px;line-height:1.5}
+  .profile-card .primary,.profile-card .secondary-button{font-size:11px;padding:10px 9px}
+  .profile-screen .section-head{align-items:center}
+  .profile-screen .market-live{font-size:8px;padding:6px 8px}
+  /* iOS Safari/Telegram WebView zooms when focused controls use text below 16px */
+  input,textarea,select,.field{font-size:16px!important}
+  input[type=number]{font-size:16px!important}
+  .mobile-nav{position:fixed;z-index:30;transform:translateZ(0);-webkit-transform:translateZ(0);padding-bottom:calc(8px + env(safe-area-inset-bottom))}
+}
+@media(max-width:360px){
+  .profile{grid-template-columns:1fr}
+  .profile-screen{min-height:auto}
+  .profile-card{min-height:0}
+}
