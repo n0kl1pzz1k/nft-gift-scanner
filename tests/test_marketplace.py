@@ -1472,6 +1472,27 @@ class SellerProfileTests(unittest.TestCase):
         self.assertEqual(public_profile["completed_trades"], 0)
         self.assertIsNone(public_profile["rating"])
 
+        now = int(time.time())
+        with marketplace._db() as conn:
+            conn.execute(
+                """INSERT INTO demo_orders
+                   (id, user_id, owner_name, kind, title, price, currency, status, created_at, updated_at, note)
+                   VALUES (?, ?, ?, 'listing', ?, ?, 'TON', 'active', ?, ?, ?)""",
+                ("seller-listing-1", "101", "Profile Tester", "Rare Gift #1", "2.5", now, now, "Public note"),
+            )
+        orders = self.client.get("/api/marketplace/orders")
+        self.assertEqual(orders.status_code, 200)
+        order = next(item for item in orders.json()["items"] if item["id"] == "seller-listing-1")
+        self.assertEqual(order["seller_profile_id"], profile["profile_id"])
+        self.assertNotIn("user_id", order)
+
+        public_with_listing = self.client.get(f"/api/marketplace/profiles/{profile['profile_id']}")
+        seller_listing = public_with_listing.json()["profile"]["listings"][0]
+        self.assertEqual(seller_listing["id"], "seller-listing-1")
+        self.assertEqual(seller_listing["title"], "Rare Gift #1")
+        self.assertNotIn("user_id", seller_listing)
+        self.assertNotIn("telegram_id", seller_listing)
+
     def test_profile_update_rejects_blank_name_and_oversized_bio(self):
         headers = {"X-Telegram-Init-Data": "profile-session"}
         blank = self.client.put(
