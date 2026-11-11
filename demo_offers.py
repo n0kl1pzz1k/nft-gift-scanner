@@ -5,6 +5,7 @@ Offers never trigger payments, wallet actions, asset transfers or blockchain cal
 from __future__ import annotations
 
 import os
+import json
 import sqlite3
 import time
 import uuid
