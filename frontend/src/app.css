@@ -146,3 +146,5 @@
 .seller-link{margin-top:7px;padding:0;border:0;background:none;color:#b9a9ff;font:inherit;font-size:10px;cursor:pointer}
 .seller-link:hover{text-decoration:underline}
 @media(max-width:620px){.public-seller-card{grid-template-columns:auto minmax(0,1fr)}.public-seller-stats{grid-column:1/-1;justify-content:space-around}.public-seller-identity h2{font-size:18px}}
+
+.status-payment-disabled{display:inline-flex;align-items:center;border:1px solid #d6a34b55;border-radius:20px;padding:5px 8px;color:#e7bd72;background:#d6a34b12;font-size:9px;font-weight:700}

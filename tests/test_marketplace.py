@@ -972,6 +972,10 @@ class SharedMarketplaceTests(unittest.TestCase):
             headers={"X-Telegram-Init-Data": "user-b"},
         )
         self.assertEqual(events.status_code, 200)
+        deal_payload = next(item for item in deals.json()["items"] if item["id"] == deal_id)
+        self.assertEqual(deal_payload["status"], "payment_not_enabled")
+        self.assertTrue(deal_payload["simulation_only"])
+        self.assertFalse(deals.json()["payments_enabled"])
         self.assertEqual(
             [item["type"] for item in events.json()["items"]],
             ["deal_created", "listing_reserved", "payment_not_enabled"],
