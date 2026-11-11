@@ -643,6 +643,21 @@ class SharedMarketplaceTests(unittest.TestCase):
         )
         self.assertNotIn("access-control-allow-origin", response.headers)
 
+    def test_cors_allows_patch_methods_used_by_marketplace(self):
+        response = self.client.options(
+            "/api/marketplace/offers/demo-offer",
+            headers={
+                "Origin": "https://nft-gift-scanner.fj7kmzkhn9.workers.dev",
+                "Access-Control-Request-Method": "PATCH",
+                "Access-Control-Request-Headers": "content-type,x-telegram-init-data",
+            },
+        )
+        self.assertEqual(
+            response.headers.get("access-control-allow-origin"),
+            "https://nft-gift-scanner.fj7kmzkhn9.workers.dev",
+        )
+        self.assertIn("PATCH", response.headers.get("access-control-allow-methods", ""))
+
     def test_cors_allows_production_mini_app_origin(self):
         response = self.client.options(
             "/api/marketplace/orders",
