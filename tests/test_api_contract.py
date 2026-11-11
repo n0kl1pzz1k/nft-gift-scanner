@@ -23,6 +23,17 @@ class ApiContractTests(unittest.TestCase):
         self.assertNotIn("/api/tonnel/gifts", paths)
         self.assertNotIn("/api/mrkt/gifts", paths)
 
+    def test_security_response_headers_middleware_is_registered(self):
+        middleware_names = [
+            getattr(middleware.cls, "__name__", "")
+            for middleware in app.user_middleware
+        ]
+        self.assertIn("BaseHTTPMiddleware", middleware_names)
+        self.assertTrue(any(
+            getattr(middleware, "options", {}).get("dispatch") is not None
+            for middleware in app.user_middleware
+        ))
+
     def test_marketplace_visibility_contains_only_portals(self):
         with patch("app.get_app_setting", return_value="true"):
             self.assertEqual(_marketplace_visibility(), {"portals": True})

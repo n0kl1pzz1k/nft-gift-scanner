@@ -19,6 +19,23 @@ from demo_offers import create_demo_offers_router, init_demo_offers_db
 from catalog_store import get_catalogue_history, get_catalogue_item, search_catalogue_items, upsert_catalogue_items
 
 app = FastAPI(title="GIFT RADAR API", version="0.4.0")
+
+
+@app.middleware("http")
+async def apply_security_response_headers(request: Request, call_next):
+    """Apply baseline browser security headers to API and health responses."""
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault("Cross-Origin-Resource-Policy", "same-site")
+    if request.url.path.startswith("/api/auth/") or request.url.path == "/api/telegram/webhook":
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+    if request.url.scheme == "https":
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
 app.include_router(create_marketplace_router(
     lambda value: _authenticate_telegram_credential(value),
     lambda value: _require_admin(value),
