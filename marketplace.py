@@ -23,14 +23,25 @@ from pydantic import BaseModel, Field, field_validator
 DB_PATH = os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3"))
 
 
-def _connect() -> sqlite3.Connection:
-    path = Path(DB_PATH)
+def _connect_database(database_path: str | Path) -> sqlite3.Connection:
+    """Open the shared SQLite database with explicit durability/contention settings.
+
+    SQLite remains a single-writer, single-instance deployment baseline; these
+    settings reduce transient lock failures but do not replace PostgreSQL.
+    """
+    path = Path(database_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=15, isolation_level=None)
+    conn = sqlite3.connect(str(path), timeout=30, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA busy_timeout = 15000")
+    conn.execute("PRAGMA busy_timeout = 30000")
+    conn.execute("PRAGMA synchronous = FULL")
+    conn.execute("PRAGMA temp_store = MEMORY")
     return conn
+
+
+def _connect() -> sqlite3.Connection:
+    return _connect_database(DB_PATH)
 
 
 @contextmanager
@@ -45,6 +56,8 @@ def _db():
 def init_marketplace_db() -> None:
     with _db() as conn:
         conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA wal_autocheckpoint = 1000")
+        conn.execute("PRAGMA optimize")
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS telegram_users (
             telegram_id TEXT PRIMARY KEY,
