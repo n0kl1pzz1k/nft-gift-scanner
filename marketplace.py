@@ -74,6 +74,17 @@ def init_marketplace_db() -> None:
             expires_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_telegram_initdata_expiry ON telegram_initdata_uses(expires_at);
+        CREATE TABLE IF NOT EXISTS telegram_update_inbox (
+            update_id INTEGER PRIMARY KEY,
+            payload_hash TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('processing', 'processed')),
+            received_at INTEGER NOT NULL,
+            lease_until INTEGER NOT NULL,
+            processed_at INTEGER,
+            attempts INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE INDEX IF NOT EXISTS idx_telegram_update_inbox_status
+            ON telegram_update_inbox(status, lease_until);
         CREATE TABLE IF NOT EXISTS user_favorites (
             telegram_id TEXT NOT NULL,
             gift_id TEXT NOT NULL,
@@ -286,6 +297,105 @@ def revoke_telegram_session(token: str) -> bool:
             (int(time.time()), token_hash),
         )
     return cursor.rowcount == 1
+
+
+def list_telegram_sessions(telegram_id: str, current_token: str | None = None) -> list[dict[str, Any]]:
+    """Return safe session metadata only; never expose bearer tokens or token hashes."""
+    current_hash = hashlib.sha256(current_token.encode("utf-8")).hexdigest() if current_token else None
+    now = int(time.time())
+    with _db() as conn:
+        rows = conn.execute(
+            """SELECT token_hash, created_at, expires_at, revoked_at
+               FROM telegram_sessions WHERE telegram_id = ?
+               ORDER BY created_at DESC LIMIT 20""",
+            (str(telegram_id),),
+        ).fetchall()
+    return [{
+        "created_at": row["created_at"],
+        "expires_at": row["expires_at"],
+        "revoked_at": row["revoked_at"],
+        "active": row["revoked_at"] is None and row["expires_at"] > now,
+        "current": current_hash is not None and row["token_hash"] == current_hash,
+    } for row in rows]
+
+
+def revoke_all_telegram_sessions(telegram_id: str, except_token: str | None = None) -> int:
+    """Revoke every active session for one account, optionally retaining the caller session."""
+    now = int(time.time())
+    params: list[Any] = [now, str(telegram_id), now]
+    exclusion = ""
+    if except_token:
+        token_hash = hashlib.sha256(except_token.encode("utf-8")).hexdigest()
+        exclusion = " AND token_hash != ?"
+        params.append(token_hash)
+    with _db() as conn:
+        cursor = conn.execute(
+            f"""UPDATE telegram_sessions SET revoked_at = ?
+                WHERE telegram_id = ? AND revoked_at IS NULL AND expires_at > ?{exclusion}""",
+            tuple(params),
+        )
+    return cursor.rowcount
+
+
+def claim_telegram_update(update_id: int, payload: Any, lease_seconds: int = 60) -> str:
+    """Atomically deduplicate Telegram webhook updates and allow retry after a stale lease."""
+    if isinstance(update_id, bool) or not isinstance(update_id, int) or update_id < 0:
+        raise ValueError("Invalid Telegram update ID")
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    now = int(time.time())
+    lease = max(15, min(int(lease_seconds), 300))
+    with _db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT payload_hash, status, lease_until FROM telegram_update_inbox WHERE update_id = ?",
+            (update_id,),
+        ).fetchone()
+        if row is None:
+            conn.execute(
+                """INSERT INTO telegram_update_inbox
+                   (update_id, payload_hash, status, received_at, lease_until, attempts)
+                   VALUES (?, ?, 'processing', ?, ?, 1)""",
+                (update_id, digest, now, now + lease),
+            )
+            conn.commit()
+            return "claimed"
+        if not secrets.compare_digest(row["payload_hash"], digest):
+            conn.rollback()
+            return "conflict"
+        if row["status"] == "processed":
+            conn.commit()
+            return "processed"
+        if row["lease_until"] > now:
+            conn.commit()
+            return "in_progress"
+        conn.execute(
+            """UPDATE telegram_update_inbox
+               SET lease_until = ?, attempts = attempts + 1
+               WHERE update_id = ? AND status = 'processing'""",
+            (now + lease, update_id),
+        )
+        conn.commit()
+        return "claimed"
+
+
+def finish_telegram_update(update_id: int) -> None:
+    with _db() as conn:
+        conn.execute(
+            """UPDATE telegram_update_inbox
+               SET status = 'processed', processed_at = ?, lease_until = 0
+               WHERE update_id = ?""",
+            (int(time.time()), update_id),
+        )
+
+
+def release_telegram_update(update_id: int) -> None:
+    """Release a failed update for Telegram retry without recording exception contents."""
+    with _db() as conn:
+        conn.execute(
+            "UPDATE telegram_update_inbox SET lease_until = 0 WHERE update_id = ? AND status = 'processing'",
+            (update_id,),
+        )
 
 
 def _user(init_data: str | None, verify: Callable[[str], dict]) -> dict:
