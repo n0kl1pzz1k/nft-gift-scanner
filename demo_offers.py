@@ -62,7 +62,7 @@ def init_demo_offers_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_demo_offers_status ON demo_offers(status, created_at DESC);
         CREATE TABLE IF NOT EXISTS demo_deals (
             id TEXT PRIMARY KEY,
-            order_id TEXT NOT NULL UNIQUE,
+            order_id TEXT NOT NULL,
             offer_id TEXT NOT NULL UNIQUE,
             listing_owner_id TEXT NOT NULL,
             offer_sender_id TEXT NOT NULL,
@@ -74,6 +74,9 @@ def init_demo_offers_db() -> None:
             FOREIGN KEY(order_id) REFERENCES demo_orders(id),
             FOREIGN KEY(offer_id) REFERENCES demo_offers(id)
         );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_demo_deals_one_open_reservation
+            ON demo_deals(order_id)
+            WHERE status NOT IN ('cancelled', 'expired');
         CREATE TABLE IF NOT EXISTS demo_deal_events (
             id TEXT PRIMARY KEY,
             deal_id TEXT NOT NULL,
@@ -176,6 +179,66 @@ def init_demo_offers_db() -> None:
             UPDATE demo_offers SET status='declined', updated_at=NEW.updated_at
             WHERE order_id=NEW.id AND status='pending';
         END;
+        """)
+        # Older releases enforced one deal per order forever. Rebuild that table
+        # so cancelled/expired history remains intact while a fresh reservation can be made.
+        unique_order_index = False
+        for index in conn.execute("PRAGMA index_list(demo_deals)").fetchall():
+            if index["unique"]:
+                columns = [row["name"] for row in conn.execute(
+                    f"PRAGMA index_info('{index['name']}')"
+                ).fetchall()]
+                if columns == ["order_id"]:
+                    unique_order_index = True
+                    break
+        if unique_order_index:
+            conn.execute("PRAGMA foreign_keys = OFF")
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute("""
+                    CREATE TABLE demo_deals_new (
+                        id TEXT PRIMARY KEY,
+                        order_id TEXT NOT NULL,
+                        offer_id TEXT NOT NULL UNIQUE,
+                        listing_owner_id TEXT NOT NULL,
+                        offer_sender_id TEXT NOT NULL,
+                        agreed_amount TEXT NOT NULL,
+                        currency TEXT NOT NULL CHECK(currency IN ('TON', 'XTR')),
+                        created_at INTEGER NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'payment_not_enabled'
+                            CHECK(status IN ('payment_not_enabled', 'awaiting_payment',
+                                             'payment_pending', 'paid', 'delivery_pending',
+                                             'completed', 'disputed', 'cancelled', 'expired')),
+                        FOREIGN KEY(order_id) REFERENCES demo_orders(id),
+                        FOREIGN KEY(offer_id) REFERENCES demo_offers(id)
+                    )
+                """)
+                conn.execute("""
+                    INSERT INTO demo_deals_new
+                    (id, order_id, offer_id, listing_owner_id, offer_sender_id,
+                     agreed_amount, currency, created_at, status)
+                    SELECT id, order_id, offer_id, listing_owner_id, offer_sender_id,
+                           agreed_amount, currency, created_at, status
+                    FROM demo_deals
+                """)
+                conn.execute("DROP TABLE demo_deals")
+                conn.execute("ALTER TABLE demo_deals_new RENAME TO demo_deals")
+                conn.execute("""
+                    CREATE UNIQUE INDEX idx_demo_deals_one_open_reservation
+                    ON demo_deals(order_id)
+                    WHERE status NOT IN ('cancelled', 'expired')
+                """)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.execute("PRAGMA foreign_keys = ON")
+        # Recreate the partial index on databases created before the partial reservation guard.
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_demo_deals_one_open_reservation
+            ON demo_deals(order_id)
+            WHERE status NOT IN ('cancelled', 'expired')
         """)
         # Forward-compatible migration for databases created before deal lifecycle state.
         deal_columns = {row["name"] for row in conn.execute("PRAGMA table_info(demo_deals)").fetchall()}
