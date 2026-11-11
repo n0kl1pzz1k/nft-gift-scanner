@@ -993,7 +993,7 @@ class TelegramInitDataValidationTests(unittest.TestCase):
             "query_id": "AAE-test-query",
             "user": json.dumps({"id": 123456, "first_name": "Test"}, separators=(",", ":")),
         }
-        check_string = "\\n".join(f"{key}={value}" for key, value in sorted(values.items()))
+        check_string = "\n".join(f"{key}={value}" for key, value in sorted(values.items()))
         secret = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
         values["hash"] = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
         return urlencode(values)
