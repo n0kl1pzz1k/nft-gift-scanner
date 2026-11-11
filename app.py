@@ -103,8 +103,8 @@ class MarketplaceSettingRequest(BaseModel):
     enabled: bool
 
 
-# Runtime controls are deliberately limited to read-only market visibility.
-# For durable configuration across deploys, set ADMIN_TELEGRAM_IDS in Railway.
+# Admin controls are limited to catalogue visibility; the setting is persisted in SQLite.
+# Administrator identities are verified server-side from Telegram initData and env configuration.
 def _marketplace_visibility() -> dict[str, bool]:
     return {"portals": get_app_setting("marketplace.portals.enabled", "true").lower() == "true"}
 
