@@ -1,4 +1,5 @@
 import asyncio
+import html
 import os
 
 import httpx
@@ -57,28 +58,29 @@ def create_dispatcher() -> Dispatcher:
 
     @dp.message(CommandStart())
     async def start(message: Message):
-        first_name = message.from_user.first_name if message.from_user else "друг"
+        raw_name = message.from_user.first_name if message.from_user else "друг"
+        first_name = html.escape(raw_name)
         text = (
-            f"✨ <b>Добро пожаловать в GIFT RADAR, {first_name}!</b>\n\n"
-            "Твой центр Telegram-подарков:\n"
-            "🎁 <b>Маркет</b> — каталог подарков Portals и поиск по коллекциям.\n"
-            "📊 <b>Обзор</b> — активность, заявки и демонстрационный объём.\n"
-            "🧾 <b>Ордера</b> — тестовые предложения покупки и продажи.\n"
-            "⭐ <b>Избранное</b> — сохраняй интересные экземпляры.\n"
-            "👤 <b>Профиль</b> — настройки и история.\n\n"
-            "В интерфейсе доступны обозначения TON и Telegram Stars. "
-            "Все заявки и объёмы демонстрационные: реальные платежи и операции с кошельками не выполняются.\n\n"
-            "<b>Нажми кнопку ниже, чтобы открыть маркетплейс.</b> 🚀"
+            f"✨ <b>GIFT RADAR</b> — добро пожаловать, {first_name}!\\n\\n"
+            "Твой навигатор по Telegram-подаркам.\\n\\n"
+            "🎁 <b>Маркет</b> — каталог Portals, карточки подарков и поиск.\\n"
+            "⭐ <b>Избранное</b> — сохраняй интересные экземпляры в своём профиле.\\n"
+            "🧾 <b>Ордера</b> — общая лента демонстрационных заявок.\\n"
+            "👤 <b>Профиль</b> — Telegram-аккаунт и настройки.\\n\\n"
+            "Каталог получает данные из Portals в режиме просмотра. "
+            "Ордера и суммы в текущей версии — демонстрационные; "
+            "платежи, вывод средств и операции с кошельками не выполняются.\\n\\n"
+            "<b>Открывай Mini App кнопкой ниже.</b>"
         )
         buttons = []
         if APP_URL.startswith("https://"):
             buttons.append([
                 InlineKeyboardButton(
-                    text="🚀 Открыть GIFT RADAR",
+                    text="🚀 Открыть маркет",
                     web_app=WebAppInfo(url=APP_URL),
                 )
             ])
-        buttons.append([InlineKeyboardButton(text="📢 Telegram-канал", url=CHANNEL_URL)])
+        buttons.append([InlineKeyboardButton(text="📢 Новости и обновления", url=CHANNEL_URL)])
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
         if WELCOME_IMAGE_URL.startswith("https://"):
@@ -92,6 +94,16 @@ def create_dispatcher() -> Dispatcher:
             except Exception:
                 pass
         await message.answer(text, reply_markup=keyboard)
+
+    @dp.message(Command("help"))
+    async def help_command(message: Message):
+        await message.answer(
+            "🤖 <b>GIFT RADAR — помощь</b>\\n\\n"
+            "/start — приветствие и запуск Mini App\\n"
+            "/help — эта справка\\n"
+            "/myid — показать твой Telegram ID\\n\\n"
+            "Если Mini App не открывается, обнови Telegram и попробуй /start ещё раз."
+        )
 
     @dp.message(Command("admin"))
     async def admin_panel(message: Message):
