@@ -43,6 +43,8 @@
   let publicOrdersOffset = $state(0);
   let ordersLoadingMore = $state(false);
   let offers = $state<DemoOffer[]>([]);
+  let offersTotal = $state(0);
+  let offersLoadingMore = $state(false);
   let deals = $state<DemoDeal[]>([]);
   let notifications = $state<AccountNotification[]>([]);
   let accountActivity = $state<AccountActivity[]>([]);
@@ -244,11 +246,26 @@
     if (!window.Telegram?.WebApp?.initData) { offers = []; deals = []; await loadAccountOverview(); return; }
     offersBusy = true;
     try {
-      const results = await Promise.all([request('/api/marketplace/offers'), request('/api/marketplace/deals'), loadAccountOverview()]);
+      const results = await Promise.all([request('/api/marketplace/offers?limit=100&offset=0'), request('/api/marketplace/deals'), loadAccountOverview()]);
       offers = Array.isArray(results[0].items) ? results[0].items : [];
+      offersTotal = Number(results[0].total) || offers.length;
       deals = Array.isArray(results[1].items) ? results[1].items : [];
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
     finally { offersBusy = false; }
+  }
+
+  async function loadMoreOffers() {
+    if (offersLoadingMore || offers.length >= offersTotal) return;
+    offersLoadingMore = true;
+    try {
+      const data = await request('/api/marketplace/offers?limit=100&offset=' + offers.length);
+      const next = Array.isArray(data.items) ? data.items as DemoOffer[] : [];
+      const combined = new Map<string, DemoOffer>(offers.map(offer => [offer.id, offer] as const));
+      for (const offer of next) combined.set(offer.id, offer);
+      offers = [...combined.values()];
+      offersTotal = Number(data.total) || offersTotal;
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { offersLoadingMore = false; }
   }
 
   async function loadMoreActivity() {
@@ -682,7 +699,8 @@
             <article class="order-card"><div class="order-icon">↗</div><div class="order-main"><div class="order-kind">{offer.is_mine?t.outgoing:t.incoming} · {offer.order_title}</div><h3>{offer.amount} {offer.currency==='XTR'?'⭐ Stars':'TON'}</h3><p>{offer.note || offer.sender_name} · {new Date(offer.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p></div><div class="order-price"><span class={'status-'+(offer.status==='pending'?'active':offer.status==='accepted'?'matched':'cancelled')}>{offer.status}</span></div>
             {#if offer.status==='pending' && offer.is_mine}<div class="order-actions"><button class="cancel-button" onclick={()=>respondToOffer(offer.id,'withdraw')}>{t.withdrawOffer}</button></div>{:else if offer.status==='pending' && !offer.is_mine}<div class="order-actions"><button class="match-button" onclick={()=>respondToOffer(offer.id,'accept')}>{t.acceptOffer}</button><button class="cancel-button" onclick={()=>respondToOffer(offer.id,'decline')}>{t.declineOffer}</button></div>{/if}</article>
           {/each}</div>{/if}
-        <div class="section-title"><div><div class="eyebrow">HISTORY</div><h2>{t.dealsTitle}</h2></div></div>
+        {#if offers.length < offersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOffers} disabled={offersLoadingMore}>{offersLoadingMore?'…':t.loadMore}</button></div>{/if}
+         <div class="section-title"><div><div class="eyebrow">HISTORY</div><h2>{t.dealsTitle}</h2></div></div>
         {#if deals.length===0}<div class="state-panel">{t.noDeals}</div>{:else}<div class="orders-list">{#each deals as deal (deal.id)}<article class="order-card"><div class="order-icon">✓</div><div class="order-main"><div class="order-kind">{deal.title}</div><h3>{deal.amount} {deal.currency==='XTR'?'⭐ Stars':'TON'}</h3><p>{deal.listing_owner} · {deal.offer_sender} · {new Date(deal.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p></div><div class="order-price"><span class="status-matched">{lang==='ru'?'Смоделирована':'Simulated'}</span></div></article>{/each}</div>{/if}
       </section>
     {:else if view==='create'}
