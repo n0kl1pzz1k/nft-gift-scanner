@@ -83,3 +83,49 @@ def get_catalogue_item(gift_id: str) -> dict[str, Any] | None:
         "first_seen_at": row["first_seen_at"],
         "last_seen_at": row["last_seen_at"],
     }
+
+
+
+def search_catalogue_items(
+    query: str = "",
+    collection_id: str = "",
+    limit: int = 24,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Search the locally persisted Portals metadata index with bounded pagination."""
+    _ensure_table()
+    safe_query = str(query or "").strip()[:80]
+    safe_collection = str(collection_id or "").strip()[:160]
+    safe_limit = min(max(int(limit), 1), 50)
+    safe_offset = min(max(int(offset), 0), 100000)
+    clauses: list[str] = []
+    params: list[Any] = []
+    if safe_query:
+        pattern = f"%{safe_query}%"
+        clauses.append("(json_extract(gift_json, '$.name') LIKE ? OR gift_id LIKE ? OR json_extract(gift_json, '$.number') LIKE ?)")
+        params.extend([pattern, pattern, pattern])
+    if safe_collection:
+        clauses.append("json_extract(gift_json, '$.collection_id') = ?")
+        params.append(safe_collection)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    with _db() as conn:
+        total = conn.execute(f"SELECT COUNT(*) FROM catalogue_gifts{where}", params).fetchone()[0]
+        rows = conn.execute(
+            f"SELECT gift_json, source, first_seen_at, last_seen_at FROM catalogue_gifts{where} ORDER BY last_seen_at DESC, gift_id ASC LIMIT ? OFFSET ?",
+            [*params, safe_limit, safe_offset],
+        ).fetchall()
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            item = json.loads(row["gift_json"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(item, dict):
+            continue
+        items.append({
+            **item,
+            "catalogue_source": row["source"],
+            "first_seen_at": row["first_seen_at"],
+            "last_seen_at": row["last_seen_at"],
+        })
+    return {"items": items, "total_count": total, "limit": safe_limit, "offset": safe_offset}
