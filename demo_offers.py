@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Callable, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Query
+
+from marketplace import _enforce_user_rate_limit
 from pydantic import BaseModel, Field, field_validator
 
 DB_PATH = os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3"))
@@ -174,6 +176,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
     async def create_offer(payload: CreateOffer, x_telegram_init_data: str | None = Header(default=None)):
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         actor_id = str(user["id"])
+        _enforce_user_rate_limit(actor_id, "create_offer", 15)
         now = int(time.time())
         with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -240,6 +243,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                            x_telegram_init_data: str | None = Header(default=None)):
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         actor_id = str(user["id"])
+        _enforce_user_rate_limit(actor_id, "update_offer", 30)
         now = int(time.time())
         with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
