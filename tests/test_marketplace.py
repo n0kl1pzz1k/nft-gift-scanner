@@ -90,5 +90,40 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
 
 
+    def test_create_order_rate_limit_is_persistent_and_returns_retry_after(self):
+        headers = {"X-Telegram-Init-Data": "user-a"}
+        payload = {"kind": "listing", "title": "Gift", "price": 1, "currency": "TON"}
+        for _ in range(8):
+            response = self.client.post("/api/marketplace/orders", headers=headers, json=payload)
+            self.assertEqual(response.status_code, 201)
+        limited = self.client.post("/api/marketplace/orders", headers=headers, json=payload)
+        self.assertEqual(limited.status_code, 429)
+        self.assertIn("Retry-After", limited.headers)
+
+    def test_cors_rejects_untrusted_origins(self):
+        response = self.client.options(
+            "/api/marketplace/orders",
+            headers={
+                "Origin": "https://untrusted.example",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+        self.assertNotIn("access-control-allow-origin", response.headers)
+
+    def test_cors_allows_production_mini_app_origin(self):
+        response = self.client.options(
+            "/api/marketplace/orders",
+            headers={
+                "Origin": "https://nft-gift-scanner.fj7kmzkhn9.workers.dev",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type,x-telegram-init-data",
+            },
+        )
+        self.assertEqual(
+            response.headers.get("access-control-allow-origin"),
+            "https://nft-gift-scanner.fj7kmzkhn9.workers.dev",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

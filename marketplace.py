@@ -70,6 +70,13 @@ def init_marketplace_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_demo_order_events_order
             ON demo_order_events(order_id, created_at DESC);
+        CREATE TABLE IF NOT EXISTS api_rate_limits (
+            user_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            window_started_at INTEGER NOT NULL,
+            request_count INTEGER NOT NULL,
+            PRIMARY KEY(user_id, action)
+        );
         """)
 
 
@@ -77,6 +84,40 @@ def _user(init_data: str | None, verify: Callable[[str], dict]) -> dict:
     if not init_data:
         raise HTTPException(status_code=401, detail="Open GIFT RADAR from Telegram to use demo orders")
     return verify(init_data)
+
+
+def _enforce_user_rate_limit(user_id: str, action: str, limit: int, window_seconds: int = 60) -> None:
+    """Persistent per-Telegram-user mutation limit shared across app restarts."""
+    now = int(time.time())
+    with _db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT window_started_at, request_count FROM api_rate_limits WHERE user_id = ? AND action = ?",
+            (user_id, action),
+        ).fetchone()
+        if row is None or now - row["window_started_at"] >= window_seconds:
+            conn.execute(
+                """INSERT INTO api_rate_limits(user_id, action, window_started_at, request_count)
+                   VALUES (?, ?, ?, 1)
+                   ON CONFLICT(user_id, action) DO UPDATE SET
+                   window_started_at=excluded.window_started_at, request_count=1""",
+                (user_id, action, now),
+            )
+            conn.commit()
+            return
+        if row["request_count"] >= limit:
+            retry_after = max(1, window_seconds - (now - row["window_started_at"]))
+            conn.rollback()
+            raise HTTPException(
+                status_code=429,
+                detail="Too many requests. Please wait before trying again.",
+                headers={"Retry-After": str(retry_after)},
+            )
+        conn.execute(
+            "UPDATE api_rate_limits SET request_count = request_count + 1 WHERE user_id = ? AND action = ?",
+            (user_id, action),
+        )
+        conn.commit()
 
 
 def _order_dict(row: sqlite3.Row, current_user_id: str | None = None) -> dict[str, Any]:
@@ -182,6 +223,7 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
         x_telegram_init_data: str | None = Header(default=None),
     ):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
+        _enforce_user_rate_limit(str(user["id"]), "create_order", 8)
         now = int(time.time())
         order_id = "gr-" + uuid.uuid4().hex[:16]
         owner = (user.get("first_name") or user.get("username") or "Telegram user")[:64]
@@ -208,6 +250,7 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
     ):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         actor_id = str(user["id"])
+        _enforce_user_rate_limit(actor_id, "simulate_fill", 12)
         now = int(time.time())
         with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -240,6 +283,7 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
     ):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         actor_id = str(user["id"])
+        _enforce_user_rate_limit(actor_id, "cancel_order", 12)
         now = int(time.time())
         with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
