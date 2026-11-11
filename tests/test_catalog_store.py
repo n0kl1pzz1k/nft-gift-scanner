@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import marketplace
-from catalog_store import get_catalogue_item, upsert_catalogue_items
+from catalog_store import get_catalogue_item, search_catalogue_items, upsert_catalogue_items
 
 
 class PersistentCatalogueTests(unittest.TestCase):
@@ -33,3 +33,23 @@ class PersistentCatalogueTests(unittest.TestCase):
     def test_missing_and_blank_ids_are_not_indexed(self):
         self.assertEqual(upsert_catalogue_items([{"name": "No ID"}, {"id": "  ", "name": "Blank"}]), 0)
         self.assertIsNone(get_catalogue_item("unknown"))
+
+    def test_search_supports_bounded_pagination_and_filters(self):
+        upsert_catalogue_items([
+            {"id": "g-1", "name": "Plush Pepe", "number": 1, "collection_id": "plush"},
+            {"id": "g-2", "name": "Durov Cap", "number": 2, "collection_id": "caps"},
+            {"id": "g-3", "name": "Plush Pepe", "number": 3, "collection_id": "plush"},
+        ])
+        page = search_catalogue_items("Plush", "plush", limit=1, offset=0)
+        self.assertEqual(page["total_count"], 2)
+        self.assertEqual(page["limit"], 1)
+        self.assertEqual(len(page["items"]), 1)
+        self.assertEqual(page["items"][0]["collection_id"], "plush")
+        second = search_catalogue_items("Plush", "plush", limit=1, offset=1)
+        self.assertEqual(second["total_count"], 2)
+        self.assertNotEqual(page["items"][0]["id"], second["items"][0]["id"])
+
+    def test_search_clamps_pagination(self):
+        page = search_catalogue_items(limit=500, offset=-10)
+        self.assertEqual(page["limit"], 50)
+        self.assertEqual(page["offset"], 0)
