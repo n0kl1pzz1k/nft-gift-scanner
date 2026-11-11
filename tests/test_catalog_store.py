@@ -63,3 +63,7 @@ class PersistentCatalogueTests(unittest.TestCase):
         history = get_catalogue_history("history-1")
         self.assertEqual(len(history), 2)
         self.assertEqual({entry["item"]["price"] for entry in history}, {"1.0", "1.5"})
+
+    def test_overlong_source_ids_are_rejected_not_truncated(self):
+        self.assertEqual(upsert_catalogue_items([{"id": "x" * 161, "name": "Collision"}]), 0)
+        self.assertIsNone(get_catalogue_item("x" * 160))
