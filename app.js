@@ -197,7 +197,7 @@ function renderGifts(data){
     return '<article class="gift-card" role="button" tabindex="0" data-gift-index="'+index+'" aria-label="'+escapeHtml((gift.name||"Telegram Gift")+" "+t.details)+'">'+image+'<div class="gift-info"><b>'+escapeHtml(gift.name||"Telegram Gift")+'</b><span>'+t.giftNumber+' '+escapeHtml(gift.number??"—")+'</span><strong>'+t.giftPrice+': '+escapeHtml(gift.price??"—")+' '+escapeHtml(gift.currency||"GRAM")+'</strong><small>'+t.giftFloor+': '+escapeHtml(gift.floor_price??"—")+' '+escapeHtml(gift.currency||"GRAM")+'</small><small>'+escapeHtml(attrs)+'</small>'+(rarity?'<small class="gift-rarity">'+escapeHtml(rarity)+'</small>':'')+'<span class="gift-details-hint">'+t.details+' ↗</span></div></article>';
   }).join(""):'<p class="empty">'+emptyText+'</p>')+'</section>'+moreButton;
   $("gift-search-button").onclick=searchGifts;
-  $("gift-search").addEventListener("keydown",e=>{if(e.key==="Enter")searchGifts()});
+  $("gift-search").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();searchGifts();}};
 }
 async function loadTonnelGifts(search="",renderActive=true){
   const t=copy[lang];
