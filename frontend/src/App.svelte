@@ -294,7 +294,15 @@
 
   async function telegramLogin(showNotice = true) {
     const initData = window.Telegram?.WebApp?.initData || '';
-    if (!initData) { if (showNotice) notice = t.authHint; return; }
+    if (!initData) {
+      isAdmin = false;
+      signedIn = false;
+      if (showNotice) notice = t.authHint;
+      return;
+    }
+    // Fail closed while refreshing the signed Telegram session.
+    isAdmin = false;
+    signedIn = false;
     try {
       const response = await fetch(API + '/api/auth/telegram', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -313,6 +321,11 @@
       if (showNotice) notice = t.signed;
     } catch (e) {
       isAdmin = false;
+      signedIn = false;
+      telegramUser = '';
+      telegramPhoto = '';
+      telegramUsername = '';
+      telegramPremium = false;
       if (showNotice) notice = e instanceof Error ? e.message : String(e);
     }
   }
