@@ -214,6 +214,8 @@ async def status():
 
 @app.get("/api/collections")
 async def collections():
+    if not _marketplace_visibility["portals"]:
+        return {"items": [], "sources": source_status(), "updated_at": None, "note": "Portals collection feed is disabled by the administrator."}
     if not os.getenv("PORTALS_API_KEY", "").strip():
         return {
             "items": [],
