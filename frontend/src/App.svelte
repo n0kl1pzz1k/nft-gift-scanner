@@ -155,8 +155,8 @@
         selectedHistory = Array.isArray(data.history) ? data.history : [];
       }
     } catch {
-      // The live listing remains usable when historical snapshots are not indexed yet.
-      selectedHistory = [];
+      // Ignore stale responses when the user has opened a different gift.
+      if (selected && keyOf(selected) === giftId) selectedHistory = [];
     } finally {
       if (selected && keyOf(selected) === giftId) historyLoading = false;
     }
