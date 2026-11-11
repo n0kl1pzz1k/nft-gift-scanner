@@ -156,7 +156,7 @@ def search_catalogue_items(
 def get_catalogue_history(gift_id: str, limit: int = 20) -> list[dict[str, Any]]:
     """Return distinct source metadata snapshots, newest first."""
     _ensure_table()
-    safe_id = str(gift_id or "").strip()[:160]
+    safe_id = str(gift_id or "").strip()
     safe_limit = min(max(int(limit), 1), 50)
     if not safe_id or len(safe_id) > 160:
         return []
