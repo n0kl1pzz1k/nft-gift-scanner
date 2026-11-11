@@ -314,6 +314,25 @@
       <section class="market-stats" aria-label="Marketplace overview"><article><span>↗</span><div><strong>{demoListings}</strong><small>{t.statsListings}</small></div></article><article><span>⌕</span><div><strong>{demoBuyRequests}</strong><small>{t.statsBuys}</small></div></article><article><span>◈</span><div><strong>{demoVolumeTon.toFixed(2)} TON</strong><small>{t.statsVolume}</small></div></article><article><span>★</span><div><strong>{demoVolumeStars} ⭐</strong><small>{t.statsVolume}</small></div></article><article><span>▦</span><div><strong>{total.toLocaleString()}</strong><small>{t.statsCatalog}</small></div></article><p>{t.statsVolumeHint}</p></section>
       <section class="market-section">
         <div class="section-title"><div><div class="eyebrow">DISCOVER</div><h2>{t.listings}</h2><p>{total.toLocaleString()} {t.results}</p></div><button class="refresh-button" onclick={()=>loadCatalogue()} disabled={busy}>↻ {t.refresh}</button></div>
+        <div class="filter-bar">
+          <div class="search-field"><span>⌕</span><input bind:value={search} placeholder={t.search} onkeydown={e=>e.key==="Enter"&&loadCatalogue()}/></div>
+          <select class="filter-input" bind:value={collectionFilter} aria-label="Collection">
+            <option value="all">Все коллекции</option>
+            {#each collections as collection}
+              <option value={String(collection.id ?? collection.short_name ?? "")}>{collection.name || collection.short_name || "Collection"}</option>
+            {/each}
+          </select>
+          <select class="filter-input" bind:value={statusFilter} aria-label="Listing status">
+            <option value="listed">В продаже</option><option value="unlisted">Не выставлены</option><option value="all">Все статусы</option>
+          </select>
+          <input class="filter-input" type="number" min="0" bind:value={minPrice} placeholder={t.min}/>
+          <input class="filter-input" type="number" min="0" bind:value={maxPrice} placeholder={t.max}/>
+          <select class="filter-input" bind:value={sortBy} aria-label="Sort listings">
+            <option value="listed_at desc">Сначала новые</option><option value="price asc">Сначала дешевле</option><option value="price desc">Сначала дороже</option>
+            <option value="model_rarity asc">Редкость модели ↑</option><option value="model_rarity desc">Редкость модели ↓</option>
+          </select>
+          <button class="search-button" onclick={()=>loadCatalogue()}>Применить</button>
+        </div>
         <div class="filter-bar"><div class="search-field"><span>⌕</span><input bind:value={search} placeholder={t.search} onkeydown={e=>e.key==='Enter'&&loadCatalogue()}/></div><input class="filter-input" type="number" min="0" bind:value={minPrice} placeholder={t.min}/><input class="filter-input" type="number" min="0" bind:value={maxPrice} placeholder={t.max}/><button class="search-button" onclick={()=>loadCatalogue()}>{t.market}</button></div>
         {#if busy}<div class="state-panel"><div class="loader"></div>{t.loading}</div>
         {:else if error}<div class="state-panel error-state">{t.failed}<small>{error}</small><button class="search-button" onclick={()=>loadCatalogue()}>{t.refresh}</button></div>
