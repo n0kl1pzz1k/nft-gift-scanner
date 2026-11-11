@@ -151,11 +151,7 @@
   async function telegramLogin() {
     const initData = window.Telegram?.WebApp?.initData || '';
     if (!initData) { notice = t.authHint; return; }
-    try {
-      const data = await request('/api/auth/telegram');
-      void data;
-    } catch {}
-    try {
+        try {
       const response = await fetch(API + '/api/auth/telegram', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ init_data: initData }),
