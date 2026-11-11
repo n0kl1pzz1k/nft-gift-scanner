@@ -74,6 +74,15 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(removed.status_code, 200)
         self.assertEqual(self.client.get("/api/marketplace/favorites", headers=headers_a).json()["items"], [])
 
+    def test_status_reports_persistent_metadata_history_capability(self):
+        status = self.client.get("/api/status")
+        self.assertEqual(status.status_code, 200)
+        pipeline = status.json()["data_pipeline"]
+        self.assertTrue(pipeline["persistent_history"])
+        self.assertEqual(pipeline["history_kind"], "portals_metadata_snapshots")
+        self.assertEqual(pipeline["history_limit_per_gift"], 50)
+        self.assertTrue(pipeline["history_requires_persistent_volume_for_deploys"])
+
     def test_portals_attributes_are_normalized_and_bounded(self):
         attributes = [{"type": "model", "value": "x" * 300}, "invalid", {"name": {"nested": "value"}}] + [
             {"type": "symbol", "value": str(index)} for index in range(50)
