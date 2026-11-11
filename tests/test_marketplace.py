@@ -109,6 +109,27 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(searched.json()["total_count"], 1)
         self.assertEqual(searched.json()["items"][0]["id"], "portals-item-9001")
 
+    def test_catalogue_history_endpoint_returns_distinct_metadata_versions(self):
+        payloads = [
+            {"results": [{"id": "history-item-1", "name": "Gift", "price": "1.0"}], "total_count": 1},
+            {"results": [{"id": "history-item-1", "name": "Gift", "price": "1.5"}], "total_count": 1},
+        ]
+        with patch.dict(os.environ, {"PORTALS_API_KEY": "test-partner-key"}), patch.object(
+            api, "_portals_get_json", new_callable=AsyncMock, side_effect=payloads
+        ):
+            first = self.client.get("/api/gifts?limit=1&sort_by=price%20asc")
+            second = self.client.get("/api/gifts?limit=1&sort_by=price%20desc")
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        history = self.client.get("/api/catalog/items/history-item-1/history")
+        self.assertEqual(history.status_code, 200)
+        self.assertTrue(history.json()["metadata_only"])
+        self.assertEqual(len(history.json()["history"]), 2)
+        self.assertEqual(
+            {entry["item"]["price"] for entry in history.json()["history"]},
+            {"1.0", "1.5"},
+        )
+
     def test_catalogue_item_endpoint_does_not_invent_missing_items(self):
         missing = self.client.get("/api/catalog/items/not-indexed")
         self.assertEqual(missing.status_code, 404)
