@@ -35,10 +35,21 @@ class SharedMarketplaceTests(unittest.TestCase):
             },
         )
         self.auth_patch.start()
+        self.credential_patch = patch.object(
+            api,
+            "_authenticate_telegram_credential",
+            side_effect=lambda value: (
+                api._verify_telegram_init_data(value)
+                if value in ("user-a", "user-b", "user-c")
+                else marketplace.get_telegram_session_user(value)
+            ),
+        )
+        self.credential_patch.start()
         self.client = TestClient(api.app)
 
     def tearDown(self):
         self.client.close()
+        self.credential_patch.stop()
         self.auth_patch.stop()
         self.offers_db_patch.stop()
         self.db_patch.stop()
@@ -1004,6 +1015,11 @@ class TelegramInitDataValidationTests(unittest.TestCase):
         secret = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
         values["hash"] = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
         return urlencode(values)
+
+    def test_raw_init_data_cannot_be_used_directly_as_an_api_session(self):
+        with self.assertRaises(api.HTTPException) as raised:
+            api._authenticate_telegram_credential("auth_date=123&hash=" + "a" * 64)
+        self.assertEqual(raised.exception.status_code, 401)
 
     def test_valid_telegram_init_data_is_verified(self):
         with patch.dict(os.environ, {"BOT_TOKEN": "test-bot-token", "TELEGRAM_INITDATA_MAX_AGE_SECONDS": "300"}):
