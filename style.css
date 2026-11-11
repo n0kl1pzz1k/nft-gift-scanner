@@ -226,3 +226,30 @@ footer{margin-top:32px;padding-top:15px}
 .status-panel {
   display: none !important;
 }
+
+
+/* Mobile filter usability: prevent iOS Safari focus zoom without disabling page zoom. */
+@media (max-width: 760px) {
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  .filter-grid input,
+  .filter-grid select,
+  .catalog-toolbar input,
+  .catalog-toolbar button,
+  .filter-apply,
+  .filter-clear,
+  .back-collections {
+    font-size: 16px !important;
+    line-height: 1.25;
+  }
+  .filter-grid input,
+  .filter-grid select {
+    min-height: 46px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    -webkit-appearance: none;
+    appearance: none;
+    touch-action: manipulation;
+  }
+  .filter-grid label { gap: 8px; font-size: 11px; }
+  .filter-apply { min-height: 48px; border-radius: 12px; }
+}
