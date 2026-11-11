@@ -464,6 +464,7 @@ def _order_dict(row: sqlite3.Row, current_user_id: str | None = None) -> dict[st
         "updatedAt": row["updated_at"],
         "note": row["note"],
         "owner": row["owner_name"],
+        "seller_profile_id": row["seller_profile_id"] if "seller_profile_id" in row.keys() else None,
         "isMine": current_user_id is not None and row["user_id"] == current_user_id,
     }
 
@@ -631,11 +632,25 @@ def create_marketplace_router(
                    WHERE p.profile_id = ?""",
                 (profile_id,),
             ).fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail="Seller profile not found")
-        # No Telegram numeric ID, session data, private fields or unverified reputation
-        # are exposed in the public seller card.
-        return {"profile": {**dict(row), "completed_trades": 0, "rating": None}}
+            if row is None:
+                raise HTTPException(status_code=404, detail="Seller profile not found")
+            listing_rows = conn.execute(
+                """SELECT o.id, o.title, o.price, o.currency, o.created_at, o.note
+                   FROM demo_orders o
+                   JOIN user_profiles p ON p.telegram_id = o.user_id
+                   WHERE p.profile_id = ? AND o.kind = 'listing' AND o.status = 'active'
+                   ORDER BY o.created_at DESC LIMIT 100""",
+                (profile_id,),
+            ).fetchall()
+        # Public projection is allow-listed: no Telegram numeric ID, session data,
+        # buyer requests, private fields or unverified reputation.
+        public_listings = [{
+            "id": item["id"], "title": item["title"], "price": item["price"],
+            "currency": item["currency"], "createdAt": item["created_at"], "note": item["note"],
+        } for item in listing_rows]
+        return {"profile": {
+            **dict(row), "completed_trades": 0, "rating": None, "listings": public_listings
+        }}
 
 
 
@@ -868,8 +883,13 @@ def create_marketplace_router(
             values.append(kind)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         with _db() as conn:
+            qualified_where = where.replace("status", "o.status").replace("kind", "o.kind")
             rows = conn.execute(
-                f"SELECT * FROM demo_orders{where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                f"""SELECT o.*, p.profile_id AS seller_profile_id
+                    FROM demo_orders o
+                    LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
+                    {qualified_where}
+                    ORDER BY o.created_at DESC LIMIT ? OFFSET ?""",
                 (*values, limit, offset),
             ).fetchall()
             total = conn.execute(f"SELECT COUNT(*) FROM demo_orders{where}", values).fetchone()[0]
@@ -880,7 +900,10 @@ def create_marketplace_router(
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         with _db() as conn:
             rows = conn.execute(
-                "SELECT * FROM demo_orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 200",
+                """SELECT o.*, p.profile_id AS seller_profile_id
+                   FROM demo_orders o
+                   LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
+                   WHERE o.user_id = ? ORDER BY o.created_at DESC LIMIT 200""",
                 (str(user["id"]),),
             ).fetchall()
         return {"items": [_order_dict(row, str(user["id"])) for row in rows]}
