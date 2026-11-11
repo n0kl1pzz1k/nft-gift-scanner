@@ -87,8 +87,11 @@
     try {
       const [s,c] = await Promise.all([request('/api/status'),request('/api/collections')]);
       status=s; visibility={...visibility,...(s.marketplace_visibility||{})}; collections=Array.isArray(c.items)?c.items:[];
-      let endpoint = market==='tonnel' ? '/api/tonnel/gifts?limit=30&page=1&search='+encodeURIComponent(term) : '/api/gifts?limit=40&offset=0&search='+encodeURIComponent(term)+(minPrice?'&min_price='+encodeURIComponent(minPrice):'')+(maxPrice?'&max_price='+encodeURIComponent(maxPrice):'');
-      if(market==='mrkt'){gifts=[];total=0;return;}
+      let endpoint = market==='tonnel'
+        ? '/api/tonnel/gifts?limit=30&page=1&search='+encodeURIComponent(term)
+        : market==='mrkt'
+          ? '/api/mrkt/gifts?limit=30&page=0&search='+encodeURIComponent(term)
+          : '/api/gifts?limit=40&offset=0&search='+encodeURIComponent(term)+(minPrice?'&min_price='+encodeURIComponent(minPrice):'')+(maxPrice?'&max_price='+encodeURIComponent(maxPrice):'');
       const g=await request(endpoint); gifts=Array.isArray(g.items)?g.items:[]; total=Math.max(Number(g.total_count)||0,gifts.length); refreshed=new Date().toLocaleTimeString(lang==='ru'?'ru-RU':'en-US',{hour:'2-digit',minute:'2-digit'});
     } catch(e) { error=e instanceof Error?e.message:String(e); }
     finally { busy=false; }
