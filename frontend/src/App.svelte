@@ -268,6 +268,8 @@
       const data = await request('/api/admin/overview');
       adminMarketplaceEnabled = data.marketplace_visibility?.portals !== false;
     } catch (e) {
+      // Do not render privileged controls if the protected overview cannot be loaded.
+      isAdmin = false;
       notice = e instanceof Error ? e.message : String(e);
     }
   }
