@@ -39,6 +39,7 @@
   let createKind = $state<'listing' | 'buy-order'>('listing');
   let createTitle = $state('');
   let createPrice = $state('');
+  let createCurrency = $state<'TON' | 'XTR'>('TON');
   let createNote = $state('');
   let collectionFilter = $state('all');
 
@@ -58,7 +59,7 @@
     signIn: 'Подтвердить Telegram', guest: 'Гость', authHint: 'Открой Mini App через Telegram, чтобы подтвердить профиль.',
     signed: 'Telegram подтверждён', profileText: 'Настройки профиля и локальная история действий.',
     favoritesTitle: 'Избранные подарки', noFavorites: 'Добавьте подарки в избранное из каталога.',
-    save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Демо-запись добавлена.',
+    save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Демо-запись добавлена.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Демо-оборот', statsVolumeHint: 'Только смоделированные записи', statsCatalog: 'Подарков в каталоге', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'Каталог Portals', refresh: 'Обновить', all: 'Все',
   };
   const en = {
@@ -77,12 +78,16 @@
     signIn: 'Verify Telegram', guest: 'Guest', authHint: 'Open the Mini App in Telegram to verify your profile.',
     signed: 'Telegram verified', profileText: 'Profile settings and local activity history.',
     favoritesTitle: 'Saved gifts', noFavorites: 'Save gifts from the catalogue to see them here.',
-    save: 'Save', saved: 'Saved', currency: 'TON', success: 'Demo entry created.',
+    save: 'Save', saved: 'Saved', currency: 'TON', success: 'Demo entry created.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Demo volume', statsVolumeHint: 'Simulated entries only', statsCatalog: 'Catalogue gifts', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'Portals catalogue', refresh: 'Refresh', all: 'All',
   };
   const t = $derived(lang === 'ru' ? ru : en);
   const keyOf = (g: Gift) => String(g.id ?? g.number ?? g.name ?? 'gift');
   const shownGifts = $derived(view === 'favorites' ? favoriteItems : gifts);
+  const demoListings = $derived(orders.filter(o => o.kind === 'listing' && o.status === 'active').length);
+  const demoBuyRequests = $derived(orders.filter(o => o.kind === 'buy-order' && o.status === 'active').length);
+  const demoVolumeTon = $derived(orders.filter(o => o.status === 'matched' && o.currency === 'TON').reduce((sum, o) => sum + o.price, 0));
+  const demoVolumeStars = $derived(orders.filter(o => o.status === 'matched' && o.currency === 'XTR').reduce((sum, o) => sum + o.price, 0));
   const fmt = (value: unknown, currency = '') => value === null || value === undefined || value === '' ? '—' : String(value) + (currency ? ' ' + currency : '');
 
   async function request(path: string, signal?: AbortSignal) {
@@ -137,13 +142,13 @@
       kind: createKind,
       title: createTitle.trim(),
       price,
-      currency: 'TON',
+      currency: createCurrency,
       status: 'active',
       createdAt: new Date().toISOString(),
       note: createNote.trim(),
     }, ...orders];
     saveOrders();
-    createTitle = ''; createPrice = ''; createNote = '';
+    createTitle = ''; createPrice = ''; createNote = ''; createCurrency = 'TON';
     notice = t.success;
     view = 'orders';
   }
@@ -213,7 +218,7 @@
   <main class="main-content">
     <header class="topbar">
       <div class="crumb"><span>GIFT RADAR</span><b>/</b><span>{view.toUpperCase()}</span></div>
-      <div class="top-actions"><span class="demo-pill">{t.demo}</span><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>view='profile'}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
+      <div class="top-actions"><span class="demo-pill">{t.demo}</span><button class="language" onclick={()=>createCurrency=createCurrency==='TON'?'XTR':'TON'}>{createCurrency==='TON'?'TON':'⭐ Stars'}</button><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>view='profile'}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
     </header>
 
     {#if view==='market'}
@@ -221,6 +226,7 @@
         <div class="hero-copy"><div class="eyebrow"><span class="spark"></span> {t.portals}</div><h1>{t.headline}</h1><p>{t.subtitle}</p><div class="hero-tags"><span>✦ Animated gifts</span><span>◈ Portals catalogue</span><span>◎ Demo orders</span></div></div>
         <div class="hero-art" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="hero-gem">✳</div><span class="float-chip chip-a">GIFT #042</span><span class="float-chip chip-b">PORTALS</span><span class="float-chip chip-c">✦ RARE FIND</span></div>
       </section>
+      <section class="market-stats" aria-label="Marketplace overview"><article><span>↗</span><div><strong>{demoListings}</strong><small>{t.statsListings}</small></div></article><article><span>⌕</span><div><strong>{demoBuyRequests}</strong><small>{t.statsBuys}</small></div></article><article><span>◈</span><div><strong>{demoVolumeTon.toFixed(2)} TON</strong><small>{t.statsVolume}</small></div></article><article><span>★</span><div><strong>{demoVolumeStars} ⭐</strong><small>{t.statsVolume}</small></div></article><article><span>▦</span><div><strong>{total.toLocaleString()}</strong><small>{t.statsCatalog}</small></div></article><p>{t.statsVolumeHint}</p></section>
       <section class="market-section">
         <div class="section-title"><div><div class="eyebrow">DISCOVER</div><h2>{t.listings}</h2><p>{total.toLocaleString()} {t.results}</p></div><button class="refresh-button" onclick={()=>loadCatalogue()} disabled={busy}>↻ {t.refresh}</button></div>
         <div class="filter-bar"><div class="search-field"><span>⌕</span><input bind:value={search} placeholder={t.search} onkeydown={e=>e.key==='Enter'&&loadCatalogue()}/></div><input class="filter-input" type="number" min="0" bind:value={minPrice} placeholder={t.min}/><input class="filter-input" type="number" min="0" bind:value={maxPrice} placeholder={t.max}/><button class="search-button" onclick={()=>loadCatalogue()}>{t.market}</button></div>
@@ -245,23 +251,23 @@
     {:else if view==='orders'}
       <section class="page-heading"><div class="eyebrow">YOUR ACTIVITY</div><h1>{t.ordersTitle}</h1><p>{t.createHint}</p></section>
       {#if orders.length===0}<div class="state-panel">{t.noOrders}<button class="search-button" onclick={()=>view='create'}>{t.create}</button></div>
-      {:else}<div class="orders-list">{#each orders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {order.note?'· '+order.note:''}</p></div><div class="order-price"><strong>{order.price} TON</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active'}<button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button>{/if}</article>{/each}</div>{/if}
+      {:else}<div class="orders-list">{#each orders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {order.note?'· '+order.note:''}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active'}<button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button>{/if}</article>{/each}</div>{/if}
     {:else if view==='create'}
       <section class="page-heading"><div class="eyebrow">MARKETPLACE STUDIO</div><h1>{t.createTitle}</h1><p>{t.createHint}</p></section>
       <section class="create-layout"><div class="create-form">
         <div class="segmented"><button class:chosen={createKind==='listing'} onclick={()=>createKind='listing'}>{t.sell}</button><button class:chosen={createKind==='buy-order'} onclick={()=>createKind='buy-order'}>{t.buy}</button></div>
         <label>{t.titleLabel}<input class="form-input" bind:value={createTitle} placeholder="Plush Pepe #042"/></label>
-        <label>{t.priceLabel}<input class="form-input" type="number" min="0" step="0.01" bind:value={createPrice} placeholder="125.00"/></label>
+        <label>{t.priceLabel}<div class="currency-choice"><button class:chosen={createCurrency==='TON'} onclick={()=>createCurrency='TON'}>TON</button><button class:chosen={createCurrency==='XTR'} onclick={()=>createCurrency='XTR'}>⭐ Telegram Stars</button></div><input class="form-input" type="number" min="0" step="0.01" bind:value={createPrice} placeholder={createCurrency==='TON'?'1.25':'100'}/></label>
         <label>{t.noteLabel}<textarea class="form-input note-input" bind:value={createNote} placeholder="..."></textarea></label>
         <button class="publish-button" onclick={createOrder}>{t.publish} <span>→</span></button>
         <p class="safety-note">ⓘ {t.createHint}</p>
-      </div><div class="create-aside"><div class="aside-icon">✳</div><div class="eyebrow">GIFT RADAR</div><h2>Make your next move visible.</h2><p>Созданные записи сохраняются только в этом браузере и нужны для демонстрации интерфейса.</p><div class="aside-stats"><div><strong>{orders.length}</strong><span>DEMO ORDERS</span></div><div><strong>{favorites.length}</strong><span>SAVED GIFTS</span></div></div></div></section>
+      </div><div class="create-aside"><div class="aside-icon">✳</div><div class="eyebrow">GIFT RADAR</div><h2>Make your next move visible.</h2><p>Созданные записи сохраняются только в этом браузере. TON и Stars здесь — обозначения демо-цен, обмена и оплаты нет.</p><div class="aside-stats"><div><strong>{orders.length}</strong><span>DEMO ORDERS</span></div><div><strong>{favorites.length}</strong><span>SAVED GIFTS</span></div></div></div></section>
     {:else if view==='favorites'}
       <section class="page-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{t.favoritesTitle}</h1><p>{favorites.length} saved items</p></section>
       {#if shownGifts.length}<div class="gift-grid">{#each shownGifts as gift (keyOf(gift))}<article class="gift-card"><button class="gift-visual" onclick={()=>selected=gift}><GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/></button><div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'}</div><div class="gift-card-bottom"><strong>{fmt(gift.price,gift.currency||'TON')}</strong><button class="heart-button hearted" onclick={()=>toggleFavorite(gift)}>♥</button></div></div></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='market'}>{t.market}</button></div>{/if}
     {:else}
       <section class="page-heading"><div class="eyebrow">ACCOUNT CENTER</div><h1>{t.profile}</h1><p>{t.profileText}</p></section>
-      <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p></div><button class="publish-button" onclick={telegramLogin}>{t.signIn} →</button></article><article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>Wallet connection disabled</strong><small>Demo profile · no assets stored</small></div><b>DEMO</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>Portals catalogue · RU / EN · local demo history</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article></section>
+      <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p></div><button class="publish-button" onclick={telegramLogin}>{t.signIn} →</button></article><article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>Wallet connection disabled</strong><small>Demo profile · no assets stored</small></div><b>DEMO</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>Portals catalogue · TON / Stars demo labels · RU / EN</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article></section>
     {/if}
 
     {#if notice}<div class="toast" role="status">{notice}<button onclick={()=>notice=''}>×</button></div>{/if}
