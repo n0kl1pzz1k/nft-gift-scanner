@@ -49,6 +49,8 @@
   let dealsTotal = $state(0);
   let dealsLoadingMore = $state(false);
   let notifications = $state<AccountNotification[]>([]);
+  let notificationTotal = $state(0);
+  let notificationsLoadingMore = $state(false);
   let accountActivity = $state<AccountActivity[]>([]);
   let activityTotal = $state(0);
   let activityBusy = $state(false);
@@ -224,13 +226,29 @@
     }
     const [stats, feed, activity] = await Promise.all([
       request('/api/marketplace/account/stats'),
-      request('/api/marketplace/notifications?limit=40'),
+      request('/api/marketplace/notifications?limit=40&offset=0'),
       request('/api/marketplace/activity?limit=20&offset=0'),
     ]);
     accountStats = stats;
     notifications = Array.isArray(feed.items) ? feed.items : [];
+    notificationTotal = Number(feed.total) || notifications.length;
     accountActivity = Array.isArray(activity.items) ? activity.items : [];
     activityTotal = Number(activity.total) || 0;
+  }
+
+  async function loadMoreNotifications() {
+    if (notificationsLoadingMore || notifications.length >= notificationTotal) return;
+    notificationsLoadingMore = true;
+    try {
+      const data = await request('/api/marketplace/notifications?limit=40&offset=' + notifications.length);
+      const next = Array.isArray(data.items) ? data.items as AccountNotification[] : [];
+      const combined = new Map<string, AccountNotification>(notifications.map(item => [item.id, item] as const));
+      for (const item of next) combined.set(item.id, item);
+      notifications = [...combined.values()];
+      notificationTotal = Number(data.total) || notificationTotal;
+      accountStats = {...accountStats, unread_notifications: Number(data.unread_count) || 0};
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { notificationsLoadingMore = false; }
   }
 
   function notificationMessage(item: AccountNotification) {
@@ -777,6 +795,7 @@
               </button>
             {/each}
           </div>
+          {#if notifications.length < notificationTotal}<button class="refresh-button activity-more" onclick={loadMoreNotifications} disabled={notificationsLoadingMore}>{notificationsLoadingMore?'…':t.loadMoreActivity}</button>{/if}
         {:else}<div class="state-panel">{t.noNotifications}</div>{/if}
       </article>
       <article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>Wallet connection disabled</strong><small>Demo profile · no assets stored</small></div><b>DEMO</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>Portals catalogue · TON / Stars demo labels · RU / EN</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article>{#if isAdmin}<article class="profile-card"><div class="eyebrow">ADMINISTRATION</div><h2>{lang==='ru'?'Управление каталогом':'Catalogue controls'}</h2><p>{lang==='ru'?'Доступ подтверждён сервером Telegram. Здесь можно только включать или отключать отображение каталога Portals.':'Access verified by the server through Telegram. You can only enable or disable the Portals catalogue visibility here.'}</p><div class="wallet-placeholder"><span>◈</span><div><strong>{lang==='ru'?'Каталог Portals':'Portals catalogue'}</strong><small>{adminMarketplaceEnabled?(lang==='ru'?'Включён':'Enabled'):(lang==='ru'?'Отключён':'Disabled')}</small></div><b>ADMIN</b></div><button class="publish-button" onclick={toggleAdminMarketplace} disabled={adminBusy}>{adminBusy?'…':(adminMarketplaceEnabled?(lang==='ru'?'Отключить каталог':'Disable catalogue'):(lang==='ru'?'Включить каталог':'Enable catalogue'))}</button></article>{/if}</section>
