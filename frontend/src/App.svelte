@@ -221,6 +221,7 @@
   async function loadAccountOverview() {
     if (!window.Telegram?.WebApp?.initData) {
       notifications = [];
+      notificationTotal = 0;
       accountStats = {active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,simulated_deals:0,unread_notifications:0};
       return;
     }
