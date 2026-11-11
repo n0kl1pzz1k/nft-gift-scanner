@@ -119,6 +119,13 @@ def init_demo_offers_db() -> None:
               AND NEW.status IN ('accepted', 'declined', 'withdrawn')
               AND (NEW.status <> 'withdrawn' OR o.user_id <> NEW.sender_user_id);
         END;
+        CREATE TRIGGER IF NOT EXISTS trg_demo_order_cancel_declines_offers
+        AFTER UPDATE OF status ON demo_orders
+        WHEN OLD.status = 'active' AND NEW.status = 'cancelled'
+        BEGIN
+            UPDATE demo_offers SET status='declined', updated_at=NEW.updated_at
+            WHERE order_id=NEW.id AND status='pending';
+        END;
         """)
 
 
