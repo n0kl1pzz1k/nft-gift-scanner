@@ -358,6 +358,7 @@
       notice = t.success;
       view = 'orders';
       await loadMarketplace();
+      await loadOffersAndDeals();
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
@@ -366,6 +367,7 @@
       await request('/api/marketplace/orders/' + encodeURIComponent(id) + '/simulate-fill', undefined, {method:'POST'});
       notice = lang === 'ru' ? 'Демо-ордер отмечен как исполненный.' : 'Demo order marked as filled.';
       await loadMarketplace();
+      await loadOffersAndDeals();
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
@@ -374,6 +376,7 @@
       await request('/api/marketplace/orders/' + encodeURIComponent(id), undefined, {method:'DELETE'});
       notice = lang === 'ru' ? 'Заявка снята.' : 'Order cancelled.';
       await loadMarketplace();
+      await loadOffersAndDeals();
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
