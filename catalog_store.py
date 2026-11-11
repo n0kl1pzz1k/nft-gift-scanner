@@ -5,6 +5,7 @@ prove wallet ownership, or accept custody/transfer instructions.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from typing import Any
@@ -26,6 +27,18 @@ def _ensure_table() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_catalogue_gifts_last_seen ON catalogue_gifts(last_seen_at DESC)"
         )
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS catalogue_gift_snapshots (
+                gift_id TEXT NOT NULL,
+                fingerprint TEXT NOT NULL,
+                gift_json TEXT NOT NULL,
+                observed_at INTEGER NOT NULL,
+                PRIMARY KEY(gift_id, fingerprint)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_catalogue_snapshots_gift_time ON catalogue_gift_snapshots(gift_id, observed_at DESC)"
+        )
 
 
 def upsert_catalogue_items(items: list[dict[str, Any]]) -> int:
@@ -45,6 +58,12 @@ def upsert_catalogue_items(items: list[dict[str, Any]]) -> int:
             encoded = json.dumps(item, ensure_ascii=False, separators=(",", ":"))
             if len(encoded.encode("utf-8")) > 32000:
                 continue
+            fingerprint = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+            conn.execute(
+                """INSERT OR IGNORE INTO catalogue_gift_snapshots(gift_id, fingerprint, gift_json, observed_at)
+                   VALUES (?, ?, ?, ?)""",
+                (gift_id, fingerprint, encoded, now),
+            )
             conn.execute(
                 """INSERT INTO catalogue_gifts(gift_id, gift_json, source, first_seen_at, last_seen_at)
                    VALUES (?, ?, 'Portals', ?, ?)
@@ -129,3 +148,28 @@ def search_catalogue_items(
             "last_seen_at": row["last_seen_at"],
         })
     return {"items": items, "total_count": total, "limit": safe_limit, "offset": safe_offset}
+
+
+
+def get_catalogue_history(gift_id: str, limit: int = 20) -> list[dict[str, Any]]:
+    """Return distinct source metadata snapshots, newest first."""
+    _ensure_table()
+    safe_id = str(gift_id or "").strip()[:160]
+    safe_limit = min(max(int(limit), 1), 50)
+    if not safe_id:
+        return []
+    with _db() as conn:
+        rows = conn.execute(
+            """SELECT gift_json, observed_at FROM catalogue_gift_snapshots
+               WHERE gift_id = ? ORDER BY observed_at DESC, fingerprint DESC LIMIT ?""",
+            (safe_id, safe_limit),
+        ).fetchall()
+    history: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            item = json.loads(row["gift_json"])
+        except (TypeError, ValueError):
+            continue
+        if isinstance(item, dict):
+            history.append({"item": item, "observed_at": row["observed_at"]})
+    return history
