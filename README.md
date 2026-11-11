@@ -20,7 +20,7 @@ The Portals Partner API credential may have broader permissions than read-only. 
 
 - `BOT_TOKEN` — Telegram bot token, stored only in Railway Variables.
 - `PUBLIC_APP_URL` — public HTTPS Mini App URL.
-- `ADMIN_TELEGRAM_ID` — numeric Telegram user ID allowed to use `/admin` and `/admin_status`; obtain your own ID with `/myid`, then set it in Railway Variables. If unset, admin commands are denied to everyone.
+- `ADMIN_TELEGRAM_ID` or `ADMIN_TELEGRAM_IDS` — numeric Telegram user ID(s) allowed to use bot admin commands and the Mini App catalogue-visibility controls. Configure only in the backend environment; if unset, admin access is denied.
 - `API_BASE_URL` — optional internal backend URL for admin health checks; defaults to `http://127.0.0.1:8080`.
 - `PORTALS_API_KEY` — optional server-side Portals credential; see the warning above.
 - `SWIFTGIFTS_API_KEY` — optional server-side Swift Gifts Partner API key for read-only MRKT and Tonnel listings. Obtain and configure it only with the marketplace/provider account owner’s approval; never put it in frontend code, GitHub, chat messages or logs.
@@ -49,6 +49,6 @@ The Mini App does not contain marketplace data or fabricate listings. It request
 
 The Mini App includes marketplace tabs for Portals, Tonnel and MRKT, plus a separate public gift-metadata updates feed. Daily historical floor data is available through the reference API and is not presented as real-time listings. Portals displays listing data when configured. Tonnel attempts to load public listings without account authentication; if the unofficial endpoint refuses the request, the tab shows an unavailable state. MRKT remains unconnected because the currently suggested client requires Telegram-linked authorization. Selecting a Portals listing opens an informational detail panel with available public attributes, price, floor and listing timestamp. No transaction controls are present.
 
-The Telegram bot provides `/myid` for a user to view their own numeric Telegram ID, plus `/admin` and `/admin_status` restricted to the single `ADMIN_TELEGRAM_ID`. The admin panel reports service/source status only; it does not expose trading or wallet actions. Configure the ID in Railway Variables, never in source code.
+The Telegram bot provides `/myid`, `/admin` and `/admin_status`. The Mini App also has a server-authorized admin panel that can only enable or disable Portals catalogue visibility. Admin identity is verified from signed Telegram initData against `ADMIN_TELEGRAM_ID` / `ADMIN_TELEGRAM_IDS`; visibility is stored in SQLite. Attach a persistent Railway volume and set `GIFT_RADAR_DB_PATH` inside its mount path to retain this setting across redeploys. No wallet, payment, purchase or transfer actions are available.
 
-All application endpoints are read-only. No buying, selling, transfers, offers, or wallet actions are implemented.
+Catalogue and provider integrations are read-only. The separate order-book interface and its API are demonstration-only: records and fills are simulated, have no settlement, and do not move assets or money. No real buying, selling, transfers, offers, payments or wallet actions are implemented.
