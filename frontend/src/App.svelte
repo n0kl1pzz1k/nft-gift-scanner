@@ -277,10 +277,10 @@
 
 {#if selected}
   <div class="modal-backdrop" role="presentation" onclick={()=>selected=null}>
-    <section class="gift-modal" role="dialog" aria-modal="true" aria-label={selected.name||'Gift details'} onclick={e=>e.stopPropagation()}>
+    <div class="gift-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label={selected.name||'Gift details'} onclick={e=>e.stopPropagation()} onkeydown={e=>e.stopPropagation()}>
       <button class="modal-close" onclick={()=>selected=null}>×</button>
       <div class="modal-media"><GiftMedia image={selected.image} animationUrl={selected.animation_url} hasAnimation={selected.has_animation} alt={selected.name||'Gift'} className="gift-media"/></div>
       <div class="modal-content"><div class="eyebrow">PORTALS COLLECTIBLE</div><h2>{selected.name||'Telegram Gift'} {selected.number?'#'+selected.number:''}</h2><div class="modal-price"><span>{t.price}</span><strong>{fmt(selected.price,selected.currency||'TON')}</strong></div><div class="modal-price"><span>{t.floor}</span><strong>{fmt(selected.floor_price,selected.currency||'TON')}</strong></div><h3>{t.traits}</h3>{#each selected.attributes||[] as trait}<div class="trait-row"><span>{trait.type||trait.name}</span><strong>{trait.value||'—'}</strong></div>{/each}<button class="publish-button" onclick={()=>toggleFavorite(selected!)}>{favorites.includes(keyOf(selected))?t.saved:t.save} <span>♡</span></button></div>
-    </section>
+    </div>
   </div>
 {/if}
