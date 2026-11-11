@@ -415,7 +415,7 @@ async def gifts(
             except (InvalidOperation, ValueError):
                 raise HTTPException(status_code=422, detail=f"{key} must be a non-negative decimal")
             params[key] = value.strip()
-    if min_price and max_price and Decimal(min_price.strip()) > Decimal(max_price.strip()):
+    if min_price and min_price.strip() and max_price and max_price.strip() and Decimal(min_price.strip()) > Decimal(max_price.strip()):
         raise HTTPException(status_code=422, detail="min_price cannot exceed max_price")
     if external_collection_number and external_collection_number.strip():
         if not external_collection_number.strip().isdigit():
