@@ -62,7 +62,7 @@
   const ru = {
     market: 'Маркет', orders: 'Активность', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'ТОЛЬКО ПРОСМОТР', catalogOnly: 'Актуальные объявления Portals. Просмотр и поиск доступны; управление сделками в GIFT RADAR пока не включено.',
     headline: 'Подарки, которые находят своих владельцев', subtitle: 'Единое пространство Telegram-подарков на базе каталога Portals.',
-    portals: 'Единственный источник каталога · Portals', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
+    brandEyebrow: 'ОТКРЫВАЙ РЕДКОЕ · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Открой редкие подарки.', heroDescription: 'Исследуй коллекции Telegram-подарков, объявления и историю характеристик в одном месте.', openCatalogue: 'Открыть каталог', connectedLabel: 'КАТАЛОГ PORTALS · ТОЛЬКО ПРОСМОТР', exploreMarket: 'ИССЛЕДУЙ МАРКЕТ', collectionsTitle: 'Коллекции', collectionsCount: 'коллекций в каталоге', discoverLabel: 'ОТКРЫВАЙ', portals: 'Единственный источник каталога · Portals', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
     listings: 'Предложения Portals', results: 'найдено', loading: 'Загружаем каталог…', loadMore: 'Показать ещё',
     empty: 'По этому запросу ничего не найдено.', failed: 'Не удалось загрузить каталог.',
     details: 'О подарке', floor: 'Флор', price: 'Цена', traits: 'Характеристики',
@@ -81,7 +81,7 @@
   const en = {
     market: 'Market', orders: 'Activity', create: 'Create', favorites: 'Favorites', profile: 'Profile', readonly: 'READ ONLY', catalogOnly: 'Live Portals listings. Browse and search are available; trade execution is not enabled in GIFT RADAR.',
     headline: 'Discover gifts worth keeping', subtitle: 'A unified Telegram gifts experience powered by the Portals catalogue.',
-    portals: 'Single catalogue source · Portals', search: 'Gift name or number', min: 'Min price', max: 'Max price',
+    brandEyebrow: 'DISCOVER THE RARE · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Discover rare finds.', heroDescription: 'Explore Telegram gift collections, marketplace listings and item history in one place.', openCatalogue: 'Explore catalogue', connectedLabel: 'PORTALS CATALOGUE · READ ONLY', exploreMarket: 'EXPLORE THE MARKET', collectionsTitle: 'Collections', collectionsCount: 'collections in catalogue', discoverLabel: 'DISCOVER', portals: 'Single catalogue source · Portals', search: 'Gift name or number', min: 'Min price', max: 'Max price',
     listings: 'Portals listings', results: 'found', loading: 'Loading catalogue…', loadMore: 'Load more',
     empty: 'No gifts match this search.', failed: 'Could not load the catalogue.',
     details: 'Gift details', floor: 'Floor', price: 'Price', traits: 'Attributes',
@@ -380,10 +380,10 @@
     {#if view==='market'}
       <section class="hero hero-market">
         <div class="hero-copy">
-          <div class="eyebrow"><span class="spark"></span> PORTALS MARKET DATA · LIVE CATALOGUE</div>
-          <h1>Telegram Gifts.<br/><span>Найди свой следующий коллекционный подарок.</span></h1>
-          <p>Каталог объявлений Portals, коллекции и характеристики в одном пространстве. Данные каталога обновляются из источника; GIFT RADAR пока работает в режиме просмотра.</p>
-          <div class="hero-actions"><button class="search-button" onclick={()=>document.getElementById('catalogue')?.scrollIntoView({behavior:'smooth',block:'start'})}>Открыть каталог <span>↘</span></button><span class="hero-live"><i></i> Portals connected · read only</span></div>
+          <div class="eyebrow"><span class="spark"></span> {t.brandEyebrow}</div>
+          <h1>{t.heroLine1}<br/><span>{t.heroLine2}</span></h1>
+          <p>{t.heroDescription}</p>
+          <div class="hero-actions"><button class="search-button" onclick={()=>document.getElementById('catalogue')?.scrollIntoView({behavior:'smooth',block:'start'})}>{t.openCatalogue} <span>↘</span></button><span class="hero-live"><i></i> {t.connectedLabel}</span></div>
         </div>
         <div class="hero-art" aria-hidden="true">
           {#each collections.slice(0,3) as collection, index}
@@ -394,7 +394,7 @@
       </section>
       {#if collections.length}
         <section class="collection-shelf">
-          <div class="shelf-heading"><div><div class="eyebrow">EXPLORE THE MARKET</div><h2>Коллекции</h2></div><span>{collections.length} коллекций в Portals</span></div>
+          <div class="shelf-heading"><div><div class="eyebrow">{t.exploreMarket}</div><h2>{t.collectionsTitle}</h2></div><span>{collections.length} {t.collectionsCount}</span></div>
           <div class="collection-rail">
             {#each collections.slice(0,8) as collection (String(collection.id ?? collection.short_name ?? collection.name))}
               <button class:chosen={collectionFilter===String(collection.id ?? collection.short_name ?? '')} class="collection-tile" onclick={()=>{collectionFilter=String(collection.id ?? collection.short_name ?? 'all');loadCatalogue();}}>
@@ -408,7 +408,7 @@
       {/if}
       <section class="market-stats" aria-label="Catalogue overview"><article><span>▦</span><div><strong>{total.toLocaleString()}</strong><small>{t.statsCatalog}</small></div></article><p>{t.catalogOnly}</p></section>
       <section class="market-section" id="catalogue">
-        <div class="section-title"><div><div class="eyebrow">DISCOVER</div><h2>{t.listings}</h2><p>{total.toLocaleString()} {t.results}</p></div><button class="refresh-button" onclick={()=>loadCatalogue()} disabled={busy}>↻ {t.refresh}</button></div>
+        <div class="section-title"><div><div class="eyebrow">{t.discoverLabel}</div><h2>{t.listings}</h2><p>{total.toLocaleString()} {t.results}</p></div><button class="refresh-button" onclick={()=>loadCatalogue()} disabled={busy}>↻ {t.refresh}</button></div>
         <div class="filter-bar">
           <div class="search-field"><span>⌕</span><input bind:value={search} placeholder={t.search} onkeydown={e=>e.key==="Enter"&&loadCatalogue()}/></div>
           <select class="filter-input" bind:value={collectionFilter} aria-label="Collection">
