@@ -398,8 +398,8 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 (user_id, user_id),
             ).fetchone()[0]
             rows = conn.execute("""
-                SELECT d.*, o.title AS order_title, o.owner_name AS order_owner_name,
-                       f.sender_name AS offer_sender_name
+                SELECT d.*, o.title AS order_title, o.kind AS order_kind,
+                       o.owner_name AS order_owner_name, f.sender_name AS offer_sender_name
                 FROM demo_deals d
                 JOIN demo_orders o ON o.id = d.order_id
                 JOIN demo_offers f ON f.id = d.offer_id
