@@ -2,12 +2,19 @@ name: Validate GIFT RADAR
 
 on:
   push:
-    branches: [main, feature/persistent-gift-catalog]
+    branches: [main]
   pull_request:
-    branches: [main, feature/telegram-user-profiles]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  syntax:
+  backend:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -18,10 +25,16 @@ jobs:
           python-version: "3.12"
       - name: Install Python dependencies
         run: pip install -r requirements.txt
-      - name: Check Python syntax
-        run: python -m compileall -q app.py bot.py tests
-      - name: Run API contract tests
+      - name: Compile all backend modules
+        run: python -m compileall -q app.py bot.py marketplace.py demo_offers.py catalog_store.py tests
+      - name: Run API and security regression tests
         run: python -m unittest discover -s tests -v
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -37,5 +50,11 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+
+  deployment-config:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Validate deployment configuration
         run: python -m json.tool railway.json > /dev/null
