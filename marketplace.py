@@ -219,6 +219,7 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
         x_telegram_init_data: str | None = Header(default=None),
     ):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
+        _enforce_user_rate_limit(str(user["id"]), "save_favorite", 30)
         gift_id = gift_id.strip()[:160]
         gift = payload.get("gift")
         if not gift_id or not isinstance(gift, dict):
@@ -257,6 +258,7 @@ def create_marketplace_router(verify_telegram_init_data: Callable[[str], dict]) 
         x_telegram_init_data: str | None = Header(default=None),
     ):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
+        _enforce_user_rate_limit(str(user["id"]), "remove_favorite", 30)
         with _db() as conn:
             conn.execute(
                 "DELETE FROM user_favorites WHERE telegram_id = ? AND gift_id = ?",
