@@ -9,6 +9,7 @@ import sqlite3
 import time
 import uuid
 from decimal import Decimal
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Literal
 
@@ -28,8 +29,17 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+@contextmanager
+def _db():
+    conn = _connect()
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 def init_demo_offers_db() -> None:
-    with _connect() as conn:
+    with _db() as conn:
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS demo_offers (
             id TEXT PRIMARY KEY,
@@ -117,7 +127,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         actor_id = str(user["id"])
         now = int(time.time())
-        with _connect() as conn:
+        with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             order = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (payload.order_id,)).fetchone()
             if order is None:
@@ -168,7 +178,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         if status != "all":
             where = f"({where}) AND f.status = ?"
             values.append(status)
-        with _connect() as conn:
+        with _db() as conn:
             rows = conn.execute(f"""
                 SELECT f.*, o.title AS order_title, o.user_id AS order_owner_id,
                        o.owner_name AS order_owner_name, o.status AS order_status
@@ -183,7 +193,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         actor_id = str(user["id"])
         now = int(time.time())
-        with _connect() as conn:
+        with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("""
                 SELECT f.*, o.user_id AS order_owner_id, o.owner_name AS order_owner_name,
@@ -238,7 +248,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
     async def list_deals(x_telegram_init_data: str | None = Header(default=None)):
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         user_id = str(user["id"])
-        with _connect() as conn:
+        with _db() as conn:
             rows = conn.execute("""
                 SELECT d.*, o.title AS order_title, o.owner_name AS order_owner_name,
                        f.sender_name AS offer_sender_name
