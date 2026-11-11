@@ -39,6 +39,9 @@
   let favorites = $state<string[]>([]);
   let favoriteItems = $state<Gift[]>([]);
   let orders = $state<DemoOrder[]>([]);
+  let publicOrdersTotal = $state(0);
+  let publicOrdersOffset = $state(0);
+  let ordersLoadingMore = $state(false);
   let offers = $state<DemoOffer[]>([]);
   let deals = $state<DemoDeal[]>([]);
   let notifications = $state<AccountNotification[]>([]);
@@ -178,12 +181,34 @@
         window.Telegram?.WebApp?.initData ? request('/api/marketplace/mine') : Promise.resolve({items:[]}),
         request('/api/marketplace/stats'),
       ]);
+      const publicItems = Array.isArray(publicData.items) ? publicData.items as DemoOrder[] : [];
+      const mineItems = Array.isArray(mineData.items) ? mineData.items as DemoOrder[] : [];
       const combined = new Map<string, DemoOrder>();
-      for (const item of [...(publicData.items || []), ...(mineData.items || [])]) combined.set(item.id, item);
+      for (const item of [...publicItems, ...mineItems]) combined.set(item.id, item);
       orders = [...combined.values()].sort((a,b) => b.createdAt - a.createdAt);
+      publicOrdersTotal = Number(publicData.total) || publicItems.length;
+      publicOrdersOffset = publicItems.length;
       marketplaceStats = { ...marketplaceStats, ...statsData };
     } catch (e) {
       notice = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function loadMoreOrders() {
+    if (ordersLoadingMore || publicOrdersOffset >= publicOrdersTotal) return;
+    ordersLoadingMore = true;
+    try {
+      const data = await request('/api/marketplace/orders?status=all&limit=200&offset=' + publicOrdersOffset);
+      const next = Array.isArray(data.items) ? data.items as DemoOrder[] : [];
+      const combined = new Map(orders.map(order => [order.id, order]));
+      for (const item of next) combined.set(item.id, item);
+      orders = [...combined.values()].sort((a,b) => b.createdAt - a.createdAt);
+      publicOrdersOffset += next.length;
+      publicOrdersTotal = Number(data.total) || publicOrdersTotal;
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      ordersLoadingMore = false;
     }
   }
 
@@ -649,7 +674,7 @@
     {:else if view==='orders'}
       <section class="page-heading"><div class="eyebrow">YOUR ACTIVITY</div><h1>{t.ordersTitle}</h1><p>{t.createHint}</p></section>
       {#if orders.length===0}<div class="state-panel">{t.noOrders}<button class="search-button" onclick={()=>view='create'}>{t.create}</button></div>
-      {:else}<div class="order-filter-bar"><label>{t.orderStatus}<select class="filter-input" bind:value={orderStatusFilter}><option value="all">{t.all}</option><option value="active">{t.activeOrders}</option><option value="matched">{t.matchedOrders}</option><option value="cancelled">{t.cancelledOrders}</option></select></label><label>{t.orderKind}<select class="filter-input" bind:value={orderKindFilter}><option value="all">{t.all}</option><option value="listing">{t.listingsOnly}</option><option value="buy-order">{t.buyRequestsOnly}</option></select></label></div>{#if visibleOrders.length===0}<div class="state-panel">{t.noOrders}</div>{:else}<div class="orders-list">{#each visibleOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {'· '+order.owner} {order.note?'· '+order.note:''} {order.events?.length?'· '+order.events.map(event=>event.type==='created'?(lang==='ru'?'создан':'created'):event.type==='simulated_fill'?(lang==='ru'?'смоделировано исполнение':'simulated fill'):(lang==='ru'?'снят':'cancelled')).join(' → '):''}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active' && order.isMine}<div class="order-actions"><button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button></div>{:else if order.status==='active' && signedIn}<div class="order-actions"><input class="form-input" type="number" min="0.01" step="0.01" bind:value={offerAmount} placeholder={t.offerAmount}/><button class="match-button" onclick={()=>createOffer(order.id)}>{t.sendOffer}</button></div>{/if}</article>{/each}</div>{/if}{/if}
+      {:else}<div class="order-filter-bar"><label>{t.orderStatus}<select class="filter-input" bind:value={orderStatusFilter}><option value="all">{t.all}</option><option value="active">{t.activeOrders}</option><option value="matched">{t.matchedOrders}</option><option value="cancelled">{t.cancelledOrders}</option></select></label><label>{t.orderKind}<select class="filter-input" bind:value={orderKindFilter}><option value="all">{t.all}</option><option value="listing">{t.listingsOnly}</option><option value="buy-order">{t.buyRequestsOnly}</option></select></label></div>{#if visibleOrders.length===0}<div class="state-panel">{t.noOrders}</div>{:else}<div class="orders-list">{#each visibleOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {'· '+order.owner} {order.note?'· '+order.note:''} {order.events?.length?'· '+order.events.map(event=>event.type==='created'?(lang==='ru'?'создан':'created'):event.type==='simulated_fill'?(lang==='ru'?'смоделировано исполнение':'simulated fill'):(lang==='ru'?'снят':'cancelled')).join(' → '):''}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active' && order.isMine}<div class="order-actions"><button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button></div>{:else if order.status==='active' && signedIn}<div class="order-actions"><input class="form-input" type="number" min="0.01" step="0.01" bind:value={offerAmount} placeholder={t.offerAmount}/><button class="match-button" onclick={()=>createOffer(order.id)}>{t.sendOffer}</button></div>{/if}</article>{/each}</div>{#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}{/if}{/if}
       <section class="market-section account-offers">
         <div class="section-title"><div><div class="eyebrow">ACCOUNT ACTIVITY</div><h2>{t.offersTitle}</h2></div><button class="refresh-button" onclick={()=>loadOffersAndDeals()} disabled={offersBusy}>↻ {t.refresh}</button></div>
         {#if offersBusy}<div class="state-panel">{t.loading}</div>{:else if offers.length===0}<div class="state-panel">{t.noOffers}</div>{:else}
