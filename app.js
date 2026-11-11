@@ -135,6 +135,8 @@ async function load(){
     const data=await dataRes.json();
     const gifts=giftsRes.ok?await giftsRes.json():{items:[],total_count:0};
     sourceStates={...(status.sources||{}),...(data.sources||{})};
+    nftMarketVisibility={portals:true,tonnel:true,mrkt:false,...(status.marketplace_visibility||{})};
+    nftApplyMarketVisibility();
     const s={...sourceStates};
     $("sources").innerHTML=sourceLabel(t.portals,s.portals,"portals","P")+sourceLabel(t.tonnel,s.tonnel,"tonnel","T")+sourceLabel(t.mrkt,s.mrkt,"mrkt","M");
     const items=Array.isArray(data.items)?data.items:[];
@@ -638,3 +640,112 @@ readCollectionFilters=function(){
 /* Accessible detail modal: restore focus after closing. */
 const nftCloseDetailsBase=closeGiftDetails;
 closeGiftDetails=function(){nftCloseDetailsBase();if(nftModalReturnFocus&&nftModalReturnFocus.isConnected)nftModalReturnFocus.focus();nftModalReturnFocus=null;};
+
+
+/* Telegram Mini App identity and server-verified administrator tools. */
+let nftTelegramAuth=null;
+let nftMarketVisibility={portals:true,tonnel:true,mrkt:false};
+function nftTelegramInitData(){
+  return window.Telegram&&window.Telegram.WebApp?String(window.Telegram.WebApp.initData||""):"";
+}
+function nftApplyMarketVisibility(){
+  document.querySelectorAll(".market-tab[data-market]").forEach(button=>{
+    const key=button.dataset.market;
+    button.hidden=nftMarketVisibility[key]===false;
+  });
+}
+function nftAdminControlText(enabled){
+  if(lang==="ru")return enabled?"Включён":"Отключён";
+  return enabled?"Enabled":"Disabled";
+}
+function nftRenderAdminControls(){
+  const panel=$("admin-panel");
+  if(!panel)return;
+  panel.hidden=!(nftTelegramAuth&&nftTelegramAuth.is_admin);
+  panel.querySelectorAll("[data-admin-market]").forEach(button=>{
+    const market=button.dataset.adminMarket;
+    const enabled=!!nftMarketVisibility[market];
+    button.textContent=nftAdminControlText(enabled);
+    button.setAttribute("aria-pressed",String(enabled));
+    button.disabled=market==="mrkt"&&!enabled;
+  });
+  if($("admin-panel-title"))$("admin-panel-title").textContent=lang==="ru"?"Управление источниками":"Marketplace controls";
+  if($("admin-panel-description"))$("admin-panel-description").textContent=lang==="ru"?"Включение и отключение публичных каталогов. Без торговых и кошельковых операций.":"Enable or disable public catalogues. No trading or wallet actions.";
+  if($("admin-auth-note"))$("admin-auth-note").textContent=lang==="ru"?"Проверка прав выполняется сервером при каждом действии.":"The server verifies administrator permissions on every action.";
+}
+async function nftAdminRefresh(){
+  const initData=nftTelegramInitData();
+  if(!initData||!nftTelegramAuth||!nftTelegramAuth.is_admin)return;
+  const response=await fetch(window.API_BASE+"/api/admin/overview",{headers:{"X-Telegram-Init-Data":initData}});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||"Admin access denied");
+  nftMarketVisibility={...nftMarketVisibility,...(data.marketplace_visibility||{})};
+  nftApplyMarketVisibility();
+  nftRenderAdminControls();
+}
+async function nftTelegramLogin(){
+  const button=$("telegram-auth-button");
+  const initData=nftTelegramInitData();
+  if(!initData){
+    if($("telegram-auth-description"))$("telegram-auth-description").textContent=lang==="ru"?"Открой Mini App через кнопку в Telegram, чтобы авторизоваться.":"Open the Mini App from its Telegram bot button to sign in.";
+    return;
+  }
+  if(button){button.disabled=true;button.textContent=lang==="ru"?"Проверяем Telegram…":"Verifying Telegram…";}
+  try{
+    const response=await fetch(window.API_BASE+"/api/auth/telegram",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({init_data:initData})
+    });
+    const data=await response.json();
+    if(!response.ok)throw new Error(data.detail||"Telegram authentication failed");
+    nftTelegramAuth=data;
+    const user=data.user||{};
+    if($("profile-guest"))$("profile-guest").textContent=user.first_name||"Telegram user";
+    if($("profile-description"))$("profile-description").textContent=data.is_admin?(lang==="ru"?"Подтверждённый администратор GIFT RADAR.":"Verified GIFT RADAR administrator."):(lang==="ru"?"Telegram подтверждён. Доступны публичные данные и обычные функции приложения.":"Telegram verified. Public data and standard app features are available.");
+    if($("telegram-auth-title"))$("telegram-auth-title").textContent=data.is_admin?(lang==="ru"?"Администратор подтверждён":"Administrator verified"):(lang==="ru"?"Telegram подтверждён":"Telegram verified");
+    if($("telegram-auth-description"))$("telegram-auth-description").textContent=data.is_admin?(lang==="ru"?"Дополнительные инструменты управления доступны ниже.":"Additional management tools are available below."):(lang==="ru"?"У этой учётной записи нет прав администратора.":"This account does not have administrator permissions.");
+    if(button)button.textContent=lang==="ru"?"Проверено через Telegram":"Verified with Telegram";
+    nftRenderAdminControls();
+    if(data.is_admin)await nftAdminRefresh();
+  }catch(error){
+    if($("telegram-auth-description"))$("telegram-auth-description").textContent=(lang==="ru"?"Ошибка авторизации: ":"Sign-in error: ")+(error.message||"");
+    if(button)button.textContent=lang==="ru"?"Повторить вход":"Try again";
+  }finally{if(button)button.disabled=false;}
+}
+async function nftAdminToggleMarket(market,button){
+  const initData=nftTelegramInitData();
+  if(!initData||!nftTelegramAuth||!nftTelegramAuth.is_admin)return;
+  const next=!nftMarketVisibility[market];
+  button.disabled=true;
+  try{
+    const response=await fetch(window.API_BASE+"/api/admin/marketplaces/"+encodeURIComponent(market),{
+      method:"POST",
+      headers:{"Content-Type":"application/json","X-Telegram-Init-Data":initData},
+      body:JSON.stringify({enabled:next})
+    });
+    const data=await response.json();
+    if(!response.ok)throw new Error(data.detail||"Admin action failed");
+    nftMarketVisibility[market]=!!data.enabled;
+    nftApplyMarketVisibility();
+    nftRenderAdminControls();
+  }catch(error){
+    if($("admin-auth-note"))$("admin-auth-note").textContent=error.message||"Request failed";
+  }finally{button.disabled=false;}
+}
+if(window.Telegram&&window.Telegram.WebApp){window.Telegram.WebApp.ready();window.Telegram.WebApp.expand();}
+if($("telegram-auth-button"))$("telegram-auth-button").addEventListener("click",nftTelegramLogin);
+if($("admin-panel"))$("admin-panel").addEventListener("click",event=>{
+  const button=event.target.closest("[data-admin-market]");
+  if(button)nftAdminToggleMarket(button.dataset.adminMarket,button);
+});
+const nftRenderProfileAdminBase=nftRenderProfile;
+nftRenderProfile=function(){
+  nftRenderProfileAdminBase();
+  if($("telegram-auth-title")&&!nftTelegramAuth){
+    $("telegram-auth-title").textContent=lang==="ru"?"Вход через Telegram":"Sign in with Telegram";
+    $("telegram-auth-description").textContent=lang==="ru"?"Без паролей и подключения кошелька. Telegram подтверждает личность внутри Mini App.":"No passwords or wallet connection. Telegram verifies identity inside the Mini App.";
+    $("telegram-auth-button").textContent=lang==="ru"?"Авторизоваться через Telegram":"Sign in with Telegram";
+  }
+  nftRenderAdminControls();
+};
+nftRenderProfile();
