@@ -41,12 +41,18 @@
         if (disposed || !container) return;
         animation = lottie.loadAnimation({
           container,
-          renderer: 'svg',
+          renderer: 'canvas',
           loop: true,
           autoplay: true,
           animationData,
-          rendererSettings: { preserveAspectRatio: 'xMidYMid meet', progressiveLoad: true }
+          rendererSettings: {
+            preserveAspectRatio: 'xMidYMid meet',
+            clearCanvas: true,
+            progressiveLoad: true,
+            dpr: Math.min(window.devicePixelRatio || 1, 2)
+          }
         });
+        animation.setSubframe(true);
       } catch {
         if (!disposed) {
           failed = true;
