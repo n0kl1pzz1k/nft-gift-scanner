@@ -172,16 +172,13 @@ def _verify_telegram_init_data(init_data: str) -> dict:
 
 
 def _authenticate_telegram_credential(credential: str) -> dict:
-    """Resolve an opaque server session; raw initData is a compatibility fallback."""
-    if not credential:
-        raise HTTPException(status_code=401, detail="Telegram Mini App authentication required")
-    if credential.startswith("grs_"):
-        user = get_telegram_session_user(credential)
-        if user is None:
-            raise HTTPException(status_code=401, detail="Telegram session expired; reopen the Mini App")
-        return user
-    # Compatibility during rollout. New clients exchange initData once and use grs_ tokens.
-    return _verify_telegram_init_data(credential)
+    """Resolve only an opaque server-issued session; raw initData is never an API credential."""
+    if not credential or not credential.startswith("grs_"):
+        raise HTTPException(status_code=401, detail="A server-issued Telegram session is required")
+    user = get_telegram_session_user(credential)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Telegram session expired; reopen the Mini App")
+    return user
 
 
 def _require_admin(credential: str | None) -> dict:
