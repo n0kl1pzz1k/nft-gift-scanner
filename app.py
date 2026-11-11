@@ -31,11 +31,11 @@ ALLOWED_PORTALS_PATHS = {
     "/collections/floors",
 }
 _cache: dict[str, tuple[float, Any]] = {}
-CACHE_SECONDS = 30
+CACHE_SECONDS = 60
 # Per-query cache for item listings. The browser always reads from this backend;
 # upstream marketplaces are queried at a controlled cadence, not on every tap.
 _gifts_cache: dict[str, tuple[float, Any]] = {}
-GIFTS_CACHE_SECONDS = 20
+GIFTS_CACHE_SECONDS = 60
 _request_lock = asyncio.Lock()
 _last_request_at = 0.0
 _refresh_task: asyncio.Task | None = None
@@ -144,7 +144,7 @@ async def admin_set_marketplace(
 
 TONNEL_LISTINGS_URL = "https://gifts2.tonnel.network/api/pageGifts"
 _tonnel_cache: dict[str, tuple[float, Any]] = {}
-_TONNEL_CACHE_SECONDS = 30
+_TONNEL_CACHE_SECONDS = 60
 _tonnel_lock = asyncio.Lock()
 _tonnel_last_request_at = 0.0
 _tonnel_runtime_status = "public_endpoint_not_checked"
@@ -569,7 +569,7 @@ async def tonnel_gifts(
 
 async def _refresh_public_catalogues():
     """Warm backend caches from upstream public APIs independently of browser visits."""
-    interval = max(60, min(int(os.getenv("DATA_REFRESH_SECONDS", "90")), 900))
+    interval = max(60, min(int(os.getenv("DATA_REFRESH_SECONDS", "60")), 900))
     while True:
         if _marketplace_visibility["portals"] and os.getenv("PORTALS_API_KEY", "").strip():
             try:
