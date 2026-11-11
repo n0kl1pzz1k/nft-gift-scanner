@@ -405,13 +405,24 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 WHERE d.listing_owner_id = ? OR d.offer_sender_id = ?
                 ORDER BY d.created_at DESC, d.id DESC LIMIT ? OFFSET ?
             """, (user_id, user_id, limit, offset)).fetchall()
-        return {"items": [{
-            "id": row["id"], "order_id": row["order_id"], "offer_id": row["offer_id"],
-            "title": row["order_title"], "listing_owner": row["order_owner_name"],
-            "offer_sender": row["offer_sender_name"], "amount": row["agreed_amount"],
-            "currency": row["currency"], "created_at": row["created_at"],
-            "status": "simulated_complete", "simulation_only": True,
-        } for row in rows], "total": total, "limit": limit, "offset": offset}
+        items = []
+        for row in rows:
+            if row["order_kind"] == "listing":
+                buyer_name, seller_name = row["offer_sender_name"], row["order_owner_name"]
+                buyer_id, seller_id = row["offer_sender_id"], row["listing_owner_id"]
+            else:
+                buyer_name, seller_name = row["order_owner_name"], row["offer_sender_name"]
+                buyer_id, seller_id = row["listing_owner_id"], row["offer_sender_id"]
+            items.append({
+                "id": row["id"], "order_id": row["order_id"], "offer_id": row["offer_id"],
+                "title": row["order_title"], "listing_owner": row["order_owner_name"],
+                "offer_sender": row["offer_sender_name"], "buyer": buyer_name, "seller": seller_name,
+                "my_role": "buyer" if user_id == buyer_id else "seller",
+                "order_kind": row["order_kind"], "amount": row["agreed_amount"],
+                "currency": row["currency"], "created_at": row["created_at"],
+                "status": "simulated_complete", "simulation_only": True,
+            })
+        return {"items": items, "total": total, "limit": limit, "offset": offset}
 
     @router.get("/notifications")
     async def list_notifications(
