@@ -602,6 +602,21 @@
           <div><strong>{accountStats.simulated_deals}</strong><span>{t.dealsTitle}</span></div>
         </div>
       </article>
+      <article class="profile-card activity-card">
+        <div class="notification-heading"><div><div class="eyebrow">{t.activityTitle}</div><strong>{accountActivity.length} / {activityTotal}</strong></div><span class="activity-demo-tag">DEMO LOG</span></div>
+        {#if accountActivity.length}
+          <div class="activity-timeline">
+            {#each accountActivity as item (item.id)}
+              <div class="activity-row">
+                <span class="activity-marker"></span>
+                <div class="activity-row-main"><strong>{activityLabel(item)}</strong><span>{item.title}</span><small>{item.actor_name} · {new Date(item.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</small></div>
+                <div class="activity-row-value"><strong>{item.amount} {item.currency==='XTR'?'⭐':'TON'}</strong><small>{item.order_id}</small></div>
+              </div>
+            {/each}
+          </div>
+          {#if accountActivity.length < activityTotal}<button class="refresh-button activity-more" onclick={loadMoreActivity} disabled={activityBusy}>{activityBusy?'…':t.loadMoreActivity}</button>{/if}
+        {:else}<div class="state-panel">{t.noActivity}</div>{/if}
+      </article>
       <article class="profile-card notification-card">
         <div class="notification-heading"><div><div class="eyebrow">{t.notificationsTitle}</div><strong>{accountStats.unread_notifications} {lang==='ru'?'непрочитано':'unread'}</strong></div>
           {#if accountStats.unread_notifications}<button class="refresh-button" onclick={markAllNotificationsRead}>{t.markAllRead}</button>{/if}
