@@ -15,10 +15,12 @@ from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from marketplace import create_marketplace_router, get_app_setting, init_marketplace_db, set_app_setting, upsert_telegram_user
+from demo_offers import create_demo_offers_router, init_demo_offers_db
 from catalog_store import get_catalogue_history, get_catalogue_item, search_catalogue_items, upsert_catalogue_items
 
 app = FastAPI(title="GIFT RADAR API", version="0.4.0")
 app.include_router(create_marketplace_router(lambda value: _verify_telegram_init_data(value)))
+app.include_router(create_demo_offers_router(lambda value: _verify_telegram_init_data(value)))
 
 _telegram_bot = None
 _telegram_dispatcher = None
@@ -694,6 +696,7 @@ async def _refresh_public_catalogues():
 async def start_catalogue_refresh():
     global _refresh_task, _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret
     init_marketplace_db()
+    init_demo_offers_db()
     _refresh_task = asyncio.create_task(_refresh_public_catalogues())
 
     token = os.getenv("BOT_TOKEN", "").strip()

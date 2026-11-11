@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 import app as api
 import marketplace
+import demo_offers
 
 
 class SharedMarketplaceTests(unittest.TestCase):
@@ -15,7 +16,10 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_patch = patch.object(marketplace, "DB_PATH", os.path.join(self.temp_dir.name, "test.sqlite3"))
         self.db_patch.start()
+        self.offers_db_patch = patch.object(demo_offers, "DB_PATH", os.path.join(self.temp_dir.name, "test.sqlite3"))
+        self.offers_db_patch.start()
         marketplace.init_marketplace_db()
+        demo_offers.init_demo_offers_db()
         self.auth_patch = patch.object(
             api,
             "_verify_telegram_init_data",
@@ -31,6 +35,7 @@ class SharedMarketplaceTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         self.auth_patch.stop()
+        self.offers_db_patch.stop()
         self.db_patch.stop()
         self.temp_dir.cleanup()
 
@@ -314,6 +319,79 @@ class SharedMarketplaceTests(unittest.TestCase):
         )
         self.assertEqual(cancelled.status_code, 200)
         self.assertEqual(cancelled.json()["item"]["status"], "cancelled")
+
+    def test_offer_acceptance_creates_simulated_deal_and_closes_order(self):
+        created = self.client.post(
+            "/api/marketplace/orders",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"kind": "listing", "title": "Plush Pepe", "price": "2.5", "currency": "TON"},
+        )
+        order_id = created.json()["item"]["id"]
+        offered = self.client.post(
+            "/api/marketplace/offers",
+            headers={"X-Telegram-Init-Data": "user-b"},
+            json={"order_id": order_id, "amount": "2.2", "note": "demo offer"},
+        )
+        self.assertEqual(offered.status_code, 201)
+        offer_id = offered.json()["item"]["id"]
+        self.assertEqual(offered.json()["item"]["status"], "pending")
+        self.assertTrue(offered.json()["simulation_only"])
+
+        received = self.client.get("/api/marketplace/offers", headers={"X-Telegram-Init-Data": "user-a"})
+        self.assertEqual(len(received.json()["items"]), 1)
+        self.assertFalse(received.json()["items"][0]["is_mine"])
+
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer_id}",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200)
+        self.assertEqual(accepted.json()["item"]["status"], "accepted")
+        self.assertTrue(accepted.json()["deal_created"])
+
+        deals = self.client.get("/api/marketplace/deals", headers={"X-Telegram-Init-Data": "user-b"})
+        self.assertEqual(len(deals.json()["items"]), 1)
+        self.assertEqual(deals.json()["items"][0]["amount"], "2.2")
+        self.assertTrue(deals.json()["items"][0]["simulation_only"])
+
+        mine = self.client.get("/api/marketplace/mine", headers={"X-Telegram-Init-Data": "user-a"})
+        self.assertEqual(mine.json()["items"][0]["status"], "matched")
+
+    def test_offer_permissions_and_withdrawal_are_enforced(self):
+        created = self.client.post(
+            "/api/marketplace/orders",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"kind": "listing", "title": "Gift", "price": "3", "currency": "TON"},
+        )
+        order_id = created.json()["item"]["id"]
+        own_offer = self.client.post(
+            "/api/marketplace/offers",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"order_id": order_id, "amount": "2"},
+        )
+        self.assertEqual(own_offer.status_code, 403)
+
+        offered = self.client.post(
+            "/api/marketplace/offers",
+            headers={"X-Telegram-Init-Data": "user-b"},
+            json={"order_id": order_id, "amount": "2"},
+        )
+        offer_id = offered.json()["item"]["id"]
+        wrong_actor = self.client.patch(
+            f"/api/marketplace/offers/{offer_id}",
+            headers={"X-Telegram-Init-Data": "user-b"},
+            json={"action": "accept"},
+        )
+        self.assertEqual(wrong_actor.status_code, 403)
+
+        withdrawn = self.client.patch(
+            f"/api/marketplace/offers/{offer_id}",
+            headers={"X-Telegram-Init-Data": "user-b"},
+            json={"action": "withdraw"},
+        )
+        self.assertEqual(withdrawn.status_code, 200)
+        self.assertEqual(withdrawn.json()["item"]["status"], "withdrawn")
 
     def test_mutations_require_telegram_auth(self):
         response = self.client.post(
