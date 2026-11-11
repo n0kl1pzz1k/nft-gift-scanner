@@ -200,7 +200,7 @@
     try {
       const data = await request('/api/marketplace/orders?status=all&limit=200&offset=' + publicOrdersOffset);
       const next = Array.isArray(data.items) ? data.items as DemoOrder[] : [];
-      const combined = new Map(orders.map(order => [order.id, order]));
+      const combined = new Map<string, DemoOrder>(orders.map(order => [order.id, order] as const));
       for (const item of next) combined.set(item.id, item);
       orders = [...combined.values()].sort((a,b) => b.createdAt - a.createdAt);
       publicOrdersOffset += next.length;
