@@ -92,8 +92,6 @@ async def main():
             "🔐 <b>GIFT RADAR — админ-панель</b>\n\n"
             f"Mini App: {app}\n"
             f"Portals: {portals}\n"
-            "Tonnel: официальный read-only API не подтверждён\n"
-            "MRKT: официальный read-only API не подтверждён\n\n"
             "<b>Команды:</b>\n"
             "/admin_status — проверить backend и источники\n"
             "/admin — открыть эту панель\n\n"
@@ -114,14 +112,10 @@ async def main():
             status_data = status_response.json()
             sources = status_data.get("sources", {})
             portals = sources.get("portals", "unknown")
-            tonnel = sources.get("tonnel", "unknown")
-            mrkt = sources.get("mrkt", "unknown")
             await message.answer(
                 "📊 <b>Статус GIFT RADAR</b>\n\n"
                 "Backend: 🟢 онлайн\n"
                 f"Portals: <code>{portals}</code>\n"
-                f"Tonnel: <code>{tonnel}</code>\n"
-                f"MRKT: <code>{mrkt}</code>\n"
                 "Режим: <code>read_only</code>"
             )
         except Exception:
