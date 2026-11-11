@@ -371,7 +371,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             rows = conn.execute(
                 """SELECT id, event_type, actor_user_id, event_data, created_at
                    FROM demo_deal_events WHERE deal_id = ?
-                   ORDER BY created_at ASC, id ASC""",
+                   ORDER BY rowid ASC""",
                 (deal_id,),
             ).fetchall()
         return {"items": [{
