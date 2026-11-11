@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from marketplace import create_marketplace_router, init_marketplace_db, upsert_telegram_user
-from catalog_store import get_catalogue_item, upsert_catalogue_items
+from catalog_store import get_catalogue_item, search_catalogue_items, upsert_catalogue_items
 
 app = FastAPI(title="GIFT RADAR API", version="0.4.0")
 app.include_router(create_marketplace_router(lambda value: _verify_telegram_init_data(value)))
@@ -518,6 +518,17 @@ async def catalogue_item(gift_id: str):
     if item is None:
         raise HTTPException(status_code=404, detail="Gift is not present in the indexed Portals catalogue")
     return {"item": item, "source": "Portals", "metadata_only": True}
+
+
+@app.get("/api/catalog/items")
+async def catalogue_items(
+    limit: int = Query(default=24, ge=1, le=50),
+    offset: int = Query(default=0, ge=0, le=100000),
+    search: str | None = Query(default=None, max_length=80),
+    collection_id: str | None = Query(default=None, max_length=160),
+):
+    """Search the persistent Portals metadata index; results are not ownership claims."""
+    return {**search_catalogue_items(search or "", collection_id or "", limit, offset), "source": "Portals", "metadata_only": True}
 
 
 _REFERENCE_CACHE: dict[str, tuple[float, Any]] = {}
