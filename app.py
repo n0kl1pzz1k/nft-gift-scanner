@@ -14,7 +14,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from marketplace import create_marketplace_router, init_marketplace_db, upsert_telegram_user
+from marketplace import create_marketplace_router, get_app_setting, init_marketplace_db, set_app_setting, upsert_telegram_user
 from catalog_store import get_catalogue_history, get_catalogue_item, search_catalogue_items, upsert_catalogue_items
 
 app = FastAPI(title="GIFT RADAR API", version="0.4.0")
@@ -105,7 +105,12 @@ class MarketplaceSettingRequest(BaseModel):
 
 # Runtime controls are deliberately limited to read-only market visibility.
 # For durable configuration across deploys, set ADMIN_TELEGRAM_IDS in Railway.
-_marketplace_visibility = {"portals": True}
+def _marketplace_visibility() -> dict[str, bool]:
+    return {"portals": get_app_setting("marketplace.portals.enabled", "true").lower() == "true"}
+
+
+def _marketplace_enabled(market: str) -> bool:
+    return _marketplace_visibility().get(market, False)
 
 
 def _admin_ids() -> set[str]:
@@ -170,7 +175,7 @@ async def admin_overview(x_telegram_init_data: str | None = Header(default=None)
         "admin": {"id": str(user["id"]), "first_name": user.get("first_name", ""), "username": user.get("username", "")},
         "mode": "catalogue_read_only_with_shared_demo_marketplace",
         "sources": source_status(),
-        "marketplace_visibility": dict(_marketplace_visibility),
+        "marketplace_visibility": _marketplace_visibility(),
         "settings_persistence": "runtime_only_resets_on_backend_restart",
     }
 
@@ -182,10 +187,10 @@ async def admin_set_marketplace(
     x_telegram_init_data: str | None = Header(default=None),
 ):
     _require_admin(x_telegram_init_data)
-    if market not in _marketplace_visibility:
+    if market != "portals":
         raise HTTPException(status_code=404, detail="Unknown marketplace")
-    _marketplace_visibility[market] = bool(payload.enabled)
-    return {"market": market, "enabled": _marketplace_visibility[market]}
+    set_app_setting(f"marketplace.{market}.enabled", "true" if payload.enabled else "false")
+    return {"market": market, "enabled": _marketplace_enabled(market)}
 
 
 
@@ -323,7 +328,7 @@ async def status():
             "gift_changes": ["public_gift_metadata_changes_beta"],
             "tg_gifts_daily": ["daily_collection_floor_history_cc_by_4_0"],
         },
-        "marketplace_visibility": dict(_marketplace_visibility),
+        "marketplace_visibility": _marketplace_visibility(),
         "cross_market_comparison": False,
         "data_pipeline": {
             "delivery": "server_to_app_api",
@@ -347,7 +352,7 @@ async def status():
 
 @app.get("/api/collections")
 async def collections():
-    if not _marketplace_visibility["portals"]:
+    if not _marketplace_enabled("portals"):
         return {"items": [], "sources": source_status(), "updated_at": None, "note": "Portals collection feed is disabled by the administrator."}
     if not os.getenv("PORTALS_API_KEY", "").strip():
         return {
@@ -420,7 +425,7 @@ async def gifts(
     status: str | None = Query(default=None, max_length=16),
 ):
     """Read-only page of currently listed gifts from the documented Portals search endpoint."""
-    if not _marketplace_visibility["portals"]:
+    if not _marketplace_enabled("portals"):
         raise HTTPException(status_code=503, detail="Portals catalogue is temporarily disabled by the administrator")
     if not os.getenv("PORTALS_API_KEY", "").strip():
         return {"items": [], "total_count": 0, "connected": False, "sources": source_status(), "updated_at": None}
@@ -658,7 +663,7 @@ async def _refresh_public_catalogues():
     """Warm backend caches from upstream public APIs independently of browser visits."""
     interval = _refresh_interval_seconds()
     while True:
-        if _marketplace_visibility["portals"] and os.getenv("PORTALS_API_KEY", "").strip():
+        if _marketplace_enabled("portals") and os.getenv("PORTALS_API_KEY", "").strip():
             try:
                 await collections()
             except Exception:
