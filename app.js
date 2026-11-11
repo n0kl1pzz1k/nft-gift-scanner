@@ -35,6 +35,7 @@ let activeMarket="portals";
 let giftItems=[];
 let portalsGiftItems=[];
 let tonnelGiftItems=[];
+let tonnelTotalCount=0;
 let sourceStates={};
 let collectionItems=[];
 let selectedCollection=null;
@@ -81,7 +82,7 @@ function renderText(){
   $("modal-note").textContent=t.detailNote;
   $("lang").textContent=lang==="en"?"RU":"EN";
   renderMarketTabs();
-  if(activeMarket==="tonnel"&&sourceStates.tonnel==="online_read_only") renderGifts({items:tonnelGiftItems,total_count:tonnelGiftItems.length,connected:true});
+  if(activeMarket==="tonnel"&&sourceStates.tonnel==="online_read_only") renderGifts({items:tonnelGiftItems,total_count:tonnelTotalCount||tonnelGiftItems.length,connected:true});
   else if(activeMarket!=="portals") renderUnavailableMarket(activeMarket);
   else if(selectedCollection) renderGifts({items:selectedCollectionItems,total_count:selectedCollectionTotal,connected:true});
   else renderGifts({items:portalsGiftItems,total_count:portalsGiftItems.length,connected:sourceStates.portals!=="needs_api_key"});
@@ -126,38 +127,55 @@ async function load(){
   const t=copy[lang];
   $("api-status").textContent=t.checking;
   try{
-    const health=await fetch(window.API_BASE+"/health");
-    if(!health.ok) throw new Error("Backend offline");
-    $("api-status").textContent=t.online;
-    const [statusRes,dataRes,giftsRes]=await Promise.all([fetch(window.API_BASE+"/api/status"),fetch(window.API_BASE+"/api/collections"),fetch(window.API_BASE+"/api/gifts?limit=24&offset=0")]);
-    if(!statusRes.ok||!dataRes.ok) throw new Error("Marketplace API unavailable");
+    const health=await fetch(window.API_BASE+"/health",{cache:"no-store"});
+    if(!health.ok) throw new Error("Backend offline · HTTP "+health.status);
+    const statusRes=await fetch(window.API_BASE+"/api/status",{cache:"no-store"});
+    if(!statusRes.ok) throw new Error("Status endpoint · HTTP "+statusRes.status);
     const status=await statusRes.json();
-    const data=await dataRes.json();
-    const gifts=giftsRes.ok?await giftsRes.json():{items:[],total_count:0};
-    sourceStates={...(status.sources||{}),...(data.sources||{})};
+    sourceStates={...(status.sources||{})};
     nftMarketVisibility={portals:true,tonnel:true,mrkt:false,...(status.marketplace_visibility||{})};
     nftApplyMarketVisibility();
-    const s={...sourceStates};
-    $("sources").innerHTML=sourceLabel(t.portals,s.portals,"portals","P")+sourceLabel(t.tonnel,s.tonnel,"tonnel","T")+sourceLabel(t.mrkt,s.mrkt,"mrkt","M");
-    const items=Array.isArray(data.items)?data.items:[];
-    collectionItems=items;
-    $("collections-count").textContent=items.length;
-    $("updated").textContent=t.updated+": "+formatTime(data.updated_at);
-    $("collections").innerHTML=items.length?items.map((item,index)=>{
+
+    const [collectionsResult,giftsResult]=await Promise.allSettled([
+      fetch(window.API_BASE+"/api/collections",{cache:"no-store"}),
+      fetch(window.API_BASE+"/api/gifts?limit=24&offset=0",{cache:"no-store"})
+    ]);
+    let collectionsData={items:[],updated_at:null};
+    if(collectionsResult.status==="fulfilled"&&collectionsResult.value.ok){
+      collectionsData=await collectionsResult.value.json();
+      sourceStates={...sourceStates,...(collectionsData.sources||{})};
+    }else{
+      collectionsData.note=lang==="ru"?"Источник коллекций пока не вернул данные.":"The collections source did not return data.";
+    }
+    let giftsData={items:[],total_count:0,connected:false};
+    if(giftsResult.status==="fulfilled"&&giftsResult.value.ok){
+      giftsData=await giftsResult.value.json();
+      sourceStates={...sourceStates,...(giftsData.sources||{})};
+    }
+    $("api-status").textContent=t.online;
+    $("sources").innerHTML=sourceLabel(t.portals,sourceStates.portals,"portals","P")+sourceLabel(t.tonnel,sourceStates.tonnel,"tonnel","T")+sourceLabel(t.mrkt,sourceStates.mrkt,"mrkt","M");
+    collectionItems=Array.isArray(collectionsData.items)?collectionsData.items:[];
+    $("collections-count").textContent=collectionItems.length;
+    $("updated").textContent=t.updated+": "+formatTime(collectionsData.updated_at);
+    $("collections").innerHTML=collectionItems.length?collectionItems.map((item,index)=>{
       const image=item.image?'<img loading="lazy" src="'+escapeHtml(item.image)+'" alt="">':'<div class="placeholder">✦</div>';
       return '<article class="collection-card" role="button" tabindex="0" data-collection-index="'+index+'" aria-label="'+escapeHtml(item.name||"Collection")+' · '+escapeHtml(t.viewCollection)+'">'+image+'<div class="card-info"><b>'+escapeHtml(item.name)+'</b><span>'+t.floor+': <strong>'+escapeHtml(item.floor_price??"—")+'</strong></span><span>'+t.volume+': '+escapeHtml(item.day_volume??"—")+'</span><span>'+t.supply+': '+escapeHtml(item.supply??"—")+'</span><small>'+escapeHtml(item.source||"")+'</small><span class="collection-open-hint">'+t.viewCollection+' ↗</span></div></article>';
-    }).join(""):'<p class="empty">'+t.noData+'</p>';
-    portalsGiftItems=Array.isArray(gifts.items)?gifts.items:[];
+    }).join(""):'<p class="empty">'+escapeHtml(collectionsData.note||t.noData)+'</p>';
+    portalsGiftItems=Array.isArray(giftsData.items)?giftsData.items:[];
     giftItems=portalsGiftItems;
     renderMarketTabs();
-    if(activeMarket==="portals") renderGifts(gifts);
-    else renderUnavailableMarket(activeMarket);
+    if(activeMarket==="portals") renderGifts({...giftsData,items:portalsGiftItems});
+    if(typeof nftRenderProfile==="function")nftRenderProfile();
+
+    // Warm the public Tonnel catalogue in the background so its first tab
+    // selection is instant. Failure is isolated and never blanks Portals.
+    loadTonnelGifts("",false);
   }catch(e){
     $("api-status").textContent=t.offline;
     $("collections-count").textContent="—";
     $("updated").textContent=t.updated+": "+t.never;
-    $("collections").innerHTML='<p class="empty">'+t.error+'</p>';
-    $("market-view").innerHTML='<p class="empty">'+t.error+'</p>';
+    $("collections").innerHTML='<p class="empty">'+escapeHtml(t.error)+' · '+escapeHtml(e.message||"")+'</p>';
+    $("market-view").innerHTML='<p class="empty">'+escapeHtml(t.error)+' · '+escapeHtml(e.message||"")+'</p>';
   }
 }
 function renderGifts(data){
@@ -181,7 +199,7 @@ function renderGifts(data){
   $("gift-search-button").onclick=searchGifts;
   $("gift-search").addEventListener("keydown",e=>{if(e.key==="Enter")searchGifts()});
 }
-async function loadTonnelGifts(search=""){
+async function loadTonnelGifts(search="",renderActive=true){
   const t=copy[lang];
   $("gifts-count").textContent="…";
   $("gifts-updated").textContent=t.checking;
@@ -191,14 +209,15 @@ async function loadTonnelGifts(search=""){
     const data=await response.json();
     if(!response.ok) throw new Error(data.detail||"Tonnel unavailable");
     tonnelGiftItems=Array.isArray(data.items)?data.items:[];
+    tonnelTotalCount=Number(data.total_count??tonnelGiftItems.length)||tonnelGiftItems.length;
     sourceStates.tonnel="online_read_only";
     renderMarketTabs();
-    renderGifts(data);
+    if(renderActive&&activeMarket==="tonnel")renderGifts({...data,items:tonnelGiftItems,total_count:tonnelTotalCount});
   }catch(e){
     const message=String(e.message||"");
     sourceStates.tonnel=message.toLowerCase().includes("rate limit")?"rate_limited":message.toLowerCase().includes("public unauthenticated")?"public_access_unavailable":"temporarily_unavailable";
     renderMarketTabs();
-    renderUnavailableMarket("tonnel");
+    if(renderActive&&activeMarket==="tonnel")renderUnavailableMarket("tonnel");
   }
 }
 function currentCollectionParams(offset=0,searchTerm=""){
@@ -347,7 +366,7 @@ document.querySelectorAll(".market-tab").forEach(button=>button.addEventListener
   renderMarketTabs();
   if(activeMarket==="portals") renderGifts(selectedCollection?{items:selectedCollectionItems,total_count:selectedCollectionTotal,connected:true}:{items:portalsGiftItems,total_count:portalsGiftItems.length,connected:sourceStates.portals!=="needs_api_key"});
   else if(activeMarket==="tonnel"){
-    if(sourceStates.tonnel==="online_read_only") renderGifts({items:tonnelGiftItems,total_count:tonnelGiftItems.length,connected:true});
+    if(sourceStates.tonnel==="online_read_only") renderGifts({items:tonnelGiftItems,total_count:tonnelTotalCount||tonnelGiftItems.length,connected:true});
     else loadTonnelGifts();
   }else renderUnavailableMarket(activeMarket);
 }));
