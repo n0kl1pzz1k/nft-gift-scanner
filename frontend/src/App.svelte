@@ -168,7 +168,7 @@
 </nav>
 {#if selected}
   <div class="modal-backdrop" role="presentation" onclick={()=>selected=null} onkeydown={(e)=>e.key==='Escape'&&(selected=null)}>
-    <div class="modal" role="dialog" aria-modal="true" aria-label={selected.name||'Gift details'} onclick={(e)=>e.stopPropagation()} onkeydown={(e)=>e.stopPropagation()}>
+    <div class="modal" role="dialog" tabindex="-1" aria-modal="true" aria-label={selected.name||'Gift details'} onclick={(e)=>e.stopPropagation()} onkeydown={(e)=>e.stopPropagation()}>
       <button class="modal-close" onclick={()=>selected=null}>×</button>
       {#if selected.image}<img src={selected.image} alt={selected.name||'Gift'}/>{:else}<div class="gift-placeholder">🎁</div>{/if}
       <div class="modal-body"><div class="kicker">{selected.source||market}</div><h2>{selected.name||'Telegram Gift'} #{selected.number??'—'}</h2>
