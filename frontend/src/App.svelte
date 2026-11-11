@@ -153,39 +153,42 @@
     try { localStorage.setItem('gift-radar-favorites-v2', JSON.stringify(favoriteItems)); } catch {}
   }
 
-  function saveOrders() {
-    try { localStorage.setItem('gift-radar-demo-orders', JSON.stringify(orders)); } catch {}
-  }
-
-  function createOrder() {
+  async function createOrder() {
     const price = Number(createPrice);
     if (!createTitle.trim() || !Number.isFinite(price) || price <= 0) {
       notice = lang === 'ru' ? 'Укажи название подарка и положительную цену.' : 'Enter a gift name and a positive price.';
       return;
     }
-    orders = [{
-      id: 'demo-' + Date.now().toString(36),
-      kind: createKind,
-      title: createTitle.trim(),
-      price,
-      currency: createCurrency,
-      status: 'active',
-      createdAt: new Date().toISOString(),
-      note: createNote.trim(),
-    }, ...orders];
-    saveOrders();
-    createTitle = ''; createPrice = ''; createNote = ''; createCurrency = 'TON';
-    notice = t.success;
-    view = 'orders';
+    if (!window.Telegram?.WebApp?.initData) {
+      notice = lang === 'ru' ? 'Открой приложение через Telegram, чтобы публиковать заявки.' : 'Open the app in Telegram to publish demo orders.';
+      return;
+    }
+    try {
+      await request('/api/marketplace/orders', undefined, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({kind:createKind,title:createTitle.trim(),price,currency:createCurrency,note:createNote.trim()}),
+      });
+      createTitle = ''; createPrice = ''; createNote = ''; createCurrency = 'TON';
+      notice = t.success;
+      view = 'orders';
+      await loadMarketplace();
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
-  function completeOrder(id: string) {
-    orders = orders.map(o => o.id === id ? { ...o, status: 'matched' } : o);
-    saveOrders();
-    notice = lang === 'ru' ? 'Демо-ордер отмечен как исполненный.' : 'Demo order marked as filled.';
-  }\n\n  function cancelOrder(id: string) {
-    orders = orders.map(o => o.id === id ? { ...o, status: 'cancelled' } : o);
-    saveOrders();
+  async function completeOrder(id: string) {
+    try {
+      await request('/api/marketplace/orders/' + encodeURIComponent(id) + '/simulate-fill', undefined, {method:'POST'});
+      notice = lang === 'ru' ? 'Демо-ордер отмечен как исполненный.' : 'Demo order marked as filled.';
+      await loadMarketplace();
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+  }
+
+  async function cancelOrder(id: string) {
+    try {
+      await request('/api/marketplace/orders/' + encodeURIComponent(id), undefined, {method:'DELETE'});
+      notice = lang === 'ru' ? 'Заявка снята.' : 'Order cancelled.';
+      await loadMarketplace();
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
   async function telegramLogin() {
@@ -220,10 +223,9 @@
           favorites = fav as string[];
         }
       }
-      const saved = JSON.parse(localStorage.getItem('gift-radar-demo-orders') || '[]');
-      if (Array.isArray(saved)) orders = saved;
     } catch {}
     void loadCatalogue();
+    void loadMarketplace();
   });
 </script>
 
@@ -281,7 +283,7 @@
     {:else if view==='orders'}
       <section class="page-heading"><div class="eyebrow">YOUR ACTIVITY</div><h1>{t.ordersTitle}</h1><p>{t.createHint}</p></section>
       {#if orders.length===0}<div class="state-panel">{t.noOrders}<button class="search-button" onclick={()=>view='create'}>{t.create}</button></div>
-      {:else}<div class="orders-list">{#each orders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {order.note?'· '+order.note:''}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active'}<div class="order-actions"><button class="match-button" onclick={()=>completeOrder(order.id)}>{t.match}</button><button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button></div>{/if}</article>{/each}</div>{/if}
+      {:else}<div class="orders-list">{#each orders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {'· '+order.owner} {order.note?'· '+order.note:''}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active' && order.isMine}<div class="order-actions"><button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button></div>{:else if order.status==='active'}<div class="order-actions"><button class="match-button" onclick={()=>completeOrder(order.id)}>{t.match}</button></div>{/if}</article>{/each}</div>{/if}
     {:else if view==='create'}
       <section class="page-heading"><div class="eyebrow">MARKETPLACE STUDIO</div><h1>{t.createTitle}</h1><p>{t.createHint}</p></section>
       <section class="create-layout"><div class="create-form">
