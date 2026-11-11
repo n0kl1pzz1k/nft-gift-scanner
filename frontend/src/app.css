@@ -93,3 +93,20 @@
 .notification-new{font-size:8px;color:#b8a7ff}
 @media(max-width:900px){.account-stats-card,.notification-card{grid-column:auto}}
 @media(max-width:520px){.account-stat-grid{gap:7px}.account-stat-grid>div{padding:10px}.account-stat-grid strong{font-size:17px}.notification-item{padding:9px}.notification-copy strong{font-size:9px}}
+
+
+/* Account timeline */
+.activity-card{grid-column:1/-1}
+.activity-demo-tag{font-size:8px;letter-spacing:.12em;color:#a995ff;border:1px solid #a995ff44;border-radius:20px;padding:6px 9px}
+.activity-timeline{display:grid;gap:0;max-height:520px;overflow:auto}
+.activity-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:12px;align-items:start;padding:13px 4px;border-bottom:1px solid #ffffff10}
+.activity-marker{width:7px;height:7px;margin-top:5px;border-radius:50%;background:#9c83ff;box-shadow:0 0 10px #9c83ff66}
+.activity-row-main{display:grid;gap:5px;min-width:0}
+.activity-row-main strong{font-size:11px;color:#e5e4f2}
+.activity-row-main>span{font-size:10px;color:#b2bdd4;overflow-wrap:anywhere}
+.activity-row-main small,.activity-row-value small{font-size:8px;color:#7785a3}
+.activity-row-value{display:grid;gap:5px;text-align:right;max-width:130px}
+.activity-row-value strong{font-size:10px;color:#c4b6ff;overflow-wrap:anywhere}
+.activity-row-value small{overflow-wrap:anywhere}
+.activity-more{margin-top:13px}
+@media(max-width:520px){.activity-row{grid-template-columns:8px minmax(0,1fr);gap:9px}.activity-row-value{grid-column:2;text-align:left;display:flex;gap:8px;max-width:none;align-items:center}.activity-row-value small{overflow-wrap:anywhere}}

@@ -24,8 +24,8 @@ class SharedMarketplaceTests(unittest.TestCase):
             api,
             "_verify_telegram_init_data",
             side_effect=lambda value: {
-                "id": "101" if value == "user-a" else "202",
-                "first_name": "Tester A" if value == "user-a" else "Tester B",
+                "id": {"user-a": "101", "user-b": "202", "user-c": "303"}.get(value, "202"),
+                "first_name": {"user-a": "Tester A", "user-b": "Tester B", "user-c": "Tester C"}.get(value, "Tester B"),
                 "username": "tester",
             },
         )
@@ -485,6 +485,51 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(stats.json()["simulated_deals"], 1)
         self.assertEqual(stats.json()["unread_notifications"], 1)
         self.assertTrue(stats.json()["simulation_only"])
+
+    def test_account_activity_timeline_is_private_and_paginated(self):
+        headers_a = {"X-Telegram-Init-Data": "user-a"}
+        headers_b = {"X-Telegram-Init-Data": "user-b"}
+        headers_c = {"X-Telegram-Init-Data": "user-c"}
+        created = self.client.post(
+            "/api/marketplace/orders", headers=headers_a,
+            json={"kind": "listing", "title": "Timeline gift", "price": "4", "currency": "TON"},
+        )
+        self.assertEqual(created.status_code, 201)
+        order_id = created.json()["item"]["id"]
+        offered = self.client.post(
+            "/api/marketplace/offers", headers=headers_b,
+            json={"order_id": order_id, "amount": "3.5"},
+        )
+        self.assertEqual(offered.status_code, 201)
+        offer_id = offered.json()["item"]["id"]
+
+        owner_activity = self.client.get("/api/marketplace/activity?limit=1", headers=headers_a)
+        self.assertEqual(owner_activity.status_code, 200)
+        self.assertEqual(owner_activity.json()["total"], 2)
+        self.assertEqual(len(owner_activity.json()["items"]), 1)
+        self.assertEqual(owner_activity.json()["items"][0]["type"], "offer_received")
+        older = self.client.get("/api/marketplace/activity?limit=5&offset=1", headers=headers_a)
+        self.assertEqual(older.json()["items"][0]["type"], "order_created")
+
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer_id}", headers=headers_a,
+            json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200)
+
+        sender_activity = self.client.get("/api/marketplace/activity", headers=headers_b)
+        sender_types = {item["type"] for item in sender_activity.json()["items"]}
+        self.assertIn("offer_accepted", sender_types)
+        self.assertIn("demo_deal_created", sender_types)
+        self.assertTrue(all(item["simulation_only"] for item in sender_activity.json()["items"]))
+
+        unrelated = self.client.get("/api/marketplace/activity", headers=headers_c)
+        self.assertEqual(unrelated.json()["items"], [])
+        self.assertEqual(unrelated.json()["total"], 0)
+
+    def test_account_activity_requires_verified_telegram_session(self):
+        response = self.client.get("/api/marketplace/activity")
+        self.assertEqual(response.status_code, 401)
 
     def test_account_stats_require_verified_telegram_session(self):
         response = self.client.get("/api/marketplace/account/stats")
