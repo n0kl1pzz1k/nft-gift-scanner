@@ -276,6 +276,7 @@ get fun get_payment_escrow_state(): PaymentEscrowStateReply {
         initialized: storage.initialized,
         state: storage.state,
         paymentQueryId: storage.paymentQueryId,
+        transferQueryId: storage.transferQueryId,
         paymentApprovals: storage.paymentApprovals,
         deliveryApprovals: storage.deliveryApprovals,
         deliveryProofHash: storage.deliveryProofHash,
