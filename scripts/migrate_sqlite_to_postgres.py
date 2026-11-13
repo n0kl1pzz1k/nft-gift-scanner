@@ -23,7 +23,7 @@ TABLES = (
     "demo_notifications", "catalogue_gifts", "catalogue_gift_snapshots",
 )
 OPTIONAL_SOURCE_TABLES = {"catalogue_gifts", "catalogue_gift_snapshots"}
-TARGET_GUARD_TABLES = TABLES + ("telegram_stars_invoices", "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances")
+TARGET_GUARD_TABLES = TABLES + ("telegram_stars_invoices", "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances", "marketplace_assets", "marketplace_ownership_proofs", "marketplace_listings", "marketplace_listing_events", "marketplace_reservations")
 SEQUENCE_COLUMNS = {
     "demo_order_events": "id",
     "demo_order_revisions": "id",
