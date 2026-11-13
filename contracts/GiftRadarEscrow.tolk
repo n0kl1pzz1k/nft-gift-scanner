@@ -47,10 +47,6 @@ struct PaymentEvidence {
 struct DeliveryEvidence {
     buyerOwnershipProofHash: uint256
     sellerOwnershipProofHash: uint256
-}
-
-struct DisputeEvidence {
-    reasonHash: uint256
     resolutionHash: uint256
 }
 
@@ -63,12 +59,13 @@ struct EscrowStorage {
     preDisputeState: uint8
     disputeApprovals: uint8
     resolutionDecision: uint8
+    disputeReasonHash: uint256
     transferQueryId: uint64
     parties: Cell<EscrowParties>
     authorities: Cell<EscrowAuthorities>
+    disputeReasonHash: uint256
     paymentEvidence: Cell<PaymentEvidence>
     deliveryEvidence: Cell<DeliveryEvidence>
-    disputeEvidence: Cell<DisputeEvidence>
 }
 
 fun EscrowStorage.load() {
@@ -336,15 +333,13 @@ fun onInternalMessage(in: InMessage) {
         RaiseDispute => {
             var storage = lazy EscrowStorage.load();
             val parties = storage.parties.load();
-            var evidence = storage.disputeEvidence.load();
             assert (storage.initialized) throw ERR_BAD_STATE;
             assert ((in.senderAddress == parties.buyer) | (in.senderAddress == parties.seller)) throw ERR_UNAUTHORIZED;
             assert (msg.reasonHash != 0) throw ERR_BAD_DISPUTE;
             assert ((storage.state == STATE_DEPOSITED) |
                     (storage.state == STATE_PAID) |
                     (storage.state == STATE_TRANSFER_PENDING)) throw ERR_BAD_STATE;
-            evidence.reasonHash = msg.reasonHash;
-            storage.disputeEvidence = evidence.toCell();
+            storage.disputeReasonHash = msg.reasonHash;
             if (storage.state == STATE_TRANSFER_PENDING) {
                 // A transfer may already have executed on the NFT item. Never guess ownership.
                 storage.state = STATE_RECONCILIATION_REQUIRED;
@@ -378,7 +373,7 @@ fun onInternalMessage(in: InMessage) {
             val parties = storage.parties.load();
             val authorities = storage.authorities.load();
             val payment = storage.paymentEvidence.load();
-            var dispute = storage.disputeEvidence.load();
+            var deliveryEvidence = storage.deliveryEvidence.load();
             assert (storage.initialized) throw ERR_BAD_STATE;
             assert (storage.state == STATE_DISPUTED) throw ERR_BAD_STATE;
             assert ((in.senderAddress == authorities.arbitrator1) | (in.senderAddress == authorities.arbitrator2)) throw ERR_UNAUTHORIZED;
@@ -389,8 +384,8 @@ fun onInternalMessage(in: InMessage) {
             if (storage.disputeApprovals == 0) {
                 storage.disputeApprovals = approval;
                 storage.resolutionDecision = msg.decision;
-                dispute.resolutionHash = msg.resolutionHash;
-                storage.disputeEvidence = dispute.toCell();
+                deliveryEvidence.resolutionHash = msg.resolutionHash;
+                storage.deliveryEvidence = deliveryEvidence.toCell();
                 storage.save();
                 return;
             }
@@ -398,13 +393,13 @@ fun onInternalMessage(in: InMessage) {
             // Repeated approval from the same arbitrator is idempotent.
             if (storage.disputeApprovals == approval) {
                 assert (storage.resolutionDecision == msg.decision) throw ERR_BAD_DISPUTE;
-                assert (dispute.resolutionHash == msg.resolutionHash) throw ERR_BAD_DISPUTE;
+                assert (deliveryEvidence.resolutionHash == msg.resolutionHash) throw ERR_BAD_DISPUTE;
                 return;
             }
 
             assert ((storage.disputeApprovals == 1) | (storage.disputeApprovals == 2)) throw ERR_BAD_DISPUTE;
             assert (storage.resolutionDecision == msg.decision) throw ERR_BAD_DISPUTE;
-            assert (dispute.resolutionHash == msg.resolutionHash) throw ERR_BAD_DISPUTE;
+            assert (deliveryEvidence.resolutionHash == msg.resolutionHash) throw ERR_BAD_DISPUTE;
 
             if (msg.decision == 1) {
                 if (storage.preDisputeState == STATE_PAID) {
@@ -453,6 +448,7 @@ get fun get_escrow_state(): EscrowStateReply {
         preDisputeState: storage.preDisputeState,
         disputeApprovals: storage.disputeApprovals,
         resolutionDecision: storage.resolutionDecision,
+        disputeReasonHash: storage.disputeReasonHash,
         transferQueryId: storage.transferQueryId,
     };
 }
@@ -477,7 +473,3 @@ get fun get_delivery_evidence(): DeliveryEvidence {
     return storage.deliveryEvidence.load();
 }
 
-get fun get_dispute_evidence(): DisputeEvidence {
-    val storage = lazy EscrowStorage.load();
-    return storage.disputeEvidence.load();
-}
