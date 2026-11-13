@@ -1,4 +1,5 @@
 import "@acton/testing/expect"
+import "@acton/testing/treasury"
 import "@wrappers/GiftRadarEscrow.gen"
 
 fun setupEscrow(): (GiftRadarEscrow, Treasury, Treasury, Treasury, Treasury, Treasury, Treasury) {
