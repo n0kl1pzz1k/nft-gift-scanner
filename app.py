@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update
 from demo_offers import create_demo_offers_router, init_demo_offers_db
-from security_controls import SecurityControlsMiddleware
+from security_controls import RequestBodyLimitMiddleware, SecurityControlsMiddleware
 from financial_ledger import get_engine, get_account_balance, create_payment_invoice, invoices, payment_events
 from marketplace_settlement import reserve_verified_deal_payment
 from withdrawal_signer import create_withdrawal_request
@@ -264,6 +264,9 @@ _CORS_ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 
+# Register the body limiter inside CORS so 413 responses still receive
+# the configured cross-origin headers; SecurityControls remains outermost.
+app.add_middleware(RequestBodyLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_ALLOWED_ORIGINS,
