@@ -21,6 +21,7 @@ from demo_offers import create_demo_offers_router, init_demo_offers_db
 from security_controls import SecurityControlsMiddleware
 from financial_ledger import get_engine, get_account_balance, create_payment_invoice, invoices, payment_events
 from marketplace_settlement import reserve_verified_deal_payment
+from withdrawal_signer import create_withdrawal_request
 from marketplace_inventory import (
     save_verified_wallet, get_active_verified_wallet, revoke_verified_wallet, record_wallet_owned_nft,
     create_escrow_pending_listing, cancel_seller_listing, marketplace_assets, marketplace_listings,
@@ -90,6 +91,13 @@ class CryptoPaymentInvoiceRequest(BaseModel):
 
 class DealInvoicePaymentRequest(BaseModel):
     invoice_id: str = Field(min_length=8, max_length=64)
+
+
+class WalletWithdrawalRequest(BaseModel):
+    asset_id: str = Field(pattern="^(GRAM|usdt-ton)$")
+    destination_address: str = Field(min_length=3, max_length=128)
+    amount_raw: int = Field(gt=0, strict=True)
+    idempotency_key: str = Field(min_length=16, max_length=200)
 
 
 def _stars_payment_enabled() -> bool:
@@ -705,14 +713,31 @@ async def list_verified_inventory_listings(
             "limit": limit, "offset": offset}
 
 
-@app.post("/api/wallet/withdrawals", status_code=503)
+@app.post("/api/wallet/withdrawals", status_code=201)
 async def create_wallet_withdrawal(
+    payload: WalletWithdrawalRequest,
     x_telegram_init_data: str | None = Header(default=None),
 ):
-    _authenticate_telegram_credential(x_telegram_init_data or "")
-    # No audited signer, broadcaster or reconciliation worker exists yet.
-    # Do not accept requests or reserve user funds until that complete path is reviewed.
-    raise HTTPException(status_code=503, detail="TON withdrawals are temporarily unavailable")
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    try:
+        return create_withdrawal_request(
+            user_id=str(user["id"]), asset_id=payload.asset_id,
+            destination_address=payload.destination_address,
+            amount_raw=payload.amount_raw, idempotency_key=payload.idempotency_key,
+            engine=get_engine(),
+        )
+    except PermissionError as exc:
+        detail = str(exc)
+        if any(word in detail.lower() for word in ("disabled", "release gates", "sign-offs", "not approved")):
+            raise HTTPException(status_code=503, detail=detail)
+        raise HTTPException(status_code=409, detail=detail)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        logging.warning("TON withdrawal request failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="TON withdrawal request service is unavailable")
 
 
 @app.get("/api/wallet/withdrawals")
