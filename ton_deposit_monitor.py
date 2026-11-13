@@ -139,7 +139,7 @@ def record_ton_provider_observation(
                 "provider_count": len(matching_providers)}
     result = settle_verified_ton_payment(invoice_id=invoice_id, trace=trace, engine=db, now=current)
     return {"settled": bool(result.get("credited") or result.get("duplicate")),
-            "review_required": False, "duplicate": duplicate,
+            "review_required": bool(result.get("review_required")), "duplicate": duplicate,
             "provider_count": len(matching_providers), **result}
 
 
@@ -195,10 +195,20 @@ async def scan_pending_ton_invoices(
     db = engine or get_engine()
     init_financial_schema(db)
     selected = providers or configured_ton_payment_providers()
-    with db.connect() as conn:
+    current = int(time.time())
+    grace_cutoff = current - 86400
+    with db.begin() as conn:
+        # Expired invoices remain observable for a 24-hour late-payment review window.
+        # After that window they stop consuming provider polling capacity.
+        conn.execute(invoices.update().where(
+            invoices.c.status == "pending",
+            invoices.c.chain == "ton-mainnet",
+            invoices.c.expires_at <= grace_cutoff,
+        ).values(status="expired"))
         invoice_ids = conn.execute(select(invoices.c.invoice_id).where(
             invoices.c.status == "pending",
             invoices.c.chain == "ton-mainnet",
+            invoices.c.expires_at > grace_cutoff,
         ).order_by(invoices.c.created_at.asc()).limit(max(1, min(int(batch_size), 500)))).scalars().all()
     stats = {"checked": 0, "settled": 0, "observations": 0,
              "duplicates": 0, "review_required": 0, "errors": 0}
