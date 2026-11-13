@@ -110,3 +110,32 @@ A read-only inspection of the currently configured Railway production environmen
 - Railway reports the backend, PostgreSQL and Redis services as online, but online infrastructure status does not establish compliance, correct database connectivity, or application readiness.
 
 **Consequences:** production must not be treated as compliant with Kazakhstan personal-data localization; do not load real customer/payment data or enable checkout there. Do not remove the legacy Portals variable or change the live source/deploy configuration as part of this read-only audit, because doing so may affect the currently running service. A separately reviewed cutover plan must move the application and all in-scope data to a verified Kazakhstan-resident architecture, remove unused legacy integration secrets, connect and migrate to the intended database, and prove backup/restore and reconciliation before any live activation.
+
+
+## 8. Agreed multi-rail product architecture (clarification)
+
+The product requirement is **Stars plus crypto as an additional payment family**, not crypto replacing Stars. The agreed asset roadmap is:
+- **Telegram Stars (XTR):** mandatory checkout rail for purchases of digital goods/services made inside the Telegram bot or Mini App.
+- **USDT on TON:** planned additional crypto rail, subject to the legal and product-surface restrictions below. Only the canonical USDT TON Jetton master contract may be accepted after independently verifying its official address and decimals.
+- **GRAM on TON:** planned additional crypto rail only after the exact token master contract, authenticity, decimals, liquidity/transfer semantics and legal classification are independently verified. A ticker/name match is not sufficient.
+- **TRON / USDT-TRC20:** not part of the Telegram Mini App wallet/payment implementation. Do not accept it through a Mini App flow.
+
+**Important Telegram boundary:** Telegram's current Bot Platform Developer Terms section 6.2 and Stars FAQ explicitly require all transactions for digital goods and services sold inside Telegram bots and Mini Apps to be paid exclusively in Stars. The FAQ explicitly says this remains true even if the operator also has a separate website or other external payment provider. Therefore, an additional crypto button, TON Connect payment request, QR, external checkout link, or redirect inside the Telegram bot/Mini App must not be used to collect crypto for a digital gift sale. This is not a matter that can be cured merely by obtaining a Kazakhstan legal opinion.
+
+Official sources:
+- https://telegram.org/tos/bot-developers (section 6.2 and 7)
+- https://core.telegram.org/bots/payments-stars (FAQ: alternative currency, own website, cryptocurrency)
+- https://docs.ton.org/applications/ton-connect/overview (wallet connection standard; not a payment-policy exception)
+
+**Possible separate web product surface:** crypto checkout may be evaluated for a genuinely independent GIFT RADAR website/web marketplace, where the customer independently accesses that service and the transaction is not initiated, promoted, redirected or completed as an alternative payment path from the Telegram bot/Mini App. The same listing appearing on both surfaces does not automatically make the web transaction compliant; counsel must review the actual user journey, product parity, links, deep-links, marketing and platform interpretation. Do not assume this route is approved until written Telegram/platform and Kazakhstan legal review confirms it.
+
+**Architecture to preserve without enabling live crypto:**
+- One Payment Orchestrator with isolated adapters: `TelegramStarsAdapter`, `TonUsdtAdapter`, and `TonGramAdapter`. Rail eligibility is decided by server-side product-surface policy before an adapter can create a payment.
+- A mandatory server-side rule: `surface=telegram_bot|telegram_mini_app AND item_type=digital_good => rail=telegram_stars_xtr_only`. This must be enforced by backend authorization, not just hidden UI controls.
+- For an independently approved web surface only, crypto adapter eligibility must be separately configured and default-off. No cross-surface fallback or silent conversion.
+- TON Connect may connect Telegram Wallet, Tonkeeper or MyTonWallet; it must never request seed phrases/private keys or hold signing authority. A wallet connection proves address control only.
+- The chain observer verifies network, canonical token master contract, destination, amount, decimals, transaction finality, sender/recipient and unique transaction/log identifiers. Enforce exact invoice binding, replay prevention, idempotency, confirmations/finality policy and reconciliation.
+- No custodial collection, exchange, swap, bridge, escrow or seller crypto payout unless separately designed and legally approved.
+- Keep all crypto payment adapters disabled in production until the legal/product-surface gate is signed off. Keep Stars checkout disabled until the existing Stars release gates are passed.
+
+This clarification supersedes any earlier design note suggesting that TON Connect could be used to accept GRAM or USDT directly inside the Telegram Mini App for the sale of digital gifts. TON Connect's technical support for a token transfer does not override Telegram's Stars-only rule for in-Telegram digital goods.
