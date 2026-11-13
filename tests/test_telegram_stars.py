@@ -15,6 +15,7 @@ from financial_ledger import (
     prepare_telegram_stars_refund,
     complete_telegram_stars_refund,
     fail_telegram_stars_refund,
+    require_telegram_stars_refund_reconciliation,
 )
 
 
@@ -319,6 +320,40 @@ class TelegramStarsLedgerTests(unittest.TestCase):
         self.assertEqual(
             get_account_balance("asset:telegram_stars:clearing", "XTR", self.engine), 75
         )
+
+
+    def test_ambiguous_refund_is_quarantined_and_cannot_be_retried(self):
+        invoice = self._settle_paid_invoice()
+        requested = request_telegram_stars_refund(
+            invoice_id=invoice["invoice_id"], buyer_user_id="10020",
+            reason="Refund requested", engine=self.engine, now=1030
+        )
+        prepare_telegram_stars_refund(
+            request_id=requested["request_id"], admin_user_id="90001",
+            engine=self.engine, now=1040
+        )
+        require_telegram_stars_refund_reconciliation(
+            request_id=requested["request_id"],
+            reason="Telegram response timed out after request", engine=self.engine, now=1041
+        )
+        with self.engine.connect() as connection:
+            row = connection.execute(text(
+                "SELECT status, reconciliation_note FROM telegram_stars_refund_requests WHERE request_id=:id"
+            ), {"id": requested["request_id"]}).mappings().one()
+        self.assertEqual(row["status"], "reconciliation_required")
+        self.assertIn("timed out", row["reconciliation_note"])
+        with self.assertRaises(ValueError):
+            prepare_telegram_stars_refund(
+                request_id=requested["request_id"], admin_user_id="90002",
+                engine=self.engine, now=1042
+            )
+        duplicate = request_telegram_stars_refund(
+            invoice_id=invoice["invoice_id"], buyer_user_id="10020",
+            reason="Retry attempt", engine=self.engine, now=1043
+        )
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(duplicate["status"], "reconciliation_required")
+
 
 
 if __name__ == "__main__":
