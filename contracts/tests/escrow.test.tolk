@@ -368,3 +368,189 @@ get fun `test dispute during pending NFT transfer is quarantined`() {
     });
     expect(readEscrowState(escrow).state).toEqual(8);
 }
+
+get fun `test delivery proof is required before seller settlement`() {
+    val (escrow, seller, buyer, nftItem, authority, _, _) = setupEscrow();
+    depositNft(escrow, seller, nftItem);
+    net.send(authority, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: RecordStarsPayment {
+            queryId: 16,
+            amount: 250,
+            telegramChargeHash: 0xabc129,
+        },
+    }));
+    net.send(buyer, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: RequestNftRelease { queryId: 17 },
+    }));
+
+    val delivered = net.send(authority, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ConfirmNftDelivery {
+            queryId: 18,
+            buyerOwnershipProofHash: 0xdef004,
+        },
+    }));
+    expect(delivered).toHaveSuccessfulTx<ConfirmNftDelivery>({
+        from: authority,
+        to: escrow.address,
+    });
+    expect(readEscrowState(escrow).state).toEqual(4);
+
+    val settled = net.send(authority, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: MarkSellerSettled {
+            queryId: 19,
+            payoutReferenceHash: 0xdef005,
+        },
+    }));
+    expect(settled).toHaveSuccessfulTx<MarkSellerSettled>({
+        from: authority,
+        to: escrow.address,
+    });
+    expect(readEscrowState(escrow).state).toEqual(5);
+}
+
+get fun `test paid deal refund requires Telegram refund attestation and NFT return proof`() {
+    val (escrow, seller, _, nftItem, authority, _, _) = setupEscrow();
+    depositNft(escrow, seller, nftItem);
+    net.send(authority, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: RecordStarsPayment {
+            queryId: 20,
+            amount: 250,
+            telegramChargeHash: 0xabc130,
+        },
+    }));
+
+    val refund = net.send(authority, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: RequestRefund {
+            queryId: 21,
+            telegramRefundHash: 0xdef006,
+        },
+    }));
+    expect(refund).toHaveSuccessfulTx<RequestRefund>({
+        from: authority,
+        to: escrow.address,
+    });
+    expect(refund).toHaveTx<AskToChangeOwnership>({
+        from: escrow.address,
+        to: nftItem,
+    });
+    expect(readEscrowState(escrow).state).toEqual(9);
+
+    val returned = net.send(authority, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ConfirmNftReturned {
+            queryId: 22,
+            sellerOwnershipProofHash: 0xdef007,
+        },
+    }));
+    expect(returned).toHaveSuccessfulTx<ConfirmNftReturned>({
+        from: authority,
+        to: escrow.address,
+    });
+    expect(readEscrowState(escrow).state).toEqual(6);
+}
+
+get fun `test disputed paid deal needs refund attestation and two arbitrators`() {
+    val (escrow, seller, buyer, nftItem, authority, arb1, arb2) = setupEscrow();
+    depositNft(escrow, seller, nftItem);
+    net.send(authority, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: RecordStarsPayment {
+            queryId: 23,
+            amount: 250,
+            telegramChargeHash: 0xabc131,
+        },
+    }));
+    net.send(buyer, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: RaiseDispute { queryId: 24, reasonHash: 0xdef008 },
+    }));
+
+    val firstWithoutRefund = net.send(arb1, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ApproveDisputeResolution {
+            queryId: 25,
+            decision: 1,
+            resolutionHash: 0xdef009,
+        },
+    }));
+    expect(firstWithoutRefund).toHaveSuccessfulTx<ApproveDisputeResolution>({
+        from: arb1,
+        to: escrow.address,
+    });
+    val secondWithoutRefund = net.send(arb2, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ApproveDisputeResolution {
+            queryId: 26,
+            decision: 1,
+            resolutionHash: 0xdef009,
+        },
+    }));
+    expect(secondWithoutRefund).toHaveFailedTx<ApproveDisputeResolution>({
+        from: arb2,
+        to: escrow.address,
+        exitCode: 1006,
+    });
+    expect(readEscrowState(escrow).state).toEqual(7);
+
+    val refundRecorded = net.send(authority, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: RecordStarsRefund {
+            queryId: 27,
+            telegramRefundHash: 0xdef010,
+        },
+    }));
+    expect(refundRecorded).toHaveSuccessfulTx<RecordStarsRefund>({
+        from: authority,
+        to: escrow.address,
+    });
+
+    val secondApproval = net.send(arb2, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ApproveDisputeResolution {
+            queryId: 28,
+            decision: 1,
+            resolutionHash: 0xdef009,
+        },
+    }));
+    expect(secondApproval).toHaveSuccessfulTx<ApproveDisputeResolution>({
+        from: arb2,
+        to: escrow.address,
+    });
+    expect(readEscrowState(escrow).state).toEqual(9);
+    expect(secondApproval).toHaveTx<AskToChangeOwnership>({
+        from: escrow.address,
+        to: nftItem,
+    });
+}
