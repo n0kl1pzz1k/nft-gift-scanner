@@ -54,6 +54,15 @@ Never mark a deal paid from a client callback, browser redirect, invoice-link cl
 - On confirmed refund, post a compensating double-entry journal entry. Never edit or delete the original payment journal.
 - Seller payouts are a separate liability-settlement workflow. No payout may be implied by a `paid` deal state. Do not enable seller payouts until the legal, operational, and supported Telegram Stars withdrawal model is documented and independently tested.
 
+
+## Listing cancellation and payment amount guards
+
+- A seller may cancel only an active listing that has not been reserved. A reserved listing cannot be withdrawn through the seller endpoint.
+- Cancelling a listing does not move the NFT out of escrow. Asset return is a separate, explicitly authorized and independently verified operation; the UI must say so.
+- Crypto invoice creation applies base-unit anti-dust floors: 0.01 native TON and 0.10 TON-USDT. The floors are policy safeguards and do not enable either rail.
+- The Mini App may read `GET /api/payments/capabilities` to render server-owned availability. A client cannot override disabled server-side payment policy.
+- Public inventory listing search supports bounded pagination and filtering, and returns the full filtered count rather than the current page length.
+
 ## 6. Activation gates
 
 All of the following are mandatory before any production real-deal activation:
