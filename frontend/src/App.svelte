@@ -40,6 +40,7 @@
   let connectedWallet = $state('');
   let walletAppName = $state('');
   let walletBusy = $state(false);
+  let walletVerified = $state(false);
   let lang = $state<'ru' | 'en'>('ru');
   let view = $state<View>('market');
   let gifts = $state<Gift[]>([]);
@@ -743,18 +744,48 @@
 
   async function connectTonWallet() {
     if (!tonConnectUI || walletBusy) return;
+    if (!signedIn) {
+      notice = lang === 'ru' ? 'Сначала открой GIFT RADAR через Telegram.' : 'Sign in through Telegram first.';
+      return;
+    }
     walletBusy = true;
+    walletVerified = false;
     try {
+      const challenge = await request('/api/wallet/ton-proof/payload', undefined, { method: 'POST' });
+      if (typeof challenge.payload !== 'string' || !challenge.payload) throw new Error('TON Proof challenge was not issued');
+      tonConnectUI.setConnectRequestParameters({
+        state: 'ready',
+        value: { tonProof: challenge.payload },
+      });
       const wallet = await tonConnectUI.connectWallet();
-      if (!wallet) return;
-      connectedWallet = wallet.account.address;
+      if (!wallet) throw new Error('Wallet connection was cancelled');
+      const proofItem = wallet.connectItems?.tonProof;
+      if (!proofItem || !('proof' in proofItem)) {
+        throw new Error('This wallet does not support TON Proof. Try a compatible TON wallet.');
+      }
+      const verified = await request('/api/wallet/ton-proof/verify', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address: wallet.account.address,
+          network: wallet.account.chain,
+          public_key: wallet.account.publicKey,
+          state_init: wallet.account.walletStateInit,
+          proof: proofItem.proof,
+        }),
+      });
+      if (verified.verified !== true) throw new Error('Server did not verify wallet ownership');
+      connectedWallet = verified.address || wallet.account.address;
       walletAppName = wallet.device.appName || 'TON Connect';
+      walletVerified = true;
       notice = lang === 'ru'
-        ? 'Кошелёк подключён. Подпись и платежи не запрашивались.'
-        : 'Wallet connected. No signature or payment was requested.';
+        ? 'Кошелёк подключён и подтверждён криптографической подписью.'
+        : 'Wallet connected and verified with a cryptographic proof.';
     } catch (e) {
+      walletVerified = false;
       notice = e instanceof Error ? e.message : String(e);
     } finally {
+      tonConnectUI.setConnectRequestParameters(null);
       walletBusy = false;
     }
   }
@@ -766,6 +797,7 @@
       await tonConnectUI.disconnect();
       connectedWallet = '';
       walletAppName = '';
+      walletVerified = false;
     } catch (e) {
       notice = e instanceof Error ? e.message : String(e);
     } finally {
@@ -822,7 +854,9 @@
         manifestUrl: `${window.location.origin}/tonconnect-manifest.json`,
       });
       tonConnectUI.onStatusChange((wallet) => {
-        connectedWallet = wallet?.account.address || '';
+        const nextAddress = wallet?.account.address || '';
+        if (nextAddress !== connectedWallet) walletVerified = false;
+        connectedWallet = nextAddress;
         walletAppName = wallet?.device.appName || '';
       });
     } catch (e) {
@@ -1030,11 +1064,11 @@
         <p>{lang==='ru'?'Показывается только публичный адрес. Seed phrase, приватный ключ и подпись транзакции не запрашиваются.':'Only the public address is shown. No seed phrase, private key or transaction signature is requested.'}</p>
         {#if connectedWallet}
           <div class="wallet-address"><strong>{walletAppName || 'TON wallet'}</strong><code>{connectedWallet}</code></div>
-          <span class="activity-demo-tag">{lang==='ru'?'КОШЕЛЁК ПОДКЛЮЧЁН':'WALLET CONNECTED'}</span>
+          <span class="activity-demo-tag">{walletVerified?(lang==='ru'?'КОШЕЛЁК ПОДТВЕРЖДЁН':'WALLET VERIFIED'):(lang==='ru'?'НЕ ПОДТВЕРЖДЁН':'NOT VERIFIED')}</span>
           <button class="cancel-button" onclick={disconnectTonWallet} disabled={walletBusy}>{lang==='ru'?'Отключить кошелёк':'Disconnect wallet'}</button>
         {:else}
           <span class="activity-demo-tag">{lang==='ru'?'КОШЕЛЁК НЕ ПОДКЛЮЧЁН':'WALLET NOT CONNECTED'}</span>
-          <button class="publish-button" onclick={connectTonWallet} disabled={walletBusy || !tonConnectUI}>{walletBusy?'…':lang==='ru'?'Подключить через TON Connect':'Connect with TON Connect'}</button>
+          <button class="publish-button" onclick={connectTonWallet} disabled={walletBusy || !tonConnectUI || !signedIn}>{walletBusy?'…':lang==='ru'?'Подключить через TON Connect':'Connect with TON Connect'}</button>
         {/if}
         <small>{lang==='ru'?'Подключение не означает оплату. Платежи и подпись отключены.':'Connection does not authorize payment. Payments and signing remain disabled.'}</small>
       </article>
