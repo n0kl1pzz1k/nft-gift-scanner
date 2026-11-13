@@ -50,6 +50,7 @@ fun onBouncedMessage(in: InMessageBounced) {
     var storage = lazy PaymentEscrowStorage.load();
     val parties = storage.parties.load();
     assert (in.senderAddress == parties.nftItem) throw PaymentEscrowErrors.BadAsset;
+    assert (bounced.queryId == storage.transferQueryId) throw PaymentEscrowErrors.BadProof;
     if (storage.state == V2_TRANSFER_PENDING) {
         storage.state = V2_RECONCILIATION_REQUIRED;
         storage.save();
@@ -202,9 +203,11 @@ fun onInternalMessage(in: InMessage) {
             assert (storage.initialized) throw PaymentEscrowErrors.BadState;
             assert (in.senderAddress == parties.buyer) throw PaymentEscrowErrors.Unauthorized;
             assert (storage.state == V2_PAID) throw PaymentEscrowErrors.BadState;
+            assert (msg.queryId != 0) throw PaymentEscrowErrors.BadProof;
             assert (blockchain.now() >= storage.releaseAfter) throw PaymentEscrowErrors.Expired;
             assert (blockchain.now() < storage.deadline) throw PaymentEscrowErrors.Expired;
             assert (contract.getOriginalBalance() >= grams("0.15")) throw PaymentEscrowErrors.NotEnoughGas;
+            storage.transferQueryId = msg.queryId;
             storage.state = V2_TRANSFER_PENDING;
             storage.save();
             sendEscrowNft(parties.nftItem, parties.buyer, msg.queryId);
