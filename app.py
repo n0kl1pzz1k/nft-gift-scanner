@@ -1006,7 +1006,7 @@ async def _refresh_public_catalogues():
         await asyncio.sleep(_refresh_interval_seconds())
 
 
-async def _native_nft_escrow_monitor_enabled() -> bool:
+def _native_nft_escrow_monitor_enabled() -> bool:
     """Fail closed until native NFT escrow has explicit legal and infrastructure approval."""
     database_url = os.getenv("DATABASE_URL", "").strip()
     required = (
