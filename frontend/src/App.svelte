@@ -33,7 +33,7 @@
     data_pipeline?: { refresh_interval_seconds?: number };
     note?: string;
   };
-  type View = 'market' | 'orders' | 'create' | 'favorites' | 'profile' | 'seller';
+  type View = 'market' | 'orders' | 'create' | 'favorites' | 'profile' | 'seller' | 'inventory';
 
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://nft-gift-scanner-production.up.railway.app').replace(/\/$/, '');
   let tonConnectUI = $state<TonConnectUI | null>(null);
@@ -41,6 +41,16 @@
   let walletAppName = $state('');
   let walletBusy = $state(false);
   let walletVerified = $state(false);
+  let inventoryItems = $state<any[]>([]);
+  let inventoryBusy = $state(false);
+  let nftImportBusy = $state(false);
+  let inventoryListingBusy = $state('');
+  let nftAssetType = $state<'ton_nft'|'collectible_username'|'collectible_phone_number'>('ton_nft');
+  let nftCollectionAddress = $state('');
+  let nftTokenId = $state('');
+  let nftItemAddress = $state('');
+  let inventoryPrices = $state<Record<string,string>>({});
+  let inventoryCurrencies = $state<Record<string,'GRAM'|'USDT'|'XTR'>>({});
   let lang = $state<'ru' | 'en'>('ru');
   let view = $state<View>('market');
   let gifts = $state<Gift[]>([]);
@@ -719,6 +729,82 @@
     }
   }
 
+  async function loadMyInventory() {
+    if (!signedIn) return;
+    inventoryBusy = true;
+    try {
+      const data = await request('/api/inventory/mine');
+      inventoryItems = Array.isArray(data.items) ? data.items : [];
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      inventoryBusy = false;
+    }
+  }
+
+  async function importOwnedNft() {
+    if (!signedIn || !walletVerified || nftImportBusy) {
+      notice = lang==='ru' ? 'Сначала подключи и подтверди TON-кошелёк.' : 'Connect and verify your TON wallet first.';
+      return;
+    }
+    nftImportBusy = true;
+    try {
+      await request('/api/inventory/nft/import', undefined, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          asset_type:nftAssetType, collection_address:nftCollectionAddress.trim(),
+          token_id:nftTokenId.trim(), item_address:nftItemAddress.trim(),
+        }),
+      });
+      notice = lang==='ru'
+        ? 'NFT подтверждён двумя источниками и добавлен в твой инвентарь. Теперь создай лот.'
+        : 'NFT verified by two providers and added to your inventory. Create a listing next.';
+      nftCollectionAddress = '';
+      nftTokenId = '';
+      nftItemAddress = '';
+      await loadMyInventory();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      nftImportBusy = false;
+    }
+  }
+
+  function toRawListingPrice(value: string, currency: 'GRAM'|'USDT'|'XTR') {
+    const decimals = currency === 'GRAM' ? 9 : currency === 'USDT' ? 6 : 0;
+    const normalized = value.trim().replace(',', '.');
+    if (!/^\\d+(\\.\\d+)?$/.test(normalized)) throw new Error('Invalid listing price');
+    const [whole, fraction=''] = normalized.split('.');
+    if (fraction.length > decimals) throw new Error('Too many decimal places for selected currency');
+    const raw = BigInt(whole) * (10n ** BigInt(decimals)) + BigInt((fraction + '0'.repeat(decimals)).slice(0, decimals) || '0');
+    if (raw <= 0n || raw > 9000000000000000n) throw new Error('Listing price is outside the allowed range');
+    return Number(raw);
+  }
+
+  async function createInventoryListing(assetId: string) {
+    if (inventoryListingBusy) return;
+    inventoryListingBusy = assetId;
+    try {
+      const currency = inventoryCurrencies[assetId] || 'GRAM';
+      const priceRaw = toRawListingPrice(inventoryPrices[assetId] || '', currency);
+      await request('/api/inventory/listings', undefined, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          asset_id:assetId, price_raw:priceRaw, currency,
+          idempotency_key:crypto.randomUUID(),
+        }),
+      });
+      notice = lang==='ru'
+        ? 'Лот создан как ожидающий передачи в эскроу. Публичным он станет только после проверки блокчейна.'
+        : 'Listing created as pending escrow. It becomes public only after on-chain verification.';
+      await loadMyInventory();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      inventoryListingBusy = '';
+    }
+  }
+
   async function connectTonWallet() {
     if (!tonConnectUI || walletBusy) return;
     if (!signedIn) {
@@ -871,7 +957,7 @@
     <a class="brand" href="#market"><span class="brand-symbol">✳</span><span>GIFT RADAR<small>THE GIFT MARKET</small></span></a>
     <div class="nav-caption">WORKSPACE</div>
     <nav class="side-nav">
-      {#each [{id:'market',label:t.market,icon:'▦'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
+      {#each [{id:'market',label:t.market,icon:'▦'},{id:'inventory',label:lang==='ru'?'Мои NFT':'My NFTs',icon:'◈'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
         <button class:active={view===item.id} class="nav-item" onclick={()=>{view=item.id as View;notice='';}}><span>{item.icon}</span>{item.label}</button>
       {/each}
     </nav>
@@ -1020,6 +1106,51 @@
         <button class="publish-button" onclick={createOrder}>{t.publish} <span>→</span></button>
         <p class="safety-note">ⓘ {t.createHint}</p>
       </div><div class="create-aside"><div class="aside-icon">✳</div><div class="eyebrow">GIFT RADAR</div><h2>Make your next move visible.</h2><p>Заявки хранятся на сервере и видны другим пользователям. TON и Stars — только обозначения тестовых цен.</p><div class="aside-stats"><div><strong>{orders.length}</strong><span>DEMO ORDERS</span></div><div><strong>{favorites.length}</strong><span>SAVED GIFTS</span></div></div></div></section>
+    {:else if view==='inventory'}
+      <section class="page-heading"><div class="eyebrow">SELLER INVENTORY</div><h1>{lang==='ru'?'Мои NFT':'My NFTs'}</h1><p>{lang==='ru'?'Только твои реальные коллекционные активы. Сначала докажи владение, затем отправь NFT в эскроу.':'Only collectibles you actually own. Prove ownership first, then transfer the NFT to escrow.'}</p></section>
+      <section class="profile-card wallet-connect-card">
+        <div class="eyebrow">TON CONNECT · TON PROOF</div>
+        {#if walletVerified}
+          <div class="wallet-address"><strong>{walletAppName || 'TON wallet'}</strong><code>{connectedWallet}</code></div>
+          <span class="activity-demo-tag">{lang==='ru'?'ВЛАДЕНИЕ КОШЕЛЬКОМ ПОДТВЕРЖДЕНО':'WALLET OWNERSHIP VERIFIED'}</span>
+        {:else}
+          <p>{lang==='ru'?'Чтобы импортировать NFT, сначала подтверди свой TON-кошелёк в профиле.':'Verify your TON wallet in Profile before importing an NFT.'}</p>
+          <button class="publish-button" onclick={()=>view='profile'}>{lang==='ru'?'Открыть профиль':'Open profile'}</button>
+        {/if}
+      </section>
+      <section class="profile-card seller-profile-editor">
+        <div class="eyebrow">{lang==='ru'?'ИМПОРТ NFT':'IMPORT NFT'}</div>
+        <label>{lang==='ru'?'Тип актива':'Asset type'}
+          <select class="form-input" bind:value={nftAssetType}>
+            <option value="ton_nft">TON NFT</option>
+            <option value="collectible_username">{lang==='ru'?'Коллекционный username':'Collectible username'}</option>
+            <option value="collectible_phone_number">{lang==='ru'?'Коллекционный номер +888':'Collectible +888 number'}</option>
+          </select>
+        </label>
+        <label>{lang==='ru'?'Адрес коллекции':'Collection address'}<input class="form-input" bind:value={nftCollectionAddress} placeholder="EQ…"/></label>
+        <label>{lang==='ru'?'Индекс / token ID':'Index / token ID'}<input class="form-input" bind:value={nftTokenId} placeholder="12345"/></label>
+        <label>{lang==='ru'?'Адрес NFT item':'NFT item address'}<input class="form-input" bind:value={nftItemAddress} placeholder="EQ…"/></label>
+        <button class="publish-button" onclick={importOwnedNft} disabled={!signedIn || !walletVerified || nftImportBusy || !nftCollectionAddress.trim() || !nftTokenId.trim() || !nftItemAddress.trim()}>{nftImportBusy?'…':lang==='ru'?'Проверить владение и импортировать':'Verify ownership and import'} →</button>
+        <small>{lang==='ru'?'Проверка идёт по двум независимым TON-провайдерам. Скриншоты и введённые вручную данные не считаются доказательством.':'Ownership is checked against two independent TON providers. Screenshots and manual claims are not proof.'}</small>
+      </section>
+      <section class="market-section">
+        <div class="section-title"><div><div class="eyebrow">ON-CHAIN INVENTORY</div><h2>{lang==='ru'?'Твои активы':'Your assets'}</h2></div><button class="refresh-button" onclick={loadMyInventory} disabled={inventoryBusy}>{inventoryBusy?'…':t.refresh}</button></div>
+        {#if inventoryBusy}<div class="state-panel">{t.loading}</div>
+        {:else if inventoryItems.length===0}<div class="state-panel">{lang==='ru'?'Пока нет импортированных NFT. Добавь свой актив выше.':'No imported NFTs yet. Import an asset above.'}</div>
+        {:else}<div class="orders-list">{#each inventoryItems as item (item.asset_id)}
+          <article class="order-card"><div class="order-icon">◈</div><div class="order-main"><div class="order-kind">{item.asset_type}</div><h3>{item.collection_address} · #{item.token_id}</h3><p>{item.custody_state} · {item.ownership_state}</p>
+            {#if item.status==='active'}<span class="status-active">{lang==='ru'?'Опубликован':'Active listing'}</span>
+            {:else if item.status==='pending_verification'}<span class="status-payment-disabled">{lang==='ru'?'Ожидает эскроу':'Awaiting escrow'}</span>
+            {:else if !item.listing_id}
+              <div class="order-edit-form">
+                <label>{lang==='ru'?'Цена':'Price'}<input class="form-input" type="number" min="0.000000001" step="0.000000001" bind:value={inventoryPrices[item.asset_id]} placeholder="1"/></label>
+                <label>{lang==='ru'?'Валюта':'Currency'}<select class="form-input" bind:value={inventoryCurrencies[item.asset_id]}><option value="GRAM">GRAM</option><option value="USDT">USDT</option><option value="XTR">⭐ Stars</option></select></label>
+                <button class="match-button" onclick={()=>createInventoryListing(item.asset_id)} disabled={inventoryListingBusy===item.asset_id || !inventoryPrices[item.asset_id]}>{inventoryListingBusy===item.asset_id?'…':lang==='ru'?'Создать лот':'Create listing'}</button>
+              </div>
+            {/if}
+          </div></article>
+        {/each}</div>{/if}
+      </section>
     {:else if view==='favorites'}
       <section class="page-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{t.favoritesTitle}</h1><p>{favorites.length} saved items</p></section>
       {#if shownGifts.length}<div class="gift-grid">{#each shownGifts as gift (keyOf(gift))}<article class="gift-card"><button class="gift-visual" onclick={()=>void openGift(gift)}><GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/></button><div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'}</div><div class="gift-card-bottom"><strong>{fmt(gift.price,gift.currency||'TON')}</strong><button class="heart-button hearted" onclick={()=>toggleFavorite(gift)}>♥</button></div></div></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='market'}>{t.market}</button></div>{/if}
@@ -1100,7 +1231,7 @@
 </div>
 
 <nav class="mobile-nav">
-  {#each [{id:'market',label:t.market,icon:'▦'},{id:'orders',label:t.orders,icon:'⇄'},{id:'create',label:t.create,icon:'＋'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
+  {#each [{id:'market',label:t.market,icon:'▦'},{id:'inventory',label:'NFT',icon:'◈'},{id:'orders',label:t.orders,icon:'⇄'},{id:'create',label:t.create,icon:'＋'},{id:'profile',label:t.profile,icon:'◉'}] as item}
     <button class:active={view===item.id} onclick={()=>{view=item.id as View;notice='';}}><span>{item.icon}</span><small>{item.label}</small></button>
   {/each}
 </nav>
