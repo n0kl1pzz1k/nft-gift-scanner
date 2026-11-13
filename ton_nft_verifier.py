@@ -21,7 +21,7 @@ def _configured_providers() -> set[str]:
     return values
 
 
-def verify_seller_nft_ownership(
+def _validate_seller_nft_request(
     *,
     seller_user_id: str,
     wallet_user_id: str,
@@ -85,7 +85,7 @@ async def verify_seller_nft_ownership_async(
     providers: list[TonNftStateProvider],
 ) -> dict[str, Any]:
     """Return immutable-ready evidence only if two independent providers agree."""
-    base = verify_seller_nft_ownership(
+    base = _validate_seller_nft_request(
         seller_user_id=seller_user_id, wallet_user_id=wallet_user_id,
         verified_wallet_address=verified_wallet_address, asset_type=asset_type,
         network=network, collection_address=collection_address, token_id=token_id,
