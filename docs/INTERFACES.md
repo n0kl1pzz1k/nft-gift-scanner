@@ -27,7 +27,8 @@ The contract source is `contracts/GiftRadarEscrow.tolk`. The following 32-bit op
 | `ConfirmNftReturned` | `0x47524407` | Payment authority after independent seller-ownership proof |
 | `RaiseDispute` | `0x47524408` | Buyer or seller; transfer-pending disputes go to reconciliation |
 | `RecordStarsRefund` | `0x47524409` | Payment authority after Telegram refund succeeds |
-| `ApproveDisputeResolution` | `0x4752440a` | Two distinct configured arbitrators must approve the same decision and hash |
+| `RecordNoPaymentEvidence` | `0x4752440b` | Payment authority after Telegram Stars transaction-history reconciliation for an unpaid deal |
+| `ApproveDisputeResolution` | `0x4752440a` | Two distinct configured arbitrators must approve the same decision and hash; refund needs payment-refund or no-payment evidence |
 
 Outbound NFT transfers use the TEP-62 `transfer` opcode `0x5fcc3d14`. A bounced NFT transfer moves the escrow to `reconciliation_required`; it is never retried or settled automatically.
 
