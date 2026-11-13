@@ -88,3 +88,13 @@ Until then, `TELEGRAM_STARS_PAYMENTS_ENABLED` and `MARKETPLACE_REAL_DEALS_ENABLE
 - Buyer cancellation and administrator refund use the same escrow-proof freshness rule. A buyer cannot cancel after deal creation, and payment reservation independently rejects a cancelled or expired reservation.
 - PostgreSQL deployments must apply Alembic revision `0012_expire_unpaid_marketplace_deals` or a later revision before settlement endpoints run.
 - Railway's pre-deploy command applies `alembic upgrade head`; deployment must still be reviewed and verified separately before production use.
+
+
+## Buyer and seller disputes
+
+- Only the authenticated buyer or seller on a deal may open a dispute.
+- A dispute may be opened once per deal. Repeated requests are idempotent and do not create duplicate dispute events.
+- Before NFT transfer starts, a funded deal enters `disputed`; its funds remain held and no automatic seller payout occurs.
+- If NFT transfer is already pending, a dispute moves the deal to `reconciliation_required`. This deliberately blocks automatic refund or payout because the chain transfer may already have been broadcast.
+- Dispute reasons and state transitions are stored in the deal event journal and are visible only to the authenticated buyer and seller through the deal detail endpoint.
+- This is a dispute intake and safety gate, not a complete human arbitration operation. An authorized, audited admin resolution workflow and evidence review remain required before funds can be released.
