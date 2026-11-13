@@ -36,7 +36,7 @@
   type View = 'market' | 'orders' | 'create' | 'favorites' | 'profile' | 'seller';
 
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://nft-gift-scanner-production.up.railway.app').replace(/\/$/, '');
-  let tonConnectUI: TonConnectUI | null = null;
+  let tonConnectUI = $state<TonConnectUI | null>(null);
   let connectedWallet = $state('');
   let walletAppName = $state('');
   let walletBusy = $state(false);
@@ -820,7 +820,6 @@
     try {
       tonConnectUI = new TonConnectUI({
         manifestUrl: `${window.location.origin}/tonconnect-manifest.json`,
-        uiPreferences: { theme: 'DARK', borderRadius: 'l' }
       });
       tonConnectUI.onStatusChange((wallet) => {
         connectedWallet = wallet?.account.address || '';
