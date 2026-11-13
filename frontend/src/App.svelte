@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import GiftMedia from './GiftMedia.svelte';
+  import { TonConnectUI } from '@tonconnect/ui';
 
   type Gift = {
     id?: string | number; name?: string; number?: string | number;
@@ -35,6 +36,10 @@
   type View = 'market' | 'orders' | 'create' | 'favorites' | 'profile' | 'seller';
 
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://nft-gift-scanner-production.up.railway.app').replace(/\/$/, '');
+  let tonConnectUI: TonConnectUI | null = null;
+  let connectedWallet = $state('');
+  let walletAppName = $state('');
+  let walletBusy = $state(false);
   let lang = $state<'ru' | 'en'>('ru');
   let view = $state<View>('market');
   let gifts = $state<Gift[]>([]);
@@ -736,6 +741,37 @@
     }
   }
 
+  async function connectTonWallet() {
+    if (!tonConnectUI || walletBusy) return;
+    walletBusy = true;
+    try {
+      const wallet = await tonConnectUI.connectWallet();
+      connectedWallet = wallet.account.address;
+      walletAppName = wallet.device.appName || 'TON Connect';
+      notice = lang === 'ru'
+        ? 'Кошелёк подключён. Подпись и платежи не запрашивались.'
+        : 'Wallet connected. No signature or payment was requested.';
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      walletBusy = false;
+    }
+  }
+
+  async function disconnectTonWallet() {
+    if (!tonConnectUI || walletBusy) return;
+    walletBusy = true;
+    try {
+      await tonConnectUI.disconnect();
+      connectedWallet = '';
+      walletAppName = '';
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      walletBusy = false;
+    }
+  }
+
   async function telegramLogin(showNotice = true) {
     const initData = window.Telegram?.WebApp?.initData || '';
     if (!initData) {
@@ -780,6 +816,18 @@
   }
 
   onMount(() => {
+    try {
+      tonConnectUI = new TonConnectUI({
+        manifestUrl: `${window.location.origin}/tonconnect-manifest.json`,
+        uiPreferences: { theme: 'DARK', borderRadius: 'l' }
+      });
+      tonConnectUI.onStatusChange((wallet) => {
+        connectedWallet = wallet?.account.address || '';
+        walletAppName = wallet?.device.appName || '';
+      });
+    } catch (e) {
+      notice = e instanceof Error ? e.message : 'TON Connect unavailable';
+    }
     window.Telegram?.WebApp?.ready?.();
     window.Telegram?.WebApp?.expand?.();
     try {
@@ -976,6 +1024,20 @@
     {:else}
       <section class="page-heading"><div class="eyebrow">ACCOUNT CENTER</div><h1>{t.profile}</h1><p>{t.profileText}</p></section>
       <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div><button class="publish-button" onclick={()=>telegramLogin()}>{t.signIn} →</button></article>
+      <article class="profile-card wallet-connect-card">
+        <div class="eyebrow">TON CONNECT · NON-CUSTODIAL</div>
+        <h2>{lang==='ru'?'Подключение TON-кошелька':'Connect TON wallet'}</h2>
+        <p>{lang==='ru'?'Показывается только публичный адрес. Seed phrase, приватный ключ и подпись транзакции не запрашиваются.':'Only the public address is shown. No seed phrase, private key or transaction signature is requested.'}</p>
+        {#if connectedWallet}
+          <div class="wallet-address"><strong>{walletAppName || 'TON wallet'}</strong><code>{connectedWallet}</code></div>
+          <span class="activity-demo-tag">{lang==='ru'?'КОШЕЛЁК ПОДКЛЮЧЁН':'WALLET CONNECTED'}</span>
+          <button class="cancel-button" onclick={disconnectTonWallet} disabled={walletBusy}>{lang==='ru'?'Отключить кошелёк':'Disconnect wallet'}</button>
+        {:else}
+          <span class="activity-demo-tag">{lang==='ru'?'КОШЕЛЁК НЕ ПОДКЛЮЧЁН':'WALLET NOT CONNECTED'}</span>
+          <button class="publish-button" onclick={connectTonWallet} disabled={walletBusy || !tonConnectUI}>{walletBusy?'…':lang==='ru'?'Подключить через TON Connect':'Connect with TON Connect'}</button>
+        {/if}
+        <small>{lang==='ru'?'Подключение не означает оплату. Платежи и подпись отключены.':'Connection does not authorize payment. Payments and signing remain disabled.'}</small>
+      </article>
       {#if signedIn}
          <article class="profile-card seller-profile-editor">
            <div class="eyebrow">{t.sellerCardTitle}</div>
