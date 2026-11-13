@@ -72,8 +72,11 @@ class TonApiNftProvider:
             try:
                 matches = (
                     canonical_ton_address(candidate) == canonical_ton_address(item_address)
-                    and canonical_ton_address(old_address or "") == canonical_ton_address(old_owner)
                     and canonical_ton_address(new_address or "") == canonical_ton_address(new_owner)
+                    and (
+                        not old_address
+                        or canonical_ton_address(old_address) == canonical_ton_address(old_owner)
+                    )
                 )
             except ValueError:
                 matches = False
