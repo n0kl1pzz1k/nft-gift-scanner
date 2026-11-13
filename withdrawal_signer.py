@@ -80,6 +80,13 @@ def create_withdrawal_request(*, user_id: str, asset_id: str,
         raise PermissionError("TON withdrawal requests are disabled by policy")
     if os.getenv("TON_WITHDRAWALS_ENABLED", "false").strip().lower() != "true":
         raise PermissionError("TON withdrawals are not approved for release")
+    if os.getenv("TON_WITHDRAWAL_EXECUTOR_ENABLED", "false").strip().lower() != "true":
+        raise PermissionError("The audited withdrawal executor is not enabled")
+    if (not os.getenv("TON_SIGNER_SERVICE_URL", "").strip().startswith("https://")
+            or not os.getenv("TON_SIGNER_SERVICE_TOKEN", "").strip()
+            or not os.getenv("TON_SIGNER_WALLET_ID", "").strip()
+            or not os.getenv("TONCENTER_API_KEY", "").strip()):
+        raise PermissionError("The remote HSM signer and TON broadcaster are not fully configured")
     release_gates = (
         "KZ_LEGAL_REVIEW_APPROVED", "KZ_DATA_RESIDENCY_VERIFIED",
         "KZ_TAX_REVIEW_APPROVED", "KZ_SECURITY_REVIEW_APPROVED",
