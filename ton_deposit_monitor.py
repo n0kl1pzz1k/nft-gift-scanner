@@ -36,8 +36,8 @@ class TonTraceProvider(Protocol):
 def _trusted_provider_ids() -> set[str]:
     raw = os.getenv("TON_DEPOSIT_PROVIDER_IDS", "")
     providers = {item.strip() for item in raw.split(",") if item.strip()}
-    if len(providers) < 2:
-        raise RuntimeError("At least two independently operated TON providers must be configured")
+    if providers != {"tonapi", "toncenter"}:
+        raise RuntimeError("TON_DEPOSIT_PROVIDER_IDS must explicitly be 'tonapi,toncenter'")
     return providers
 
 
