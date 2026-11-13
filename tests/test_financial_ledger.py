@@ -174,10 +174,10 @@ class FinancialLedgerTests(unittest.TestCase):
                  "currency": "GRAM", "amount_raw": -100},
             ], engine=self.engine)
         first = request_ton_withdrawal(user_id="42", asset_id="GRAM",
-            destination_address="EQdestination", amount_raw=70, fee_raw=10,
+            destination_address="0:4444444444444444444444444444444444444444444444444444444444444444", amount_raw=70, fee_raw=10,
             idempotency_key="withdrawal-1", engine=self.engine)
         second = request_ton_withdrawal(user_id="42", asset_id="GRAM",
-            destination_address="EQdestination", amount_raw=70, fee_raw=10,
+            destination_address="0:4444444444444444444444444444444444444444444444444444444444444444", amount_raw=70, fee_raw=10,
             idempotency_key="withdrawal-1", engine=self.engine)
         self.assertFalse(first["duplicate"])
         self.assertTrue(second["duplicate"])
@@ -192,7 +192,7 @@ class FinancialLedgerTests(unittest.TestCase):
         self.assertEqual(get_account_balance("liability:user:42:GRAM", "GRAM", self.engine), -20)
         with self.assertRaises(ValueError):
             request_ton_withdrawal(user_id="42", asset_id="GRAM",
-                destination_address="EQother", amount_raw=30, idempotency_key="withdrawal-2",
+                destination_address="0:5555555555555555555555555555555555555555555555555555555555555555", amount_raw=30, idempotency_key="withdrawal-2",
                 engine=self.engine)
         advance_withdrawal_to_processing(request_id=first["request_id"], engine=self.engine)
         mark_withdrawal_submitted(request_id=first["request_id"], tx_hash="outgoing-tx", engine=self.engine)
@@ -212,7 +212,7 @@ class FinancialLedgerTests(unittest.TestCase):
                  "currency": "usdt-ton", "amount_raw": -50},
             ], engine=self.engine)
         req = request_ton_withdrawal(user_id="43", asset_id="usdt-ton",
-            destination_address="EQdestination", amount_raw=30,
+            destination_address="0:4444444444444444444444444444444444444444444444444444444444444444", amount_raw=30,
             idempotency_key="withdrawal-ambiguous", engine=self.engine)
         advance_withdrawal_to_processing(request_id=req["request_id"], engine=self.engine)
         quarantine_ton_withdrawal(request_id=req["request_id"],
