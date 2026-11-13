@@ -416,7 +416,7 @@ def settle_telegram_stars_payment(*, payload: str, buyer_user_id: str, currency:
             amount_stars=int(amount_stars), currency="XTR", created_at=current,
         ))
         journal = _post(conn,
-            idempotency_key="telegram-stars:" + charge_id,
+            idempotency_key="telegram-stars:" + hashlib.sha256(charge_id.encode("utf-8")).hexdigest(),
             source_type="telegram_stars_payment",
             source_reference=invoice["invoice_id"],
             postings=[
