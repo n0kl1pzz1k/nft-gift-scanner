@@ -365,15 +365,21 @@ def confirm_deal_nft_transfer(*, deal_id: str, transfer_proofs: list[dict[str, A
             raise PermissionError("NFT was not delivered to the buyer's verified wallet")
         from marketplace_inventory import marketplace_ownership_proofs
         proof_row = conn.execute(select(
-            marketplace_ownership_proofs.c.evidence_reference
+            marketplace_ownership_proofs.c.evidence_reference,
+            marketplace_ownership_proofs.c.owner_user_id,
+            marketplace_ownership_proofs.c.proof_source,
+            marketplace_ownership_proofs.c.expires_at,
         ).where(
             marketplace_ownership_proofs.c.asset_id == deal["asset_id"],
+            marketplace_ownership_proofs.c.owner_user_id == deal["seller_user_id"],
+            marketplace_ownership_proofs.c.proof_source == "ton_dual_provider",
             marketplace_ownership_proofs.c.verification_status == "verified",
         ).order_by(
             marketplace_ownership_proofs.c.recorded_at.desc()
-        ).limit(1)).first()
-        if proof_row is None or normalized[0]["item_address"] != canonical_ton_address(asset["item_address"]):
-            raise ValueError("NFT item does not match the reserved listing")
+        ).limit(1)).mappings().first()
+        if (proof_row is None or int(proof_row["expires_at"] or 0) <= current
+                or normalized[0]["item_address"] != canonical_ton_address(proof_row["evidence_reference"])):
+            raise ValueError("NFT item does not match a fresh seller ownership proof for the reserved listing")
         owner_addresses = {canonical_ton_address(value) for value in current_owner_addresses}
         if owner_addresses != {expected_buyer}:
             raise PermissionError("Live NFT state does not show the buyer as current owner")
@@ -576,6 +582,8 @@ def refund_unfulfilled_deal(*, deal_id: str, reason: str, admin_user_id: str,
             raise PermissionError("Dispute refund requires the deal to remain disputed")
         if deal["status"] == "refunded":
             return {"refunded": False, "duplicate": True}
+        if deal["status"] == "reconciliation_required":
+            raise PermissionError("Deal requires manual chain reconciliation; automatic refund is blocked")
         if deal["currency"] == "XTR":
             if deal["status"] not in {"payment_confirmed", "disputed"}:
                 raise PermissionError("A Stars deal can only be refunded before NFT transfer starts")
