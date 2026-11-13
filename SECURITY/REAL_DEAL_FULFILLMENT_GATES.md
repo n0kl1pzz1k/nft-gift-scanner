@@ -60,6 +60,7 @@ All of the following are mandatory before any production real-deal activation:
 
 - PostgreSQL migration and data reconciliation completed with verified backup and rollback.
 - Real inventory proof and revalidation adapter tested against authoritative sources.
+- Native NFT escrow monitoring remains inert unless `NATIVE_NFT_ESCROW_MONITOR_ENABLED=true`, PostgreSQL is active, both independent TON NFT providers are configured, and written Kazakhstan legal, data-residency, tax and security approvals are recorded.
 - Delivery/escrow model selected, documented, and independently reviewed.
 - Versioned HTTPS terms and support route published; buyer acceptance recorded before invoice creation.
 - Telegram Stars end-to-end test including pre-checkout timeout, duplicate updates, failed fulfilment, confirmed refund, ambiguous API timeout, and reconciliation.
