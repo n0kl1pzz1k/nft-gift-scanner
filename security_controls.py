@@ -17,15 +17,15 @@ except ImportError:
     Redis = None
     RedisError = ConnectionError
 
-_MUTATING_PREFIXES = ("/api/auth/", "/api/wallet/", "/api/payments/", "/api/inventory/")
-# Marketplace and offer routers already enforce authenticated, per-user action limits.
-_EXEMPT = {"/api/telegram/webhook", "/health"}
+# Every API route is rate-limited by IP. Authenticated mutation handlers may
+# additionally apply per-account action limits in their domain services.
+_EXEMPT = {"/health"}
 _local: dict[str, deque[float]] = defaultdict(deque)
 _redis = None
 
 
 def _requires_edge_limit(path: str) -> bool:
-    return path.startswith(_MUTATING_PREFIXES)
+    return path.startswith("/api/") and path not in _EXEMPT
 
 
 def _apply_security_headers(response):
@@ -75,16 +75,20 @@ class SecurityControlsMiddleware(BaseHTTPMiddleware):
         if path not in _EXEMPT and is_mutation:
             origin = request.headers.get("origin")
             if origin and not _valid_origin(origin):
-                return JSONResponse({"detail": "Request origin is not allowed"}, status_code=403)
+                return _apply_security_headers(JSONResponse({"detail": "Request origin is not allowed"}, status_code=403))
             if not origin and request.headers.get("sec-fetch-site", "").lower() == "cross-site":
-                return JSONResponse({"detail": "Cross-site mutation rejected"}, status_code=403)
+                return _apply_security_headers(JSONResponse({"detail": "Cross-site mutation rejected"}, status_code=403))
 
-        needs_edge_limit = is_mutation and _requires_edge_limit(path)
-        if path not in _EXEMPT and needs_edge_limit:
+        needs_edge_limit = _requires_edge_limit(path)
+        if needs_edge_limit:
             ip = request.client.host if request.client else "unknown"
-            bucket = next(prefix for prefix in _MUTATING_PREFIXES if path.startswith(prefix))
-            key = f"{method}:{bucket}:{ip}"
-            limit, window = 60, 60
+            route_parts = path.strip("/").split("/")
+            route_bucket = "/" + "/".join(route_parts[:2])
+            key = f"{method}:{route_bucket}:{ip}"
+            # Public reads receive a larger budget; mutations and the signed
+            # Telegram webhook have separate budgets to preserve retry headroom.
+            limit = 300 if path == "/api/telegram/webhook" else (60 if is_mutation else 120)
+            window = 60
             redis_url = os.getenv("REDIS_URL", "").strip()
             if redis_url and Redis is not None:
                 global _redis
@@ -95,32 +99,32 @@ class SecurityControlsMiddleware(BaseHTTPMiddleware):
                     if count == 1:
                         await _redis.expire(f"gift-radar:rl:{key}", window)
                     if count > limit:
-                        return JSONResponse(
+                        return _apply_security_headers(JSONResponse(
                             {"detail": "Rate limit exceeded"},
                             status_code=429,
                             headers={"Retry-After": str(window)},
-                        )
+                        ))
                 except RedisError:
-                    return JSONResponse(
+                    return _apply_security_headers(JSONResponse(
                         {"detail": "Rate limiter unavailable; request rejected"},
                         status_code=503,
-                    )
+                    ))
             else:
                 if _is_production():
-                    return JSONResponse(
-                        {"detail": "Distributed rate limiter is required for production mutations"},
+                    return _apply_security_headers(JSONResponse(
+                        {"detail": "Distributed rate limiter is required for production API traffic"},
                         status_code=503,
-                    )
+                    ))
                 now = time.monotonic()
                 hits = _local[key]
                 while hits and hits[0] <= now - window:
                     hits.popleft()
                 if len(hits) >= limit:
-                    return JSONResponse(
+                    return _apply_security_headers(JSONResponse(
                         {"detail": "Rate limit exceeded"},
                         status_code=429,
                         headers={"Retry-After": str(window)},
-                    )
+                    ))
                 hits.append(now)
         response = await call_next(request)
         return _apply_security_headers(response)
