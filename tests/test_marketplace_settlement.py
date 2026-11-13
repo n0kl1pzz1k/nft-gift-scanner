@@ -17,7 +17,7 @@ from marketplace_inventory import (
 from marketplace_settlement import (
     create_deal_from_reservation, init_marketplace_settlement_schema,
     mark_deal_nft_transfer_pending, reserve_verified_deal_payment,
-    confirm_deal_nft_transfer, refund_unfulfilled_deal, expire_unpaid_marketplace_deals, open_deal_dispute,
+    confirm_deal_nft_transfer, refund_unfulfilled_deal, expire_unpaid_marketplace_deals, open_deal_dispute, resolve_deal_dispute,
 )
 
 
@@ -150,6 +150,87 @@ class MarketplaceSettlementTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             refund_unfulfilled_deal(
                 deal_id=self.deal_id, reason="Dispute",
+                admin_user_id="999", engine=self.engine, now=170,
+            )
+
+
+    def test_admin_can_dismiss_pre_transfer_dispute_without_releasing_hold(self):
+        reserve_verified_deal_payment(
+            deal_id=self.deal_id, invoice_id=self.invoice_id,
+            engine=self.engine, now=150,
+        )
+        open_deal_dispute(
+            deal_id=self.deal_id, actor_user_id="202",
+            reason="The seller has not responded to messages",
+            engine=self.engine, now=160,
+        )
+        result = resolve_deal_dispute(
+            deal_id=self.deal_id, decision="dismiss",
+            reason="Evidence did not support the complaint",
+            admin_user_id="999", engine=self.engine, now=170,
+        )
+        self.assertEqual(result["status"], "payment_confirmed")
+        self.assertEqual(get_account_balance(
+            f"liability:deal_hold:{self.deal_id}:GRAM", "GRAM", self.engine
+        ), -250)
+        duplicate = resolve_deal_dispute(
+            deal_id=self.deal_id, decision="dismiss",
+            reason="Evidence did not support the complaint",
+            admin_user_id="999", engine=self.engine, now=171,
+        )
+        self.assertTrue(duplicate["duplicate"])
+
+    def test_admin_refund_resolution_requires_open_dispute(self):
+        with self.assertRaises(PermissionError):
+            resolve_deal_dispute(
+                deal_id=self.deal_id, decision="refund",
+                reason="Refund requested after review",
+                admin_user_id="999", engine=self.engine, now=160,
+            )
+
+    def test_admin_can_refund_pre_transfer_dispute(self):
+        reserve_verified_deal_payment(
+            deal_id=self.deal_id, invoice_id=self.invoice_id,
+            engine=self.engine, now=150,
+        )
+        open_deal_dispute(
+            deal_id=self.deal_id, actor_user_id="202",
+            reason="The seller has not responded to messages",
+            engine=self.engine, now=160,
+        )
+        result = resolve_deal_dispute(
+            deal_id=self.deal_id, decision="refund",
+            reason="Seller failed to deliver the listed NFT",
+            admin_user_id="999", engine=self.engine, now=170,
+        )
+        self.assertTrue(result["refunded"])
+        self.assertEqual(get_account_balance(
+            "liability:user:202:GRAM", "GRAM", self.engine
+        ), -250)
+
+    def test_admin_cannot_dismiss_dispute_after_transfer_started(self):
+        reserve_verified_deal_payment(
+            deal_id=self.deal_id, invoice_id=self.invoice_id,
+            engine=self.engine, now=150,
+        )
+        mark_deal_nft_transfer_pending(
+            deal_id=self.deal_id, engine=self.engine, now=155,
+        )
+        open_deal_dispute(
+            deal_id=self.deal_id, actor_user_id="101",
+            reason="The transfer appears to be stuck in chain",
+            engine=self.engine, now=160,
+        )
+        with self.assertRaises(PermissionError):
+            resolve_deal_dispute(
+                deal_id=self.deal_id, decision="dismiss",
+                reason="Close this dispute",
+                admin_user_id="999", engine=self.engine, now=170,
+            )
+        with self.assertRaises(PermissionError):
+            resolve_deal_dispute(
+                deal_id=self.deal_id, decision="refund",
+                reason="Refund this disputed transfer",
                 admin_user_id="999", engine=self.engine, now=170,
             )
 
