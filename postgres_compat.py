@@ -97,5 +97,5 @@ def postgres_storage_enabled() -> bool:
 
 def assert_marketplace_schema_ready(connection: PostgresConnection) -> None:
     row = connection.execute("SELECT version_num FROM alembic_version").fetchone()
-    if row is None or row[0] not in {"0002_marketplace_core", "0003_telegram_stars_payments"}:
+    if row is None or row[0] not in {"0002_marketplace_core", "0003_telegram_stars_payments", "0004_telegram_stars_terms"}:
         raise RuntimeError("PostgreSQL marketplace schema is not at a supported marketplace Alembic revision")
