@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update
 from demo_offers import create_demo_offers_router, init_demo_offers_db
 from security_controls import SecurityControlsMiddleware
-from financial_ledger import get_engine
+from financial_ledger import get_engine, create_payment_invoice, invoices, payment_events
 from marketplace_inventory import (
     save_verified_wallet, get_active_verified_wallet, revoke_verified_wallet, record_wallet_owned_nft,
     create_escrow_pending_listing, cancel_seller_listing, marketplace_assets, marketplace_listings,
@@ -98,6 +98,85 @@ def _stars_payment_enabled() -> bool:
         and os.getenv("KZ_TAX_REVIEW_APPROVED", "false").strip().lower() == "true"
         and os.getenv("KZ_SECURITY_REVIEW_APPROVED", "false").strip().lower() == "true"
     )
+
+
+@app.post("/api/payments/crypto/invoices", status_code=201)
+async def create_crypto_payment_invoice(
+    payload: CryptoPaymentInvoiceRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    from asset_policy import ASSETS, is_crypto_payment_enabled
+
+    asset = ASSETS[payload.asset_id]
+    if not is_crypto_payment_enabled(payload.asset_id):
+        raise HTTPException(status_code=503, detail="Crypto deposits are disabled until all release gates pass")
+    configured_address = os.getenv("TON_DEPOSIT_ADDRESS", "").strip()
+    try:
+        recipient = canonical_ton_address(configured_address)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=503, detail="The platform TON deposit address is not configured")
+    if not recipient.startswith("0:"):
+        raise HTTPException(status_code=503, detail="Only a TON mainnet basechain deposit address is supported")
+
+    invoice_payload = "gri_" + secrets.token_urlsafe(18)
+    expires_at = int(time.time()) + 1200
+    try:
+        invoice_id = create_payment_invoice(
+            user_id=str(user["id"]), asset_id=asset.asset_id,
+            chain=asset.chain.value, master_address=asset.master_address,
+            recipient_address=recipient, amount_raw=payload.amount_raw,
+            payload=invoice_payload, expires_at=expires_at, engine=get_engine(),
+        )
+        with get_engine().connect() as conn:
+            invoice = conn.execute(select(invoices).where(
+                invoices.c.invoice_id == invoice_id,
+                invoices.c.user_id == str(user["id"]),
+            )).mappings().one()
+        return {
+            "invoice_id": invoice_id, "asset_id": asset.asset_id,
+            "chain": asset.chain.value, "asset_kind": asset.asset_kind,
+            "master_address": asset.master_address,
+            "recipient_address": invoice["recipient_address"],
+            "amount_raw": int(invoice["amount_raw"]),
+            "payload": invoice["payload"], "expires_at": int(invoice["expires_at"]),
+            "status": invoice["status"],
+            "instructions": "Отправьте точную сумму на указанный TON-адрес и обязательно укажите invoice payload в комментарии перевода.",
+        }
+    except PermissionError:
+        raise HTTPException(status_code=503, detail="Crypto deposits are disabled by payment policy")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        logging.warning("Crypto payment invoice creation failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Crypto invoice service is unavailable")
+
+
+@app.get("/api/payments/crypto/invoices/{invoice_id}")
+async def get_crypto_payment_invoice(
+    invoice_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    with get_engine().connect() as conn:
+        invoice = conn.execute(select(invoices).where(
+            invoices.c.invoice_id == invoice_id,
+            invoices.c.user_id == str(user["id"]),
+        )).mappings().first()
+        if invoice is None:
+            raise HTTPException(status_code=404, detail="Payment invoice not found")
+        event = conn.execute(select(payment_events).where(
+            payment_events.c.invoice_id == invoice_id
+        )).mappings().first()
+    return {
+        "invoice_id": invoice["invoice_id"], "asset_id": invoice["asset_id"],
+        "amount_raw": int(invoice["amount_raw"]), "status": invoice["status"],
+        "expires_at": int(invoice["expires_at"]),
+        "payment": None if event is None else {
+            "tx_hash": event["tx_hash"], "event_index": int(event["event_index"]),
+            "confirmed_at": int(event["created_at"]),
+        },
+    }
 
 
 @app.get("/api/payments/capabilities")
@@ -182,6 +261,11 @@ class StarsTermsAcceptanceRequest(BaseModel):
 class StarsRefundRequestBody(BaseModel):
     invoice_id: str
     reason: str = ""
+
+
+class CryptoPaymentInvoiceRequest(BaseModel):
+    asset_id: str = Field(pattern="^(GRAM|usdt-ton)$")
+    amount_raw: int = Field(gt=0, strict=True)
 
 
 class TonProofVerifyRequest(BaseModel):
