@@ -8,6 +8,7 @@ from sqlalchemy.exc import DBAPIError
 from marketplace_inventory import (
     init_inventory_schema, record_wallet_owned_nft, create_escrow_pending_listing,
     confirm_nft_escrow_deposit, reserve_verified_listing, cancel_listing_reservation,
+    save_verified_wallet, revoke_verified_wallet, get_active_verified_wallet,
 )
 
 
@@ -40,6 +41,16 @@ class SellerInventoryTests(unittest.TestCase):
             currency="GRAM", idempotency_key="seller-listing-key-0001",
             engine=self.engine, now=110,
         )
+
+    def test_verified_wallet_binding_can_be_revoked(self):
+        address = "0:" + "55" * 32
+        save_verified_wallet(user_id="101", address=address,
+                             network="ton-mainnet", engine=self.engine, now=150)
+        self.assertEqual(get_active_verified_wallet(user_id="101", engine=self.engine), address)
+        self.assertEqual(revoke_verified_wallet(user_id="101", engine=self.engine, now=160), 1)
+        with self.assertRaises(PermissionError):
+            get_active_verified_wallet(user_id="101", engine=self.engine)
+        self.assertEqual(revoke_verified_wallet(user_id="101", engine=self.engine, now=170), 0)
 
     def test_listing_is_private_until_escrow_owner_is_confirmed(self):
         listing = self.listing()
