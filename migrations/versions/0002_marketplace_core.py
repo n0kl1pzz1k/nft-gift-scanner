@@ -154,8 +154,10 @@ def upgrade():
         sa.Column("agreed_amount", sa.String(80), nullable=False),
         sa.Column("currency", sa.String(8), nullable=False),
         sa.Column("created_at", sa.BigInteger(), nullable=False),
+        sa.Column("is_real", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("status", sa.String(32), nullable=False, server_default="payment_not_enabled"),
         sa.CheckConstraint("currency IN ('TON', 'XTR')", name="ck_demo_deals_currency"),
+        sa.CheckConstraint("is_real IN (0,1)", name="ck_demo_deals_is_real"),
         sa.CheckConstraint("status IN ('payment_not_enabled', 'awaiting_payment', 'payment_pending', 'paid', 'delivery_pending', 'completed', 'disputed', 'cancelled', 'expired')", name="ck_demo_deals_status"))
     op.create_index("idx_demo_deals_one_open_reservation", "demo_deals", ["order_id"], unique=True,
                     postgresql_where=sa.text("status NOT IN ('cancelled', 'expired')"),
