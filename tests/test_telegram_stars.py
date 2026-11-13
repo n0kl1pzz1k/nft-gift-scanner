@@ -11,6 +11,10 @@ from financial_ledger import (
     init_financial_schema,
     settle_telegram_stars_payment,
     record_telegram_stars_terms_acceptance,
+    request_telegram_stars_refund,
+    prepare_telegram_stars_refund,
+    complete_telegram_stars_refund,
+    fail_telegram_stars_refund,
 )
 
 
@@ -225,6 +229,96 @@ class TelegramStarsLedgerTests(unittest.TestCase):
                 connection.execute(text(
                     "UPDATE telegram_stars_payments SET amount_stars=1 WHERE telegram_payment_charge_id='telegram-charge-1'"
                 ))
+
+
+    def _settle_paid_invoice(self):
+        invoice = self._invoice()
+        approved = approve_telegram_stars_pre_checkout(
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
+            amount_stars=75, query_id="refund-query", engine=self.engine, now=1010
+        )
+        self.assertTrue(approved)
+        settled = settle_telegram_stars_payment(
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
+            amount_stars=75, telegram_payment_charge_id="refund-charge",
+            engine=self.engine, now=1020
+        )
+        self.assertTrue(settled["credited"])
+        return invoice
+
+    def test_buyer_can_request_refund_and_admin_confirmation_reverses_ledger(self):
+        invoice = self._settle_paid_invoice()
+        requested = request_telegram_stars_refund(
+            invoice_id=invoice["invoice_id"], buyer_user_id="10020",
+            reason="Gift delivery failed", engine=self.engine, now=1030
+        )
+        self.assertEqual(requested["status"], "requested")
+        duplicate = request_telegram_stars_refund(
+            invoice_id=invoice["invoice_id"], buyer_user_id="10020",
+            reason="Duplicate request", engine=self.engine, now=1031
+        )
+        self.assertTrue(duplicate["duplicate"])
+        claimed = prepare_telegram_stars_refund(
+            request_id=requested["request_id"], admin_user_id="90001",
+            engine=self.engine, now=1040
+        )
+        self.assertEqual(claimed["telegram_payment_charge_id"], "refund-charge")
+        result = complete_telegram_stars_refund(
+            request_id=requested["request_id"], telegram_response_ref="refund-charge",
+            engine=self.engine, now=1050
+        )
+        self.assertTrue(result["refunded"])
+        duplicate_result = complete_telegram_stars_refund(
+            request_id=requested["request_id"], engine=self.engine, now=1051
+        )
+        self.assertTrue(duplicate_result["duplicate"])
+        self.assertEqual(get_account_balance("asset:telegram_stars:clearing", "XTR", self.engine), 0)
+        self.assertEqual(get_account_balance("liability:seller:10010:XTR", "XTR", self.engine), 0)
+        with self.engine.connect() as connection:
+            status = connection.execute(text(
+                "SELECT status FROM telegram_stars_invoices WHERE invoice_id=:id"
+            ), {"id": invoice["invoice_id"]}).scalar_one()
+        self.assertEqual(status, "refunded")
+
+    def test_only_original_buyer_can_request_refund(self):
+        invoice = self._settle_paid_invoice()
+        with self.assertRaises(PermissionError):
+            request_telegram_stars_refund(
+                invoice_id=invoice["invoice_id"], buyer_user_id="10010",
+                reason="not the buyer", engine=self.engine, now=1030
+            )
+
+    def test_definite_refund_failure_can_be_retried_but_processing_cannot(self):
+        invoice = self._settle_paid_invoice()
+        requested = request_telegram_stars_refund(
+            invoice_id=invoice["invoice_id"], buyer_user_id="10020",
+            reason="Refund requested", engine=self.engine, now=1030
+        )
+        prepare_telegram_stars_refund(
+            request_id=requested["request_id"], admin_user_id="90001",
+            engine=self.engine, now=1040
+        )
+        with self.assertRaises(ValueError):
+            prepare_telegram_stars_refund(
+                request_id=requested["request_id"], admin_user_id="90002",
+                engine=self.engine, now=1041
+            )
+        fail_telegram_stars_refund(
+            request_id=requested["request_id"], reason="Definite Telegram rejection",
+            engine=self.engine, now=1042
+        )
+        retried = request_telegram_stars_refund(
+            invoice_id=invoice["invoice_id"], buyer_user_id="10020",
+            reason="Retry after confirmed rejection", engine=self.engine, now=1043
+        )
+        self.assertEqual(retried["request_id"], requested["request_id"])
+        prepare_telegram_stars_refund(
+            request_id=retried["request_id"], admin_user_id="90001",
+            engine=self.engine, now=1044
+        )
+        self.assertEqual(
+            get_account_balance("asset:telegram_stars:clearing", "XTR", self.engine), 75
+        )
 
 
 if __name__ == "__main__":
