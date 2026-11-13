@@ -76,6 +76,8 @@ marketplace_ownership_proofs = Table(
     CheckConstraint("verification_status IN ('pending','verified','rejected','expired')", name="ck_marketplace_ownership_proofs_status"),
 )
 
+Index("idx_marketplace_ownership_proofs_asset_recorded", marketplace_ownership_proofs.c.asset_id, marketplace_ownership_proofs.c.recorded_at)
+
 marketplace_listings = Table(
     "marketplace_listings", metadata,
     Column("listing_id", String(64), primary_key=True),
