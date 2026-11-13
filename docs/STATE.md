@@ -17,7 +17,7 @@ The default branch `main` is at commit `c8a9f34a` and is behind the current paym
 
 The old `SECURITY/PHASE0_SECURITY_AUDIT.md` must therefore not be treated as a current audit of the payment branch. In particular, its statements that no ledger, wallet proof or chain monitor exists were true only for its earlier review scope.
 
-During this audit, a separate unmerged branch `feat/ton-testnet-escrow` appeared at head `6bd11997`. Its tree includes `contracts/GiftRadarEscrow.tolk`, contract tests and `docs/ESCROW.md`. It is not part of PR #51 or this audit branch, and it has not been reviewed or approved as the selected custody architecture. Per the Phase 1 approval gate, this audit does not incorporate, merge or rely on that contract work. Its own CI attempts were failing at the time it was observed; it must be reviewed independently before anyone treats it as a candidate implementation.
+During this audit, a separate unmerged branch `feat/ton-testnet-escrow` appeared and continued changing during this audit; its latest observed head was `9df624d7`. Its tree includes `contracts/GiftRadarEscrow.tolk`, contract tests and `docs/ESCROW.md`. No PR is open for that branch. It is not part of PR #51 or this audit branch, and it has not been reviewed or approved as the selected custody architecture. Several of its later CI runs passed, but passing a build/test workflow does not establish that the architecture is approved, audited or deployed. Per the Phase 1 approval gate, this audit does not incorporate, merge or rely on that contract work.
 
 This branch is stacked on PR #51 so the audit and safety fixes can be reviewed separately without changing `main`. No branch was merged and no production deployment was made as part of this audit.
 
@@ -88,8 +88,9 @@ Enforcement added:
 
 - Changed the edge limiter to cover every `/api/*` route, including public GET routes and `/api/admin/*`, rather than only selected mutation prefixes.
 - Per-IP budgets are separated by API route group and HTTP method: 120/minute for reads, 60/minute for most mutations, 300/minute for marketplace mutations (which also have domain-level per-account quotas) and 300/minute for the authenticated Telegram webhook.
-- Production requests fail closed when Redis is unavailable or not configured. Development may use the process-local limiter.
-- Origin rejection and rate-limit rejection responses now receive the same security headers and `Cache-Control: no-store` treatment as normal JSON responses.
+- Redis rate-limit increments and expiry are now atomic through a Lua script. Production requests fail closed when Redis is unavailable or not configured. Development may use the process-local limiter.
+- A global 1 MiB request-body cap now applies to all API mutation methods, including chunked bodies without Content-Length. The TON Proof service retains its tighter 16 KiB limit.
+- Origin rejection, body-limit and rate-limit rejection responses now receive security headers and `Cache-Control: no-store`; CORS is outermost so allowed origins also receive CORS headers on 4xx responses.
 - Existing selected per-user action limits remain in the marketplace domain layer.
 
 These changes provide per-IP route-group protection. They do not yet constitute a complete per-account/global abuse-control system, and real client-IP behavior behind Railway/Cloudflare proxies still needs deployment verification.
@@ -108,7 +109,7 @@ These changes provide per-IP route-group protection. They do not yet constitute 
 | Rate limiting | All API routes per IP on this branch; Redis required in production | Proxy client-IP and per-account/global quotas remain |
 | Sensitive caching | JSON responses receive `Cache-Control: no-store` | Existing explicit cache headers are preserved by `setdefault` |
 | Security headers | nosniff, frame denial, referrer policy, permissions policy, HSTS | CSP and deployment header verification remain |
-| Request size | Telegram webhook 1 MiB; TON Proof service 16 KiB | No global FastAPI body-size cap |
+| Request size | FastAPI API mutation bodies 1 MiB; TON Proof service 16 KiB | Per-route upload-specific limits may still be needed if file uploads are added |
 | Input validation | Pydantic and Zod schemas; bounded fields on many endpoints | Field bounds/strictness need a complete route inventory |
 | SSRF | Audited TON/provider requests use fixed provider URLs or server-only environment URLs | No user-supplied fetch URL was found in the reviewed paths; this is not a full SSRF audit |
 | Secrets | Gitleaks full-history job reported no leaks for the PR #51 checkout | Does not inspect Railway variables, external logs or unrelated unmerged history outside the scanned ref |
@@ -147,9 +148,9 @@ No completed independent financial/contract audit, Kazakhstan legal/AML/tax appr
 The Phase 0 branch now rate-limits all API routes per IP through Redis, while selected domain actions also have per-user limits. There is no comprehensive per-account and platform-wide quota policy, and trusted client-IP extraction behind deployed proxies is unverified.  
 **Status:** Partially mitigated; remaining work is open.
 
-**P1-02 — No global API request-body limit.**  
-The Telegram webhook and TON Proof service have body caps, but ordinary FastAPI endpoints do not share a global cap.  
-**Status:** Open.
+**P1-02 — Global API request-body limit.**  
+This branch adds a 1 MiB cap for all FastAPI API mutation requests, checking both Content-Length and streamed/chunked bodies before application parsing. TON Proof retains its 16 KiB cap.  
+**Status:** Mitigated on this branch; verify the cap remains in place when future upload endpoints are introduced.
 
 **P1-03 — PostgreSQL test coverage is narrower than SQLite coverage.**  
 The latest passing CI run executed 189 backend tests against the default test database and five PostgreSQL migration/schema smoke tests. It did not run the entire payment/deal concurrency suite against PostgreSQL.  
@@ -201,16 +202,16 @@ Demo notification records exist, but there is no production outbox worker with r
 
 ### Last completed baseline run before this Phase 0 patch
 
-GitHub Actions run **#704**, commit `ffc147d74f5078915df117318048860e2bfb19e1`, completed with success for all six jobs:
+GitHub Actions run **#710**, commit `705dd077a67e3d13e8ab417e75cafa679705f450`, completed with success for all six jobs:
 
-- Backend: Ruff lint, Python compilation, Alembic SQLite migration, `pip-audit` and **197 unit/regression tests passed** (5 skipped by the existing suite).
+- Backend: Ruff lint, Python compilation, Alembic SQLite migration, `pip-audit` and **199 unit/regression tests passed** (5 skipped by the existing suite).
 - PostgreSQL integration: Alembic migration and **5 PostgreSQL schema/append-only smoke tests passed**.
 - Frontend: JavaScript syntax, `npm audit`, Svelte/TypeScript check and Vite build passed. The audit reports four low-severity transitive `deepmerge` findings with no fix currently available; no high-severity finding blocked CI.
 - TON Proof service: TypeScript build passed with testnet-only network validation.
 - Deployment configuration validation passed.
 - Gitleaks full-history scan for the checked-out stacked PR ref reported **no leaks found**.
 
-Run #704 validates the code at `ffc147d`. Later documentation-only changes, if any, should be covered by the PR's latest CI run before merge.
+Run #710 validates the code at `705dd077`, including the request-body limiter and its regression tests. Later changes must be covered by the PR's latest CI run before merge.
 
 The PostgreSQL smoke test intentionally emits database error log lines when asserting append-only triggers and uniqueness constraints. Those expected constraint errors were followed by a successful test result.
 
