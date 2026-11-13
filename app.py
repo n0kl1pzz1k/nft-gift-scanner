@@ -81,6 +81,10 @@ class TelegramAuthRequest(BaseModel):
     init_data: str
 
 
+class MarketplaceSettingRequest(BaseModel):
+    enabled: bool
+
+
 class StarsTermsAcceptanceRequest(BaseModel):
     accepted: bool
 
@@ -211,6 +215,16 @@ async def telegram_logout_all(x_telegram_init_data: str | None = Header(default=
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
     revoked_count = revoke_all_telegram_sessions(str(user["id"]))
     return {"revoked_sessions": revoked_count}
+
+
+@app.post("/api/admin/marketplaces/{market}")
+async def admin_set_marketplace(
+    market: str,
+    payload: MarketplaceSettingRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    _require_admin(x_telegram_init_data)
+    raise HTTPException(status_code=410, detail="External marketplace adapters are permanently disabled")
 
 
 @app.get("/api/admin/overview")
