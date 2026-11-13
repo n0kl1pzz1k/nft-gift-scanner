@@ -51,10 +51,12 @@ def _source_batches(source, table: str, columns: list[str], order_columns: list[
         yield [{name: row[name] for name in columns} for row in batch]
 
 
-def migrate(source_path: Path, apply: bool, batch_size: int = 500) -> dict[str, Any]:
+def migrate(source_path: Path, apply: bool, source_quiesced: bool = False, batch_size: int = 500) -> dict[str, Any]:
     database_url = os.getenv("DATABASE_URL", "").strip()
     if not database_url:
         raise RuntimeError("DATABASE_URL is required; its value is never printed")
+    if apply and not source_quiesced:
+        raise RuntimeError("Apply requires --source-quiesced after the marketplace is in maintenance mode")
     if not source_path.is_file():
         raise FileNotFoundError(f"SQLite source database not found: {source_path}")
     if not 1 <= batch_size <= 5000:
@@ -63,6 +65,7 @@ def migrate(source_path: Path, apply: bool, batch_size: int = 500) -> dict[str, 
     source = sqlite3.connect(f"file:{source_path.resolve()}?mode=ro", uri=True)
     source.row_factory = sqlite3.Row
     source.execute("PRAGMA query_only = ON")
+    source.execute("BEGIN")  # pin a consistent read snapshot for the entire export
     engine = create_engine(database_url, pool_pre_ping=True, future=True)
     try:
         with engine.connect() as connection:
@@ -184,9 +187,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Migrate GIFT RADAR SQLite marketplace data to PostgreSQL")
     parser.add_argument("--source", default=os.getenv("GIFT_RADAR_SQLITE_PATH", "./data/gift-radar.sqlite3"))
     parser.add_argument("--apply", action="store_true", help="commit migration; without this flag only validate")
+    parser.add_argument("--source-quiesced", action="store_true", help="confirm all SQLite writers are stopped for the cutover window")
     parser.add_argument("--batch-size", type=int, default=500)
     args = parser.parse_args()
-    result = migrate(Path(args.source), args.apply, args.batch_size)
+    result = migrate(Path(args.source), args.apply, args.source_quiesced, args.batch_size)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
