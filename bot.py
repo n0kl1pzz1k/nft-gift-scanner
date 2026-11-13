@@ -118,7 +118,9 @@ def create_dispatcher() -> Dispatcher:
             "🤖 <b>GIFT RADAR — помощь</b>\n\n"
             "/start — приветствие и запуск Mini App\n"
             "/help — эта справка\n"
-            "/myid — показать твой Telegram ID\n\n"
+            "/myid — показать твой Telegram ID\n"
+            "/terms — условия использования и оплаты\n"
+            "/paysupport — поддержка по платежам\n\n"
             "Если Mini App не открывается, обнови Telegram и попробуй /start ещё раз."
         )
 
