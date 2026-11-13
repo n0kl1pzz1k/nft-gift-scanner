@@ -399,14 +399,19 @@ def confirm_deal_nft_transfer(*, deal_id: str, transfer_proofs: list[dict[str, A
             )).mappings().first()
             if (stars_invoice is None or stars_invoice["status"] != "paid"
                     or stars_invoice["buyer_user_id"] != deal["buyer_user_id"]
-                    or stars_invoice["seller_user_id"] != deal["seller_user_id"]):
-                raise PermissionError("Stars invoice participants no longer match the delivered deal")
-            completed = conn.execute(__import__("sqlalchemy").text(
-                "UPDATE demo_deals SET status='completed' "
-                "WHERE id=:deal_id AND status IN ('paid','delivery_pending')"
-            ), {"deal_id": stars_invoice["deal_id"]})
-            if completed.rowcount != 1:
-                raise ValueError("Original Telegram Stars deal is not in a fulfillable state")
+                    or stars_invoice["seller_user_id"] != deal["seller_user_id"]
+                    or int(stars_invoice["amount_stars"]) != total):
+                raise PermissionError("Stars invoice participants and amount no longer match the delivered deal")
+            if str(stars_invoice["deal_id"]).startswith("grd_"):
+                if str(stars_invoice["deal_id"]) != str(deal_id):
+                    raise PermissionError("Native Stars invoice is bound to a different marketplace deal")
+            else:
+                completed = conn.execute(__import__("sqlalchemy").text(
+                    "UPDATE demo_deals SET status='completed' "
+                    "WHERE id=:deal_id AND status IN ('paid','delivery_pending')"
+                ), {"deal_id": stars_invoice["deal_id"]})
+                if completed.rowcount != 1:
+                    raise ValueError("Original Telegram Stars deal is not in a fulfillable state")
         conn.execute(update(marketplace_deals).where(
             marketplace_deals.c.deal_id == deal_id
         ).values(status="settled", nft_transfer_tx_hash=normalized[0]["tx_hash"],
