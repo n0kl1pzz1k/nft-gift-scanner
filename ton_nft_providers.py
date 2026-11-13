@@ -53,7 +53,7 @@ class TonApiNftProvider:
     async def get_nft_transfer(self, item_address: str, old_owner: str, new_owner: str) -> dict[str, Any] | None:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.get(
-                "https://tonapi.io/v2/nfts/" + item_address + "/history",
+                "https://tonapi.io/v2/accounts/" + new_owner + "/nfts/history",
                 params={"limit": 1000},
                 headers={"Authorization": "Bearer " + self.api_key},
             )
@@ -121,7 +121,7 @@ class ToncenterNftProvider:
         response.raise_for_status()
         data = response.json()
         for transfer in data.get("nft_transfers", []):
-            if transfer.get("transaction_aborted") is True:
+            if transfer.get("transaction_aborted") is not False:
                 continue
             try:
                 matches = (
