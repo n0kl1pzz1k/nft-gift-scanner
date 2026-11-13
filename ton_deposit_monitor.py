@@ -180,3 +180,64 @@ async def scan_ton_invoice(
         "provider_count": max((item.get("provider_count", 0) for item in results), default=0),
         "observations": len(results),
     }
+
+
+
+async def scan_pending_ton_invoices(
+    *,
+    providers: list[TonTraceProvider] | None = None,
+    engine: Engine | None = None,
+    batch_size: int = 100,
+) -> dict[str, int]:
+    """Continuously scan the oldest pending TON invoices with the configured provider quorum."""
+    from ton_payment_providers import configured_ton_payment_providers
+
+    db = engine or get_engine()
+    init_financial_schema(db)
+    selected = providers or configured_ton_payment_providers()
+    with db.connect() as conn:
+        invoice_ids = conn.execute(select(invoices.c.invoice_id).where(
+            invoices.c.status == "pending",
+            invoices.c.chain == "ton-mainnet",
+        ).order_by(invoices.c.created_at.asc()).limit(max(1, min(int(batch_size), 500)))).scalars().all()
+    stats = {"checked": 0, "settled": 0, "observations": 0,
+             "duplicates": 0, "review_required": 0, "errors": 0}
+    for invoice_id in invoice_ids:
+        stats["checked"] += 1
+        try:
+            result = await scan_ton_invoice(invoice_id=invoice_id, providers=selected, engine=db)
+            stats["observations"] += int(result.get("observations", 0))
+            stats["settled"] += int(bool(result.get("settled")))
+            stats["duplicates"] += int(bool(result.get("duplicate")))
+            stats["review_required"] += int(bool(result.get("review_required")))
+        except Exception as exc:
+            # Never log transaction payloads, wallet addresses, invoice data or API credentials.
+            import logging
+            logging.warning("TON invoice scan failed (%s)", type(exc).__name__)
+            stats["errors"] += 1
+    return stats
+
+
+async def run_ton_deposit_monitor(*, poll_seconds: int = 8) -> None:
+    """Worker stays inert unless the full crypto-deposit and production gates are enabled."""
+    import asyncio
+    import logging
+
+    enabled = os.getenv("TON_DEPOSIT_MONITOR_ENABLED", "false").strip().lower() == "true"
+    crypto_enabled = os.getenv("TON_CRYPTO_DEPOSITS_ENABLED", "false").strip().lower() == "true"
+    real_deals = os.getenv("MARKETPLACE_REAL_DEALS_ENABLED", "false").strip().lower() == "true"
+    postgres = os.getenv("GIFT_RADAR_STORAGE_BACKEND", "").strip().lower() == "postgres"
+    database_url = os.getenv("DATABASE_URL", "").strip().startswith(("postgres://", "postgresql://", "postgresql+psycopg://"))
+    if not all((enabled, crypto_enabled, real_deals, postgres, database_url)):
+        return
+    delay = max(3, min(int(poll_seconds), 60))
+    while True:
+        try:
+            await scan_pending_ton_invoices()
+            delay = max(3, min(int(poll_seconds), 60))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logging.error("TON deposit monitor cycle failed (%s)", type(exc).__name__)
+            delay = min(300, max(delay * 2, 5))
+        await asyncio.sleep(delay)
