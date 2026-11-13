@@ -207,6 +207,15 @@ def get_engine() -> Engine:
             connect_args={"check_same_thread": False, "timeout": 30} if url.startswith("sqlite") else {})
     return _engine
 
+def migration_revision_number(version: Any) -> int:
+    """Parse the ordered numeric prefix from an Alembic revision identifier."""
+    try:
+        prefix = str(version or "").split("_", 1)[0]
+        return int(prefix) if prefix.isdigit() else 0
+    except (TypeError, ValueError):
+        return 0
+
+
 def init_financial_schema(engine: Engine | None = None) -> None:
     db = engine or get_engine()
     if db.dialect.name == "postgresql":
@@ -214,8 +223,8 @@ def init_financial_schema(engine: Engine | None = None) -> None:
             if not db.dialect.has_table(conn, "alembic_version"):
                 raise RuntimeError("PostgreSQL schema must be initialized through Alembic migrations")
             version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-            if version != "0011_withdrawal_approvals":
-                raise RuntimeError("Financial database migration is missing or not at the expected revision")
+            if migration_revision_number(version) < 14:
+                raise RuntimeError("Financial database migrations through 0014_ownership_proof_index are required")
         return
     metadata.create_all(db)
     if db.dialect.name == "sqlite":
