@@ -12,7 +12,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query, Header, Request
+from fastapi import FastAPI, HTTPException, Query, Header, Request\nfrom fastapi.exceptions import RequestValidationError\nfrom fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, get_app_setting, init_marketplace_db, set_app_setting, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update
@@ -51,6 +51,12 @@ class NativeListingRequest(BaseModel):
 
 
 app = FastAPI(title="GIFT RADAR API", version="0.4.0", docs_url=None, redoc_url=None, openapi_url=None)
+
+
+@app.exception_handler(RequestValidationError)
+async def generic_validation_error_handler(request: Request, exc: RequestValidationError):
+    # Never echo rejected request values, credentials or detailed internal field paths.
+    return JSONResponse(status_code=422, content={"detail": "Invalid request"})
 app.include_router(create_marketplace_router(
     lambda value: _authenticate_telegram_credential(value),
     lambda value: _require_admin(value),
@@ -251,7 +257,7 @@ async def telegram_sessions(x_telegram_init_data: str | None = Header(default=No
 async def telegram_logout(x_telegram_init_data: str | None = Header(default=None)):
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
     revoked = revoke_telegram_session(x_telegram_init_data or "")
-    return {"authenticated": False, "revoked": revoked, "user_id": str(user["id"])}
+    return {"authenticated": False, "revoked": revoked}
 
 
 @app.post("/api/auth/logout-all")
