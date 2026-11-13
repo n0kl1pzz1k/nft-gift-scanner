@@ -388,6 +388,18 @@ class MarketplaceSettlementTests(unittest.TestCase):
                 "SELECT status FROM marketplace_listings WHERE listing_id=:id"
             ), {"id": self.listing_id}).scalar_one(), "pending_verification")
 
+    def test_only_authenticated_buyer_can_reserve_paid_invoice(self):
+        with self.assertRaises(PermissionError):
+            reserve_verified_deal_payment(
+                deal_id=self.deal_id, invoice_id=self.invoice_id,
+                actor_user_id="999", engine=self.engine, now=150,
+            )
+        with self.engine.connect() as conn:
+            status = conn.execute(text(
+                "SELECT status FROM marketplace_deals WHERE deal_id=:id"
+            ), {"id": self.deal_id}).scalar_one()
+        self.assertEqual(status, "reserved")
+
     def test_payment_is_held_until_two_provider_nft_delivery(self):
         result = reserve_verified_deal_payment(
             deal_id=self.deal_id, invoice_id=self.invoice_id, engine=self.engine, now=150,
