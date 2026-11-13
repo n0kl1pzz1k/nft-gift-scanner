@@ -611,13 +611,33 @@ def cancel_listing_reservation(*, reservation_id: str, actor_user_id: str,
                 raise PermissionError(
                     "Reservation cannot be cancelled after a marketplace deal has been created"
                 )
+        listing_query = select(
+            marketplace_listings.c.listing_id,
+            marketplace_listings.c.status,
+            marketplace_assets.c.custody_state,
+            marketplace_assets.c.ownership_expires_at,
+        ).select_from(marketplace_listings.join(
+            marketplace_assets,
+            marketplace_assets.c.asset_id == marketplace_listings.c.asset_id,
+        )).where(marketplace_listings.c.listing_id == reservation["listing_id"])
+        if db.dialect.name == "postgresql":
+            listing_query = listing_query.with_for_update()
+        listing = conn.execute(listing_query).mappings().first()
+        if not listing or listing["status"] != "reserved":
+            raise ValueError("Listing is no longer reserved")
+        reusable = bool(
+            listing["custody_state"] == "escrowed"
+            and int(listing["ownership_expires_at"] or 0) > current
+        )
+        next_listing_status = "active" if reusable else "pending_verification"
         conn.execute(update(marketplace_reservations).where(
-            marketplace_reservations.c.reservation_id == reservation_id
+            marketplace_reservations.c.reservation_id == reservation_id,
+            marketplace_reservations.c.status == "active",
         ).values(status="cancelled"))
         conn.execute(update(marketplace_listings).where(
             marketplace_listings.c.listing_id == reservation["listing_id"],
             marketplace_listings.c.status == "reserved"
-        ).values(status="active", updated_at=current))
+        ).values(status=next_listing_status, updated_at=current))
         conn.execute(insert(marketplace_listing_events).values(
             event_id=uuid.uuid4().hex, listing_id=reservation["listing_id"],
             actor_user_id=str(actor_user_id), event_type="buyer_cancelled_reservation",
