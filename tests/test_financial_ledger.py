@@ -9,6 +9,9 @@ from sqlalchemy.exc import DBAPIError
 from financial_ledger import (
     get_account_balance, init_financial_schema, invoices, post_journal_entry,
     settle_verified_ton_payment, verify_ton_payment_trace,
+    request_ton_withdrawal, advance_withdrawal_to_processing,
+    mark_withdrawal_submitted, confirm_ton_withdrawal,
+    release_ton_withdrawal, quarantine_ton_withdrawal,
 )
 
 
@@ -107,6 +110,94 @@ class FinancialLedgerTests(unittest.TestCase):
         trace["finalized"] = False
         with self.assertRaises(ValueError):
             verify_ton_payment_trace(trace, invoice)
+
+
+    def test_native_gram_transfer_is_verified_and_credited_once(self):
+        invoice = {
+            "invoice_id": "gri_native", "user_id": "77", "asset_id": "GRAM",
+            "chain": "ton-mainnet", "master_address": "", "asset_kind": "native",
+            "recipient_address": "EQrecipient", "amount_raw": "1000000000",
+            "payload": "native-invoice", "expires_at": int(time.time()) + 600,
+            "status": "pending", "created_at": int(time.time()),
+        }
+        with self.engine.begin() as conn:
+            conn.execute(insert(invoices).values(**invoice))
+        trace = {
+            "chain": "ton-mainnet", "asset_kind": "native",
+            "sender_address": "EQsender", "recipient_address": "EQrecipient",
+            "amount_raw": 1000000000, "payload": "native-invoice",
+            "successful": True, "bounced": False, "finalized": True,
+            "tx_hash": "native-transaction", "event_index": 0,
+        }
+        first = settle_verified_ton_payment(invoice_id="gri_native", trace=trace, engine=self.engine)
+        second = settle_verified_ton_payment(invoice_id="gri_native", trace=trace, engine=self.engine)
+        self.assertTrue(first["credited"])
+        self.assertTrue(second["duplicate"])
+        self.assertEqual(get_account_balance("liability:user:77:GRAM", "GRAM", self.engine), -1000000000)
+
+    def test_native_gram_cannot_be_faked_by_jetton_trace(self):
+        invoice = {
+            "chain": "ton-mainnet", "asset_id": "GRAM", "asset_kind": "native",
+            "master_address": "", "recipient_address": "EQrecipient",
+            "amount_raw": "1", "payload": "x",
+        }
+        trace = {
+            "chain": "ton-mainnet", "asset_kind": "native", "sender_address": "EQsender",
+            "master_address": "EQFakeJetton", "recipient_address": "EQrecipient",
+            "amount_raw": 1, "payload": "x", "successful": True, "bounced": False,
+            "finalized": True, "tx_hash": "fake", "event_index": 0,
+        }
+        with self.assertRaises(ValueError):
+            verify_ton_payment_trace(trace, invoice)
+
+    def test_withdrawal_reserves_balance_and_duplicate_request_cannot_double_spend(self):
+        post_journal_entry(idempotency_key="seed:withdrawal", source_type="test_deposit",
+            source_reference="seed", postings=[
+                {"account_id": "asset:clearing:GRAM", "account_type": "asset",
+                 "currency": "GRAM", "amount_raw": 100},
+                {"account_id": "liability:user:42:GRAM", "account_type": "liability",
+                 "currency": "GRAM", "amount_raw": -100},
+            ], engine=self.engine)
+        first = request_ton_withdrawal(user_id="42", asset_id="GRAM",
+            destination_address="EQdestination", amount_raw=70, fee_raw=10,
+            idempotency_key="withdrawal-1", engine=self.engine)
+        second = request_ton_withdrawal(user_id="42", asset_id="GRAM",
+            destination_address="EQdestination", amount_raw=70, fee_raw=10,
+            idempotency_key="withdrawal-1", engine=self.engine)
+        self.assertFalse(first["duplicate"])
+        self.assertTrue(second["duplicate"])
+        self.assertEqual(get_account_balance("liability:user:42:GRAM", "GRAM", self.engine), -20)
+        with self.assertRaises(ValueError):
+            request_ton_withdrawal(user_id="42", asset_id="GRAM",
+                destination_address="EQother", amount_raw=30, idempotency_key="withdrawal-2",
+                engine=self.engine)
+        advance_withdrawal_to_processing(request_id=first["request_id"], engine=self.engine)
+        mark_withdrawal_submitted(request_id=first["request_id"], tx_hash="outgoing-tx", engine=self.engine)
+        settled = confirm_ton_withdrawal(request_id=first["request_id"], tx_hash="outgoing-tx", engine=self.engine)
+        duplicate = confirm_ton_withdrawal(request_id=first["request_id"], tx_hash="outgoing-tx", engine=self.engine)
+        self.assertTrue(settled["confirmed"])
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(get_account_balance("liability:withdrawal_hold:"+first["request_id"]+":GRAM", "GRAM", self.engine), 0)
+        self.assertEqual(get_account_balance("asset:clearing:GRAM", "GRAM", self.engine), 20)
+
+    def test_ambiguous_withdrawal_cannot_release_funds(self):
+        post_journal_entry(idempotency_key="seed:withdrawal2", source_type="test_deposit",
+            source_reference="seed2", postings=[
+                {"account_id": "asset:clearing:usdt-ton", "account_type": "asset",
+                 "currency": "usdt-ton", "amount_raw": 50},
+                {"account_id": "liability:user:43:usdt-ton", "account_type": "liability",
+                 "currency": "usdt-ton", "amount_raw": -50},
+            ], engine=self.engine)
+        req = request_ton_withdrawal(user_id="43", asset_id="usdt-ton",
+            destination_address="EQdestination", amount_raw=30,
+            idempotency_key="withdrawal-ambiguous", engine=self.engine)
+        advance_withdrawal_to_processing(request_id=req["request_id"], engine=self.engine)
+        quarantine_ton_withdrawal(request_id=req["request_id"],
+            reason="broadcast result timed out", engine=self.engine)
+        with self.assertRaises(PermissionError):
+            release_ton_withdrawal(request_id=req["request_id"], reason="timeout",
+                definitive_not_broadcast=False, engine=self.engine)
+        self.assertEqual(get_account_balance("liability:user:43:usdt-ton", "usdt-ton", self.engine), -20)
 
 
 if __name__ == "__main__":
