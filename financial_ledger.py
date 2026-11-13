@@ -214,7 +214,7 @@ def init_financial_schema(engine: Engine | None = None) -> None:
             if not db.dialect.has_table(conn, "alembic_version"):
                 raise RuntimeError("PostgreSQL schema must be initialized through Alembic migrations")
             version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-            if version != "0009_seller_wallet_inventory":
+            if version != "0010_marketplace_deal_settlement":
                 raise RuntimeError("Financial database migration is missing or not at the expected revision")
         return
     metadata.create_all(db)
