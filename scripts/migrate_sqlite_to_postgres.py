@@ -23,7 +23,7 @@ TABLES = (
     "demo_notifications", "catalogue_gifts", "catalogue_gift_snapshots",
 )
 OPTIONAL_SOURCE_TABLES = {"catalogue_gifts", "catalogue_gift_snapshots"}
-TARGET_GUARD_TABLES = TABLES + ("telegram_stars_invoices", "telegram_stars_payments", "telegram_stars_refund_events")
+TARGET_GUARD_TABLES = TABLES + ("telegram_stars_invoices", "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances")
 SEQUENCE_COLUMNS = {
     "demo_order_events": "id",
     "demo_order_revisions": "id",
@@ -84,7 +84,7 @@ def migrate(source_path: Path, apply: bool, source_quiesced: bool = False, batch
                     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
                 ).fetchall()
             }
-            for stars_table in ("telegram_stars_invoices", "telegram_stars_payments", "telegram_stars_refund_events"):
+            for stars_table in ("telegram_stars_invoices", "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances"):
                 if stars_table in source_tables:
                     rows = source.execute('SELECT COUNT(*) FROM "' + stars_table + '"').fetchone()[0]
                     if rows:
