@@ -7,6 +7,10 @@ struct MockJettonWalletStorage {
     jettonBalance: coins
 }
 
+struct (0x47524a02) SetMockJettonOwner {
+    ownerAddress: address
+}
+
 struct (0x47524a01) SetMockJettonPeer {
     peerWallet: address
 }
@@ -29,7 +33,7 @@ struct (0x178d4519) MockJettonInternalTransfer {
     forwardPayload: RemainingBitsAndRefs
 }
 
-type MockJettonMessages = SetMockJettonPeer | MockJettonTransfer | MockJettonInternalTransfer
+type MockJettonMessages = SetMockJettonOwner | SetMockJettonPeer | MockJettonTransfer | MockJettonInternalTransfer
 
 contract MockJettonWallet {
     storage: MockJettonWalletStorage
@@ -50,6 +54,14 @@ fun onInternalMessage(in: InMessage) {
     }
     val msg = lazy MockJettonMessages.fromSlice(in.body);
     match (msg) {
+        SetMockJettonOwner => {
+            var storage = lazy MockJettonWalletStorage.load();
+            assert (in.senderAddress == storage.platformConfigAuthority) throw 2101;
+            assert (storage.peerWallet == null) throw 2102;
+            assert (storage.jettonBalance == 0) throw 2103;
+            storage.ownerAddress = msg.ownerAddress;
+            storage.save();
+        }
         SetMockJettonPeer => {
             var storage = lazy MockJettonWalletStorage.load();
             assert (in.senderAddress == storage.platformConfigAuthority) throw 2101;
