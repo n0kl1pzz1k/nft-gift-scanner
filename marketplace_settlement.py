@@ -497,13 +497,37 @@ def refund_unfulfilled_deal(*, deal_id: str, reason: str, admin_user_id: str,
         conn.execute(update(marketplace_reservations).where(
             marketplace_reservations.c.reservation_id == deal["reservation_id"]
         ).values(status="cancelled"))
-        conn.execute(update(marketplace_listings).where(
-            marketplace_listings.c.listing_id == deal["listing_id"],
-            marketplace_listings.c.status == "reserved",
-        ).values(status="active", updated_at=current))
+        asset_query = select(marketplace_assets).where(
+            marketplace_assets.c.asset_id == deal["asset_id"]
+        )
+        listing_query = select(marketplace_listings).where(
+            marketplace_listings.c.listing_id == deal["listing_id"]
+        )
+        if lock:
+            asset_query = asset_query.with_for_update()
+            listing_query = listing_query.with_for_update()
+        asset = conn.execute(asset_query).mappings().first()
+        listing = conn.execute(listing_query).mappings().first()
+        reusable = bool(
+            asset and asset["custody_state"] == "escrowed"
+            and int(asset["ownership_expires_at"] or 0) > current
+        )
+        next_listing_status = "active" if reusable else "pending_verification"
+        if listing and listing["status"] == "reserved":
+            conn.execute(update(marketplace_listings).where(
+                marketplace_listings.c.listing_id == deal["listing_id"],
+                marketplace_listings.c.status == "reserved",
+            ).values(status=next_listing_status, updated_at=current))
+            conn.execute(insert(marketplace_listing_events).values(
+                event_id=uuid.uuid4().hex, listing_id=deal["listing_id"],
+                actor_user_id=str(admin_user_id), event_type="deal_refunded",
+                event_data=json.dumps({"deal_id": deal_id, "listing_status": next_listing_status}),
+                created_at=current,
+            ))
         _event(conn, deal_id=deal_id, event_type="deal_refunded", actor_type="admin",
                actor_id=admin_user_id, data={"reason": " ".join(reason.split())[:500],
-                                             "journal_id": journal["entry_id"]}, now=current)
+                                             "journal_id": journal["entry_id"],
+                                             "listing_status": next_listing_status}, now=current)
         return {"refunded": True, "duplicate": False, "journal_id": journal["entry_id"]}
 
 
