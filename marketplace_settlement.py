@@ -540,6 +540,12 @@ def expire_unpaid_marketplace_deals(*, engine: Engine | None = None,
                     or int(reservation["expires_at"]) > current or not listing
                     or listing["status"] != "reserved"):
                 continue
+            changed = conn.execute(update(marketplace_deals).where(
+                marketplace_deals.c.deal_id == deal["deal_id"],
+                marketplace_deals.c.status == "reserved",
+            ).values(status="expired", updated_at=current))
+            if changed.rowcount != 1:
+                continue
             conn.execute(update(marketplace_reservations).where(
                 marketplace_reservations.c.reservation_id == deal["reservation_id"],
                 marketplace_reservations.c.status == "active",
@@ -551,12 +557,6 @@ def expire_unpaid_marketplace_deals(*, engine: Engine | None = None,
                 marketplace_listings.c.listing_id == deal["listing_id"],
                 marketplace_listings.c.status == "reserved",
             ).values(status=next_status, updated_at=current))
-            changed = conn.execute(update(marketplace_deals).where(
-                marketplace_deals.c.deal_id == deal["deal_id"],
-                marketplace_deals.c.status == "reserved",
-            ).values(status="expired", updated_at=current))
-            if changed.rowcount != 1:
-                continue
             _event(conn, deal_id=deal["deal_id"], event_type="payment_window_expired",
                    data={"listing_status": next_status}, now=current)
             conn.execute(insert(marketplace_listing_events).values(
