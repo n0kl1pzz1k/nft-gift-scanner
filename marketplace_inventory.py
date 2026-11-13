@@ -277,7 +277,7 @@ def create_escrow_pending_listing(*, user_id: str, asset_id: str, price_raw: int
             if (existing["seller_user_id"] != str(user_id) or existing["asset_id"] != asset_id
                     or int(existing["price_raw"]) != int(price_raw) or existing["currency"] != currency):
                 raise ValueError("Listing idempotency key was reused with different details")
-            return {**dict(existing), "duplicate": True}
+            return {**dict(existing), "duplicate": True, "public": False}
         statement = select(marketplace_assets).where(
             marketplace_assets.c.asset_id == asset_id
         )
