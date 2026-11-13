@@ -67,9 +67,9 @@ Internal states may include `transfer_pending`, `refund_pending`, and `reconcili
 
 ## Testnet implementation plan
 
-1. Add a Tact contract package and per-deal escrow contract, with typed messages, explicit state transitions, deadline checks, participant checks, and getters.
+1. Add a Tolk contract package using the TON-recommended Acton toolchain and a per-deal escrow contract, with typed messages, explicit state transitions, deadline checks, participant checks, and getters.
 2. Implement the TEP-62 NFT custody path. Reject unknown NFT item senders and incorrect previous owners.
-3. Implement payment evidence adapters: Telegram XTR remains off-chain and is confirmed only from Telegram webhook updates; no crypto checkout is exposed in the Mini App.
+3. Implement payment evidence adapters: Telegram XTR remains off-chain in the backend Ledger and is attested to the contract only after Telegram webhook confirmation; the contract does not custody Stars. This v1 contract does not accept TON or Jetton payments. No crypto checkout is exposed in the Mini App.
 4. Add an explicit backend adapter that binds deal ID, escrow address and transaction evidence. Provider quorum is required before delivery confirmation.
 5. Add local TON Sandbox tests for unauthorized calls, wrong NFT item, wrong seller, duplicate payment, amount/currency mismatch, timeout, transfer bounce/ambiguous transfer, dispute and replay.
 6. Add testnet-only deployment scripts which refuse any network other than testnet and require an explicit wallet confirmation. Do not deploy automatically in CI.
@@ -78,7 +78,7 @@ Internal states may include `transfer_pending`, `refund_pending`, and `reconcili
 ## Scope boundaries and blockers
 
 - Telegram Stars are not an on-chain asset and cannot be moved into a TON smart contract. The contract can hold the NFT while the backend records the Stars payment and controls the subsequent delivery workflow.
-- A Stars seller-payout model is not proven by the current Bot API. Telegram's terms describe the bot's Stars balance as owned by Telegram and describe developer rewards; this is not equivalent to arbitrary seller-to-seller Stars transfers. A legally and operationally valid seller settlement mechanism is a launch blocker.
+- The current testnet contract is an NFT custody escrow with an off-chain Stars payment attestation, not a smart contract that holds Stars. A Stars seller-payout model is not proven by the current Bot API. Telegram's terms describe the bot's Stars balance as owned by Telegram and describe developer rewards; this is not equivalent to arbitrary seller-to-seller Stars transfers. A legally and operationally valid seller settlement mechanism is a launch blocker.
 - The current backend may already contain TON/Jetton deposit and withdrawal adapters. Their existence does not authorize crypto checkout for digital goods inside Telegram.
 - The TON NFT standard is TEP-62. The NFT item and collection are separate contracts; the item accepts a transfer message and emits ownership-assigned notifications. The marketplace must verify the actual owner after transfer rather than assume a sent message succeeded.
 - This implementation is not an audit, legal opinion, AML approval, custody licence, or production readiness certification.
@@ -86,6 +86,7 @@ Internal states may include `transfer_pending`, `refund_pending`, and `reconcili
 ## Acceptance criteria before any real-money launch
 
 - Testnet contract build is reproducible and code hash is recorded.
+- The testnet v1 contract explicitly supports NFT custody plus Telegram Stars payment attestations only. On-chain TON/Jetton payment custody is a separate, disabled workstream.
 - All local Sandbox tests and backend integration tests pass.
 - Testnet end-to-end scenarios prove custody, delivery, payout, refund, timeout and dispute recovery.
 - Independent smart-contract audit and financial-logic audit are completed.
