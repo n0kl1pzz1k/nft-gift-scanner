@@ -62,7 +62,7 @@ class SellerInventoryTests(unittest.TestCase):
                 engine=self.engine, now=120,
             )
         active = confirm_nft_escrow_deposit(
-            listing_id=listing["listing_id"], tx_hash="ab".repeat(32),
+            listing_id=listing["listing_id"], tx_hash="ab" * 32,
             event_index=0, verified_escrow_owner="EQescrow",
             expected_escrow_owner="EQescrow", evidence_hash="b" * 64,
             provider_ids=["tonapi", "toncenter"], engine=self.engine, now=130,
