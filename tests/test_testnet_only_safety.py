@@ -90,6 +90,22 @@ class TestnetOnlySafetyTests(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 asyncio.run(execute_approved_withdrawal(request_id="test-request"))
 
+    def test_bot_stars_precheckout_gate_is_disabled_in_testnet_only_mode(self):
+        import importlib
+        import bot
+
+        with patch.dict(os.environ, {
+            "TELEGRAM_STARS_PAYMENTS_ENABLED": "true",
+            "MARKETPLACE_REAL_DEALS_ENABLED": "true",
+            "TELEGRAM_STARS_TERMS_VERSION": "test-v1",
+            "GIFT_RADAR_STORAGE_BACKEND": "postgres",
+            "DATABASE_URL": "postgresql://user:pass@db.example/giftradar",
+            "TERMS_URL": "https://example.test/terms",
+            "PAYMENT_SUPPORT_URL": "https://example.test/support",
+        }, clear=True):
+            importlib.reload(bot)
+            self.assertFalse(bot.STARS_PAYMENTS_ENABLED)
+
     def test_stars_payment_and_refund_are_disabled_without_test_bot_environment(self):
         ready = {
             "TELEGRAM_STARS_PAYMENTS_ENABLED": "true",
