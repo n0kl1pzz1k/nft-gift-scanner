@@ -144,6 +144,15 @@ def create_withdrawal_request(*, user_id: str, asset_id: str,
             conn.execute(select(accounts.c.account_id).where(
                 accounts.c.account_id.in_((user_account, seller_account))
             ).order_by(accounts.c.account_id).with_for_update()).all()
+        # Recheck idempotency after account locks to serialize concurrent requests
+        # from the same user before either one reserves the ledger balance.
+        existing = conn.execute(select(withdrawal_requests).where(
+            withdrawal_requests.c.idempotency_key == idempotency_key
+        )).mappings().first()
+        if existing:
+            if existing["request_hash"] != request_hash or existing["user_id"] != uid:
+                raise ValueError("Withdrawal idempotency key was reused with different details")
+            return {**dict(existing), "duplicate": True}
         user_available = max(0, -_account_balance_in_connection(conn, user_account, asset_id))
         seller_available = max(0, -_account_balance_in_connection(conn, seller_account, asset_id))
         required = amount + fee
