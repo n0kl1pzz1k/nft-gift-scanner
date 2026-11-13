@@ -522,7 +522,6 @@ async def create_stars_invoice_endpoint(
             title=title,
             description=description,
             payload=invoice["payload"],
-            provider_token="",
             currency="XTR",
             prices=[LabeledPrice(label=title, amount=int(invoice["amount_stars"]))],
         )
