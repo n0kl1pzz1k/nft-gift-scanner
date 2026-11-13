@@ -582,15 +582,35 @@ def cancel_listing_reservation(*, reservation_id: str, actor_user_id: str,
     init_inventory_schema(db)
     current = int(now or time.time())
     with db.begin() as conn:
-        reservation = conn.execute(select(marketplace_reservations).where(
+        reservation_query = select(marketplace_reservations).where(
             marketplace_reservations.c.reservation_id == reservation_id
-        )).mappings().first()
+        )
+        if db.dialect.name == "postgresql":
+            reservation_query = reservation_query.with_for_update()
+        reservation = conn.execute(reservation_query).mappings().first()
         if not reservation:
             raise ValueError("Unknown reservation")
         if reservation["buyer_user_id"] != str(actor_user_id):
             raise PermissionError("Only the buyer can cancel this reservation")
         if reservation["status"] != "active":
             return {"cancelled": False, "duplicate": True}
+        if db.dialect.name == "postgresql":
+            deal_table = conn.execute(text(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema = current_schema() AND table_name = 'marketplace_deals'"
+            )).first()
+        else:
+            deal_table = conn.execute(text(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='marketplace_deals'"
+            )).first()
+        if deal_table:
+            deal = conn.execute(text(
+                "SELECT status FROM marketplace_deals WHERE reservation_id=:reservation_id"
+            ), {"reservation_id": reservation_id}).first()
+            if deal:
+                raise PermissionError(
+                    "Reservation cannot be cancelled after a marketplace deal has been created"
+                )
         conn.execute(update(marketplace_reservations).where(
             marketplace_reservations.c.reservation_id == reservation_id
         ).values(status="cancelled"))
@@ -600,7 +620,7 @@ def cancel_listing_reservation(*, reservation_id: str, actor_user_id: str,
         ).values(status="active", updated_at=current))
         conn.execute(insert(marketplace_listing_events).values(
             event_id=uuid.uuid4().hex, listing_id=reservation["listing_id"],
-            actor_user_id=str(actor_user_id), event_type="reservation_expired",
+            actor_user_id=str(actor_user_id), event_type="buyer_cancelled_reservation",
             event_data='{"reason":"buyer_cancelled"}', created_at=current,
         ))
     return {"cancelled": True, "duplicate": False}
