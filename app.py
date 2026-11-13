@@ -20,7 +20,7 @@ from demo_offers import create_demo_offers_router, init_demo_offers_db
 from security_controls import SecurityControlsMiddleware, rate_limit_status
 from financial_ledger import get_engine
 from marketplace_inventory import (
-    save_verified_wallet, get_active_verified_wallet, record_wallet_owned_nft,
+    save_verified_wallet, get_active_verified_wallet, revoke_verified_wallet, record_wallet_owned_nft,
     create_escrow_pending_listing, marketplace_assets, marketplace_listings,
     init_inventory_schema, scan_pending_nft_listings,
 )
@@ -415,6 +415,13 @@ async def ton_proof_verify(
     except httpx.HTTPError:
         raise HTTPException(status_code=503, detail="TON Proof service is unreachable")
 
+
+
+@app.post("/api/wallet/ton-proof/revoke")
+async def revoke_ton_wallet_proof(x_telegram_init_data: str | None = Header(default=None)):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    revoked = revoke_verified_wallet(user_id=str(user["id"]), engine=get_engine())
+    return {"revoked": revoked > 0, "revoked_bindings": revoked}
 
 
 @app.post("/api/inventory/nft/import")
