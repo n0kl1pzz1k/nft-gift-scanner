@@ -10,7 +10,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import (
-    BigInteger, CheckConstraint, Column, ForeignKey, Integer, MetaData, String,
+    BigInteger, Boolean, CheckConstraint, Column, ForeignKey, Integer, MetaData, String,
     Index, Table, UniqueConstraint, create_engine, insert, select, text,
 )
 from sqlalchemy.engine import Connection, Engine
@@ -56,7 +56,7 @@ ton_chain_observations = Table("ton_chain_observations", metadata,
     Column("asset_id", String(32), nullable=False),
     Column("provider_id", String(64), nullable=False),
     Column("evidence_hash", String(64), nullable=False),
-    Column("finalized", Integer, nullable=False),
+    Column("finalized", Boolean, nullable=False),
     Column("observed_at", BigInteger, nullable=False),
     UniqueConstraint("network", "tx_hash", "event_index", "asset_id", "provider_id",
                      name="uq_ton_observation_provider_event"))
