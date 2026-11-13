@@ -1082,10 +1082,19 @@ async def wallet_balances(x_telegram_init_data: str | None = Header(default=None
     assets = ("GRAM", "usdt-ton", "XTR")
     balances = {}
     for asset_id in assets:
-        ledger_balance = get_account_balance(
+        user_liability = get_account_balance(
             f"liability:user:{user['id']}:{asset_id}", asset_id, engine=get_engine()
         )
-        balances[asset_id] = {"available_raw": max(0, -int(ledger_balance))}
+        seller_liability = get_account_balance(
+            f"liability:seller:{user['id']}:{asset_id}", asset_id, engine=get_engine()
+        )
+        user_available = max(0, -int(user_liability))
+        seller_available = max(0, -int(seller_liability))
+        balances[asset_id] = {
+            "available_raw": user_available + seller_available,
+            "user_deposits_raw": user_available,
+            "seller_proceeds_raw": seller_available,
+        }
     return {"balances": balances, "source": "append_only_double_entry_ledger"}
 
 
