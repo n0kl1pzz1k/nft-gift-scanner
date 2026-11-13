@@ -164,8 +164,8 @@ The verifier implements signature/domain/payload/address checks and atomic one-t
 **Status:** Open.
 
 **P1-06 — Dependency vulnerability scanning was absent from the previous CI.**  
-The Phase 0 branch adds `pip-audit` and `npm audit` jobs. Their results are pending this branch's CI run.  
-**Status:** In progress.
+The Phase 0 branch adds `pip-audit` and `npm audit`. The current run reports no known Python dependency vulnerabilities. The frontend audit reports four low-severity advisories through transitive `deepmerge` dependencies used by `@tonconnect/ui` and `@sveltejs/vite-plugin-svelte`; npm reports no available fix for the advisory at audit time. The configured CI threshold is high, so the scan passes while the low findings remain tracked.  
+**Status:** Python audit clear; frontend low-severity advisory remains open as P2.
 
 **P1-07 — Monitoring, alerting and restore evidence are missing.**  
 No verified Sentry/metrics integration, alert thresholds/recipients, background-task failure alert, scheduled PostgreSQL backup or restore drill is documented.  
@@ -192,22 +192,25 @@ The native catalogue endpoints return empty data. Full filters, cursor paginatio
 **P2-05 — Notifications are not a durable outbound delivery system.**  
 Demo notification records exist, but there is no production outbox worker with retry, user preferences and provider delivery deduplication for real payment/transfer events.
 
+**P2-06 — Frontend dependency advisory has no upstream fix.**  
+`npm audit` reports four low-severity findings rooted in `deepmerge` (GHSA-gcqx-w48m-w2h4), reached through TON Connect UI and the Svelte Vite plugin. The advisory reports no fix available. Keep the affected package graph under review and re-evaluate on dependency updates; do not suppress the finding.
+
 ---
 
 ## 6. CI and test evidence
 
 ### Last completed baseline run before this Phase 0 patch
 
-GitHub Actions run **#698**, commit `676297fa`, completed with success for all six jobs:
+GitHub Actions run **#704**, commit `ffc147d74f5078915df117318048860e2bfb19e1`, completed with success for all six jobs:
 
-- Backend: lint, Python compilation, Alembic SQLite migration and **189 unit/regression tests passed**.
+- Backend: Ruff lint, Python compilation, Alembic SQLite migration, `pip-audit` and **197 unit/regression tests passed** (5 skipped by the existing suite).
 - PostgreSQL integration: Alembic migration and **5 PostgreSQL schema/append-only smoke tests passed**.
-- Frontend: JavaScript syntax, Svelte/TypeScript check and Vite build passed.
-- TON Proof service: TypeScript build passed.
+- Frontend: JavaScript syntax, `npm audit`, Svelte/TypeScript check and Vite build passed. The audit reports four low-severity transitive `deepmerge` findings with no fix currently available; no high-severity finding blocked CI.
+- TON Proof service: TypeScript build passed with testnet-only network validation.
 - Deployment configuration validation passed.
-- Gitleaks full-history scan for the checked-out PR #51 ref reported **no leaks found**.
+- Gitleaks full-history scan for the checked-out stacked PR ref reported **no leaks found**.
 
-Run #698 predates the changes in this audit branch. It is baseline evidence only, not proof that the new changes pass. This branch adds dependency audits and additional testnet-only regression tests; the new CI run must complete before this audit step is considered validated.
+Run #704 validates the code at `ffc147d`. Later documentation-only changes, if any, should be covered by the PR's latest CI run before merge.
 
 The PostgreSQL smoke test intentionally emits database error log lines when asserting append-only triggers and uniqueness constraints. Those expected constraint errors were followed by a successful test result.
 
