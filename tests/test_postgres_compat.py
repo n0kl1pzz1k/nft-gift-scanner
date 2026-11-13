@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from postgres_compat import HybridRow, PostgresConnection, _BufferedCursor, postgres_storage_enabled
+from postgres_compat import HybridRow, PostgresConnection, postgres_storage_enabled
 
 
 class FakeCursor:
