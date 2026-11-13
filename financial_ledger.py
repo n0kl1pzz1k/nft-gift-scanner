@@ -280,24 +280,38 @@ def record_telegram_stars_terms_acceptance(*, user_id: str, terms_version: str |
     if not uid.isdigit() or int(uid) <= 0:
         raise ValueError("Invalid Telegram user ID")
     current = int(now or time.time())
-    with db.begin() as conn:
-        existing = conn.execute(select(telegram_stars_terms_acceptances).where(
-            telegram_stars_terms_acceptances.c.user_id == uid,
-            telegram_stars_terms_acceptances.c.terms_version == version,
-        )).mappings().first()
-        if existing:
-            if existing["terms_url"] != url:
-                raise RuntimeError("The current terms URL changed without a version change")
-            return {**dict(existing), "duplicate": True}
-        acceptance_id = str(uuid.uuid4())
-        conn.execute(insert(telegram_stars_terms_acceptances).values(
-            acceptance_id=acceptance_id, user_id=uid, terms_version=version,
-            terms_url=url, accepted_at=current,
-        ))
-        return {"acceptance_id": acceptance_id, "user_id": uid,
-                "terms_version": version, "terms_url": url,
-                "accepted_at": current, "duplicate": False}
-
+    acceptance_id = str(uuid.uuid4())
+    try:
+        with db.begin() as conn:
+            existing = conn.execute(select(telegram_stars_terms_acceptances).where(
+                telegram_stars_terms_acceptances.c.user_id == uid,
+                telegram_stars_terms_acceptances.c.terms_version == version,
+            )).mappings().first()
+            if existing:
+                if existing["terms_url"] != url:
+                    raise RuntimeError("The current terms URL changed without a version change")
+                return {**dict(existing), "duplicate": True}
+            conn.execute(insert(telegram_stars_terms_acceptances).values(
+                acceptance_id=acceptance_id, user_id=uid, terms_version=version,
+                terms_url=url, accepted_at=current,
+            ))
+            return {"acceptance_id": acceptance_id, "user_id": uid,
+                    "terms_version": version, "terms_url": url,
+                    "accepted_at": current, "duplicate": False}
+    except Exception as exc:
+        from sqlalchemy.exc import IntegrityError
+        if not isinstance(exc, IntegrityError):
+            raise
+        with db.connect() as conn:
+            existing = conn.execute(select(telegram_stars_terms_acceptances).where(
+                telegram_stars_terms_acceptances.c.user_id == uid,
+                telegram_stars_terms_acceptances.c.terms_version == version,
+            )).mappings().first()
+        if existing is None:
+            raise
+        if existing["terms_url"] != url:
+            raise RuntimeError("The current terms URL changed without a version change")
+        return {**dict(existing), "duplicate": True}
 
 def has_current_telegram_stars_terms_acceptance(*, user_id: str,
                                                 engine: Engine | None = None) -> bool:
