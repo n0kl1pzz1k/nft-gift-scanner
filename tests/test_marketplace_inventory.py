@@ -62,7 +62,7 @@ class SellerInventoryTests(unittest.TestCase):
                 engine=self.engine, now=120,
             )
         active = confirm_nft_escrow_deposit(
-            listing_id=listing["listing_id"], tx_hash="verified-chain-transfer",
+            listing_id=listing["listing_id"], tx_hash="ab".repeat(32),
             event_index=0, verified_escrow_owner="EQescrow",
             expected_escrow_owner="EQescrow", evidence_hash="b" * 64,
             provider_ids=["tonapi", "toncenter"], engine=self.engine, now=130,
@@ -106,7 +106,7 @@ class SellerInventoryTests(unittest.TestCase):
     def test_reservation_is_atomic_and_buyer_can_cancel(self):
         listing = self.listing()
         confirm_nft_escrow_deposit(
-            listing_id=listing["listing_id"], tx_hash="verified-chain-transfer",
+            listing_id=listing["listing_id"], tx_hash="ab".repeat(32),
             event_index=0, verified_escrow_owner="EQescrow",
             expected_escrow_owner="EQescrow", evidence_hash="b" * 64,
             provider_ids=["tonapi", "toncenter"], engine=self.engine, now=120,
