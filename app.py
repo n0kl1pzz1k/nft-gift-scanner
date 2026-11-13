@@ -37,6 +37,11 @@ from financial_ledger import (
     require_telegram_stars_refund_reconciliation,
 )
 
+class DealDisputeResolutionRequest(BaseModel):
+    decision: str = Field(pattern="^(refund|dismiss)$")
+    reason: str = Field(min_length=8, max_length=500)
+
+
 class DealDisputeRequest(BaseModel):
     reason: str = Field(min_length=8, max_length=500)
 
@@ -694,6 +699,28 @@ async def open_native_marketplace_deal_dispute(
         return open_deal_dispute(
             deal_id=deal_id, actor_user_id=str(user["id"]),
             reason=payload.reason, engine=get_engine(),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+
+
+
+@app.post("/api/admin/inventory/deals/{deal_id}/resolve-dispute")
+async def resolve_native_marketplace_deal_dispute(
+    deal_id: str,
+    payload: DealDisputeResolutionRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _require_admin(x_telegram_init_data)
+    from marketplace_settlement import resolve_deal_dispute
+    try:
+        return resolve_deal_dispute(
+            deal_id=deal_id, decision=payload.decision, reason=payload.reason,
+            admin_user_id=str(user["id"]), engine=get_engine(),
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
