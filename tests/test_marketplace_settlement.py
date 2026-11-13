@@ -118,7 +118,7 @@ class MarketplaceSettlementTests(unittest.TestCase):
             engine=self.engine, now=150,
         )
         result = expire_unpaid_marketplace_deals(engine=self.engine, now=431)
-        self.assertEqual(result, {"expired": 0, "relisted": 0})
+        self.assertEqual(result, {"expired": 0, "relisted": 0, "reverification_required": 0})
         with self.engine.connect() as conn:
             self.assertEqual(conn.execute(text(
                 "SELECT status FROM marketplace_deals WHERE deal_id=:id"
@@ -131,7 +131,7 @@ class MarketplaceSettlementTests(unittest.TestCase):
         result = expire_unpaid_marketplace_deals(
             engine=self.engine, now=431,
         )
-        self.assertEqual(result, {"expired": 1, "relisted": 1})
+        self.assertEqual(result, {"expired": 1, "relisted": 1, "reverification_required": 0})
         with self.engine.connect() as conn:
             self.assertEqual(conn.execute(text(
                 "SELECT status FROM marketplace_deals WHERE deal_id=:id"
@@ -153,7 +153,7 @@ class MarketplaceSettlementTests(unittest.TestCase):
                 "UPDATE marketplace_assets SET ownership_expires_at=400 WHERE asset_id=:id"
             ), {"id": self.asset_id})
         result = expire_unpaid_marketplace_deals(engine=self.engine, now=431)
-        self.assertEqual(result, {"expired": 1, "relisted": 0})
+        self.assertEqual(result, {"expired": 1, "relisted": 0, "reverification_required": 1})
         with self.engine.connect() as conn:
             self.assertEqual(conn.execute(text(
                 "SELECT status FROM marketplace_listings WHERE listing_id=:id"
