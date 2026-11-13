@@ -172,10 +172,36 @@ async def get_crypto_payment_invoice(
         "invoice_id": invoice["invoice_id"], "asset_id": invoice["asset_id"],
         "amount_raw": int(invoice["amount_raw"]), "status": invoice["status"],
         "expires_at": int(invoice["expires_at"]),
+        "review_required": invoice["status"] == "reconciliation_required",
         "payment": None if event is None else {
             "tx_hash": event["tx_hash"], "event_index": int(event["event_index"]),
             "confirmed_at": int(event["created_at"]),
         },
+    }
+
+
+@app.get("/api/admin/payments/crypto/reconciliation")
+async def list_crypto_payment_reconciliation(
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    _require_admin(x_telegram_init_data)
+    with get_engine().connect() as conn:
+        total = conn.execute(select(func.count()).select_from(invoices).where(
+            invoices.c.status == "reconciliation_required"
+        )).scalar_one()
+        rows = conn.execute(select(
+            invoices.c.invoice_id, invoices.c.user_id, invoices.c.asset_id,
+            invoices.c.chain, invoices.c.master_address, invoices.c.recipient_address,
+            invoices.c.amount_raw, invoices.c.payload, invoices.c.expires_at,
+            invoices.c.created_at,
+        ).where(
+            invoices.c.status == "reconciliation_required"
+        ).order_by(invoices.c.created_at.asc()).limit(limit).offset(offset)).mappings().all()
+    return {
+        "total": int(total), "limit": limit, "offset": offset,
+        "items": [{**dict(row), "amount_raw": int(row["amount_raw"])} for row in rows],
     }
 
 
