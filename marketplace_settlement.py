@@ -517,7 +517,7 @@ def resolve_deal_dispute(*, deal_id: str, decision: str, reason: str,
             raise PermissionError("Only a pre-transfer disputed deal can be refunded by this workflow")
         result = refund_unfulfilled_deal(
             deal_id=deal_id, reason=clean, admin_user_id=admin,
-            engine=db, now=current,
+            engine=db, now=current, require_disputed=True,
         )
         if result.get("telegram_refund_required"):
             return {**result, "decision": "refund", "manual_telegram_refund": True}
@@ -558,7 +558,8 @@ def resolve_deal_dispute(*, deal_id: str, decision: str, reason: str,
 
 def refund_unfulfilled_deal(*, deal_id: str, reason: str, admin_user_id: str,
                             engine: Engine | None = None,
-                            now: int | None = None) -> dict[str, Any]:
+                            now: int | None = None,
+                            require_disputed: bool = False) -> dict[str, Any]:
     """Refund an unfulfilled deal from its hold; never auto-refund after NFT broadcast."""
     db = engine or get_engine()
     init_marketplace_settlement_schema(db)
@@ -571,6 +572,8 @@ def refund_unfulfilled_deal(*, deal_id: str, reason: str, admin_user_id: str,
         deal = conn.execute(q).mappings().first()
         if deal is None:
             raise ValueError("Unknown marketplace deal")
+        if require_disputed and deal["status"] != "disputed":
+            raise PermissionError("Dispute refund requires the deal to remain disputed")
         if deal["status"] == "refunded":
             return {"refunded": False, "duplicate": True}
         if deal["currency"] == "XTR":
