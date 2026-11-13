@@ -1,0 +1,11 @@
+// Upstream TEP-74 implementation from ton-blockchain/acton-contracts (MIT).
+// Source path: jetton-v2.1/contracts/errors.tolk
+// Upstream commit: master snapshot fetched 2026-11-14.
+const ERROR_INVALID_OP = 72
+const ERROR_WRONG_OP = 0xffff
+const ERROR_NOT_OWNER = 73
+const ERROR_NOT_VALID_WALLET = 74
+const ERROR_WRONG_WORKCHAIN = 333
+const ERROR_BALANCE_ERROR = 47
+const ERROR_NOT_ENOUGH_GAS = 48
+const ERROR_INVALID_MESSAGE = 49
