@@ -81,9 +81,9 @@ Until then, `TELEGRAM_STARS_PAYMENTS_ENABLED` and `MARKETPLACE_REAL_DEALS_ENABLE
 
 ## Unpaid deal expiry
 
-- A reserved deal expires when its linked buyer reservation expires, provided no payment has been reserved into the deal hold.
+- A reserved deal expires when its linked buyer reservation expires, provided no payment has been reserved into the deal hold. Buyers cannot cancel a reservation after a deal has been created, and payment reservation rechecks that the reservation is still active and unexpired.
 - Expiry is processed in bounded batches by the application worker and is idempotent.
 - Only deals still in `reserved` state are eligible. `payment_confirmed`, `nft_transfer_pending`, disputed, settled, and reconciliation-required deals are never expired by this worker.
-- A listing is reactivated only when the NFT remains in escrow and its ownership proof is still fresh. Otherwise the listing is marked expired and must be re-verified before relisting.
+- A listing is reactivated only when the NFT remains in escrow and its ownership proof is still fresh. Otherwise the listing returns to `pending_verification` and must pass the independent escrow monitor again before publication.
 - PostgreSQL deployments must apply Alembic revision `0012_expire_unpaid_marketplace_deals` or a later revision before settlement endpoints run.
 - Railway's pre-deploy command applies `alembic upgrade head`; deployment must still be reviewed and verified separately before production use.
