@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from postgres_compat import HybridRow, PostgresConnection, postgres_storage_enabled
+from financial_ledger import migration_revision_number
 
 
 class FakeCursor:
@@ -38,6 +39,12 @@ class FakeRawConnection:
 
 
 class PostgresCompatTests(unittest.TestCase):
+    def test_migration_revision_parser_accepts_current_forward_schema(self):
+        self.assertEqual(migration_revision_number("0011_withdrawal_approvals"), 11)
+        self.assertEqual(migration_revision_number("0014_ownership_proof_index"), 14)
+        self.assertEqual(migration_revision_number("0015_future"), 15)
+        self.assertEqual(migration_revision_number("broken"), 0)
+
     def test_hybrid_row_supports_mapping_and_sqlite_integer_access(self):
         row = HybridRow({"id": 7, "label": "gift"})
         self.assertEqual(row["id"], 7)
