@@ -794,7 +794,7 @@ def list_reconciliation_required_deals(*, engine: Engine | None = None,
             event_ranked.c.event_rank <= 25
         ).order_by(
             event_ranked.c.deal_id.asc(),
-            event_ranked.c.created_at.asc(),
+            event_ranked.c.event_rank.desc(),
         )).mappings().all()
     by_deal: dict[str, list[dict[str, Any]]] = {deal_id: [] for deal_id in ids}
     for event in events:
@@ -859,8 +859,7 @@ def add_deal_reconciliation_note(*, deal_id: str, admin_user_id: str,
                 prior_data = {}
             if prior["actor_id"] != admin or prior_data.get("note") != clean_note:
                 raise ValueError("Reconciliation idempotency key was reused with different details")
-            return {"recorded": False, "duplicate": True,
-                    "status": "reconciliation_required"}
+            return {"recorded": False, "duplicate": True, "status": status}
         if status != "reconciliation_required":
             raise PermissionError("Admin notes are restricted to deals awaiting reconciliation")
         conn.execute(insert(marketplace_deal_events).values(
