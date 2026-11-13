@@ -82,7 +82,10 @@ class SecurityControlTests(unittest.TestCase):
         self.assertFalse(_requires_edge_limit("/favicon.ico"))
 
     def test_api_responses_receive_security_and_no_store_headers(self):
-        response = _apply_security_headers(Response(content="{}", media_type="application/json"))
+        response = _apply_security_headers(Response(
+            content="{}", media_type="application/json",
+            headers={"Cache-Control": "public, max-age=3600"},
+        ))
         self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
         self.assertEqual(response.headers["X-Frame-Options"], "DENY")
         self.assertEqual(response.headers["Cache-Control"], "no-store")
