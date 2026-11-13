@@ -82,6 +82,11 @@ _telegram_bot = None
 _telegram_dispatcher = None
 _telegram_webhook_secret = None
 
+class CryptoPaymentInvoiceRequest(BaseModel):
+    asset_id: str = Field(pattern="^(GRAM|usdt-ton)$")
+    amount_raw: int = Field(gt=0, strict=True)
+
+
 def _stars_payment_enabled() -> bool:
     database_url = os.getenv("DATABASE_URL", "").strip()
     return bool(
@@ -287,11 +292,6 @@ class StarsTermsAcceptanceRequest(BaseModel):
 class StarsRefundRequestBody(BaseModel):
     invoice_id: str
     reason: str = ""
-
-
-class CryptoPaymentInvoiceRequest(BaseModel):
-    asset_id: str = Field(pattern="^(GRAM|usdt-ton)$")
-    amount_raw: int = Field(gt=0, strict=True)
 
 
 class TonProofVerifyRequest(BaseModel):
