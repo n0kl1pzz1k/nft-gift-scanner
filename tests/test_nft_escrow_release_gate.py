@@ -38,9 +38,9 @@ class NativeNftEscrowReleaseGateTests(unittest.TestCase):
         with patch.dict(os.environ, env, clear=True):
             self.assertFalse(_native_nft_escrow_monitor_enabled())
 
-    def test_monitor_enables_only_when_all_release_gates_are_explicit(self):
+    def test_monitor_stays_disabled_until_testnet_nft_verifier_exists(self):
         with patch.dict(os.environ, self.approved_environment, clear=True):
-            self.assertTrue(_native_nft_escrow_monitor_enabled())
+            self.assertFalse(_native_nft_escrow_monitor_enabled())
 
 
 class PaymentCapabilitiesTests(unittest.IsolatedAsyncioTestCase):
