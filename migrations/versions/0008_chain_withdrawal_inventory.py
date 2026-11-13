@@ -98,6 +98,22 @@ def upgrade():
         ["network", "tx_hash", "event_index", "asset_id"]
     )
 
+    if bind.dialect.name == "postgresql":
+        op.execute(
+            "CREATE TRIGGER ton_chain_observations_append_only "
+            "BEFORE UPDATE OR DELETE ON ton_chain_observations "
+            "FOR EACH ROW EXECUTE FUNCTION gift_radar_reject_financial_mutation()"
+        )
+    elif bind.dialect.name == "sqlite":
+        op.execute(
+            "CREATE TRIGGER ton_chain_observations_no_update BEFORE UPDATE ON ton_chain_observations "
+            "BEGIN SELECT RAISE(ABORT, 'TON chain observations are append-only'); END"
+        )
+        op.execute(
+            "CREATE TRIGGER ton_chain_observations_no_delete BEFORE DELETE ON ton_chain_observations "
+            "BEGIN SELECT RAISE(ABORT, 'TON chain observations are append-only'); END"
+        )
+
     op.create_table(
         "withdrawal_requests",
         sa.Column("request_id", sa.String(36), primary_key=True),
@@ -189,6 +205,11 @@ def downgrade():
     _replace_asset_checks(bind, downgrade=True)
     op.drop_index("idx_withdrawal_user_status", table_name="withdrawal_requests")
     op.drop_table("withdrawal_requests")
+    if bind.dialect.name == "postgresql":
+        op.execute("DROP TRIGGER IF EXISTS ton_chain_observations_append_only ON ton_chain_observations")
+    elif bind.dialect.name == "sqlite":
+        op.execute("DROP TRIGGER IF EXISTS ton_chain_observations_no_update")
+        op.execute("DROP TRIGGER IF EXISTS ton_chain_observations_no_delete")
     op.drop_index("idx_ton_observations_event", table_name="ton_chain_observations")
     op.drop_table("ton_chain_observations")
     if bind.dialect.name == "sqlite":
