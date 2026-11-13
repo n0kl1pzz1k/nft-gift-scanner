@@ -279,7 +279,7 @@ get fun `test USDT test-Jetton transfers through TEP-74 wallet into escrow and n
             destination: usdtWallet,
             responseDestination: buyer,
             customPayload: null,
-            forwardTonAmount: grams("0.000000001"),
+            forwardTonAmount: grams("0.05"),
             forwardPayload: beginCell().storeUint(0, 1).toSlice(),
         },
     }));
