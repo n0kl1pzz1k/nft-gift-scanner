@@ -591,7 +591,7 @@ def settle_telegram_stars_payment(*, payload: str, buyer_user_id: str, currency:
             postings=[
                 {"account_id": "asset:telegram_stars:clearing", "account_type": "asset",
                  "currency": "XTR", "amount_raw": int(amount_stars)},
-                {"account_id": "liability:seller:" + invoice["seller_user_id"] + ":XTR",
+                {"account_id": f"liability:deal_hold:{invoice['deal_id']}:XTR",
                  "account_type": "liability", "currency": "XTR",
                  "amount_raw": -int(amount_stars)},
             ], now=current)
@@ -730,7 +730,7 @@ def complete_telegram_stars_refund(*, request_id: str, telegram_response_ref: st
             postings=[
                 {"account_id": "asset:telegram_stars:clearing", "account_type": "asset",
                  "currency": "XTR", "amount_raw": -amount},
-                {"account_id": "liability:seller:" + invoice["seller_user_id"] + ":XTR",
+                {"account_id": f"liability:deal_hold:{invoice['deal_id']}:XTR",
                  "account_type": "liability", "currency": "XTR", "amount_raw": amount},
             ], now=current)
         conn.execute(stars_invoices.update().where(
