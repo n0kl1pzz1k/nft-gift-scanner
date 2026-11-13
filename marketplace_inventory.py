@@ -532,6 +532,48 @@ def reserve_verified_listing(*, listing_id: str, buyer_user_id: str,
             "status": "active", "expires_at": current + ttl_seconds}
 
 
+
+
+def cancel_seller_listing(*, listing_id: str, seller_user_id: str,
+                          engine: Engine | None = None,
+                          now: int | None = None) -> dict[str, Any]:
+    """Allow a seller to delist an active NFT only before any buyer reservation."""
+    db = engine or get_engine()
+    init_inventory_schema(db)
+    current = int(now or time.time())
+    statement = select(marketplace_listings).where(
+        marketplace_listings.c.listing_id == listing_id
+    )
+    if db.dialect.name == "postgresql":
+        statement = statement.with_for_update()
+    with db.begin() as conn:
+        listing = conn.execute(statement).mappings().first()
+        if listing is None:
+            raise ValueError("Unknown listing")
+        if listing["seller_user_id"] != str(seller_user_id):
+            raise PermissionError("Only the listing seller can cancel it")
+        if listing["status"] == "cancelled":
+            return {"cancelled": False, "duplicate": True, "status": "cancelled"}
+        if listing["status"] != "active":
+            raise ValueError("Only an active, unreserved listing can be cancelled")
+        active_reservation = conn.execute(select(marketplace_reservations.c.reservation_id).where(
+            marketplace_reservations.c.listing_id == listing_id,
+            marketplace_reservations.c.status == "active",
+            marketplace_reservations.c.expires_at > current,
+        )).first()
+        if active_reservation:
+            raise PermissionError("Listing cannot be cancelled while a buyer reservation is active")
+        conn.execute(update(marketplace_listings).where(
+            marketplace_listings.c.listing_id == listing_id,
+            marketplace_listings.c.status == "active",
+        ).values(status="cancelled", updated_at=current))
+        conn.execute(insert(marketplace_listing_events).values(
+            event_id=uuid.uuid4().hex, listing_id=listing_id,
+            actor_user_id=str(seller_user_id), event_type="seller_cancelled",
+            event_data='{"reason":"seller_requested"}', created_at=current,
+        ))
+    return {"cancelled": True, "duplicate": False, "status": "cancelled"}
+
 def cancel_listing_reservation(*, reservation_id: str, actor_user_id: str,
                                engine: Engine | None = None, now: int | None = None) -> dict[str, Any]:
     db = engine or get_engine()
