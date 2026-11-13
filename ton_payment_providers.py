@@ -183,6 +183,12 @@ class ToncenterV3PaymentProvider:
                 continue
         return candidates
 
+    async def find_invoice_transfer(self, invoice: dict[str, Any]) -> dict[str, Any] | None:
+        candidates = await self.find_invoice_transfers(invoice)
+        if len(candidates) > 1:
+            raise ValueError("More than one transfer matches a unique invoice payload")
+        return candidates[0] if candidates else None
+
     async def find_invoice_transfers(self, invoice: dict[str, Any]) -> list[dict[str, Any]]:
         if invoice.get("chain") != "ton-mainnet":
             raise ValueError("Only TON mainnet invoices are supported")
@@ -194,7 +200,7 @@ class ToncenterV3PaymentProvider:
 class TonApiEmbedPaymentProvider:
     """Second independent indexer; the self-hosted TonAPI Embed API must be synced."""
 
-    provider_id = "tonapi_embed"
+    provider_id = "tonapi"
 
     def __init__(self, *, base_url: str, api_key: str = "", timeout: float = 12.0):
         if not base_url.startswith("https://"):
@@ -245,6 +251,12 @@ class TonApiEmbedPaymentProvider:
         wallet = data.get("wallet_address") or data.get("jetton_wallet")
         return canonical_ton_address(wallet) if wallet else None
 
+    async def find_invoice_transfer(self, invoice: dict[str, Any]) -> dict[str, Any] | None:
+        candidates = await self.find_invoice_transfers(invoice)
+        if len(candidates) > 1:
+            raise ValueError("More than one transfer matches a unique invoice payload")
+        return candidates[0] if candidates else None
+
     async def find_invoice_transfers(self, invoice: dict[str, Any]) -> list[dict[str, Any]]:
         if invoice.get("chain") != "ton-mainnet":
             raise ValueError("Only TON mainnet invoices are supported")
@@ -268,7 +280,7 @@ class TonApiEmbedPaymentProvider:
                         "sender_address": canonical_ton_address(row.get("source") or row.get("sender") or ""),
                         "recipient_address": canonical_ton_address(invoice["recipient_address"]),
                         "amount_raw": amount, "payload": comment, "opcode": None,
-                        "successful": row.get("successful") is True,
+                        "successful": row.get("successful", row.get("success")) is True,
                         "bounced": row.get("bounced") is True,
                         "finalized": lt <= last_lt and mc_seqno > 0,
                         "tx_hash": tx_hash, "event_index": lt, "mc_block_seqno": mc_seqno,
@@ -304,8 +316,8 @@ class TonApiEmbedPaymentProvider:
 def configured_ton_payment_providers() -> list[TonPaymentProvider]:
     """Require two named independent operators and never silently degrade to one."""
     ids = {part.strip() for part in os.getenv("TON_DEPOSIT_PROVIDER_IDS", "").split(",") if part.strip()}
-    if ids != {"toncenter", "tonapi_embed"}:
-        raise RuntimeError("TON_DEPOSIT_PROVIDER_IDS must be 'toncenter,tonapi_embed'")
+    if ids != {"toncenter", "tonapi"}:
+        raise RuntimeError("TON_DEPOSIT_PROVIDER_IDS must be 'tonapi,toncenter'")
     return [
         ToncenterV3PaymentProvider(api_key=os.getenv("TONCENTER_API_KEY", "")),
         TonApiEmbedPaymentProvider(
