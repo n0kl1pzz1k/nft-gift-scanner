@@ -618,7 +618,7 @@ def create_marketplace_router(
         with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute(
-                """INSERT OR IGNORE INTO user_profiles
+                """INSERT INTO user_profiles
                    (profile_id, telegram_id, display_name, bio, created_at, updated_at)
                    VALUES (?, ?, ?, '', ?, ?)""",
                 ("usr_" + secrets.token_urlsafe(12), telegram_id, fallback_name, now, now),
