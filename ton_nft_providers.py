@@ -30,6 +30,8 @@ def canonical_ton_address(value: str) -> str:
     if len(decoded) != 36:
         raise ValueError("Friendly TON address must decode to 36 bytes")
     payload, checksum = decoded[:34], decoded[34:]
+    if payload[0] not in (0x11, 0x51):
+        raise ValueError("Only mainnet bounceable/non-bounceable friendly addresses are accepted")
     crc = 0
     for byte in payload:
         crc ^= byte << 8
