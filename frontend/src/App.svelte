@@ -844,6 +844,9 @@
       });
       const wallet = await tonConnectUI.connectWallet();
       if (!wallet) throw new Error('Wallet connection was cancelled');
+      if (wallet.account.chain !== CHAIN.TESTNET) {
+        throw new Error('Switch your wallet to TON testnet and reconnect. Mainnet wallets are not accepted.');
+      }
       const proofItem = wallet.connectItems?.tonProof;
       if (!proofItem || !('proof' in proofItem)) {
         throw new Error('This wallet does not support TON Proof. Try a compatible TON wallet.');
@@ -941,7 +944,6 @@
     try {
       tonConnectUI = new TonConnectUI({
         manifestUrl: `${window.location.origin}/tonconnect-manifest.json`,
-        network: CHAIN.TESTNET,
       });
       tonConnectUI.onStatusChange((wallet) => {
         const nextAddress = wallet?.account.address || '';
