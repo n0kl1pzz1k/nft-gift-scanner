@@ -17,6 +17,7 @@ from typing import Callable, Literal
 from fastapi import APIRouter, Header, HTTPException, Query
 
 from marketplace import _enforce_user_rate_limit
+from postgres_compat import assert_marketplace_schema_ready, postgres_storage_enabled
 from pydantic import BaseModel, Field, field_validator
 
 DB_PATH = os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3"))
@@ -38,6 +39,10 @@ def _db():
 
 
 def init_demo_offers_db() -> None:
+    if postgres_storage_enabled():
+        with _db() as conn:
+            assert_marketplace_schema_ready(conn)
+        return
     with _db() as conn:
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS demo_offers (
@@ -532,11 +537,11 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 """SELECT id, event_type, actor_user_id, event_data, created_at, sequence
                    FROM (
                        SELECT id, event_type, actor_user_id, event_data, created_at,
-                              rowid AS sequence
+                              CAST(id AS TEXT) AS sequence
                        FROM demo_deal_events WHERE deal_id = ?
                        UNION ALL
                        SELECT id, event_type, actor_user_id, event_data, created_at,
-                              1000000000 + sequence AS sequence
+                              CAST(1000000000 + sequence AS TEXT) AS sequence
                        FROM demo_deal_lifecycle_events WHERE deal_id = ?
                    )
                    ORDER BY created_at ASC, sequence ASC""",
