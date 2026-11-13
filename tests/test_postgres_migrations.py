@@ -32,8 +32,8 @@ class PostgresMigrationSmokeTests(unittest.TestCase):
             self.assertEqual(revision, "0008_chain_withdrawal_inventory")
             connection.execute(text(
                 "SELECT reconciliation_note FROM telegram_stars_refund_requests LIMIT 0"
-            connection.execute(text("SELECT asset_kind FROM payment_invoices LIMIT 0"))
             ))
+            connection.execute(text("SELECT asset_kind FROM payment_invoices LIMIT 0"))
             tables = set(inspect(connection).get_table_names())
         expected = {
             "telegram_users", "telegram_sessions", "demo_orders", "demo_offers",
