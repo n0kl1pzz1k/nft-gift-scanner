@@ -28,12 +28,19 @@ class Asset:
     display_symbol: str
     wallet_connect_allowed_in_mini_app: bool
     payment_enabled: bool = False
+    asset_kind: str = "jetton"
 
 
 # Addresses are identifiers, not secrets. These values are sourced from the
 # issuer's official supported-protocol documentation and must be re-reviewed
 # before any payment feature is enabled.
 ASSETS: dict[str, Asset] = {
+    # GRAM is the native TON coin. It has no Jetton master contract.
+    "GRAM": Asset(
+        asset_id="GRAM", chain=Chain.TON, master_address="", decimals=9,
+        display_symbol="GRAM", wallet_connect_allowed_in_mini_app=True,
+        payment_enabled=False, asset_kind="native",
+    ),
     "usdt-ton": Asset(
         asset_id="usdt-ton",
         chain=Chain.TON,
@@ -52,8 +59,7 @@ ASSETS: dict[str, Asset] = {
         wallet_connect_allowed_in_mini_app=False,
         payment_enabled=False,
     ),
-    # GRAM deliberately omitted: the project has not approved a canonical
-    # master address, decimals, issuer provenance, or risk review.
+    # A Jetton that merely displays GRAM/Gram is not the native GRAM asset.
 }
 
 
@@ -80,7 +86,10 @@ def get_asset(asset_id: str, chain: str, master_address: str, surface: str) -> A
     if asset.chain is not selected_chain:
         raise AssetRejected("asset network mismatch")
 
-    if asset.master_address != master_address:
+    if asset.asset_kind == "native":
+        if master_address not in ("", "native"):
+            raise AssetRejected("native GRAM must not be represented by a Jetton master contract")
+    elif asset.master_address != master_address:
         raise AssetRejected("unrecognized token master/contract address")
 
     if (
