@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from unittest.mock import patch
 
-from sqlalchemy import create_engine, insert, select, text
+from sqlalchemy import create_engine, insert, text
 from sqlalchemy.exc import DBAPIError
 
 from financial_ledger import (
