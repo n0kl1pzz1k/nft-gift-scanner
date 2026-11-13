@@ -315,11 +315,15 @@ def create_payment_invoice(*, user_id: str, asset_id: str, chain: str, master_ad
     recipient_address: str, amount_raw: int, payload: str, expires_at: int,
     engine: Engine | None = None) -> str:
     """Server-owned invoice creation. Crypto rails are disabled until policy approval."""
-    from asset_policy import get_asset, is_crypto_payment_enabled
+    from asset_policy import get_asset, is_crypto_payment_enabled, validate_payment_amount
     asset = get_asset(asset_id, chain, master_address, "external")
     if not is_crypto_payment_enabled(asset_id):
         raise PermissionError("Crypto payment rail is disabled by compliance policy")
-    if amount_raw <= 0 or expires_at <= int(time.time()) or not payload:
+    try:
+        amount_raw = validate_payment_amount(asset_id, amount_raw)
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
+    if expires_at <= int(time.time()) or not payload:
         raise ValueError("Invalid payment invoice")
     import secrets
     invoice_id = "gri_" + secrets.token_urlsafe(24)
