@@ -10,12 +10,13 @@ from financial_ledger import (
     get_account_balance,
     init_financial_schema,
     settle_telegram_stars_payment,
+    record_telegram_stars_terms_acceptance,
 )
 
 
 class TelegramStarsLedgerTests(unittest.TestCase):
     def setUp(self):
-        self.env = patch.dict('os.environ', {'MARKETPLACE_REAL_DEALS_ENABLED': 'true'})
+        self.env = patch.dict('os.environ', {'MARKETPLACE_REAL_DEALS_ENABLED': 'true', 'TELEGRAM_STARS_TERMS_VERSION': 'terms-v1', 'TERMS_URL': 'https://example.invalid/terms'})
         self.env.start()
         self.engine = create_engine(
             "sqlite://",
@@ -50,7 +51,7 @@ class TelegramStarsLedgerTests(unittest.TestCase):
             """))
             connection.execute(text("""
                 INSERT INTO demo_deals(id,order_id,listing_owner_id,offer_sender_id,agreed_amount,currency,is_real,status)
-                VALUES ('deal-1','order-1','seller-10','buyer-20','75','XTR',1,'payment_not_enabled')
+                VALUES ('deal-1','order-1','10010','10020','75','XTR',1,'payment_not_enabled')
             """))
         init_financial_schema(self.engine)
 
@@ -59,9 +60,40 @@ class TelegramStarsLedgerTests(unittest.TestCase):
         self.env.stop()
 
     def _invoice(self):
-        return create_telegram_stars_invoice(
-            deal_id="deal-1", buyer_user_id="buyer-20", engine=self.engine, now=1000
+        record_telegram_stars_terms_acceptance(
+            user_id="10020", engine=self.engine, now=900
         )
+        return create_telegram_stars_invoice(
+            deal_id="deal-1", buyer_user_id="10020", engine=self.engine, now=1000
+        )
+
+    def test_current_terms_acceptance_is_required_and_idempotent(self):
+        with self.assertRaises(PermissionError):
+            create_telegram_stars_invoice(
+                deal_id="deal-1", buyer_user_id="10020", engine=self.engine, now=1000
+            )
+        first = record_telegram_stars_terms_acceptance(
+            user_id="10020", engine=self.engine, now=900
+        )
+        second = record_telegram_stars_terms_acceptance(
+            user_id="10020", engine=self.engine, now=901
+        )
+        self.assertFalse(first["duplicate"])
+        self.assertTrue(second["duplicate"])
+        self.assertEqual(first["acceptance_id"], second["acceptance_id"])
+        self.assertEqual(self._invoice()["amount_stars"], 75)
+
+    def test_terms_acceptance_is_bound_to_current_version_and_https_url(self):
+        with patch.dict("os.environ", {"TELEGRAM_STARS_TERMS_VERSION": "terms-v2"}):
+            with self.assertRaises(ValueError):
+                record_telegram_stars_terms_acceptance(
+                    user_id="10020", terms_version="terms-v1", engine=self.engine, now=900
+                )
+        with patch.dict("os.environ", {"TERMS_URL": "http://example.invalid/terms"}):
+            with self.assertRaises(RuntimeError):
+                record_telegram_stars_terms_acceptance(
+                    user_id="10020", engine=self.engine, now=900
+                )
 
     def test_real_deal_feature_flag_is_fail_closed(self):
         with patch.dict("os.environ", {"MARKETPLACE_REAL_DEALS_ENABLED": "false"}):
@@ -79,14 +111,14 @@ class TelegramStarsLedgerTests(unittest.TestCase):
         with self.engine.begin() as connection:
             connection.execute(text("UPDATE demo_deals SET is_real=0 WHERE id='deal-1'"))
         self.assertFalse(approve_telegram_stars_pre_checkout(
-            payload=invoice["payload"], buyer_user_id="buyer-20", currency="XTR",
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
             amount_stars=75, query_id="query-demo", engine=self.engine, now=1010
         ))
 
     def test_only_buyer_can_create_stars_invoice(self):
         with self.assertRaises(PermissionError):
             create_telegram_stars_invoice(
-                deal_id="deal-1", buyer_user_id="seller-10", engine=self.engine, now=1000
+                deal_id="deal-1", buyer_user_id="10010", engine=self.engine, now=1000
             )
 
     def test_only_xtr_and_integer_amounts_are_accepted(self):
@@ -113,7 +145,7 @@ class TelegramStarsLedgerTests(unittest.TestCase):
             amount_stars=74, query_id="query-1", engine=self.engine, now=1010
         ))
         self.assertFalse(approve_telegram_stars_pre_checkout(
-            payload=invoice["payload"], buyer_user_id="seller-10", currency="XTR",
+            payload=invoice["payload"], buyer_user_id="10010", currency="XTR",
             amount_stars=75, query_id="query-1", engine=self.engine, now=1010
         ))
         self.assertTrue(approve_telegram_stars_pre_checkout(
