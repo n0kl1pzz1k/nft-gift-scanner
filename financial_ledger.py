@@ -82,6 +82,19 @@ withdrawal_requests = Table("withdrawal_requests", metadata,
                     name="ck_withdrawal_status"))
 Index("idx_withdrawal_user_status", withdrawal_requests.c.user_id,
       withdrawal_requests.c.status, withdrawal_requests.c.created_at)
+withdrawal_events = Table("withdrawal_events", metadata,
+    Column("event_id", String(36), primary_key=True),
+    Column("request_id", String(36), ForeignKey("withdrawal_requests.request_id"), nullable=False),
+    Column("actor_type", String(16), nullable=False),
+    Column("actor_id", String(64), nullable=False, default=""),
+    Column("event_type", String(32), nullable=False),
+    Column("event_data", String(1000), nullable=False, default="{}"),
+    Column("created_at", BigInteger, nullable=False),
+    CheckConstraint("actor_type IN ('user','system','admin')", name="ck_withdrawal_event_actor"),
+    CheckConstraint("event_type IN ('requested','processing','submitted','confirmed','failed','cancelled','reconciliation_required')",
+                    name="ck_withdrawal_event_type"))
+Index("idx_withdrawal_events_request", withdrawal_events.c.request_id,
+      withdrawal_events.c.created_at)
 payment_events = Table("payment_events", metadata,
     Column("payment_event_id", String(36), primary_key=True),
     Column("invoice_id", String(64), ForeignKey("payment_invoices.invoice_id"), nullable=False, unique=True),
@@ -207,7 +220,7 @@ def init_financial_schema(engine: Engine | None = None) -> None:
     metadata.create_all(db)
     if db.dialect.name == "sqlite":
         with db.begin() as conn:
-            for table in ("ledger_entries", "ledger_lines", "payment_events", "ton_chain_observations", "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances"):
+            for table in ("ledger_entries", "ledger_lines", "payment_events", "ton_chain_observations", "withdrawal_events", "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances"):
                 for action in ("UPDATE", "DELETE"):
                     conn.execute(text(f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_{action.lower()} BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT, 'append-only financial record'); END"))
 
@@ -824,6 +837,17 @@ def verify_ton_payment_trace(trace: dict[str, Any], invoice: dict[str, Any]) -> 
         raise ValueError("Unexpected Jetton transfer notification opcode")
 
 
+def _record_withdrawal_event(conn: Connection, *, request_id: str, actor_type: str,
+                             actor_id: str, event_type: str, data: dict[str, Any],
+                             now: int) -> None:
+    conn.execute(insert(withdrawal_events).values(
+        event_id=str(uuid.uuid4()), request_id=request_id, actor_type=actor_type,
+        actor_id=str(actor_id or "")[:64], event_type=event_type,
+        event_data=json.dumps(data, sort_keys=True, separators=(",", ":"))[:1000],
+        created_at=now,
+    ))
+
+
 def _account_balance_in_connection(conn: Connection, account_id: str, currency: str) -> int:
     values = conn.execute(select(lines.c.amount_raw).where(
         lines.c.account_id == account_id, lines.c.currency == currency.upper()
@@ -941,6 +965,10 @@ def request_ton_withdrawal(*, user_id: str, asset_id: str, destination_address: 
                 {"account_id": f"liability:withdrawal_hold:{request_id}:{asset_id}",
                  "account_type": "liability", "currency": asset_id, "amount_raw": -total},
             ], now=current)
+        _record_withdrawal_event(conn, request_id=request_id, actor_type="user",
+            actor_id=uid, event_type="requested",
+            data={"asset_id": asset_id, "amount_raw": int(amount_raw), "fee_raw": int(fee_raw)},
+            now=current)
         row = conn.execute(select(withdrawal_requests).where(
             withdrawal_requests.c.request_id == request_id)).mappings().one()
         return {**dict(row), "duplicate": False}
@@ -956,10 +984,13 @@ def advance_withdrawal_to_processing(*, request_id: str, engine: Engine | None =
         row = conn.execute(statement).mappings().first()
         if row is None or row["status"] != "requested":
             raise ValueError("Withdrawal is not available for processing")
+        current = int(now or time.time())
         conn.execute(withdrawal_requests.update().where(
             withdrawal_requests.c.request_id == request_id,
             withdrawal_requests.c.status == "requested"
-        ).values(status="processing", updated_at=int(now or time.time())))
+        ).values(status="processing", updated_at=current))
+        _record_withdrawal_event(conn, request_id=request_id, actor_type="system",
+            actor_id="", event_type="processing", data={}, now=current)
 
 
 def mark_withdrawal_submitted(*, request_id: str, tx_hash: str,
@@ -975,6 +1006,8 @@ def mark_withdrawal_submitted(*, request_id: str, tx_hash: str,
         ).values(status="submitted", tx_hash=tx, updated_at=int(now or time.time())))
         if changed.rowcount != 1:
             raise ValueError("Only a processing withdrawal can be submitted")
+        _record_withdrawal_event(conn, request_id=request_id, actor_type="system",
+            actor_id="", event_type="submitted", data={"tx_hash": tx}, now=int(now or time.time()))
 
 
 def confirm_ton_withdrawal(*, request_id: str, tx_hash: str,
@@ -1007,6 +1040,8 @@ def confirm_ton_withdrawal(*, request_id: str, tx_hash: str,
         conn.execute(withdrawal_requests.update().where(
             withdrawal_requests.c.request_id == request_id
         ).values(status="confirmed", updated_at=current))
+        _record_withdrawal_event(conn, request_id=request_id, actor_type="system",
+            actor_id="", event_type="confirmed", data={"tx_hash": tx_hash}, now=current)
         return {"confirmed": True, "duplicate": False, "entry_id": journal["entry_id"]}
 
 
@@ -1022,6 +1057,9 @@ def quarantine_ton_withdrawal(*, request_id: str, reason: str,
                  updated_at=int(now or time.time())))
         if changed.rowcount != 1:
             raise ValueError("Only an in-flight withdrawal can be quarantined")
+        _record_withdrawal_event(conn, request_id=request_id, actor_type="system",
+            actor_id="", event_type="reconciliation_required", data={"reason": clean},
+            now=int(now or time.time()))
 
 
 def release_ton_withdrawal(*, request_id: str, reason: str,
@@ -1054,8 +1092,10 @@ def release_ton_withdrawal(*, request_id: str, reason: str,
                  "account_type": "liability", "currency": asset_id, "amount_raw": -total},
             ], now=current)
         status = "cancelled" if row["status"] == "requested" else "failed"
+        clean_reason = " ".join(str(reason or "").split())[:500]
         conn.execute(withdrawal_requests.update().where(
             withdrawal_requests.c.request_id == request_id
-        ).values(status=status, failure_reason=" ".join(str(reason or "").split())[:500],
-                 updated_at=current))
+        ).values(status=status, failure_reason=clean_reason, updated_at=current))
+        _record_withdrawal_event(conn, request_id=request_id, actor_type="system",
+            actor_id="", event_type=status, data={"reason": clean_reason}, now=current)
         return {"released": True, "duplicate": False, "entry_id": journal["entry_id"]}
