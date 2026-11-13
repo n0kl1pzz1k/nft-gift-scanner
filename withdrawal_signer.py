@@ -237,6 +237,12 @@ async def execute_approved_withdrawal(*, request_id: str,
         raise PermissionError("TON withdrawals are disabled by policy")
     if os.getenv("TON_WITHDRAWAL_EXECUTOR_ENABLED", "false").strip().lower() != "true":
         raise PermissionError("TON withdrawal executor is disabled")
+    release_gates = (
+        "KZ_LEGAL_REVIEW_APPROVED", "KZ_DATA_RESIDENCY_VERIFIED",
+        "KZ_TAX_REVIEW_APPROVED", "KZ_SECURITY_REVIEW_APPROVED",
+    )
+    if not all(os.getenv(name, "false").strip().lower() == "true" for name in release_gates):
+        raise PermissionError("Kazakhstan legal, data, tax and security sign-offs are required")
     db = engine or get_engine()
     init_withdrawal_signer_schema(db)
     current = int(now or time.time())
