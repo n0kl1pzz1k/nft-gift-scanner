@@ -101,6 +101,29 @@ class FinancialLedgerTests(unittest.TestCase):
         self.assertTrue(second["duplicate"])
         self.assertEqual(get_account_balance("liability:user:42:usdt-ton", "usdt-ton", self.engine), -100)
 
+    def test_verified_trace_cannot_settle_without_provider_observation_quorum(self):
+        invoice = {
+            "invoice_id": "gri_no_quorum", "user_id": "88", "asset_id": "GRAM",
+            "chain": "ton-mainnet", "master_address": "", "asset_kind": "native",
+            "recipient_address": "0:" + "66" * 32, "amount_raw": "10",
+            "payload": "no-quorum", "expires_at": int(time.time()) + 600,
+            "status": "pending", "created_at": int(time.time()),
+        }
+        with self.engine.begin() as conn:
+            conn.execute(insert(invoices).values(**invoice))
+        trace = {
+            "chain": "ton-mainnet", "asset_kind": "native",
+            "sender_address": "0:" + "77" * 32,
+            "recipient_address": invoice["recipient_address"], "amount_raw": 10,
+            "payload": "no-quorum", "successful": True, "bounced": False,
+            "finalized": True, "tx_hash": "without-quorum", "event_index": 0,
+        }
+        with self.assertRaises(PermissionError):
+            settle_verified_ton_payment(invoice_id="gri_no_quorum", trace=trace, engine=self.engine)
+        self.assertEqual(
+            get_account_balance("liability:user:88:GRAM", "GRAM", self.engine), 0
+        )
+
     def test_crypto_invoice_creation_is_disabled_by_default(self):
         from financial_ledger import create_payment_invoice
         with self.assertRaises(PermissionError):
