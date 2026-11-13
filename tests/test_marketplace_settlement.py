@@ -17,7 +17,7 @@ from marketplace_inventory import (
 from marketplace_settlement import (
     create_deal_from_reservation, init_marketplace_settlement_schema,
     mark_deal_nft_transfer_pending, reserve_verified_deal_payment,
-    confirm_deal_nft_transfer, refund_unfulfilled_deal, expire_unpaid_marketplace_deals, open_deal_dispute, resolve_deal_dispute, list_reconciliation_required_deals, add_deal_reconciliation_note,
+    confirm_deal_nft_transfer, refund_unfulfilled_deal, expire_unpaid_marketplace_deals, open_deal_dispute, resolve_deal_dispute, list_reconciliation_required_deals, add_deal_reconciliation_note, marketplace_deal_events,
 )
 
 
@@ -167,10 +167,20 @@ class MarketplaceSettlementTests(unittest.TestCase):
             reason="Buyer cannot confirm the NFT transfer result",
             engine=self.engine, now=160,
         )
+        with self.engine.begin() as conn:
+            for event_number in range(24):
+                conn.execute(marketplace_deal_events.insert().values(
+                    event_id=f"reconciliation-test-{event_number}-{self.deal_id}",
+                    deal_id=self.deal_id, actor_type="system", actor_id="",
+                    event_type="chain_observation_recorded", event_data="{}",
+                    created_at=161 + event_number,
+                ))
         queue = list_reconciliation_required_deals(
             engine=self.engine, limit=10, offset=0,
         )
+        self.assertEqual(queue["total"], 1)
         self.assertEqual(len(queue["items"]), 1)
+        self.assertEqual(len(queue["items"][0]["events"]), 25)
         item = queue["items"][0]
         self.assertEqual(item["deal_id"], self.deal_id)
         self.assertEqual(item["custody_state"], "escrowed")
