@@ -23,7 +23,8 @@ Each escrow deployment receives exactly three distinct signer addresses and thre
   "arbitrators": {
     "members": ["<arbitrator-1>", "<arbitrator-2>", "<arbitrator-3>"],
     "threshold": 2
-  }
+  },
+  "neutral_resolver": "<platform-approved-neutral-custodian-address>"
 }
 ```
 
@@ -41,6 +42,7 @@ The values above are placeholders, not usable addresses. The first end-to-end te
 
 - Exactly three members in each set for MVP; all addresses must be valid, non-zero and pairwise distinct within each set.
 - Signer and arbitrator sets must be disjoint in MVP. Seller and buyer cannot be members of either authority set.
+- The neutral resolver/custodian address is selected only from the platform registry, is distinct from seller/buyer and authority members, and is fixed per deal. It is the bounded custody handoff destination if the final appeal deadline expires without a safe ownership decision.
 - Threshold must be exactly 2 for the first testnet vertical slice. The schema carries the threshold explicitly so a later reviewed version can support other quorum sizes without hardcoding people.
 - The network identifier, deal ID, escrow address, action, amount/currency where applicable, Telegram charge reference hash, expiry and unique nonce are included in signed authorization data.
 - A signature or vote is counted once per configured member. Replays, cross-deal reuse, wrong-network messages, expired authorizations and conflicting payloads are rejected.
@@ -71,5 +73,6 @@ The values above are placeholders, not usable addresses. The first end-to-end te
 7. Getters return the exact immutable configuration and configuration hash.
 8. Seller/buyer API payloads cannot override authority members; attempted injection is rejected.
 9. A single compromised signer cannot authorize payment, release, dispute resolution, recovery, pause bypass or key rotation; emergency rotation requires both remaining original signers.
+10. Seller/buyer cannot set or replace the neutral resolver; missing resolver configuration blocks deal creation.
 
 The existing prototype does not yet satisfy these acceptance tests. This document defines the target; it is not evidence of implementation or testnet deployment.
