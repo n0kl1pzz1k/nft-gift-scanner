@@ -29,14 +29,14 @@ class PostgresMigrationSmokeTests(unittest.TestCase):
     def test_schema_is_at_latest_revision_and_contains_core_tables(self):
         with self.engine.connect() as connection:
             revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            self.assertEqual(revision, "0003_telegram_stars_payments")
+            self.assertEqual(revision, "0004_telegram_stars_terms")
             tables = set(inspect(connection).get_table_names())
         expected = {
             "telegram_users", "telegram_sessions", "demo_orders", "demo_offers",
             "demo_deals", "demo_deal_events", "demo_notifications",
             "catalogue_gifts", "ledger_accounts", "ledger_entries", "ledger_lines",
             "payment_invoices", "payment_events", "telegram_stars_invoices",
-            "telegram_stars_payments", "telegram_stars_refund_events",
+            "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances",
         }
         self.assertTrue(expected.issubset(tables), f"Missing tables: {sorted(expected - tables)}")
 
