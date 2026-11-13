@@ -50,6 +50,10 @@ def _validate_seller_nft_request(
     verified_wallet_address = canonical_ton_address(verified_wallet_address)
     collection_address = canonical_ton_address(collection_address)
     item_address = canonical_ton_address(item_address)
+    if not all(value.startswith("0:") for value in (
+        verified_wallet_address, collection_address, item_address,
+    )):
+        raise ValueError("TON NFT inventory only supports basechain workchain 0 addresses")
     try:
         canonical_index = str(int(token_id))
     except (TypeError, ValueError):
