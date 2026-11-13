@@ -75,10 +75,15 @@ class NftEscrowMonitorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["activated"])
         self.assertEqual(result["status"], "active")
         with self.engine.connect() as conn:
-            state = conn.execute(text(
-                "SELECT custody_state FROM marketplace_assets WHERE asset_id=:id"
+            row = conn.execute(text(
+                "SELECT custody_state, owner_wallet_address FROM marketplace_assets WHERE asset_id=:id"
+            ), {"id": self.asset_id}).one()
+            proof_count = conn.execute(text(
+                "SELECT COUNT(*) FROM marketplace_ownership_proofs WHERE asset_id=:id"
             ), {"id": self.asset_id}).scalar_one()
-        self.assertEqual(state, "escrowed")
+        self.assertEqual(row.custody_state, "escrowed")
+        self.assertEqual(row.owner_wallet_address, self.escrow)
+        self.assertEqual(proof_count, 2)
 
     async def test_provider_disagreement_or_wrong_escrow_owner_blocks_publication(self):
         self.providers[1].transfer = {"tx_hash": "different", "event_index": 0}
