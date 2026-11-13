@@ -53,7 +53,7 @@ class PostgresMigrationSmokeTests(unittest.TestCase):
         proof_indexes = {
             index["name"] for index in inspect(self.engine).get_indexes("marketplace_ownership_proofs")
         }
-        self.assertIn("idx_marketplace_ownership_proofs_asset_recorded", proof_indexes)
+        self.assertIn("idx_marketplace_ownership_proofs_asset_source_recorded", proof_indexes)
 
     def test_financial_journal_is_append_only_in_postgres(self):
         suffix = uuid.uuid4().hex
