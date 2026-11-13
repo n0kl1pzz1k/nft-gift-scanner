@@ -26,8 +26,8 @@ fun sendEscrowNft(nftItem: address, recipient: address, queryId: uint64) {
             newOwnerAddress: recipient,
             sendExcessesTo: contract.getAddress(),
             customPayload: null,
-            forwardGrams: 0,
-            forwardPayload: createEmptySlice(),
+            forwardGrams: grams("0.000000001"),
+            forwardPayload: beginCell().storeUint(0, 1).toSlice(),
         },
     });
     transfer.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
