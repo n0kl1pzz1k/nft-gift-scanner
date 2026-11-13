@@ -29,7 +29,7 @@ class PostgresMigrationSmokeTests(unittest.TestCase):
     def test_schema_is_at_latest_revision_and_contains_core_tables(self):
         with self.engine.connect() as connection:
             revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            self.assertEqual(revision, "0011_withdrawal_approvals")
+            self.assertEqual(revision, "0012_expire_unpaid_marketplace_deals")
             connection.execute(text(
                 "SELECT reconciliation_note FROM telegram_stars_refund_requests LIMIT 0"
             ))
@@ -40,7 +40,7 @@ class PostgresMigrationSmokeTests(unittest.TestCase):
             "demo_deals", "demo_deal_events", "demo_notifications",
             "catalogue_gifts", "ledger_accounts", "ledger_entries", "ledger_lines",
             "payment_invoices", "payment_events", "telegram_stars_invoices",
-            "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances", "telegram_stars_refund_requests", "marketplace_assets", "marketplace_ownership_proofs", "marketplace_listings", "marketplace_reservations", "marketplace_listing_events", "ton_chain_observations", "withdrawal_requests", "withdrawal_events", "verified_wallets",
+            "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances", "telegram_stars_refund_requests", "marketplace_assets", "marketplace_ownership_proofs", "marketplace_listings", "marketplace_reservations", "marketplace_listing_events", "marketplace_deals", "marketplace_deal_events", "ton_chain_observations", "withdrawal_requests", "withdrawal_events", "verified_wallets",
         }
         self.assertTrue(expected.issubset(tables), f"Missing tables: {sorted(expected - tables)}")
 
