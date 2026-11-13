@@ -41,12 +41,47 @@ invoices = Table("payment_invoices", metadata,
     Column("asset_id", String(32), nullable=False),
     Column("chain", String(32), nullable=False),
     Column("master_address", String(128), nullable=False),
+    Column("asset_kind", String(16), nullable=False, default="jetton"),
     Column("recipient_address", String(128), nullable=False),
     Column("amount_raw", String(80), nullable=False),
     Column("payload", String(256), nullable=False, unique=True),
     Column("expires_at", BigInteger, nullable=False),
     Column("status", String(24), nullable=False),
     Column("created_at", BigInteger, nullable=False))
+ton_chain_observations = Table("ton_chain_observations", metadata,
+    Column("observation_id", String(36), primary_key=True),
+    Column("network", String(32), nullable=False),
+    Column("tx_hash", String(128), nullable=False),
+    Column("event_index", BigInteger, nullable=False),
+    Column("asset_id", String(32), nullable=False),
+    Column("provider_id", String(64), nullable=False),
+    Column("evidence_hash", String(64), nullable=False),
+    Column("finalized", Integer, nullable=False),
+    Column("observed_at", BigInteger, nullable=False),
+    UniqueConstraint("network", "tx_hash", "event_index", "asset_id", "provider_id",
+                     name="uq_ton_observation_provider_event"))
+withdrawal_requests = Table("withdrawal_requests", metadata,
+    Column("request_id", String(36), primary_key=True),
+    Column("user_id", String(64), nullable=False),
+    Column("asset_id", String(32), nullable=False),
+    Column("network", String(32), nullable=False),
+    Column("destination_address", String(128), nullable=False),
+    Column("amount_raw", String(80), nullable=False),
+    Column("fee_raw", String(80), nullable=False, default="0"),
+    Column("status", String(32), nullable=False),
+    Column("idempotency_key", String(200), nullable=False, unique=True),
+    Column("request_hash", String(64), nullable=False),
+    Column("tx_hash", String(128), unique=True),
+    Column("failure_reason", String(500)),
+    Column("created_at", BigInteger, nullable=False),
+    Column("updated_at", BigInteger, nullable=False),
+    CheckConstraint("network='ton-mainnet'", name="ck_withdrawal_network"),
+    CheckConstraint("CAST(amount_raw AS BIGINT) > 0", name="ck_withdrawal_positive_amount"),
+    CheckConstraint("CAST(fee_raw AS BIGINT) >= 0", name="ck_withdrawal_nonnegative_fee"),
+    CheckConstraint("status IN ('requested','processing','submitted','confirmed','failed','reconciliation_required','cancelled')",
+                    name="ck_withdrawal_status"))
+Index("idx_withdrawal_user_status", withdrawal_requests.c.user_id,
+      withdrawal_requests.c.status, withdrawal_requests.c.created_at)
 payment_events = Table("payment_events", metadata,
     Column("payment_event_id", String(36), primary_key=True),
     Column("invoice_id", String(64), ForeignKey("payment_invoices.invoice_id"), nullable=False, unique=True),
@@ -166,7 +201,7 @@ def init_financial_schema(engine: Engine | None = None) -> None:
             if not db.dialect.has_table(conn, "alembic_version"):
                 raise RuntimeError("PostgreSQL schema must be initialized through Alembic migrations")
             version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-            if version != "0007_stars_refund_reconciliation":
+            if version != "0008_chain_withdrawal_inventory":
                 raise RuntimeError("Financial database migration is missing or not at the expected revision")
         return
     metadata.create_all(db)
@@ -270,7 +305,7 @@ def create_payment_invoice(*, user_id: str, asset_id: str, chain: str, master_ad
     with db.begin() as conn:
         conn.execute(insert(invoices).values(invoice_id=invoice_id, user_id=str(user_id),
             asset_id=asset.asset_id, chain=asset.chain.value, master_address=asset.master_address,
-            recipient_address=recipient_address, amount_raw=str(amount_raw), payload=payload,
+            asset_kind=asset.asset_kind, recipient_address=recipient_address, amount_raw=str(amount_raw), payload=payload,
             expires_at=expires_at, status="pending", created_at=int(time.time())))
     return invoice_id
 
@@ -739,38 +774,65 @@ def fail_telegram_stars_refund(*, request_id: str, reason: str,
         ))
 
 def verify_ton_payment_trace(trace: dict[str, Any], invoice: dict[str, Any]) -> None:
-    """Validate normalized evidence from a trusted indexer, never from a browser."""
-    required = ("chain", "master_address", "source_jetton_wallet", "expected_source_jetton_wallet",
-        "recipient_address", "amount_raw", "payload", "opcode", "successful", "bounced",
-        "finalized", "tx_hash", "event_index")
-    if any(k not in trace for k in required):
+    """Validate normalized evidence from trusted TON providers, never client-supplied claims."""
+    common = ("chain", "recipient_address", "amount_raw", "payload", "successful",
+              "bounced", "finalized", "tx_hash", "event_index")
+    if any(key not in trace for key in common):
         raise ValueError("Incomplete on-chain evidence")
     if trace["chain"] != "ton-mainnet" or trace["chain"] != invoice["chain"]:
         raise ValueError("Wrong blockchain network")
-    if trace["master_address"] != invoice["master_address"]:
-        raise ValueError("Token master mismatch")
-    if trace["source_jetton_wallet"] != trace["expected_source_jetton_wallet"]:
-        raise ValueError("Sender is not the canonical Jetton wallet")
     if trace["recipient_address"] != invoice["recipient_address"]:
         raise ValueError("Payment recipient mismatch")
     if int(trace["amount_raw"]) != int(invoice["amount_raw"]):
         raise ValueError("Payment amount mismatch")
     if trace["payload"] != invoice["payload"]:
         raise ValueError("Invoice payload mismatch")
-    if str(trace["opcode"]).lower() not in {"0x7362d09c", "1935855772"}:
-        raise ValueError("Unexpected Jetton transfer notification opcode")
     if trace["successful"] is not True or trace["bounced"] is not False or trace["finalized"] is not True:
         raise ValueError("Transaction unsuccessful, bounced, or not finalized")
     if not trace["tx_hash"] or int(trace["event_index"]) < 0:
         raise ValueError("Invalid chain event identity")
 
+    asset_kind = invoice.get("asset_kind", "jetton")
+    if asset_kind == "native":
+        if invoice["asset_id"] != "GRAM" or invoice["master_address"] not in ("", "native"):
+            raise ValueError("Native GRAM invoice has an invalid asset identity")
+        if trace.get("asset_kind") != "native" or not trace.get("sender_address"):
+            raise ValueError("Native GRAM transfer evidence is incomplete")
+        if trace.get("master_address") or trace.get("opcode") is not None:
+            raise ValueError("Native GRAM must not be represented as a Jetton transfer")
+        return
+
+    jetton_required = ("master_address", "source_jetton_wallet",
+                       "expected_source_jetton_wallet", "opcode")
+    if any(key not in trace for key in jetton_required):
+        raise ValueError("Incomplete Jetton transfer evidence")
+    if trace["master_address"] != invoice["master_address"]:
+        raise ValueError("Token master mismatch")
+    if trace["source_jetton_wallet"] != trace["expected_source_jetton_wallet"]:
+        raise ValueError("Sender is not the canonical Jetton wallet")
+    if str(trace["opcode"]).lower() not in {"0x7362d09c", "1935855772"}:
+        raise ValueError("Unexpected Jetton transfer notification opcode")
+
+
+def _account_balance_in_connection(conn: Connection, account_id: str, currency: str) -> int:
+    values = conn.execute(select(lines.c.amount_raw).where(
+        lines.c.account_id == account_id, lines.c.currency == currency.upper()
+    )).scalars()
+    return sum(int(value) for value in values)
+
+
 def settle_verified_ton_payment(*, invoice_id: str, trace: dict[str, Any],
-                                engine: Engine | None = None) -> dict[str, Any]:
-    """Atomically deduplicate a verified chain event and post the ledger entry."""
+                                engine: Engine | None = None,
+                                now: int | None = None) -> dict[str, Any]:
+    """Atomically verify, deduplicate and credit one finalized TON native/Jetton transfer."""
     db = engine or get_engine()
     init_financial_schema(db)
+    current = int(now or time.time())
+    statement = select(invoices).where(invoices.c.invoice_id == invoice_id)
+    if db.dialect.name == "postgresql":
+        statement = statement.with_for_update()
     with db.begin() as conn:
-        row = conn.execute(select(invoices).where(invoices.c.invoice_id == invoice_id)).mappings().first()
+        row = conn.execute(statement).mappings().first()
         if row is None:
             raise ValueError("Unknown payment invoice")
         invoice = dict(row)
@@ -781,21 +843,192 @@ def settle_verified_ton_payment(*, invoice_id: str, trace: dict[str, Any],
             payment_events.c.asset_id == invoice["asset_id"])).first()
         if duplicate:
             return {"credited": False, "duplicate": True}
-        if invoice["status"] != "pending" or int(invoice["expires_at"]) < int(time.time()):
+        if invoice["status"] != "pending" or int(invoice["expires_at"]) <= current:
             raise ValueError("Invoice is not payable")
         event_id = str(uuid.uuid4())
         conn.execute(insert(payment_events).values(payment_event_id=event_id, invoice_id=invoice_id,
             chain=trace["chain"], tx_hash=trace["tx_hash"], event_index=int(trace["event_index"]),
             asset_id=invoice["asset_id"], amount_raw=str(int(trace["amount_raw"])),
-            recipient_address=trace["recipient_address"], created_at=int(time.time())))
-        result = _post(conn, idempotency_key=f"chain:{trace['chain']}:{trace['tx_hash']}:{trace['event_index']}:{invoice['asset_id']}",
+            recipient_address=trace["recipient_address"], created_at=current))
+        asset_id = invoice["asset_id"]
+        result = _post(conn,
+            idempotency_key=f"chain:{trace['chain']}:{trace['tx_hash']}:{trace['event_index']}:{asset_id}",
             source_type="verified_chain_payment", source_reference=invoice_id,
             postings=[
-                {"account_id": f"asset:clearing:{invoice['asset_id']}", "account_type": "asset",
-                 "currency": invoice["asset_id"], "amount_raw": int(trace["amount_raw"])},
-                {"account_id": f"liability:user:{invoice['user_id']}:{invoice['asset_id']}",
-                 "account_type": "liability", "currency": invoice["asset_id"],
+                {"account_id": f"asset:clearing:{asset_id}", "account_type": "asset",
+                 "currency": asset_id, "amount_raw": int(trace["amount_raw"])},
+                {"account_id": f"liability:user:{invoice['user_id']}:{asset_id}",
+                 "account_type": "liability", "currency": asset_id,
                  "amount_raw": -int(trace["amount_raw"])},
-            ], now=int(time.time()))
+            ], now=current)
         conn.execute(invoices.update().where(invoices.c.invoice_id == invoice_id).values(status="paid"))
         return {"credited": True, "duplicate": False, "entry_id": result["entry_id"], "event_id": event_id}
+
+
+def request_ton_withdrawal(*, user_id: str, asset_id: str, destination_address: str,
+                           amount_raw: int, idempotency_key: str, fee_raw: int = 0,
+                           engine: Engine | None = None, now: int | None = None) -> dict[str, Any]:
+    """Reserve a user's available TON-denominated liability once; this never signs or broadcasts."""
+    from asset_policy import ASSETS
+    db = engine or get_engine()
+    init_financial_schema(db)
+    uid = str(user_id).strip()
+    asset = ASSETS.get(asset_id)
+    destination = str(destination_address or "").strip()
+    if not uid.isdigit() or int(uid) <= 0 or asset is None or asset.chain.value != "ton-mainnet":
+        raise ValueError("Unsupported withdrawal owner or asset")
+    if not destination or len(destination) > 128 or any(ch.isspace() for ch in destination):
+        raise ValueError("A valid TON destination address is required")
+    if int(amount_raw) <= 0 or int(fee_raw) < 0 or not idempotency_key or len(idempotency_key) > 200:
+        raise ValueError("Invalid withdrawal amount, fee or idempotency key")
+    total = int(amount_raw) + int(fee_raw)
+    request_hash = _hash({"user_id": uid, "asset_id": asset_id, "destination": destination,
+                          "amount_raw": total, "fee_raw": int(fee_raw)})
+    current = int(now or time.time())
+    statement = select(withdrawal_requests).where(
+        withdrawal_requests.c.idempotency_key == idempotency_key)
+    if db.dialect.name == "postgresql":
+        statement = statement.with_for_update()
+    with db.begin() as conn:
+        existing = conn.execute(statement).mappings().first()
+        if existing:
+            if existing["request_hash"] != request_hash:
+                raise ValueError("Withdrawal idempotency key was reused with different details")
+            return {**dict(existing), "duplicate": True}
+        user_account = f"liability:user:{uid}:{asset_id}"
+        available = -_account_balance_in_connection(conn, user_account, asset_id)
+        if available < total:
+            raise ValueError("Insufficient available balance")
+        request_id = str(uuid.uuid4())
+        conn.execute(insert(withdrawal_requests).values(
+            request_id=request_id, user_id=uid, asset_id=asset_id, network="ton-mainnet",
+            destination_address=destination, amount_raw=str(int(amount_raw)),
+            fee_raw=str(int(fee_raw)), status="requested", idempotency_key=idempotency_key,
+            request_hash=request_hash, created_at=current, updated_at=current,
+        ))
+        _post(conn, idempotency_key="withdrawal-reserve:" + request_id,
+            source_type="withdrawal_reserve", source_reference=request_id,
+            postings=[
+                {"account_id": user_account, "account_type": "liability",
+                 "currency": asset_id, "amount_raw": total},
+                {"account_id": f"liability:withdrawal_hold:{request_id}:{asset_id}",
+                 "account_type": "liability", "currency": asset_id, "amount_raw": -total},
+            ], now=current)
+        row = conn.execute(select(withdrawal_requests).where(
+            withdrawal_requests.c.request_id == request_id)).mappings().one()
+        return {**dict(row), "duplicate": False}
+
+
+def advance_withdrawal_to_processing(*, request_id: str, engine: Engine | None = None,
+                                     now: int | None = None) -> None:
+    db = engine or get_engine()
+    statement = select(withdrawal_requests).where(withdrawal_requests.c.request_id == request_id)
+    if db.dialect.name == "postgresql":
+        statement = statement.with_for_update()
+    with db.begin() as conn:
+        row = conn.execute(statement).mappings().first()
+        if row is None or row["status"] != "requested":
+            raise ValueError("Withdrawal is not available for processing")
+        conn.execute(withdrawal_requests.update().where(
+            withdrawal_requests.c.request_id == request_id,
+            withdrawal_requests.c.status == "requested"
+        ).values(status="processing", updated_at=int(now or time.time())))
+
+
+def mark_withdrawal_submitted(*, request_id: str, tx_hash: str,
+                              engine: Engine | None = None, now: int | None = None) -> None:
+    db = engine or get_engine()
+    tx = str(tx_hash or "").strip()
+    if not tx or len(tx) > 128:
+        raise ValueError("A confirmed broadcast transaction hash is required")
+    with db.begin() as conn:
+        changed = conn.execute(withdrawal_requests.update().where(
+            withdrawal_requests.c.request_id == request_id,
+            withdrawal_requests.c.status == "processing"
+        ).values(status="submitted", tx_hash=tx, updated_at=int(now or time.time())))
+        if changed.rowcount != 1:
+            raise ValueError("Only a processing withdrawal can be submitted")
+
+
+def confirm_ton_withdrawal(*, request_id: str, tx_hash: str,
+                           engine: Engine | None = None, now: int | None = None) -> dict[str, Any]:
+    db = engine or get_engine()
+    current = int(now or time.time())
+    statement = select(withdrawal_requests).where(withdrawal_requests.c.request_id == request_id)
+    if db.dialect.name == "postgresql":
+        statement = statement.with_for_update()
+    with db.begin() as conn:
+        row = conn.execute(statement).mappings().first()
+        if row is None:
+            raise ValueError("Unknown withdrawal")
+        if row["status"] == "confirmed":
+            if row["tx_hash"] != tx_hash:
+                raise ValueError("Confirmed withdrawal hash mismatch")
+            return {"confirmed": False, "duplicate": True}
+        if row["status"] != "submitted" or row["tx_hash"] != tx_hash:
+            raise ValueError("Withdrawal is not submitted with this transaction hash")
+        total = int(row["amount_raw"]) + int(row["fee_raw"])
+        asset_id = row["asset_id"]
+        journal = _post(conn, idempotency_key="withdrawal-settle:" + request_id,
+            source_type="withdrawal_settlement", source_reference=request_id,
+            postings=[
+                {"account_id": f"liability:withdrawal_hold:{request_id}:{asset_id}",
+                 "account_type": "liability", "currency": asset_id, "amount_raw": total},
+                {"account_id": f"asset:clearing:{asset_id}", "account_type": "asset",
+                 "currency": asset_id, "amount_raw": -total},
+            ], now=current)
+        conn.execute(withdrawal_requests.update().where(
+            withdrawal_requests.c.request_id == request_id
+        ).values(status="confirmed", updated_at=current))
+        return {"confirmed": True, "duplicate": False, "entry_id": journal["entry_id"]}
+
+
+def quarantine_ton_withdrawal(*, request_id: str, reason: str,
+                              engine: Engine | None = None, now: int | None = None) -> None:
+    db = engine or get_engine()
+    clean = " ".join(str(reason or "").split())[:500] or "Withdrawal outcome is ambiguous"
+    with db.begin() as conn:
+        changed = conn.execute(withdrawal_requests.update().where(
+            withdrawal_requests.c.request_id == request_id,
+            withdrawal_requests.c.status.in_(("processing", "submitted"))
+        ).values(status="reconciliation_required", failure_reason=clean,
+                 updated_at=int(now or time.time())))
+        if changed.rowcount != 1:
+            raise ValueError("Only an in-flight withdrawal can be quarantined")
+
+
+def release_ton_withdrawal(*, request_id: str, reason: str,
+                           definitive_not_broadcast: bool = False,
+                           engine: Engine | None = None, now: int | None = None) -> dict[str, Any]:
+    """Release a hold only when cancellation or non-broadcast failure is definitive."""
+    if definitive_not_broadcast is not True:
+        raise PermissionError("Funds can only be released after definitive proof that no transfer was broadcast")
+    db = engine or get_engine()
+    current = int(now or time.time())
+    statement = select(withdrawal_requests).where(withdrawal_requests.c.request_id == request_id)
+    if db.dialect.name == "postgresql":
+        statement = statement.with_for_update()
+    with db.begin() as conn:
+        row = conn.execute(statement).mappings().first()
+        if row is None:
+            raise ValueError("Unknown withdrawal")
+        if row["status"] in ("failed", "cancelled"):
+            return {"released": False, "duplicate": True}
+        if row["status"] not in ("requested", "processing"):
+            raise ValueError("Submitted or ambiguous withdrawals cannot release funds")
+        total = int(row["amount_raw"]) + int(row["fee_raw"])
+        asset_id = row["asset_id"]
+        journal = _post(conn, idempotency_key="withdrawal-release:" + request_id,
+            source_type="withdrawal_release", source_reference=request_id,
+            postings=[
+                {"account_id": f"liability:withdrawal_hold:{request_id}:{asset_id}",
+                 "account_type": "liability", "currency": asset_id, "amount_raw": total},
+                {"account_id": f"liability:user:{row['user_id']}:{asset_id}",
+                 "account_type": "liability", "currency": asset_id, "amount_raw": -total},
+            ], now=current)
+        status = "cancelled" if row["status"] == "requested" else "failed"
+        conn.execute(withdrawal_requests.update().where(
+            withdrawal_requests.c.request_id == request_id
+        ).values(status=status, failure_reason=" ".join(str(reason or "").split())[:500],
+                 updated_at=current))
+        return {"released": True, "duplicate": False, "entry_id": journal["entry_id"]}
