@@ -63,3 +63,30 @@ Catalogue and provider integrations are read-only. The separate order-book inter
 - The webhook inbox is transport-level idempotency, not a payment ledger. Telegram Stars invoices, pre-checkout approval, successful-payment fulfillment, refunds and real settlement remain **disabled**. Never mark an order paid from a client callback, screenshot, browser request or unverified webhook.
 - If Telegram Stars is approved for a future release, the server must create invoices from server-owned order/price data in `XTR`, validate `pre_checkout_query` (user, payload, amount, currency, expiry and order state), and treat only Telegram's authenticated `successful_payment` update as payment evidence. Persist charge IDs and a unique transaction record inside one database transaction; make duplicate updates and charge IDs harmless. Do not enable fulfilment until that separate implementation has passed review and tests.
 - GIFT RADAR does not request, store or operate users' seed phrases, private keys, wallet passwords, exchange API keys or account API tokens. It cannot debit, credit or otherwise mutate user balances. Current orders and deal states remain simulation-only.
+
+
+## Financial infrastructure and wallet connection (in progress)
+
+The financial subsystem is isolated from the legacy SQLite marketplace demo database.
+
+- financial_ledger.py implements balanced signed integer-unit postings, immutable journal rows, idempotency keys, account balance projections, server-owned payment invoices and strict normalized TON Jetton trace checks.
+- migrations/ and alembic.ini provide an Alembic migration for PostgreSQL and SQLite CI. Production PostgreSQL is accepted only after revision 0001_financial_ledger is applied.
+- payment_events has unique chain/transaction/event/asset identity and unique invoice binding. Ledger entries, lines and payment events are append-only at the database layer.
+- TON Connect UI is a connect/disconnect-only client integration. It displays the public wallet address. It does not request seed phrases/private keys, sign transactions, store a verified wallet binding, or make payments.
+- /api/wallet/policy advertises the current disabled capabilities.
+- security_controls.py validates browser Origin on mutations and rate-limits API mutations. Redis is required for distributed production enforcement; production mutations fail closed without REDIS_URL. Local process limiter is for development only.
+- access_control.py centralizes buyer/seller/admin role and ownership helpers. Existing admin identity remains allowlisted by server-side Telegram IDs.
+
+### Required deployment configuration (not applied automatically)
+
+1. Provision PostgreSQL and set DATABASE_URL as a Railway secret variable.
+2. Run alembic upgrade head as a controlled release migration before enabling financial services.
+3. Provision Redis and set REDIS_URL as a Railway secret variable. Production mutation endpoints fail closed without it.
+4. Set CORS_ALLOWED_ORIGINS to the exact HTTPS origins used by the Mini App.
+5. Serve tonconnect-manifest.json from the exact public Mini App origin and verify the icon, terms and privacy URLs exist.
+6. Complete TON proof verification before persisting a wallet address. The current UI connection is deliberately non-persistent.
+7. Implement and independently verify a production TON indexer adapter that resolves the canonical Jetton wallet via the master contract and produces the normalized finalized trace required by verify_ton_payment_trace.
+8. Obtain written platform/legal approval for the exact digital-goods payment model. Crypto payment policy remains disabled; GRAM is not allowlisted; TRON remains excluded from Mini App.
+9. Run migration, backup/restore, load, concurrency, and security testing against staging before any production activation.
+
+This work does not migrate the existing marketplace/catalogue SQLite database to PostgreSQL. That migration remains a separate compatibility project because the legacy repository uses SQLite-specific SQL and transaction semantics.
