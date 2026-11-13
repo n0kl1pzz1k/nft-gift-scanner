@@ -39,4 +39,4 @@ jobs:
       - name: Generate typed test wrapper
         run: acton wrapper GiftRadarEscrow
       - name: Run local emulator tests
-        run: acton test --no-studio-reporting
+        run: acton test
