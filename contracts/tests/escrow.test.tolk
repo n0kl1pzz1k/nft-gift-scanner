@@ -368,7 +368,36 @@ get fun `test dispute dismissal requires two distinct arbitrators`() {
         to: escrow.address,
     });
     expect(readEscrowState(escrow).state).toEqual(2);
-    expect(readEscrowState(escrow).disputeApprovals).toEqual(3);
+    expect(readEscrowState(escrow).disputeApprovals).toEqual(0);
+    expect(readEscrowState(escrow).resolutionDecision).toEqual(0);
+
+    // A second dispute cycle must be able to collect a fresh pair of approvals.
+    val secondDispute = net.send(buyer, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: RaiseDispute { queryId: 113, reasonHash: 0xdef003 },
+    }));
+    expect(secondDispute).toHaveSuccessfulTx<RaiseDispute>({
+        from: buyer,
+        to: escrow.address,
+    });
+    val freshFirstApproval = net.send(arb1, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ApproveDisputeResolution {
+            queryId: 114,
+            decision: 2,
+            resolutionHash: 0xdef004,
+        },
+    }));
+    expect(freshFirstApproval).toHaveSuccessfulTx<ApproveDisputeResolution>({
+        from: arb1,
+        to: escrow.address,
+    });
+    expect(readEscrowState(escrow).state).toEqual(7);
+    expect(readEscrowState(escrow).disputeApprovals).toEqual(1);
 }
 
 get fun `test dispute during pending NFT transfer is quarantined`() {
