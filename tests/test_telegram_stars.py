@@ -83,6 +83,17 @@ class TelegramStarsLedgerTests(unittest.TestCase):
         self.assertEqual(first["acceptance_id"], second["acceptance_id"])
         self.assertEqual(self._invoice()["amount_stars"], 75)
 
+    def test_terms_acceptance_audit_record_is_append_only(self):
+        acceptance = record_telegram_stars_terms_acceptance(
+            user_id="10020", engine=self.engine, now=900
+        )
+        with self.assertRaises(Exception):
+            with self.engine.begin() as connection:
+                connection.execute(text(
+                    "UPDATE telegram_stars_terms_acceptances SET terms_url='https://tampered.invalid' "
+                    "WHERE acceptance_id=:id"
+                ), {"id": acceptance["acceptance_id"]})
+
     def test_terms_acceptance_is_bound_to_current_version_and_https_url(self):
         with patch.dict("os.environ", {"TELEGRAM_STARS_TERMS_VERSION": "terms-v2"}):
             with self.assertRaises(ValueError):
