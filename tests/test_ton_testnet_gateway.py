@@ -30,7 +30,7 @@ class TonTestnetGatewayTests(unittest.TestCase):
 
     def gateway(self, first=None, second=None):
         second_transfer = second or TestnetTransfer(
-            **{**self.transfer.__dict__, "provider_id": "tonapi"}
+            **{**self.transfer.__dict__, "provider_id": "tonapi", "query_id": 0}
         )
         return TonTestnetPaymentGateway(
             providers=[Provider("toncenter", first or self.transfer),
@@ -66,7 +66,7 @@ class TonTestnetGatewayTests(unittest.TestCase):
         self.assertIsNone(asyncio.run(self.gateway(unfinalized, other).verify_payment(self.intent)))
         missing = TestnetTransfer(**{**self.transfer.__dict__,
             "provider_id": "toncenter", "query_id": 0})
-        other_missing = TestnetTransfer(**{**missing.__dict__, "provider_id": "tonapi"})
+        other_missing = TestnetTransfer(**{**missing.__dict__, "provider_id": "tonapi", "query_id": 0})
         self.assertIsNone(asyncio.run(self.gateway(missing, other_missing).verify_payment(self.intent)))
 
 

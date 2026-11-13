@@ -244,21 +244,24 @@ class TonTestnetPaymentGateway:
             return None
         first, second = observations
         assert first is not None and second is not None
+        center = first if first.provider_id == "toncenter" else second
+        embed = second if second.provider_id == "tonapi" else first
         comparable = lambda item: (
             item.transaction_id, item.deal_id, item.reference, item.amount,
-            item.currency, item.network, item.finalized, item.query_id,
+            item.currency, item.network, item.finalized,
         )
         if comparable(first) != comparable(second):
             raise PaymentRouteError("TON testnet providers disagree on payment evidence")
-        if (not first.finalized or first.amount != intent.amount
-                or first.deal_id != intent.deal_id or first.query_id <= 0):
+        if (not center.finalized or not embed.finalized
+                or center.amount != intent.amount or center.deal_id != intent.deal_id
+                or center.query_id <= 0):
             return None
-        if first.reference != intent.reference:
+        if center.reference != intent.reference:
             return None
         return PaymentEvidence(
-            deal_id=first.deal_id, reference=first.reference, amount=first.amount,
-            currency="tUSDT", transaction_id=first.transaction_id,
-            finalized=True, network="testnet", query_id=first.query_id,
+            deal_id=center.deal_id, reference=center.reference, amount=center.amount,
+            currency="tUSDT", transaction_id=center.transaction_id,
+            finalized=True, network="testnet", query_id=center.query_id,
         )
 
     async def refund(self, evidence: PaymentEvidence) -> str:
