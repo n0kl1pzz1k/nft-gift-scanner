@@ -96,6 +96,8 @@ def postgres_storage_enabled() -> bool:
 
 
 def assert_marketplace_schema_ready(connection: PostgresConnection) -> None:
+    from financial_ledger import migration_revision_number
+
     row = connection.execute("SELECT version_num FROM alembic_version").fetchone()
-    if row is None or row[0] != "0011_withdrawal_approvals":
-        raise RuntimeError("PostgreSQL marketplace schema is not at a supported marketplace Alembic revision")
+    if row is None or migration_revision_number(row[0]) < 14:
+        raise RuntimeError("PostgreSQL marketplace migrations through 0014 are required")
