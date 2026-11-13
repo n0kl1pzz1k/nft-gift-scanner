@@ -118,6 +118,9 @@ Until then, `TELEGRAM_STARS_PAYMENTS_ENABLED` and `MARKETPLACE_REAL_DEALS_ENABLE
 
 ## TON GRAM and USDT deposit checkout
 
+- Buyers fund an existing reserved deal with `POST /api/inventory/deals/{deal_id}/pay-from-invoice`. The server checks Telegram identity against the deal buyer, verifies a paid chain invoice for the exact asset and amount, and moves the funds into the deal hold atomically. A client cannot pay another user's deal or choose the hold amount.
+
+
 - Authenticated buyers can request a server-owned TON deposit invoice at `POST /api/payments/crypto/invoices`; the client supplies only the allowlisted asset ID and an integer base-unit amount. The server chooses the deposit address, token master, unique invoice payload and expiry.
 - `GET /api/payments/crypto/invoices/{invoice_id}` returns status only to the invoice owner and exposes the confirmed chain event when one exists.
 - GRAM (native TON coin) and the allowlisted USDT TON jetton are eligible assets, but checkout remains fail-closed until the crypto-deposit monitor, dual providers, PostgreSQL, the configured deposit address and all Kazakhstan legal/data/tax/security gates are present. USDT on TRON remains unsupported by this Mini App payment rail.
