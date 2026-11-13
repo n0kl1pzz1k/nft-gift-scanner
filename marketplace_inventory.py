@@ -305,7 +305,7 @@ def create_escrow_pending_listing(*, user_id: str, asset_id: str, price_raw: int
         row = conn.execute(select(marketplace_listings).where(
             marketplace_listings.c.listing_id == listing_id
         )).mappings().one()
-    return {**dict(row), "duplicate": False,
+    return {**dict(row), "duplicate": False, "public": False,
             "next_step": "Transfer the NFT from your wallet to the official GIFT RADAR escrow address"}
 
 
