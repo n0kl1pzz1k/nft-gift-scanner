@@ -9,6 +9,7 @@ from sqlalchemy.exc import DBAPIError
 
 from financial_ledger import (
     get_account_balance, init_financial_schema, invoices, post_journal_entry,
+    migration_revision_number,
     ton_chain_observations, ton_trace_evidence_hash,
     settle_verified_ton_payment, verify_ton_payment_trace,
     request_ton_withdrawal, advance_withdrawal_to_processing,
@@ -18,6 +19,13 @@ from financial_ledger import (
 
 
 class FinancialLedgerTests(unittest.TestCase):
+    def test_migration_revision_parser_accepts_forward_migrations(self):
+        self.assertEqual(migration_revision_number("0011_withdrawal_approvals"), 11)
+        self.assertEqual(migration_revision_number("0014_ownership_proof_index"), 14)
+        self.assertEqual(migration_revision_number("0020_future_revision"), 20)
+        self.assertEqual(migration_revision_number(None), 0)
+        self.assertEqual(migration_revision_number("not-a-revision"), 0)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.engine = create_engine(f"sqlite:///{Path(self.temp.name)/'ledger.sqlite3'}", future=True)
