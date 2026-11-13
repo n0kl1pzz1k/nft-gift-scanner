@@ -110,6 +110,12 @@ Until then, `TELEGRAM_STARS_PAYMENTS_ENABLED` and `MARKETPLACE_REAL_DEALS_ENABLE
 - This workflow records a decision and reason, not uploaded evidence or a full appeals/arbitration system.
 
 
+## Late TON deposit handling
+
+- Invoices remain monitored for a bounded 24-hour grace window after their displayed expiry. This catches transfers that were sent before or around expiry but indexed late.
+- If both independent TON providers confirm an exact matching transfer after invoice expiry, the invoice moves to `reconciliation_required`. No user balance is credited automatically, and repeat observations remain quarantined idempotently.
+- Expired invoices older than the grace window stop consuming provider polling capacity. Admins can inspect the bounded reconciliation queue at `GET /api/admin/payments/crypto/reconciliation`; invoice owners see the review-required state from the invoice status endpoint.
+
 ## TON GRAM and USDT deposit checkout
 
 - Authenticated buyers can request a server-owned TON deposit invoice at `POST /api/payments/crypto/invoices`; the client supplies only the allowlisted asset ID and an integer base-unit amount. The server chooses the deposit address, token master, unique invoice payload and expiry.
