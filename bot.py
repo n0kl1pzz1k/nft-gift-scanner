@@ -212,7 +212,7 @@ def create_dispatcher() -> Dispatcher:
             await message.answer(
                 "📊 <b>Статус GIFT RADAR</b>\n\n"
                 "Backend: 🟢 онлайн\n"
-                f"Собственный каталог: <code>{native}</code>\\n"
+                f"Собственный каталог: <code>{native}</code>\n"
                 f"Демо-ордера: <code>{stats.get('total_orders', 0)}</code>\n"
                 "Режим: <code>independent_native_marketplace</code>"
             )
