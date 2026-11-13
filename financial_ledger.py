@@ -329,12 +329,12 @@ def create_telegram_stars_invoice(*, deal_id: str, buyer_user_id: str,
         "o.status AS order_status, o.title AS order_title "
         "FROM demo_deals d JOIN demo_orders o ON o.id=d.order_id WHERE d.id=:deal_id" + lock
     )
+    if not has_current_telegram_stars_terms_acceptance(user_id=str(buyer_user_id), engine=db):
+        raise PermissionError("Buyer must explicitly accept the current Telegram Stars terms")
     with db.begin() as conn:
         deal = conn.execute(text(query), {"deal_id": str(deal_id)}).mappings().first()
         if deal is None:
             raise ValueError("Unknown deal")
-        if not has_current_telegram_stars_terms_acceptance(user_id=str(buyer_user_id), engine=db):
-            raise PermissionError("Buyer must explicitly accept the current Telegram Stars terms")
         if int(deal["is_real"] or 0) != 1:
             raise PermissionError("Demo deals cannot be charged")
         if deal["order_status"] != "matched":
