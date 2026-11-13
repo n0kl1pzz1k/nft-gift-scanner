@@ -533,6 +533,7 @@ def expire_unpaid_marketplace_deals(*, engine: Engine | None = None,
         query = query.with_for_update()
     expired = 0
     relisted = 0
+    reverify = 0
     with db.begin() as conn:
         candidates = conn.execute(query).mappings().all()
         for deal in candidates:
@@ -565,7 +566,7 @@ def expire_unpaid_marketplace_deals(*, engine: Engine | None = None,
             ).values(status="expired"))
             reusable = bool(asset and asset["custody_state"] == "escrowed"
                             and int(asset["ownership_expires_at"] or 0) > current)
-            next_status = "active" if reusable else "expired"
+            next_status = "active" if reusable else "pending_verification"
             conn.execute(update(marketplace_listings).where(
                 marketplace_listings.c.listing_id == deal["listing_id"],
                 marketplace_listings.c.status == "reserved",
@@ -580,7 +581,8 @@ def expire_unpaid_marketplace_deals(*, engine: Engine | None = None,
             ))
             expired += 1
             relisted += int(next_status == "active")
-    return {"expired": expired, "relisted": relisted}
+            reverify += int(next_status == "pending_verification")
+    return {"expired": expired, "relisted": relisted, "reverification_required": reverify}
 
 def flag_deal_for_reconciliation(*, deal_id: str, reason: str,
                                  engine: Engine | None = None,
