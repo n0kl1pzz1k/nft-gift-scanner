@@ -5,7 +5,7 @@ import "@contracts/escrow-types"
 // Ledger. This contract records a server attestation; it does not custody Stars.
 // All contract deployment and interaction in this phase is TON testnet only.
 
-fun EscrowStorage.load() {
+fun EscrowStorage.load(): EscrowStorage {
     return EscrowStorage.fromCell(contract.getData());
 }
 
