@@ -19,6 +19,7 @@ const V2_TRANSFER_PENDING = 4;
 const V2_DELIVERED = 5;
 const V2_DISPUTED = 6;
 const V2_RECONCILIATION_REQUIRED = 7;
+const V2_DISPUTE_RESOLVED = 8;
 
 const ASSET_TON = 0;
 const ASSET_TEST_USDT_JETTON = 1;
@@ -67,6 +68,9 @@ struct PaymentEscrowStorage {
     paymentApprovals: uint8
     deliveryApprovals: uint8
     deliveryProofHash: uint256
+    disputeApprovals: uint8
+    disputeDecision: uint8
+    disputeResolutionHash: uint256
     parties: Cell<PaymentEscrowParties>
     authorities: Cell<PaymentEscrowAuthorityConfig>
 }
@@ -152,4 +156,7 @@ struct PaymentEscrowStateReply {
     paymentApprovals: uint8
     deliveryApprovals: uint8
     deliveryProofHash: uint256
+    disputeApprovals: uint8
+    disputeDecision: uint8
+    disputeResolutionHash: uint256
 }

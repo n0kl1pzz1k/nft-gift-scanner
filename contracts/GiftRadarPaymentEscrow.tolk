@@ -44,6 +44,13 @@ fun signerBit(sender: address, signers: PaymentEscrowSignerSet): uint8 {
     return 0;
 }
 
+fun arbitratorBit(sender: address, arbitrators: PaymentEscrowArbitratorSet): uint8 {
+    if (sender == arbitrators.arbitrator1) { return 1; }
+    if (sender == arbitrators.arbitrator2) { return 2; }
+    if (sender == arbitrators.arbitrator3) { return 4; }
+    return 0;
+}
+
 fun onBouncedMessage(in: InMessageBounced) {
     in.bouncedBody.skipBouncedPrefix();
     val bounced = lazy AskToChangeOwnership.fromSlice(in.bouncedBody);
@@ -260,17 +267,30 @@ fun onInternalMessage(in: InMessage) {
         }
 
         ApprovePaymentEscrowDispute => {
-            val storage = lazy PaymentEscrowStorage.load();
+            var storage = lazy PaymentEscrowStorage.load();
             val auth = storage.authorities.load();
             val arbitrators = auth.arbitrators.load();
             assert (storage.initialized) throw PaymentEscrowErrors.BadState;
             assert (storage.state == V2_DISPUTED) throw PaymentEscrowErrors.BadState;
-            assert ((in.senderAddress == arbitrators.arbitrator1) | (in.senderAddress == arbitrators.arbitrator2) | (in.senderAddress == arbitrators.arbitrator3)) throw PaymentEscrowErrors.Unauthorized;
             assert ((msg.decision == 1) | (msg.decision == 2)) throw PaymentEscrowErrors.BadProof;
             assert (msg.resolutionHash != 0) throw PaymentEscrowErrors.BadProof;
-            // Dispute voting is a separate 2-of-3 contour; first implementation records
-            // evidence only. Automated final-deadline custody handoff is added after E2E.
-            return;
+            val bit = arbitratorBit(in.senderAddress, arbitrators);
+            assert (bit != 0) throw PaymentEscrowErrors.Unauthorized;
+            if (storage.disputeApprovals == 0) {
+                storage.disputeDecision = msg.decision;
+                storage.disputeResolutionHash = msg.resolutionHash;
+            } else {
+                assert (storage.disputeDecision == msg.decision) throw PaymentEscrowErrors.BadProof;
+                assert (storage.disputeResolutionHash == msg.resolutionHash) throw PaymentEscrowErrors.BadProof;
+            }
+            if ((storage.disputeApprovals & bit) != 0) {
+                return;
+            }
+            storage.disputeApprovals = storage.disputeApprovals | bit;
+            if (isTwoOfThree(storage.disputeApprovals)) {
+                storage.state = V2_DISPUTE_RESOLVED;
+            }
+            storage.save();
         }
 
         else => {
@@ -294,6 +314,9 @@ get fun get_payment_escrow_state(): PaymentEscrowStateReply {
         paymentApprovals: storage.paymentApprovals,
         deliveryApprovals: storage.deliveryApprovals,
         deliveryProofHash: storage.deliveryProofHash,
+        disputeApprovals: storage.disputeApprovals,
+        disputeDecision: storage.disputeDecision,
+        disputeResolutionHash: storage.disputeResolutionHash,
     };
 }
 

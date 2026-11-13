@@ -58,6 +58,9 @@ fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscr
         paymentApprovals: 0,
         deliveryApprovals: 0,
         deliveryProofHash: 0,
+        disputeApprovals: 0,
+        disputeDecision: 0,
+        disputeResolutionHash: 0,
         parties: PaymentEscrowParties {
             seller: seller.address,
             buyer: buyer.address,
@@ -329,4 +332,84 @@ get fun `test standard TEP-74 test Jetton transfers into escrow and needs two si
     }));
     expect(secondDelivery).toHaveSuccessfulTx<ConfirmEscrowNftDelivery>({ from: signer2, to: escrow.address });
     expect(readPaymentEscrowState(escrow).state).toEqual(V2_DELIVERED);
+}
+
+
+get fun `test dispute decision requires two distinct arbitrators and matching resolution evidence`() {
+    val (escrow, seller, buyer, nftItem, _, _, _, _, _, _) =
+        setupPaymentEscrow(ASSET_TON, 250000000);
+    depositPaymentNft(escrow, seller, nftItem);
+
+    val raised = net.send(buyer, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: RaisePaymentEscrowDispute { queryId: 9101, reasonHash: 0xabc123 },
+    }));
+    expect(raised).toHaveSuccessfulTx<RaisePaymentEscrowDispute>({ from: buyer, to: escrow.address });
+    expect(readPaymentEscrowState(escrow).state).toEqual(V2_DISPUTED);
+
+    val arb1 = testing.treasury("payment-arb-1");
+    val arb2 = testing.treasury("payment-arb-2");
+    val arb3 = testing.treasury("payment-arb-3");
+    val first = net.send(arb1.address, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ApprovePaymentEscrowDispute {
+            queryId: 9102, decision: 1, resolutionHash: 0xfeed01,
+        },
+    }));
+    expect(first).toHaveSuccessfulTx<ApprovePaymentEscrowDispute>({ from: arb1.address, to: escrow.address });
+    expect(readPaymentEscrowState(escrow).disputeApprovals).toEqual(1);
+    expect(readPaymentEscrowState(escrow).state).toEqual(V2_DISPUTED);
+
+    val duplicate = net.send(arb1.address, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ApprovePaymentEscrowDispute {
+            queryId: 9103, decision: 1, resolutionHash: 0xfeed01,
+        },
+    }));
+    expect(duplicate).toHaveSuccessfulTx<ApprovePaymentEscrowDispute>({ from: arb1.address, to: escrow.address });
+    expect(readPaymentEscrowState(escrow).disputeApprovals).toEqual(1);
+
+    val conflicting = net.send(arb2.address, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ApprovePaymentEscrowDispute {
+            queryId: 9104, decision: 2, resolutionHash: 0xfeed02,
+        },
+    }));
+    expect(conflicting).toHaveFailedTx<ApprovePaymentEscrowDispute>({
+        from: arb2.address, to: escrow.address, exitCode: 2106,
+    });
+
+    val second = net.send(arb2.address, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ApprovePaymentEscrowDispute {
+            queryId: 9105, decision: 1, resolutionHash: 0xfeed01,
+        },
+    }));
+    expect(second).toHaveSuccessfulTx<ApprovePaymentEscrowDispute>({ from: arb2.address, to: escrow.address });
+    expect(readPaymentEscrowState(escrow).disputeApprovals).toEqual(3);
+    expect(readPaymentEscrowState(escrow).disputeDecision).toEqual(1);
+    expect(readPaymentEscrowState(escrow).disputeResolutionHash).toEqual(0xfeed01);
+    expect(readPaymentEscrowState(escrow).state).toEqual(V2_DISPUTE_RESOLVED);
+
+    val lateVote = net.send(arb3.address, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ApprovePaymentEscrowDispute {
+            queryId: 9106, decision: 1, resolutionHash: 0xfeed01,
+        },
+    }));
+    expect(lateVote).toHaveFailedTx<ApprovePaymentEscrowDispute>({
+        from: arb3.address, to: escrow.address, exitCode: 2102,
+    });
 }
