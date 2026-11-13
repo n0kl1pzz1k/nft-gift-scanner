@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from sqlalchemy import create_engine, select, text
@@ -113,7 +114,7 @@ class MarketplaceSettlementTests(unittest.TestCase):
              "tx_hash": "ef" * 32, "item_address": self.item, "old_owner": self.escrow,
              "new_owner": self.buyer_wallet, "evidence_hash": "f" * 64},
         ]
-        with unittest.mock.patch.dict(os.environ, {"GIFT_RADAR_ESCROW_ADDRESS": self.escrow}):
+        with mock.patch.dict(os.environ, {"GIFT_RADAR_ESCROW_ADDRESS": self.escrow}):
             settled = confirm_deal_nft_transfer(
                 deal_id=self.deal_id, transfer_proofs=proofs,
                 current_owner_addresses=[self.buyer_wallet, self.buyer_wallet],
