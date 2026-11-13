@@ -349,6 +349,8 @@ class ToncenterBroadcaster:
         self.timeout = timeout
 
     async def broadcast(self, signed_boc: str) -> str:
+        if not TON_TESTNET_WITHDRAWAL_ADAPTER_READY:
+            raise RuntimeError("Mainnet TON broadcasting is disabled by the testnet-only release policy")
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(
                 "https://toncenter.com/api/v2/sendBoc",
