@@ -20,6 +20,7 @@ from marketplace import create_marketplace_router, consume_telegram_init_data, c
 from demo_offers import create_demo_offers_router, init_demo_offers_db
 from security_controls import SecurityControlsMiddleware
 from financial_ledger import get_engine, get_account_balance, create_payment_invoice, invoices, payment_events
+from marketplace_settlement import reserve_verified_deal_payment
 from marketplace_inventory import (
     save_verified_wallet, get_active_verified_wallet, revoke_verified_wallet, record_wallet_owned_nft,
     create_escrow_pending_listing, cancel_seller_listing, marketplace_assets, marketplace_listings,
@@ -85,6 +86,10 @@ _telegram_webhook_secret = None
 class CryptoPaymentInvoiceRequest(BaseModel):
     asset_id: str = Field(pattern="^(GRAM|usdt-ton)$")
     amount_raw: int = Field(gt=0, strict=True)
+
+
+class DealInvoicePaymentRequest(BaseModel):
+    invoice_id: str = Field(min_length=8, max_length=64)
 
 
 def _stars_payment_enabled() -> bool:
@@ -1030,6 +1035,30 @@ async def create_stars_invoice_endpoint(
     except Exception as exc:
         logging.warning("Telegram Stars invoice creation failed (%s)", type(exc).__name__)
         raise HTTPException(status_code=503, detail="Telegram Stars invoice service is unavailable")
+
+
+@app.post("/api/inventory/deals/{deal_id}/pay-from-invoice")
+async def pay_marketplace_deal_from_invoice(
+    deal_id: str,
+    payload: DealInvoicePaymentRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    try:
+        result = reserve_verified_deal_payment(
+            deal_id=deal_id, invoice_id=payload.invoice_id,
+            actor_user_id=str(user["id"]), engine=get_engine(),
+        )
+        return result
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        logging.warning("Marketplace invoice funding failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Marketplace payment reservation is unavailable")
 
 
 @app.post("/api/payments/stars/refunds")
