@@ -487,6 +487,62 @@ async def ton_proof_verify(
         raise HTTPException(status_code=503, detail="TON Proof service is unreachable")
 
 
+
+@app.get("/api/payments/stars/policy")
+async def telegram_stars_policy():
+    enabled = _stars_payment_enabled()
+    return {
+        "enabled": enabled,
+        "currency": "XTR",
+        "provider": "Telegram Stars",
+        "terms_url": os.getenv("TERMS_URL", "").strip() if enabled else None,
+        "support_url": os.getenv("PAYMENT_SUPPORT_URL", "").strip() if enabled else None,
+        "note": "Digital goods inside Telegram are payable only in Telegram Stars.",
+    }
+
+
+@app.post("/api/marketplace/deals/{deal_id}/stars-invoice")
+async def create_stars_invoice_endpoint(
+    deal_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    if not _stars_payment_enabled():
+        raise HTTPException(status_code=503, detail="Telegram Stars checkout is not enabled")
+    try:
+        invoice = create_telegram_stars_invoice(
+            deal_id=deal_id,
+            buyer_user_id=str(user["id"]),
+        )
+        from aiogram.types import LabeledPrice
+        title = str(invoice.get("title") or "GIFT RADAR gift")[:32]
+        description = ("GIFT RADAR order " + str(invoice["order_id"]))[:255]
+        invoice_url = await _telegram_bot.create_invoice_link(
+            title=title,
+            description=description,
+            payload=invoice["payload"],
+            provider_token="",
+            currency="XTR",
+            prices=[LabeledPrice(label=title, amount=int(invoice["amount_stars"]))],
+        )
+        if not isinstance(invoice_url, str) or not invoice_url.startswith("https://"):
+            raise RuntimeError("Telegram returned an invalid invoice link")
+        return {
+            "invoice_url": invoice_url,
+            "invoice_id": invoice["invoice_id"],
+            "amount": int(invoice["amount_stars"]),
+            "currency": "XTR",
+            "expires_at": int(invoice["expires_at"]),
+        }
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception:
+        logging.exception("Could not create Telegram Stars invoice")
+        raise HTTPException(status_code=503, detail="Telegram Stars invoice service is unavailable")
+
+
 @app.get("/api/wallet/policy")
 async def wallet_policy():
     """Public capability disclosure: TON Connect only; no signatures or payments."""
@@ -500,6 +556,7 @@ async def wallet_policy():
         "signing_enabled": False,
         "transfers_enabled": False,
         "crypto_payments_enabled": False,
+        "telegram_stars_payments_enabled": _stars_payment_enabled(),
         "payment_note": "Crypto checkout remains disabled pending platform/compliance approval.",
         "rate_limiting": rate_limit_status(),
     }
