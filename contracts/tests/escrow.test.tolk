@@ -281,7 +281,7 @@ get fun `test release is buyer-only and moves to transfer pending`() {
 }
 
 get fun `test dispute dismissal requires two distinct arbitrators`() {
-    val (escrow, seller, _, nftItem, authority, arb1, arb2) = setupEscrow();
+    val (escrow, seller, buyer, nftItem, authority, arb1, arb2) = setupEscrow();
     depositNft(escrow, seller, nftItem);
     net.send(authority, createMessage({
         bounce: true,
