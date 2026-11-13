@@ -234,45 +234,6 @@ def reserve_verified_deal_payment(*, deal_id: str, invoice_id: str,
                          "journal_id": journal["entry_id"]}, now=current)
             return {"reserved": True, "duplicate": False, "status": "payment_confirmed",
                     "journal_id": journal["entry_id"]}
-        if deal["currency"] == "XTR":
-            invoice = conn.execute(select(stars_invoices).where(
-                stars_invoices.c.invoice_id == invoice_id
-            )).mappings().first()
-            if invoice is None or invoice["status"] != "paid":
-                raise PermissionError("Only a paid Telegram Stars invoice can fund an XTR deal")
-            if (invoice["buyer_user_id"] != deal["buyer_user_id"]
-                    or invoice["seller_user_id"] != deal["seller_user_id"]
-                    or int(invoice["amount_stars"]) != int(deal["price_raw"])
-                    or invoice["currency"] != "XTR"):
-                raise ValueError("Stars invoice does not match deal participants and amount")
-            payment = conn.execute(select(stars_payments).where(
-                stars_payments.c.invoice_id == invoice_id
-            )).mappings().first()
-            if payment is None:
-                raise PermissionError("Stars invoice has no successful payment receipt")
-            source_hold = "liability:deal_hold:" + str(invoice["deal_id"]) + ":XTR"
-            available = -_account_balance_in_connection(conn, source_hold, "XTR")
-            if available < int(deal["price_raw"]):
-                raise RuntimeError("Stars proceeds are not held for the original deal")
-            journal = _post(conn,
-                idempotency_key="marketplace-deal-stars-reserve:" + deal_id,
-                source_type="marketplace_deal_stars_reserve", source_reference=deal_id,
-                postings=[
-                    {"account_id": source_hold, "account_type": "liability",
-                     "currency": "XTR", "amount_raw": int(deal["price_raw"])},
-                    {"account_id": "liability:deal_hold:" + deal_id + ":XTR",
-                     "account_type": "liability", "currency": "XTR",
-                     "amount_raw": -int(deal["price_raw"])},
-                ], now=current)
-            conn.execute(update(marketplace_deals).where(
-                marketplace_deals.c.deal_id == deal_id
-            ).values(status="payment_confirmed", payment_invoice_id=invoice_id,
-                     payment_event_id=payment["payment_event_id"], updated_at=current))
-            _event(conn, deal_id=deal_id, event_type="payment_confirmed",
-                   data={"invoice_id": invoice_id, "payment_event_id": payment["payment_event_id"],
-                         "journal_id": journal["entry_id"]}, now=current)
-            return {"reserved": True, "duplicate": False, "status": "payment_confirmed",
-                    "journal_id": journal["entry_id"]}
         invoice = conn.execute(select(invoices).where(
             invoices.c.invoice_id == invoice_id
         )).mappings().first()
