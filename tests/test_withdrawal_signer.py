@@ -37,6 +37,7 @@ class WithdrawalApprovalTests(unittest.TestCase):
             "TON_SIGNER_SERVICE_URL": "https://hsm.example",
             "TON_SIGNER_SERVICE_TOKEN": "test-token",
             "TON_SIGNER_WALLET_ID": "test-wallet",
+            "WITHDRAWAL_APPROVER_IDS": "90001,90002",
             "TON_CRYPTO_DEPOSITS_ENABLED": "true",
             "TON_DEPOSIT_MONITOR_ENABLED": "true",
             "MARKETPLACE_REAL_DEALS_ENABLED": "true",
