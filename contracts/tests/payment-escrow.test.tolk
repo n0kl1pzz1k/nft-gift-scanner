@@ -148,7 +148,7 @@ get fun `test TON payment enters escrow then requires two distinct signers befor
     });
 
     confirmPaymentTwice(escrow, signer1, signer2, 7001, 250000000);
-    expect(readPaymentEscrowState(escrow).releaseAfter).toBeGreaterThan(testing.getNow());
+    expect(readPaymentEscrowState(escrow).releaseAfter).toEqual(testing.getNow() + 86400);
 
     val tooEarly = net.send(buyer, createMessage({
         bounce: true,
