@@ -1,7 +1,65 @@
 import unittest
 
-from security_controls import _valid_origin, _requires_edge_limit, _apply_security_headers
+from security_controls import (
+    RequestBodyLimitMiddleware,
+    _valid_origin,
+    _requires_edge_limit,
+    _apply_security_headers,
+)
 from starlette.responses import Response
+
+
+class RequestBodyLimitTests(unittest.IsolatedAsyncioTestCase):
+    async def test_content_length_over_limit_is_rejected_before_application(self):
+        called = False
+
+        async def app(scope, receive, send):
+            nonlocal called
+            called = True
+
+        middleware = RequestBodyLimitMiddleware(app, max_body_bytes=4)
+        scope = {
+            "type": "http", "method": "POST", "path": "/api/orders",
+            "headers": [(b"content-length", b"5")],
+        }
+        sent = []
+
+        async def receive():
+            return {"type": "http.request", "body": b"12345", "more_body": False}
+
+        async def send(message):
+            sent.append(message)
+
+        await middleware(scope, receive, send)
+        self.assertFalse(called)
+        self.assertEqual(sent[0]["status"], 413)
+        headers = dict(sent[1]["headers"])
+        self.assertEqual(headers[b"cache-control"], b"no-store")
+
+    async def test_chunked_body_over_limit_is_rejected(self):
+        called = False
+
+        async def app(scope, receive, send):
+            nonlocal called
+            called = True
+
+        middleware = RequestBodyLimitMiddleware(app, max_body_bytes=4)
+        scope = {"type": "http", "method": "PATCH", "path": "/api/profile", "headers": []}
+        chunks = iter([
+            {"type": "http.request", "body": b"123", "more_body": True},
+            {"type": "http.request", "body": b"456", "more_body": False},
+        ])
+        sent = []
+
+        async def receive():
+            return next(chunks)
+
+        async def send(message):
+            sent.append(message)
+
+        await middleware(scope, receive, send)
+        self.assertFalse(called)
+        self.assertEqual(sent[0]["status"], 413)
 
 
 class SecurityControlTests(unittest.TestCase):
