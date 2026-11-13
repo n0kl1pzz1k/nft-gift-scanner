@@ -1,6 +1,7 @@
 import "@acton/emulation/network"
 import "@acton/emulation/testing"
 import "@acton/testing/expect"
+import "@contracts/escrow-types"
 import "@wrappers/GiftRadarEscrow.gen"
 
 fun setupEscrow(): (GiftRadarEscrow, address, address, address, address, address, address) {
