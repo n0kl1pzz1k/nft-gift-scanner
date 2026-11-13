@@ -532,12 +532,111 @@ async def list_wallet_withdrawals(
             withdrawal_requests.c.network, withdrawal_requests.c.destination_address,
             withdrawal_requests.c.amount_raw, withdrawal_requests.c.fee_raw,
             withdrawal_requests.c.status, withdrawal_requests.c.tx_hash,
-            withdrawal_requests.c.failure_reason, withdrawal_requests.c.created_at,
+            withdrawal_requests.c.created_at,
             withdrawal_requests.c.updated_at,
         ).where(
             withdrawal_requests.c.user_id == str(user["id"])
         ).order_by(withdrawal_requests.c.created_at.desc()).limit(100)).mappings().all()
     return {"items": [dict(row) for row in rows]}
+
+
+@app.post("/api/inventory/listings/{listing_id}/reserve")
+async def reserve_native_listing(
+    listing_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    from marketplace_inventory import reserve_verified_listing
+    try:
+        return reserve_verified_listing(
+            listing_id=listing_id, buyer_user_id=str(user["id"]), engine=get_engine()
+        )
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Listing cannot be reserved")
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Listing is unavailable")
+
+
+@app.post("/api/inventory/reservations/{reservation_id}/deal")
+async def create_native_marketplace_deal(
+    reservation_id: str,
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=16, max_length=128),
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    try:
+        wallet = get_active_verified_wallet(user_id=str(user["id"]), engine=get_engine())
+        from marketplace_settlement import create_deal_from_reservation
+        return create_deal_from_reservation(
+            reservation_id=reservation_id, buyer_user_id=str(user["id"]),
+            buyer_wallet_address=wallet, idempotency_key=idempotency_key,
+            engine=get_engine(),
+        )
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="A verified buyer wallet and active reservation are required")
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Reservation cannot become a deal")
+
+
+@app.get("/api/inventory/deals/{deal_id}")
+async def get_native_marketplace_deal(
+    deal_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    from marketplace_settlement import marketplace_deals
+    with get_engine().connect() as conn:
+        row = conn.execute(select(
+            marketplace_deals.c.deal_id, marketplace_deals.c.listing_id,
+            marketplace_deals.c.asset_id, marketplace_deals.c.buyer_user_id,
+            marketplace_deals.c.seller_user_id, marketplace_deals.c.currency,
+            marketplace_deals.c.price_raw, marketplace_deals.c.status,
+            marketplace_deals.c.created_at, marketplace_deals.c.updated_at,
+        ).where(marketplace_deals.c.deal_id == deal_id)).mappings().first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Deal not found")
+    if str(user["id"]) not in {row["buyer_user_id"], row["seller_user_id"]}:
+        raise HTTPException(status_code=404, detail="Deal not found")
+    return dict(row)
+
+
+@app.post("/api/admin/withdrawals/{request_id}/approve")
+async def approve_admin_withdrawal(
+    request_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    if str(user["id"]) not in _admin_ids():
+        raise HTTPException(status_code=403, detail="Forbidden")
+    from withdrawal_signer import approve_withdrawal
+    try:
+        return approve_withdrawal(
+            request_id=request_id, admin_user_id=str(user["id"]), engine=get_engine()
+        )
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Withdrawal approval is not permitted")
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Withdrawal cannot be approved")
+
+
+@app.post("/api/admin/withdrawals/{request_id}/execute")
+async def execute_admin_withdrawal(
+    request_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    if str(user["id"]) not in _admin_ids():
+        raise HTTPException(status_code=403, detail="Forbidden")
+    from withdrawal_signer import execute_approved_withdrawal
+    try:
+        return await execute_approved_withdrawal(request_id=request_id, engine=get_engine())
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Withdrawal execution is disabled or not approved")
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Withdrawal cannot be executed")
+    except Exception as exc:
+        logging.error("Withdrawal execution failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Withdrawal requires reconciliation")
 
 
 @app.get("/api/inventory/mine")
