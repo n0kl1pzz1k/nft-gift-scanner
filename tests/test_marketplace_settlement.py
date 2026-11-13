@@ -98,6 +98,22 @@ class MarketplaceSettlementTests(unittest.TestCase):
         self.tmp.cleanup()
 
 
+
+    def test_paid_deal_is_never_expired_by_reservation_worker(self):
+        reserve_verified_deal_payment(
+            deal_id=self.deal_id, invoice_id=self.invoice_id,
+            engine=self.engine, now=150,
+        )
+        result = expire_unpaid_marketplace_deals(engine=self.engine, now=431)
+        self.assertEqual(result, {"expired": 0, "relisted": 0})
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.execute(text(
+                "SELECT status FROM marketplace_deals WHERE deal_id=:id"
+            ), {"id": self.deal_id}).scalar_one(), "payment_confirmed")
+            self.assertEqual(conn.execute(text(
+                "SELECT status FROM marketplace_listings WHERE listing_id=:id"
+            ), {"id": self.listing_id}).scalar_one(), "reserved")
+
     def test_expired_unpaid_deal_releases_listing_once(self):
         result = expire_unpaid_marketplace_deals(
             engine=self.engine, now=431,
