@@ -98,8 +98,6 @@
   let signedIn = $state(false);
   let authToken = $state('');
   let isAdmin = $state(false);
-  let adminMarketplaceEnabled = $state(true);
-  let adminBusy = $state(false);
   let notice = $state('');
   let createKind = $state<'listing' | 'buy-order'>('listing');
   let createTitle = $state('');
@@ -128,7 +126,7 @@
   const ru = {
     market: 'Маркет', orders: 'Активность', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'ТОЛЬКО ПРОСМОТР', catalogOnly: 'Самостоятельный маркетплейс GIFT RADAR. Здесь публикуются собственные объявления и оформляются сделки.',
     headline: 'Подарки, которые находят своих владельцев', subtitle: 'Самостоятельный рынок Telegram-подарков. Объявления, ордера и сделки живут внутри GIFT RADAR.',
-    brandEyebrow: 'ОТКРЫВАЙ РЕДКОЕ · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Открой редкие подарки.', heroDescription: 'Исследуй коллекции Telegram-подарков, объявления и историю характеристик в одном месте.', openCatalogue: 'Открыть каталог', connectedLabel: 'СОБСТВЕННЫЙ МАРКЕТПЛЕЙС · GIFT RADAR', exploreMarket: 'ИССЛЕДУЙ МАРКЕТ', collectionsTitle: 'Коллекции', collectionsCount: 'коллекций в каталоге', discoverLabel: 'ОТКРЫВАЙ', portals: 'Собственный каталог GIFT RADAR', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
+    brandEyebrow: 'ОТКРЫВАЙ РЕДКОЕ · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Открой редкие подарки.', heroDescription: 'Исследуй коллекции Telegram-подарков, объявления и историю характеристик в одном месте.', openCatalogue: 'Открыть каталог', connectedLabel: 'СОБСТВЕННЫЙ МАРКЕТПЛЕЙС · GIFT RADAR', exploreMarket: 'ИССЛЕДУЙ МАРКЕТ', collectionsTitle: 'Коллекции', collectionsCount: 'коллекций в каталоге', discoverLabel: 'ОТКРЫВАЙ', nativeCatalog: 'Собственный каталог GIFT RADAR', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
     listings: 'Объявления GIFT RADAR', results: 'найдено', loading: 'Загружаем каталог…', loadMore: 'Показать ещё',
     empty: 'По этому запросу ничего не найдено.', failed: 'Не удалось загрузить каталог.',
     details: 'О подарке', floor: 'Флор', price: 'Цена', traits: 'Характеристики',
@@ -146,12 +144,12 @@
     favoritesTitle: 'Избранные подарки', noFavorites: 'Добавьте подарки в избранное из каталога.',
     save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Демо-запись добавлена.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Демо-оборот', statsVolumeHint: 'Только смоделированные записи', statsCatalog: 'Подарков в каталоге', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'Каталог GIFT RADAR', refresh: 'Обновить', all: 'Все', orderStatus: 'Статус', orderKind: 'Тип заявки', activeOrders: 'Активные', matchedOrders: 'Смоделированные', cancelledOrders: 'Снятые', listingsOnly: 'Предложения', buyRequestsOnly: 'Заявки на поиск', invalidPrice: 'Проверь диапазон цены: значения должны быть неотрицательными, а минимальная цена — не выше максимальной.',
-    sourceStatusTitle: 'СОСТОЯНИЕ ИСТОЧНИКОВ', sourceStatusSubtitle: 'Что подключено к приложению', sourcePortals: 'Каталог объявлений', sourceChanges: 'Изменения подарков', sourceDailyFloors: 'История floor-цен', sourceStatusChecked: 'Проверено', sourceStatusChecking: 'Проверяем статус…', sourceStatusUnavailable: 'Не удалось получить статус API.', sourceRefreshInterval: 'Интервал фонового обновления', sourceConfigured: 'Настроен · только чтение', sourceNeedsKey: 'Требуется API-ключ', sourcePublic: 'Публичный источник', sourceDaily: 'Публичная ежедневная история', sourceUnknown: 'Нет данных',
+    sourceStatusTitle: 'СТАТУС ПЛАТФОРМЫ', sourceStatusSubtitle: 'Собственная инфраструктура GIFT RADAR', sourcePortals: 'Внутренний каталог', sourceChanges: 'Индексация подарков', sourceDailyFloors: 'История платформы', sourceStatusChecked: 'Проверено', sourceStatusChecking: 'Проверяем статус…', sourceStatusUnavailable: 'Не удалось получить статус API.', sourceRefreshInterval: 'Интервал обновления', sourceConfigured: 'Активен', sourceNeedsKey: 'Ожидает настройки', sourcePublic: 'Внутренний источник', sourceDaily: 'Внутренняя история', sourceUnknown: 'Нет данных',
   };
   const en = {
     market: 'Market', orders: 'Activity', create: 'Create', favorites: 'Favorites', profile: 'Profile', readonly: 'READ ONLY', catalogOnly: 'Live GIFT RADAR listings. Browse and search are available; trade execution is not enabled in GIFT RADAR.',
     headline: 'Discover gifts worth keeping', subtitle: 'A unified Telegram gifts experience powered by the GIFT RADAR catalogue.',
-    brandEyebrow: 'DISCOVER THE RARE · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Discover rare finds.', heroDescription: 'Explore Telegram gift collections, marketplace listings and item history in one place.', openCatalogue: 'Explore catalogue', connectedLabel: 'GIFT RADAR CATALOGUE · READ ONLY', exploreMarket: 'EXPLORE THE MARKET', collectionsTitle: 'Collections', collectionsCount: 'collections in catalogue', discoverLabel: 'DISCOVER', portals: 'Single catalogue source · Portals', search: 'Gift name or number', min: 'Min price', max: 'Max price',
+    brandEyebrow: 'DISCOVER THE RARE · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Discover rare finds.', heroDescription: 'Explore Telegram gift collections, marketplace listings and item history in one place.', openCatalogue: 'Explore catalogue', connectedLabel: 'GIFT RADAR · INDEPENDENT MARKET', exploreMarket: 'EXPLORE THE MARKET', collectionsTitle: 'Collections', collectionsCount: 'collections in catalogue', discoverLabel: 'DISCOVER', nativeCatalog: 'GIFT RADAR native catalogue', search: 'Gift name or number', min: 'Min price', max: 'Max price',
     listings: 'GIFT RADAR listings', results: 'found', loading: 'Loading catalogue…', loadMore: 'Load more',
     empty: 'No gifts match this search.', failed: 'Could not load the catalogue.',
     details: 'Gift details', floor: 'Floor', price: 'Price', traits: 'Attributes',
@@ -169,7 +167,7 @@
     favoritesTitle: 'Saved gifts', noFavorites: 'Save gifts from the catalogue to see them here.',
     save: 'Save', saved: 'Saved', currency: 'TON', success: 'Demo entry created.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Demo volume', statsVolumeHint: 'Simulated entries only', statsCatalog: 'Catalogue gifts', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'GIFT RADAR catalogue', refresh: 'Refresh', all: 'All', orderStatus: 'Status', orderKind: 'Order type', activeOrders: 'Active', matchedOrders: 'Simulated', cancelledOrders: 'Cancelled', listingsOnly: 'Listings', buyRequestsOnly: 'Buy requests', invalidPrice: 'Check the price range: values must be non-negative and the minimum cannot exceed the maximum.',
-    sourceStatusTitle: 'SOURCE STATUS', sourceStatusSubtitle: 'Connected data sources', sourcePortals: 'Marketplace catalogue', sourceChanges: 'Gift metadata changes', sourceDailyFloors: 'Floor price history', sourceStatusChecked: 'Checked', sourceStatusChecking: 'Checking status…', sourceStatusUnavailable: 'Could not load API status.', sourceRefreshInterval: 'Background refresh interval', sourceConfigured: 'Configured · read-only', sourceNeedsKey: 'API key required', sourcePublic: 'Public source', sourceDaily: 'Public daily history', sourceUnknown: 'No data',
+    sourceStatusTitle: 'PLATFORM STATUS', sourceStatusSubtitle: 'GIFT RADAR native infrastructure', sourcePortals: 'Native catalogue', sourceChanges: 'Gift indexing', sourceDailyFloors: 'Platform history', sourceStatusChecked: 'Checked', sourceStatusChecking: 'Checking status…', sourceStatusUnavailable: 'Could not load API status.', sourceRefreshInterval: 'Refresh interval', sourceConfigured: 'Active', sourceNeedsKey: 'Setup pending', sourcePublic: 'Native source', sourceDaily: 'Internal history', sourceUnknown: 'No data',
   };
   const t = $derived(lang === 'ru' ? ru : en);
   const keyOf = (g: Gift) => String(g.id ?? g.number ?? g.name ?? 'gift');
@@ -660,7 +658,6 @@
     if (!isAdmin) return;
     try {
       const data = await request('/api/admin/overview');
-      adminMarketplaceEnabled = true;
       await loadAdminReports();
     } catch (e) {
       // Do not render privileged controls if the protected overview cannot be loaded.
@@ -719,26 +716,6 @@
       notice = e instanceof Error ? e.message : String(e);
     } finally {
       reportBusy = false;
-    }
-  }
-
-  async function toggleAdminMarketplace() {
-    if (!isAdmin || adminBusy) return;
-    adminBusy = true;
-    try {
-      const data = await request('/api/admin/marketplaces/portals', undefined, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !adminMarketplaceEnabled }),
-      });
-      adminMarketplaceEnabled = data.enabled === true;
-      notice = lang === 'ru'
-        ? (adminMarketplaceEnabled ? 'Каталог GIFT RADAR включён.' : 'Каталог GIFT RADAR выключен.')
-        : (adminMarketplaceEnabled ? 'GIFT RADAR catalogue enabled.' : 'GIFT RADAR catalogue disabled.');
-    } catch (e) {
-      notice = e instanceof Error ? e.message : String(e);
-    } finally {
-      adminBusy = false;
     }
   }
 
@@ -1114,7 +1091,7 @@
           {#if notifications.length < notificationTotal}<button class="refresh-button activity-more" onclick={loadMoreNotifications} disabled={notificationsLoadingMore}>{notificationsLoadingMore?'…':t.loadMoreActivity}</button>{/if}
         {:else}<div class="state-panel">{t.noNotifications}</div>{/if}
       </article>
-      <article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>Wallet connection disabled</strong><small>Demo profile · no assets stored</small></div><b>DEMO</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>GIFT RADAR catalogue · TON / Stars demo labels · RU / EN</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article>{#if isAdmin}<article class="profile-card"><div class="eyebrow">ADMINISTRATION</div><h2>{lang==='ru'?'Управление каталогом':'Catalogue controls'}</h2><p>{lang==='ru'?'Доступ подтверждён сервером Telegram. Здесь можно только включать или отключать отображение каталога Portals.':'Access verified by the server through Telegram. You can only enable or disable the GIFT RADAR catalogue visibility here.'}</p><div class="wallet-placeholder"><span>◈</span><div><strong>{lang==='ru'?'Каталог GIFT RADAR':'GIFT RADAR catalogue'}</strong><small>{adminMarketplaceEnabled?(lang==='ru'?'Включён':'Enabled'):(lang==='ru'?'Отключён':'Disabled')}</small></div><b>ADMIN</b></div><button class="publish-button" onclick={toggleAdminMarketplace} disabled={adminBusy}>{adminBusy?'…':(adminMarketplaceEnabled?(lang==='ru'?'Отключить каталог':'Disable catalogue'):(lang==='ru'?'Включить каталог':'Enable catalogue'))}</button></article><article class="profile-card"><div class="notification-heading"><div><div class="eyebrow">MODERATION</div><h2>{t.adminReports}</h2></div><button class="refresh-button" onclick={loadAdminReports} disabled={adminReportsBusy}>{adminReportsBusy?'…':t.refresh}</button></div>{#if adminReportsBusy}<div class="state-panel">{t.loading}</div>{:else if adminReports.length===0}<div class="state-panel">{t.noAdminReports}</div>{:else}<div class="orders-list">{#each adminReports as report (report.id)}<article class="order-card"><div class="order-main"><div class="order-kind">{report.order_title} · {report.order_owner}</div><h3>{reportReasonLabel(report.reason)}</h3><p>{report.reporter_name} · {new Date(report.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p>{#if report.details}<p>{report.details}</p>{/if}</div><div class="order-actions"><button class="match-button" onclick={()=>moderateOrderReport(report.id,'dismiss')} disabled={adminReportActionBusy===report.id}>{t.dismissReport}</button><button class="cancel-button" onclick={()=>moderateOrderReport(report.id,'remove_order')} disabled={adminReportActionBusy===report.id}>{t.removeReportedOrder}</button></div></article>{/each}</div>{/if}</article>{/if}</section>
+      <article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>Wallet connection disabled</strong><small>Demo profile · no assets stored</small></div><b>DEMO</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>Native marketplace · TON / Stars labels · RU / EN</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article>{#if isAdmin}<article class="profile-card"><div class="notification-heading"><div><div class="eyebrow">MODERATION</div><h2>{t.adminReports}</h2></div><button class="refresh-button" onclick={loadAdminReports} disabled={adminReportsBusy}>{adminReportsBusy?'…':t.refresh}</button></div>{#if adminReportsBusy}<div class="state-panel">{t.loading}</div>{:else if adminReports.length===0}<div class="state-panel">{t.noAdminReports}</div>{:else}<div class="orders-list">{#each adminReports as report (report.id)}<article class="order-card"><div class="order-main"><div class="order-kind">{report.order_title} · {report.order_owner}</div><h3>{reportReasonLabel(report.reason)}</h3><p>{report.reporter_name} · {new Date(report.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p>{#if report.details}<p>{report.details}</p>{/if}</div><div class="order-actions"><button class="match-button" onclick={()=>moderateOrderReport(report.id,'dismiss')} disabled={adminReportActionBusy===report.id}>{t.dismissReport}</button><button class="cancel-button" onclick={()=>moderateOrderReport(report.id,'remove_order')} disabled={adminReportActionBusy===report.id}>{t.removeReportedOrder}</button></div></article>{/each}</div>{/if}</article>{/if}</section>
     {/if}
 
     {#if notice}<div class="toast" role="status">{notice}<button onclick={()=>notice=''}>×</button></div>{/if}
