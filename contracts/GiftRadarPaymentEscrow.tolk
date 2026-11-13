@@ -59,7 +59,8 @@ fun onInternalMessage(in: InMessage) {
             assert (storage.state == V2_CREATED) throw PaymentEscrowErrors.BadState;
             assert (storage.expectedAmount > 0) throw PaymentEscrowErrors.BadAmount;
             assert (storage.deadline > blockchain.now()) throw PaymentEscrowErrors.Expired;
-            assert (storage.assetKind == ASSET_TON | storage.assetKind == ASSET_TEST_USDT_JETTON) throw PaymentEscrowErrors.BadAsset;
+            assert (storage.deadline <= blockchain.now() + MAX_DEAL_LIFETIME) throw PaymentEscrowErrors.Expired;
+            assert ((storage.assetKind == ASSET_TON) | (storage.assetKind == ASSET_TEST_USDT_JETTON)) throw PaymentEscrowErrors.BadAsset;
             assert (parties.seller != parties.buyer) throw PaymentEscrowErrors.BadAsset;
             assert (parties.seller != auth.platformConfigAuthority) throw PaymentEscrowErrors.Unauthorized;
             assert (parties.buyer != auth.platformConfigAuthority) throw PaymentEscrowErrors.Unauthorized;
@@ -90,8 +91,24 @@ fun onInternalMessage(in: InMessage) {
             assert (parties.buyer != auth.arbitrator1) throw PaymentEscrowErrors.Unauthorized;
             assert (parties.buyer != auth.arbitrator2) throw PaymentEscrowErrors.Unauthorized;
             assert (parties.buyer != auth.arbitrator3) throw PaymentEscrowErrors.Unauthorized;
+            assert (auth.platformConfigAuthority != auth.signer1) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.platformConfigAuthority != auth.signer2) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.platformConfigAuthority != auth.signer3) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.platformConfigAuthority != auth.arbitrator1) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.platformConfigAuthority != auth.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.platformConfigAuthority != auth.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.resolverMultisig != parties.seller) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.resolverMultisig != parties.buyer) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.resolverMultisig != auth.signer1) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.resolverMultisig != auth.signer2) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.resolverMultisig != auth.signer3) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.resolverMultisig != auth.arbitrator1) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.resolverMultisig != auth.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.resolverMultisig != auth.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
             if (storage.assetKind == ASSET_TEST_USDT_JETTON) {
                 assert (auth.usdtJettonMaster != auth.escrowUsdtJettonWallet) throw PaymentEscrowErrors.BadAsset;
+                assert (auth.usdtJettonMaster != parties.buyer) throw PaymentEscrowErrors.BadAsset;
+                assert (auth.escrowUsdtJettonWallet != parties.buyer) throw PaymentEscrowErrors.BadAsset;
             }
             storage.initialized = true;
             storage.save();
