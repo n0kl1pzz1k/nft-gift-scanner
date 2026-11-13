@@ -17,7 +17,7 @@ from marketplace_inventory import (
 from marketplace_settlement import (
     create_deal_from_reservation, init_marketplace_settlement_schema,
     mark_deal_nft_transfer_pending, reserve_verified_deal_payment,
-    confirm_deal_nft_transfer, refund_unfulfilled_deal, expire_unpaid_marketplace_deals,
+    confirm_deal_nft_transfer, refund_unfulfilled_deal, expire_unpaid_marketplace_deals, open_deal_dispute,
 )
 
 
@@ -99,6 +99,59 @@ class MarketplaceSettlementTests(unittest.TestCase):
 
 
 
+
+
+    def test_buyer_can_open_dispute_before_transfer_and_duplicate_is_idempotent(self):
+        reserve_verified_deal_payment(
+            deal_id=self.deal_id, invoice_id=self.invoice_id,
+            engine=self.engine, now=150,
+        )
+        result = open_deal_dispute(
+            deal_id=self.deal_id, actor_user_id="202",
+            reason="Seller has not provided the promised gift",
+            engine=self.engine, now=160,
+        )
+        self.assertEqual(result, {
+            "opened": True, "duplicate": False, "status": "disputed"
+        })
+        duplicate = open_deal_dispute(
+            deal_id=self.deal_id, actor_user_id="101",
+            reason="Seller has not provided the promised gift",
+            engine=self.engine, now=161,
+        )
+        self.assertTrue(duplicate["duplicate"])
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.execute(text(
+                "SELECT status FROM marketplace_deals WHERE deal_id=:id"
+            ), {"id": self.deal_id}).scalar_one(), "disputed")
+
+    def test_unrelated_user_cannot_open_deal_dispute(self):
+        with self.assertRaises(PermissionError):
+            open_deal_dispute(
+                deal_id=self.deal_id, actor_user_id="303",
+                reason="I want to dispute this transaction",
+                engine=self.engine, now=160,
+            )
+
+    def test_dispute_during_nft_transfer_requires_reconciliation(self):
+        reserve_verified_deal_payment(
+            deal_id=self.deal_id, invoice_id=self.invoice_id,
+            engine=self.engine, now=150,
+        )
+        mark_deal_nft_transfer_pending(
+            deal_id=self.deal_id, engine=self.engine, now=155,
+        )
+        result = open_deal_dispute(
+            deal_id=self.deal_id, actor_user_id="101",
+            reason="The NFT transfer has an uncertain result",
+            engine=self.engine, now=160,
+        )
+        self.assertEqual(result["status"], "reconciliation_required")
+        with self.assertRaises(PermissionError):
+            refund_unfulfilled_deal(
+                deal_id=self.deal_id, reason="Dispute",
+                admin_user_id="999", engine=self.engine, now=170,
+            )
 
     def test_buyer_cannot_cancel_reservation_after_deal_creation(self):
         with self.assertRaises(PermissionError):
