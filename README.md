@@ -21,10 +21,12 @@ The catalogue endpoints currently return an honest empty native catalogue while 
 
 ## Payments and custody
 
-- Digital goods sold inside Telegram must use Telegram Stars (XTR), subject to Telegram's current rules.
-- Stars invoice creation remains disabled until real listing/deal creation, fulfilment, reconciliation and security review are complete. Refund requests and confirmed-refund accounting are implemented, but live refund execution still requires an authenticated admin action and Telegram confirmation.
-- Crypto checkout and automated crypto transfers remain disabled.
-- GIFT RADAR does not custody user wallets, sign transactions, edit user balances or take control of user assets.
+- Payment execution is behind the pluggable `PaymentRoute` interface. The deal core selects a route through configuration and does not contain provider-specific payment logic.
+- `ton_usdt_testnet` is the enabled engineering route for TON testnet and the platform-issued `tUSDT` test Jetton only. It is not genuine Tether USDT and cannot select mainnet.
+- `stars` is a separate adapter and remains hard-disabled. No Stars checkout or payout is activated by selecting a config value.
+- **Legal status:** the payment route for sales inside the Telegram Mini App has not been determined. The open questions for counsel are collected in [docs/TELEGRAM_COMPLIANCE.md](docs/TELEGRAM_COMPLIANCE.md). This code-level testnet route is not authorization to accept crypto payments inside a Mini App.
+- Mainnet, real funds and production payment activation remain prohibited until separate legal, security and owner approvals.
+- GIFT RADAR does not request wallet seed phrases/private keys or store user wallet credentials. Transaction signing must remain in an explicitly user-approved wallet or external signing system.
 - A seller listing must be backed by fresh, independently verifiable ownership evidence and a reservation lock before a real deal can be created.
 
 ## Security and operations
