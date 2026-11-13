@@ -58,11 +58,13 @@ Internal states may include `transfer_pending`, `refund_pending`, and `reconcili
 1. One escrow instance is bound to exactly one deal ID, NFT item address, seller, buyer, currency and amount.
 2. Only the configured NFT item can prove deposit; `OwnershipAssigned.prev_owner` must equal the configured seller.
 3. Payment is accepted once. The deal ID, provider transaction ID / Telegram charge ID, currency and amount are unique and idempotent.
-4. No payout before independent buyer-ownership proof.
-5. No refund after an ambiguous NFT transfer unless reconciliation proves who owns the NFT and where payment is held.
-6. No admin can unilaterally change a terminal deal. Dispute resolution requires the configured multi-approver policy.
-7. Contract and backend Ledger are reconciled; disagreement moves the deal to `reconciliation_required`.
-8. No key material is stored by the app. Any contract deployment or admin transaction is signed by a user wallet or external HSM; never by a seed phrase stored in the repository or Railway.
+4. An unpaid deposited NFT is never automatically returned just because a deadline passed. The seller must raise a dispute, the payment authority must record transaction-history reconciliation evidence proving no successful Stars payment, and both arbitrators must approve the return.
+5. A paid deal can be refunded only after Telegram `refundStarPayment` succeeds and the payment authority records the refund reference.
+6. No payout before independent buyer-ownership proof.
+7. No refund after an ambiguous NFT transfer unless reconciliation proves who owns the NFT and where payment is held.
+8. No admin can unilaterally change a terminal deal. Dispute resolution requires the configured multi-approver policy.
+9. Contract and backend Ledger are reconciled; disagreement moves the deal to `reconciliation_required`.
+10. No key material is stored by the app. Any contract deployment or admin transaction is signed by a user wallet or external HSM; never by a seed phrase stored in the repository or Railway.
 9. All tests, scripts, endpoints and configuration default to testnet. Mainnet execution must be blocked by code, not only by documentation.
 
 ## Testnet implementation plan
