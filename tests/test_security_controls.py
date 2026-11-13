@@ -1,5 +1,6 @@
 import unittest
-from security_controls import _valid_origin, rate_limit_status
+
+from security_controls import _valid_origin
 
 class SecurityControlTests(unittest.TestCase):
     def test_https_origin_is_required(self):
