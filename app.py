@@ -880,13 +880,32 @@ async def _refresh_public_catalogues():
         await asyncio.sleep(_refresh_interval_seconds())
 
 
+async def _native_nft_escrow_monitor_enabled() -> bool:
+    """Fail closed until native NFT escrow has explicit legal and infrastructure approval."""
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    required = (
+        "GIFT_RADAR_ESCROW_ADDRESS",
+        "GIFT_RADAR_ESCROW_CODE_HASH",
+        "TONAPI_KEY",
+        "TONCENTER_API_KEY",
+    )
+    return bool(
+        os.getenv("NATIVE_NFT_ESCROW_MONITOR_ENABLED", "false").strip().lower() == "true"
+        and os.getenv("GIFT_RADAR_STORAGE_BACKEND", "").strip().lower() == "postgres"
+        and database_url.startswith(("postgres://", "postgresql://", "postgresql+psycopg://"))
+        and os.getenv("TON_NFT_PROVIDER_IDS", "").replace(" ", "").lower() == "tonapi,toncenter"
+        and all(os.getenv(name, "").strip() for name in required)
+        and os.getenv("KZ_LEGAL_REVIEW_APPROVED", "false").strip().lower() == "true"
+        and os.getenv("KZ_DATA_RESIDENCY_VERIFIED", "false").strip().lower() == "true"
+        and os.getenv("KZ_TAX_REVIEW_APPROVED", "false").strip().lower() == "true"
+        and os.getenv("KZ_SECURITY_REVIEW_APPROVED", "false").strip().lower() == "true"
+    )
+
+
 async def _run_nft_inventory_monitor():
-    """Poll only pending seller deposits; no wallet signing or asset movement occurs."""
+    """Poll pending seller deposits only after explicit escrow release gates pass."""
     while True:
-        ready = all(os.getenv(name, "").strip() for name in (
-            "GIFT_RADAR_ESCROW_ADDRESS", "GIFT_RADAR_ESCROW_CODE_HASH", "TON_NFT_PROVIDER_IDS",
-            "TONAPI_KEY", "TONCENTER_API_KEY",
-        ))
+        ready = _native_nft_escrow_monitor_enabled()
         if ready:
             try:
                 result = await scan_pending_nft_listings(engine=get_engine())
