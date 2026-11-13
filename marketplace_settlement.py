@@ -21,7 +21,7 @@ from sqlalchemy.engine import Engine
 
 from financial_ledger import (
     _post, _account_balance_in_connection, get_engine, init_financial_schema,
-    invoices, payment_events, stars_invoices, stars_payments, metadata,
+    accounts, invoices, payment_events, stars_invoices, stars_payments, metadata,
 )
 from marketplace_inventory import (
     init_inventory_schema, marketplace_assets, marketplace_listings,
@@ -228,6 +228,11 @@ def reserve_verified_deal_payment(*, deal_id: str, invoice_id: str,
             if payment is None:
                 raise PermissionError("Stars invoice has no successful payment receipt")
             source_hold = "liability:deal_hold:" + str(invoice["deal_id"]) + ":XTR"
+            if lock:
+                conn.execute(select(accounts.c.account_id).where(
+                    accounts.c.account_id == source_hold,
+                    accounts.c.currency == "XTR",
+                ).with_for_update()).first()
             available = -_account_balance_in_connection(conn, source_hold, "XTR")
             if available < int(deal["price_raw"]):
                 raise RuntimeError("Stars proceeds are not held for the original deal")
@@ -268,6 +273,11 @@ def reserve_verified_deal_payment(*, deal_id: str, invoice_id: str,
                 or int(payment["amount_raw"]) != int(deal["price_raw"])):
             raise ValueError("Payment event does not match the agreed deal amount")
         user_account = f"liability:user:{deal['buyer_user_id']}:{deal['currency']}"
+        if lock:
+            conn.execute(select(accounts.c.account_id).where(
+                accounts.c.account_id == user_account,
+                accounts.c.currency == deal["currency"],
+            ).with_for_update()).first()
         available = -_account_balance_in_connection(conn, user_account, deal["currency"])
         if available < int(deal["price_raw"]):
             raise RuntimeError("Buyer ledger balance is not backed by the paid invoice")
