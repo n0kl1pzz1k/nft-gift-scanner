@@ -27,7 +27,7 @@ jobs:
       - name: Install Python dependencies and lint tool
         run: pip install -r requirements.txt ruff
       - name: Lint newly added security and test modules
-        run: ruff check --select E4,E7,E9,F asset_policy.py financial_ledger.py access_control.py security_controls.py tests/test_asset_policy.py tests/test_telegram_update_idempotency.py tests/test_financial_ledger.py tests/test_security_controls.py postgres_compat.py scripts/migrate_sqlite_to_postgres.py tests/test_postgres_compat.py
+        run: ruff check --select E4,E7,E9,F asset_policy.py financial_ledger.py access_control.py security_controls.py tests/test_asset_policy.py tests/test_telegram_update_idempotency.py tests/test_financial_ledger.py tests/test_security_controls.py postgres_compat.py scripts/migrate_sqlite_to_postgres.py tests/test_postgres_compat.py tests/test_telegram_stars.py
       - name: Compile all backend modules
         run: python -m compileall -q app.py bot.py marketplace.py demo_offers.py catalog_store.py financial_ledger.py access_control.py security_controls.py postgres_compat.py scripts migrations tests
       - name: Apply full schema migrations to CI SQLite database
