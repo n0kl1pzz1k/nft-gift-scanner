@@ -19,7 +19,7 @@ from marketplace import create_marketplace_router, consume_telegram_init_data, c
 from demo_offers import create_demo_offers_router, init_demo_offers_db
 from catalog_store import get_catalogue_history, get_catalogue_item, search_catalogue_items, upsert_catalogue_items
 from security_controls import SecurityControlsMiddleware, rate_limit_status
-from financial_ledger import create_telegram_stars_invoice
+from financial_ledger import create_telegram_stars_invoice, record_telegram_stars_terms_acceptance
 
 app = FastAPI(title="GIFT RADAR API", version="0.4.0")
 app.include_router(create_marketplace_router(
@@ -123,6 +123,10 @@ class TelegramAuthRequest(BaseModel):
 
 class MarketplaceSettingRequest(BaseModel):
     enabled: bool
+
+
+class StarsTermsAcceptanceRequest(BaseModel):
+    accepted: bool
 
 
 class TonProofVerifyRequest(BaseModel):
@@ -490,6 +494,42 @@ async def ton_proof_verify(
 
 
 
+@app.post("/api/payments/stars/terms/accept")
+async def accept_telegram_stars_terms(
+    payload: StarsTermsAcceptanceRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    terms_version = os.getenv("TELEGRAM_STARS_TERMS_VERSION", "").strip()
+    terms_url = os.getenv("TERMS_URL", "").strip()
+    if not (
+        payload.accepted is True
+        and os.getenv("GIFT_RADAR_STORAGE_BACKEND", "sqlite").strip().lower() == "postgres"
+        and database_url.startswith(("postgres://", "postgresql://", "postgresql+psycopg://"))
+        and terms_version
+        and terms_url.startswith("https://")
+    ):
+        raise HTTPException(status_code=503, detail="Terms acceptance is not configured")
+    try:
+        result = record_telegram_stars_terms_acceptance(
+            user_id=str(user["id"]),
+            terms_version=terms_version,
+            terms_url=terms_url,
+        )
+        return {
+            "accepted": True,
+            "terms_version": result["terms_version"],
+            "accepted_at": result["accepted_at"],
+            "duplicate": result["duplicate"],
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception:
+        logging.exception("Could not persist Telegram Stars terms acceptance")
+        raise HTTPException(status_code=503, detail="Terms acceptance could not be stored")
+
+
 @app.get("/api/payments/stars/policy")
 async def telegram_stars_policy():
     enabled = _stars_payment_enabled()
@@ -499,7 +539,7 @@ async def telegram_stars_policy():
         "provider": "Telegram Stars",
         "terms_url": os.getenv("TERMS_URL", "").strip() if enabled else None,
         "support_url": os.getenv("PAYMENT_SUPPORT_URL", "").strip() if enabled else None,
-        "note": "Digital goods inside Telegram are payable only in Telegram Stars.",
+        "terms_version": os.getenv("TELEGRAM_STARS_TERMS_VERSION", "").strip() if enabled else None,\n        "note": "Digital goods inside Telegram are payable only in Telegram Stars; explicit current terms acceptance is required before invoice creation.",
     }
 
 
