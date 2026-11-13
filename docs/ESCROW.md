@@ -32,6 +32,91 @@ References:
 - https://core.telegram.org/bots/blockchain-guidelines
 - https://docs.ton.org/applications/ton-connect/overview
 
+## Platform-controlled authority configuration
+
+Authority membership is selected exclusively by the marketplace operator from its trusted platform configuration. It is not supplied by either deal participant.
+
+### Source of truth and enforcement points
+
+1. **Platform configuration:** the only source for signer and arbitrator public addresses is the platform's access-controlled authority registry/configuration. Configuration changes require a privileged, audited operator workflow and two-person review. No public API or Mini App field may set or override these addresses.
+2. **Deal creation API:** seller and buyer may submit only commercial deal data (NFT item, price, currency and counterparty). The backend loads authority membership from the platform registry, rejects malformed/duplicate/overlapping sets, rejects seller/buyer addresses in either set, fixes the 2-of-3 thresholds, and computes a canonical configuration hash.
+3. **Escrow initialization:** the initialization payload carries the platform-generated configuration and its authorization. The contract validates the platform authorization and member constraints, stores the exact configuration snapshot and hash, and exposes them through getters. Seller and buyer messages cannot initialize, replace or amend authority membership.
+4. **Privileged actions:** the contract accepts only the required quorum from the addresses in that deal's stored snapshot. Backend configuration is compared with the on-chain snapshot before any payment, release, refund, dispute or recovery message is submitted.
+5. **Audit:** every configuration version, approving operator, hash, deal ID and change event is recorded in an append-only audit trail. Missing, stale or invalid configuration fails closed.
+
+**Code status:** these are required enforcement points, not yet implemented. The current prototype still uses one payment authority and two fixed arbitrator fields. The 2-of-3 code and tests must demonstrate that seller/buyer input cannot influence the authority snapshot before this requirement can be marked complete.
+
+## Compromised signer response and maximum deal lifetime
+
+### One signer compromised during an active deal
+
+The 2-of-3 quorum means one compromised signer alone cannot attest Stars payment, approve a dispute outcome, authorize recovery or release the NFT. It also cannot change the authority set.
+
+Required incident procedure:
+
+1. Security monitoring flags the key, pauses new privileged actions for affected deals where the contract supports the pause, and blocks the key in the platform signer registry for new deals.
+2. The two remaining original signers independently verify the incident and authorize emergency rotation with **2-of-2 signatures from those remaining members**. The compromised key is removed and replaced with a newly provisioned public key. The threshold remains 2; seller and buyer have no role in this operation.
+3. The contract records the old/new configuration hashes, rotation reason, timestamp and signer identities. The rotation is scoped to the affected deal; it cannot change deal economics or recipient addresses.
+4. If two uncompromised signers are not available, privileged transitions remain paused and the case enters the published escalation process. No single admin key may bypass quorum.
+5. Preserve evidence, rotate credentials in the HSM/signing service, review all signatures since the suspected compromise time, and reconcile every affected deal before resuming.
+
+The contract must reject any action signed only by the revoked key after rotation. A rotation cannot retroactively invalidate a transaction already finalized on-chain. This residual race is why detection, pause and rapid rotation are operational requirements. If two keys are compromised, the 2-of-3 trust assumption has failed and the deal must be escalated; no claim of protection is made.
+
+### Maximum lifetime
+
+- Every deal receives a hard `expires_at` at creation. The maximum lifetime is **30 calendar days from deal creation**; no participant or single operator can extend it.
+- The payment/deposit deadline is earlier or equal to `expires_at`. A dispute does not silently extend the deal lifetime.
+- A dispute has a first decision window of 7 calendar days and an appeal/escalation window of a further 7 calendar days. The absolute resolution deadline is the earlier of `expires_at` and 14 calendar days after the dispute opens.
+- Any extension for a legally mandated process must be approved through the platform's separately governed process, recorded with reasons and a new explicit deadline; it may not be indefinite or self-triggered by a participant.
+
+These are proposed product-policy limits for the first testnet vertical slice. They must be reflected in the contract, backend timers, monitoring, user terms and operational SLA before release.
+
+## Telegram Stars and NFT sequence
+
+The first supported in-Telegram flow is Stars payment plus NFT custody. Stars are not held by the TON contract.
+
+1. **Create deal:** platform fixes the participants, NFT item, amount, deadlines and platform-controlled authority configuration. Seller and buyer accept the displayed terms.
+2. **Deposit NFT:** seller explicitly transfers the exact NFT item to the per-deal escrow. Independent TON provider observations confirm that the escrow is the current owner. No Stars invoice is treated as completed at this point.
+3. **Pay in Stars:** only after confirmed NFT custody, the buyer pays the exact amount in Telegram Stars (XTR). The backend accepts payment only from Telegram's authenticated successful-payment update, verifies currency/amount/payload and unique Telegram charge ID, then commits the payment and Ledger record idempotently.
+4. **Reconcile and wait:** platform signers independently check the successful-payment evidence and relevant Telegram charge/refund history. Once the 2-of-3 payment attestation is accepted, a **24-hour waiting window** begins. The window is a marketplace risk-control policy, not a Telegram guarantee that a payment can never be disputed or refunded.
+5. **Release NFT:** only after the payment is confirmed, the full waiting window has elapsed, there is no open dispute/refund/reconciliation hold, and the exact NFT is still escrow-owned, may the 2-of-3 authorized release path transfer the NFT to the buyer. A release message being sent is not delivery proof.
+6. **Confirm delivery:** independent TON providers verify finalized buyer ownership for the exact NFT item and deal. Only then can the deal enter delivered.
+7. **Seller settlement:** seller settlement is a separate backend/platform operation after delivery. A Ledger entry or Stars charge ID is not proof that Telegram permits or has completed a seller payout. The seller payout mechanism remains a launch blocker until Telegram policy and legal review establish a valid settlement rail.
+
+If payment is not confirmed, the NFT remains in escrow until the bounded expiry/dispute procedure proves a safe return path. If payment is confirmed but a refund is initiated or ownership is ambiguous, automatic release is blocked and the dispute/reconciliation rules apply. No crypto checkout is enabled inside the Telegram Mini App for digital NFTs.
+
+## Final deadlock deadline and default outcome
+
+A dispute cannot remain in the ordinary arbitration state forever:
+
+- Day 0: dispute opens and the configured 2-of-3 arbitrator set is notified.
+- By day 7: the initial panel must produce a matching 2-of-3 decision. If it does not, the case automatically enters escalation.
+- By day 14, or the deal's hard `expires_at` if earlier: a separately configured platform appeal panel must issue a final 2-of-3 decision. The panel is selected from the platform registry, not by either party, and is disjoint from the initial panel where the platform has enough qualified members.
+- The final deadline is visible in the deal UI and service terms. Silence is not consent, and no participant can reset the clock by repeatedly filing the same dispute.
+
+**Default rule at the final deadline:** the system applies the first matching objective-evidence rule below, rather than freezing an NFT indefinitely or allowing an arbitrary admin to choose a recipient:
+
+1. If Telegram confirms no successful Stars payment after charge-history reconciliation, and independent TON observations confirm the NFT is still escrow-owned, return the NFT to the pre-committed seller address.
+2. If a successful Stars payment is confirmed, the waiting window has elapsed, no Telegram refund is confirmed, and the NFT is still escrow-owned, deliver the NFT to the pre-committed buyer address. Seller settlement remains a separate obligation and is not fabricated by the contract.
+3. If Telegram confirms a refund and TON observations confirm the NFT remains escrow-owned, return the NFT to the pre-committed seller address and close only after both sides are evidenced.
+4. If the NFT is already buyer-owned or seller-owned, close only against finalized ownership evidence and the matching payment/refund state.
+5. If objective evidence conflicts, the appeal panel must issue a final reasoned direction by the hard deadline. If it cannot, the case is handed to the independent dispute resolver/court named in the service terms. The contract must support a bounded, pre-agreed custody-transfer path to that neutral resolver; it must not accept an arbitrary recipient. The neutral resolver's identity and legal authority must be established before any real-money launch.
+
+The fifth case is a hard launch blocker until the neutral resolver/custody path is contractually and technically specified. The service terms must name the dispute body, jurisdiction, contact method, response SLA and legal effect of its final instruction. The platform must not promise that all disputes can be resolved automatically where the evidence itself is contradictory.
+
+## Testnet cost measurement plan
+
+No deployment price, break-even amount or per-deal fee is approved from estimates alone. The first testnet vertical slice must emit reproducible measurements for:
+
+- Contract deploy and initialization: transaction count, gas/compute, forwarding fees and storage footprint.
+- NFT deposit, payment attestation, waiting-window expiry, release, refund, dispute vote, escalation and recovery: transaction count, gas/compute, forwarding fees, message sizes and failure/retry costs.
+- Storage rent at 1, 7, 14 and 30 days, including disputed deals held to the maximum lifetime.
+- Operational cost per active deal: indexer/RPC requests, provider quorum checks, monitoring/log retention and backend worker load.
+- At least 30 repeated testnet runs per principal path, recording median, p95, maximum and failed-run costs. Preserve raw transaction IDs, network config, toolchain version and calculation scripts.
+- Compare the measured per-deal contract against factory/clone deployment and a shared escrow with isolated deal state. Include blast-radius and auditability trade-offs, not gas alone.
+
+Report testnet TON amounts separately from projected mainnet TON amounts. Mainnet projections must use a dated network-fee/storage model and an explicit uncertainty range; they are not mainnet measurements. No mainnet transaction is permitted for this exercise. Decide who bears deployment/gas costs, failure refunds and the minimum viable order value only after the benchmark report is reviewed.
+
 ## Compared models
 
 | Model | Benefits | Main risks | Cost / complexity | Telegram fit |
@@ -191,16 +276,16 @@ Compare per-deal contracts with a factory/clone pattern and a shared escrow with
 
 ### 7. Approval sequence and change control
 
-1. Present this architecture and threat model to the owner.
-2. Obtain explicit approval of this exact document version.
-3. Only then implement the approved design on testnet in a feature branch and PR.
-4. Any material change to signer quorum, dispute policy, custody, fees or public message/API interfaces requires a new document revision and explicit approval before implementation.
-5. The existing contract code in this branch was written before approval of this exact document. It is prototype work only, not evidence that the approval step occurred. Do not merge, deploy or enable it.
+1. The owner approved the architecture on 2026-11-14 with six conditions: platform-controlled configurable authorities; final deadlock deadline/default; Stars confirmation and waiting window before NFT release; testnet-measured economics; a minimal 2-of-3 end-to-end testnet slice before expansion; and no mainnet or real funds.
+2. Implement in the order: authority configuration and 2-of-3 contract contour; then the first end-to-end testnet scenario; then expand coverage and economics measurement. Report each step with test evidence.
+3. Any material change to signer quorum, dispute policy, custody, fees or public message/API interfaces requires a new document revision and explicit approval before implementation.
+4. The existing contract code in this branch was written before approval of the exact architecture. It is prototype work only, not evidence that the approval step occurred. Do not merge, deploy or enable it.
 
 ### Current status
 
-- Architecture document: draft, pending owner approval.
+- Architecture: approved by owner with six conditions on 2026-11-14; implementation gates remain open.
+- Platform-controlled authority source, compromised-key procedure, 30-day deal lifetime, 7+7-day dispute windows, 24-hour Stars waiting window and cost benchmark plan: documented; contract/backend implementation pending.
 - Existing Tolk contract: experimental prototype; not approved.
 - Existing 12 emulator tests: baseline only; insufficient for acceptance.
 - Testnet deployment: not performed.
-- Real-money use: prohibited.
+- Mainnet and real-money use: prohibited.
