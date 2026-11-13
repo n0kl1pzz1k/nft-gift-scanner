@@ -14,6 +14,9 @@ import {
 import { Buffer } from "node:buffer";
 
 type Loader = (slice: Slice) => Buffer;
+type WalletContractFactory = {
+  create(args: Record<string, unknown>): { init: { code: { hash(): Buffer } } };
+};
 
 function loadV1(slice: Slice): Buffer {
   slice.loadUint(32);
@@ -44,24 +47,25 @@ function loadV5(slice: Slice): Buffer {
   return key;
 }
 
-const knownWallets: Array<{ codeHash: Buffer; load: Loader }> = [
-  { contract: WalletContractV1R1, load: loadV1 },
-  { contract: WalletContractV1R2, load: loadV1 },
-  { contract: WalletContractV1R3, load: loadV1 },
-  { contract: WalletContractV2R1, load: loadV2 },
-  { contract: WalletContractV2R2, load: loadV2 },
-  { contract: WalletContractV3R1, load: loadV3 },
-  { contract: WalletContractV3R2, load: loadV3 },
-  { contract: WalletContractV4, load: loadV4 },
-  { contract: WalletContractV5R1, load: loadV5 }
-].map(({ contract, load }) => ({
-  codeHash: contract.create({
+const knownWallets: Array<{ codeHash: Buffer; load: Loader }> = [];
+function registerWallet(contract: WalletContractFactory, load: Loader, walletId?: unknown): void {
+  const args: Record<string, unknown> = {
     workchain: 0,
-    publicKey: Buffer.alloc(32),
-    ...(contract === WalletContractV5R1 ? { walletId: { networkGlobalId: -239 } } : {})
-  } as never).init.code.hash(),
-  load
-}));
+    publicKey: Buffer.alloc(32)
+  };
+  if (walletId !== undefined) args.walletId = walletId;
+  knownWallets.push({ codeHash: contract.create(args).init.code.hash(), load });
+}
+
+registerWallet(WalletContractV1R1, loadV1);
+registerWallet(WalletContractV1R2, loadV1);
+registerWallet(WalletContractV1R3, loadV1);
+registerWallet(WalletContractV2R1, loadV2);
+registerWallet(WalletContractV2R2, loadV2);
+registerWallet(WalletContractV3R1, loadV3);
+registerWallet(WalletContractV3R2, loadV3);
+registerWallet(WalletContractV4, loadV4);
+registerWallet(WalletContractV5R1, loadV5, { networkGlobalId: -239 });
 
 export function extractKnownWalletPublicKey(stateInit: StateInit): Buffer | null {
   if (!stateInit.code || !stateInit.data) return null;
