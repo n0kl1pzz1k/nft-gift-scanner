@@ -1252,7 +1252,7 @@ async def wallet_policy():
     )
     return {
         "wallet_connect": "ton_connect_with_server_verified_ton_proof",
-        "supported_network": "ton-mainnet",
+        "supported_network": "ton-testnet",
         "stores": ["public_wallet_address_only_after_verified_wallet_proof"],
         "requests_seed_phrase": False,
         "requests_private_key": False,
@@ -1264,9 +1264,9 @@ async def wallet_policy():
         "withdrawal_requests_enabled": withdrawal_requests_enabled,
         "withdrawals_enabled": withdrawal_requests_enabled,
         "payment_note": (
-            "TON deposits are available only when all independent-provider and Kazakhstan release gates pass."
-            if any(crypto_enabled.values())
-            else "Crypto deposits remain disabled pending operational and compliance release gates."
+            "Testnet-only mode: no TON testnet payment adapter has been approved."
+            if not any(crypto_enabled.values())
+            else "Testnet-only TON payment capability is available."
         ),
     }
 
