@@ -1,6 +1,6 @@
 # Real Deal Fulfilment Gates
 
-Status: design gate only. No real listing, escrow, transfer, refund, or seller payout is enabled by this document.
+Status: implementation foundation only. Refund request and Telegram-confirmed refund execution workflows exist in code, but production payments, live deals, transfers, escrow and seller payouts remain disabled.
 
 ## 1. Non-custodial boundary
 
@@ -50,7 +50,7 @@ Never mark a deal paid from a client callback, browser redirect, invoice-link cl
 
 - A buyer's `/paysupport` request creates an auditable support case; it does not itself issue a refund.
 - Refund execution must use Telegram's official `refundStarPayment` method with the buyer's Telegram user ID and the stored `telegram_payment_charge_id`.
-- Record request, attempt, confirmed success/failure, operator identity, reason, and Telegram response reference. Never mark refunded on a timeout or ambiguous API response; reconcile against Telegram transaction history first.
+- The buyer refund-request endpoint creates a durable request; an authenticated administrator explicitly claims and executes it with Telegram's `refundStarPayment`. The refund workflow records request, operator, reason, confirmed success/failure and a response reference. A timeout or ambiguous API response remains in `processing` and must be reconciled against Telegram transaction history before any retry.
 - On confirmed refund, post a compensating double-entry journal entry. Never edit or delete the original payment journal.
 - Seller payouts are a separate liability-settlement workflow. No payout may be implied by a `paid` deal state. Do not enable seller payouts until the legal, operational, and supported Telegram Stars withdrawal model is documented and independently tested.
 
@@ -62,7 +62,7 @@ All of the following are mandatory before any production real-deal activation:
 - Real inventory proof and revalidation adapter tested against authoritative sources.
 - Delivery/escrow model selected, documented, and independently reviewed.
 - Versioned HTTPS terms and support route published; buyer acceptance recorded before invoice creation.
-- Telegram Stars end-to-end test including pre-checkout timeout, duplicate updates, failed fulfilment, confirmed refund, and reconciliation.
+- Telegram Stars end-to-end test including pre-checkout timeout, duplicate updates, failed fulfilment, confirmed refund, ambiguous API timeout, and reconciliation.
 - Load, concurrency, rate-limit, backup/restore, incident-response, and security testing completed.
 - Separate explicit release approval after staging evidence is reviewed.
 
