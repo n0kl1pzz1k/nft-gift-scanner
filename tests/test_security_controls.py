@@ -33,7 +33,7 @@ class RequestBodyLimitTests(unittest.IsolatedAsyncioTestCase):
         await middleware(scope, receive, send)
         self.assertFalse(called)
         self.assertEqual(sent[0]["status"], 413)
-        headers = dict(sent[1]["headers"])
+        headers = dict(sent[0]["headers"])
         self.assertEqual(headers[b"cache-control"], b"no-store")
 
     async def test_chunked_body_over_limit_is_rejected(self):
