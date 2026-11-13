@@ -94,7 +94,7 @@ Not yet implemented or enabled:
 - frontend seller inventory/import/listing UX (backend endpoints are available on the draft branch);
 - completed buyer payment-to-reservation-to-asset-delivery settlement and seller proceeds ledger workflow;
 - Telegram profile gift export/transfer UX;
-- TON withdrawal signer, treasury controls and broadcast/reconciliation service. The authenticated withdrawal request/history API is present but requires `TON_WITHDRAWALS_ENABLED=true`, which remains disabled; no signer or broadcast code exists;
+- TON withdrawal signer, treasury controls and broadcast/reconciliation service. Withdrawal creation is hard-disabled at the API boundary; the history endpoint is read-only. No signer or broadcast code exists;
 - end-to-end Stars/TON integration test against real Telegram/TON services.
 
 No live financial or NFT operation may be enabled until those items, the Telegram Stars-only in-Mini-App checkout boundary, Kazakhstan legal review, infrastructure/data-location release gates and independent security review pass.
