@@ -431,6 +431,65 @@ def confirm_deal_nft_transfer(*, deal_id: str, transfer_proofs: list[dict[str, A
                 "tx_hash": normalized[0]["tx_hash"]}
 
 
+
+def open_deal_dispute(*, deal_id: str, actor_user_id: str, reason: str,
+                      engine: Engine | None = None,
+                      now: int | None = None) -> dict[str, Any]:
+    """Open one buyer/seller dispute; ambiguous in-flight transfers go to reconciliation."""
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    current = int(now or time.time())
+    uid = str(actor_user_id)
+    clean = " ".join(str(reason or "").split())
+    if not uid.isdigit() or int(uid) <= 0 or not 8 <= len(clean) <= 500:
+        raise ValueError("A valid user and dispute reason of 8-500 characters are required")
+    lock = db.dialect.name == "postgresql"
+    with db.begin() as conn:
+        query = select(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id
+        )
+        if lock:
+            query = query.with_for_update()
+        deal = conn.execute(query).mappings().first()
+        if deal is None:
+            raise ValueError("Unknown marketplace deal")
+        if uid == str(deal["buyer_user_id"]):
+            actor_type = "buyer"
+        elif uid == str(deal["seller_user_id"]):
+            actor_type = "seller"
+        else:
+            raise PermissionError("Only the buyer or seller can dispute this deal")
+        previous = conn.execute(select(marketplace_deal_events.c.event_id).where(
+            marketplace_deal_events.c.deal_id == deal_id,
+            marketplace_deal_events.c.event_type.in_(
+                ("dispute_opened", "dispute_requires_reconciliation")
+            ),
+        ).limit(1)).first()
+        if previous:
+            return {"opened": False, "duplicate": True, "status": deal["status"]}
+        if deal["status"] == "payment_confirmed":
+            next_status = "disputed"
+            event_type = "dispute_opened"
+        elif deal["status"] == "nft_transfer_pending":
+            next_status = "reconciliation_required"
+            event_type = "dispute_requires_reconciliation"
+        else:
+            raise PermissionError("This deal is not in a disputable state")
+        changed = conn.execute(update(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id,
+            marketplace_deals.c.status == deal["status"],
+        ).values(status=next_status, updated_at=current))
+        if changed.rowcount != 1:
+            raise RuntimeError("Deal changed while opening dispute; retry")
+        _event(
+            conn, deal_id=deal_id, event_type=event_type,
+            actor_type=actor_type, actor_id=uid,
+            data={"reason": clean, "previous_status": deal["status"],
+                  "next_status": next_status}, now=current,
+        )
+        return {"opened": True, "duplicate": False, "status": next_status}
+
+
 def refund_unfulfilled_deal(*, deal_id: str, reason: str, admin_user_id: str,
                             engine: Engine | None = None,
                             now: int | None = None) -> dict[str, Any]:
