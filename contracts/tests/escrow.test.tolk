@@ -4,7 +4,7 @@ import "@acton/testing/expect"
 import "@contracts/escrow-types"
 import "@wrappers/GiftRadarEscrow.gen"
 
-fun setupEscrow(): (GiftRadarEscrow, address, address, address, address, address, address) {
+fun setupEscrowWithDeadline(deadline: uint64): (GiftRadarEscrow, address, address, address, address, address, address) {
     val seller = testing.treasury("seller");
     val buyer = testing.treasury("buyer");
     val nftItem = testing.treasury("nft-item");
@@ -15,7 +15,7 @@ fun setupEscrow(): (GiftRadarEscrow, address, address, address, address, address
     val escrow = GiftRadarEscrow.fromStorage({
         dealId: 77,
         expectedAmount: 250,
-        deadline: testing.getNow() + 86400,
+        deadline: deadline,
         initialized: false,
         state: 0,
         preDisputeState: 0,
@@ -57,6 +57,10 @@ fun setupEscrow(): (GiftRadarEscrow, address, address, address, address, address
         to: escrow.address,
     });
     return (escrow, seller.address, buyer.address, nftItem.address, authority.address, arb1.address, arb2.address);
+}
+
+fun setupEscrow(): (GiftRadarEscrow, address, address, address, address, address, address) {
+    return setupEscrowWithDeadline(testing.getNow() + 86400);
 }
 
 fun depositNft(escrow: GiftRadarEscrow, seller: address, nftItem: address) {
@@ -316,7 +320,38 @@ get fun `test dispute dismissal requires two distinct arbitrators`() {
         from: arb1,
         to: escrow.address,
     });
+    val duplicateFirst = net.send(arb1, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ApproveDisputeResolution {
+            queryId: 111,
+            decision: 2,
+            resolutionHash: 0xdef002,
+        },
+    }));
+    expect(duplicateFirst).toHaveSuccessfulTx<ApproveDisputeResolution>({
+        from: arb1,
+        to: escrow.address,
+    });
+    expect(readEscrowState(escrow).disputeApprovals).toEqual(1);
     expect(readEscrowState(escrow).state).toEqual(7);
+
+    val mismatchedSecond = net.send(arb2, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ApproveDisputeResolution {
+            queryId: 112,
+            decision: 2,
+            resolutionHash: 0xdef099,
+        },
+    }));
+    expect(mismatchedSecond).toHaveFailedTx<ApproveDisputeResolution>({
+        from: arb2,
+        to: escrow.address,
+        exitCode: 1007,
+    });
 
     val second = net.send(arb2, createMessage({
         bounce: true,
@@ -553,4 +588,102 @@ get fun `test disputed paid deal needs refund attestation and two arbitrators`()
         from: escrow.address,
         to: nftItem,
     });
+}
+
+get fun `test unpaid NFT cannot be returned on timeout without reconciliation and two approvals`() {
+    val (escrow, seller, _, nftItem, authority, arb1, arb2) =
+        setupEscrowWithDeadline(testing.getNow() - 1);
+    depositNft(escrow, seller, nftItem);
+
+    val unsafeReturn = net.send(authority, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: RequestRefund {
+            queryId: 29,
+            telegramRefundHash: 0,
+        },
+    }));
+    expect(unsafeReturn).toHaveFailedTx<RequestRefund>({
+        from: authority,
+        to: escrow.address,
+        exitCode: 1002,
+    });
+    expect(readEscrowState(escrow).state).toEqual(1);
+
+    val dispute = net.send(seller, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: RaiseDispute { queryId: 30, reasonHash: 0xdef011 },
+    }));
+    expect(dispute).toHaveSuccessfulTx<RaiseDispute>({
+        from: seller,
+        to: escrow.address,
+    });
+
+    val firstApproval = net.send(arb1, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ApproveDisputeResolution {
+            queryId: 31,
+            decision: 1,
+            resolutionHash: 0xdef012,
+        },
+    }));
+    expect(firstApproval).toHaveSuccessfulTx<ApproveDisputeResolution>({
+        from: arb1,
+        to: escrow.address,
+    });
+
+    val secondWithoutProof = net.send(arb2, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ApproveDisputeResolution {
+            queryId: 32,
+            decision: 1,
+            resolutionHash: 0xdef012,
+        },
+    }));
+    expect(secondWithoutProof).toHaveFailedTx<ApproveDisputeResolution>({
+        from: arb2,
+        to: escrow.address,
+        exitCode: 1006,
+    });
+
+    val noPaymentEvidence = net.send(authority, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: RecordNoPaymentEvidence {
+            queryId: 33,
+            reconciliationProofHash: 0xdef013,
+        },
+    }));
+    expect(noPaymentEvidence).toHaveSuccessfulTx<RecordNoPaymentEvidence>({
+        from: authority,
+        to: escrow.address,
+    });
+
+    val secondApproval = net.send(arb2, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ApproveDisputeResolution {
+            queryId: 34,
+            decision: 1,
+            resolutionHash: 0xdef012,
+        },
+    }));
+    expect(secondApproval).toHaveSuccessfulTx<ApproveDisputeResolution>({
+        from: arb2,
+        to: escrow.address,
+    });
+    expect(secondApproval).toHaveTx<AskToChangeOwnership>({
+        from: escrow.address,
+        to: nftItem,
+    });
+    expect(readEscrowState(escrow).state).toEqual(9);
 }
