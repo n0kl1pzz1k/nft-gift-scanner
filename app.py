@@ -135,6 +135,7 @@ app.add_middleware(SecurityControlsMiddleware)
 _refresh_task: asyncio.Task | None = None
 _inventory_task: asyncio.Task | None = None
 _deposit_task: asyncio.Task | None = None
+_deal_expiry_task: asyncio.Task | None = None
 
 
 def _safe_total_count(reported_total: Any, item_count: int) -> int:
@@ -981,15 +982,40 @@ async def _run_nft_inventory_monitor():
         await asyncio.sleep(20)
 
 
+async def _run_marketplace_deal_expiry():
+    """Release only unpaid, expired reservations; never touch paid or disputed deals."""
+    import logging
+    from marketplace_settlement import expire_unpaid_marketplace_deals
+
+    while True:
+        try:
+            result = await asyncio.to_thread(
+                expire_unpaid_marketplace_deals, limit=100,
+            )
+            if result["expired"]:
+                logging.info(
+                    "Marketplace unpaid deal expiry: expired=%s relisted=%s",
+                    result["expired"], result["relisted"],
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logging.warning(
+                "Marketplace deal expiry cycle failed (%s)", type(exc).__name__,
+            )
+        await asyncio.sleep(20)
+
+
 @app.on_event("startup")
 async def start_catalogue_refresh():
-    global _refresh_task, _inventory_task, _deposit_task, _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret
+    global _refresh_task, _inventory_task, _deposit_task, _deal_expiry_task, _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret
     init_marketplace_db()
     init_demo_offers_db()
     _refresh_task = asyncio.create_task(_refresh_public_catalogues())
     _inventory_task = asyncio.create_task(_run_nft_inventory_monitor())
     from ton_deposit_monitor import run_ton_deposit_monitor
     _deposit_task = asyncio.create_task(run_ton_deposit_monitor())
+    _deal_expiry_task = asyncio.create_task(_run_marketplace_deal_expiry())
 
     token = os.getenv("BOT_TOKEN", "").strip()
     if token:
@@ -1014,7 +1040,7 @@ async def start_catalogue_refresh():
 
 @app.on_event("shutdown")
 async def stop_catalogue_refresh():
-    global _refresh_task, _inventory_task, _deposit_task, _telegram_bot
+    global _refresh_task, _inventory_task, _deposit_task, _deal_expiry_task, _telegram_bot
     if _refresh_task and not _refresh_task.done():
         _refresh_task.cancel()
         try:
@@ -1025,6 +1051,12 @@ async def stop_catalogue_refresh():
         _inventory_task.cancel()
         try:
             await _inventory_task
+        except asyncio.CancelledError:
+            pass
+    if _deal_expiry_task and not _deal_expiry_task.done():
+        _deal_expiry_task.cancel()
+        try:
+            await _deal_expiry_task
         except asyncio.CancelledError:
             pass
     if _deposit_task and not _deposit_task.done():
