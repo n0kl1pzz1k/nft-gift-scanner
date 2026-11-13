@@ -6,8 +6,8 @@ requires two independent provider proofs and the live item owner to match.
 """
 from __future__ import annotations
 
-import hashlib
 import json
+import os
 import time
 import uuid
 from typing import Any
@@ -290,7 +290,9 @@ def confirm_deal_nft_transfer(*, deal_id: str, transfer_proofs: list[dict[str, A
             })
         if len({item["provider_id"] for item in normalized}) != 2:
             raise PermissionError("Two distinct providers are required")
-        if len({item["tx_hash"] for item in normalized}) != 1 or not normalized[0]["tx_hash"]:
+        if (len({item["tx_hash"] for item in normalized}) != 1
+                or len(normalized[0]["tx_hash"]) != 64
+                or any(ch not in "0123456789abcdef" for ch in normalized[0]["tx_hash"])):
             raise ValueError("Providers disagree on NFT transfer transaction")
         if len({item["item_address"] for item in normalized}) != 1:
             raise ValueError("Providers disagree on NFT item")
@@ -307,15 +309,17 @@ def confirm_deal_nft_transfer(*, deal_id: str, transfer_proofs: list[dict[str, A
             raise PermissionError("NFT transfer did not originate from the configured escrow")
         if normalized[0]["new_owner"] != expected_buyer:
             raise PermissionError("NFT was not delivered to the buyer's verified wallet")
-        if normalized[0]["item_address"] != canonical_ton_address(asset["canonical_asset_id"].split(":")[-1] if ":" in asset["canonical_asset_id"] else asset["canonical_asset_id"]):
-            # canonical_asset_id format is an internal composite key; use the item address
-            # recorded in the asset's ownership proof below when available.
-            proof_row = conn.execute(__import__("sqlalchemy").text(
-                "SELECT item_address FROM marketplace_ownership_proofs "
-                "WHERE asset_id=:asset_id ORDER BY recorded_at DESC LIMIT 1"
-            ), {"asset_id": deal["asset_id"]}).mappings().first()
-            if proof_row is None or normalized[0]["item_address"] != canonical_ton_address(proof_row["item_address"]):
-                raise ValueError("NFT item does not match the reserved listing")
+        from marketplace_inventory import marketplace_ownership_proofs
+        proof_row = conn.execute(select(
+            marketplace_ownership_proofs.c.evidence_reference
+        ).where(
+            marketplace_ownership_proofs.c.asset_id == deal["asset_id"],
+            marketplace_ownership_proofs.c.verification_status == "verified",
+        ).order_by(
+            marketplace_ownership_proofs.c.recorded_at.desc()
+        ).limit(1)).first()
+        if proof_row is None or normalized[0]["item_address"] != canonical_ton_address(proof_row.evidence_reference):
+            raise ValueError("NFT item does not match the reserved listing")
         owner_addresses = {canonical_ton_address(value) for value in current_owner_addresses}
         if owner_addresses != {expected_buyer}:
             raise PermissionError("Live NFT state does not show the buyer as current owner")
