@@ -12,10 +12,10 @@ def upgrade():
     op.add_column("payment_invoices", sa.Column(
         "asset_kind", sa.String(16), nullable=False, server_default="jetton"
     ))
-    op.create_check_constraint(
-        "ck_payment_invoices_asset_kind", "payment_invoices",
-        "asset_kind IN ('native', 'jetton')"
-    )
+    with op.batch_alter_table("payment_invoices", recreate="always") as batch:
+        batch.create_check_constraint(
+            "ck_payment_invoices_asset_kind", "asset_kind IN ('native', 'jetton')"
+        )
 
     op.create_table(
         "ton_chain_observations",
@@ -89,24 +89,26 @@ def upgrade():
             "ck_marketplace_listings_currency", "currency IN ('XTR','GRAM','USDT')"
         )
 
-    op.add_column("marketplace_assets", sa.Column(
-        "custody_state", sa.String(24), nullable=False, server_default="wallet_owned"
-    ))
-    op.add_column("marketplace_assets", sa.Column("deposit_tx_hash", sa.String(128)))
-    op.add_column("marketplace_assets", sa.Column("deposit_event_index", sa.BigInteger()))
-    op.add_column("marketplace_assets", sa.Column("custody_verified_at", sa.BigInteger()))
-    op.create_check_constraint(
-        "ck_marketplace_assets_custody_state", "marketplace_assets",
-        "custody_state IN ('wallet_owned','escrow_pending','escrowed','transferred','telegram_profile_only','reconciliation_required')"
-    )
+    with op.batch_alter_table("marketplace_assets", recreate="always") as batch:
+        batch.add_column(sa.Column(
+            "custody_state", sa.String(24), nullable=False, server_default="wallet_owned"
+        ))
+        batch.add_column(sa.Column("deposit_tx_hash", sa.String(128)))
+        batch.add_column(sa.Column("deposit_event_index", sa.BigInteger()))
+        batch.add_column(sa.Column("custody_verified_at", sa.BigInteger()))
+        batch.create_check_constraint(
+            "ck_marketplace_assets_custody_state",
+            "custody_state IN ('wallet_owned','escrow_pending','escrowed','transferred','telegram_profile_only','reconciliation_required')"
+        )
 
 
 def downgrade():
-    op.drop_constraint("ck_marketplace_assets_custody_state", "marketplace_assets", type_="check")
-    op.drop_column("marketplace_assets", "custody_verified_at")
-    op.drop_column("marketplace_assets", "deposit_event_index")
-    op.drop_column("marketplace_assets", "deposit_tx_hash")
-    op.drop_column("marketplace_assets", "custody_state")
+    with op.batch_alter_table("marketplace_assets", recreate="always") as batch:
+        batch.drop_constraint("ck_marketplace_assets_custody_state", type_="check")
+        batch.drop_column("custody_verified_at")
+        batch.drop_column("deposit_event_index")
+        batch.drop_column("deposit_tx_hash")
+        batch.drop_column("custody_state")
 
     with op.batch_alter_table("marketplace_listings", recreate="always") as batch:
         batch.drop_constraint("ck_marketplace_listings_currency", type_="check")
@@ -125,5 +127,6 @@ def downgrade():
     op.drop_table("withdrawal_requests")
     op.drop_index("idx_ton_observations_event", table_name="ton_chain_observations")
     op.drop_table("ton_chain_observations")
-    op.drop_constraint("ck_payment_invoices_asset_kind", "payment_invoices", type_="check")
-    op.drop_column("payment_invoices", "asset_kind")
+    with op.batch_alter_table("payment_invoices", recreate="always") as batch:
+        batch.drop_constraint("ck_payment_invoices_asset_kind", type_="check")
+        batch.drop_column("asset_kind")
