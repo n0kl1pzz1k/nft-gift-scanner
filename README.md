@@ -15,14 +15,14 @@
 
 The repository contains Telegram authentication/session infrastructure, user profiles, internal demo order/offer flows, moderation/reporting, PostgreSQL migration foundations, append-only financial ledger foundations, a TON Proof service foundation, and Telegram Stars payment foundations behind fail-closed gates.
 
-The native inventory migration adds canonical asset records, immutable ownership evidence, native listings, reservation leases and append-only listing events. The production-grade ownership verifier, public listing publication path, reservation-to-real-deal transition, delivery confirmation, disputes, refunds and seller settlement are not yet complete. Existing demo orders are not real trades and must never be charged.
+The native inventory migration adds canonical asset records, immutable ownership evidence, native listings, reservation leases and append-only listing events. The Telegram Stars foundation now includes terms acceptance, idempotent invoice creation, pre-checkout validation, authenticated successful-payment settlement, buyer refund requests, an admin-claimed Telegram refund call and a compensating ledger reversal. The production ownership verifier, public listing publication, reservation-to-real-deal transition, delivery confirmation, disputes, full refund reconciliation and seller settlement remain release-gated. Existing demo orders are not real trades and must never be charged.
 
 The catalogue endpoints currently return an honest empty native catalogue while the native inventory query and trusted ownership verification are completed. They do not fall back to external marketplaces or invent listings.
 
 ## Payments and custody
 
 - Digital goods sold inside Telegram must use Telegram Stars (XTR), subject to Telegram's current rules.
-- Stars payments remain disabled until real listing/deal creation, terms, fulfilment, refund handling, reconciliation and security review are complete.
+- Stars invoice creation remains disabled until real listing/deal creation, fulfilment, reconciliation and security review are complete. Refund requests and confirmed-refund accounting are implemented, but live refund execution still requires an authenticated admin action and Telegram confirmation.
 - Crypto checkout and automated crypto transfers remain disabled.
 - GIFT RADAR does not custody user wallets, sign transactions, edit user balances or take control of user assets.
 - A seller listing must be backed by fresh, independently verifiable ownership evidence and a reservation lock before a real deal can be created.
@@ -49,4 +49,4 @@ Backend dependencies are listed in requirements.txt. The API is FastAPI; use a l
 
 ## Retired integrations
 
-Legacy Portals adapter code is retained temporarily only to make the removal auditable and prevent accidental API calls. Requests through that adapter fail closed with HTTP 410. No Portals, Swift Gifts, Tonnel or MRKT credentials are required or should be configured. The legacy adapter can be physically deleted after all old deployment references are migrated.
+External marketplace adapters and public reference-feed routes have been removed from the active backend. GIFT RADAR owns its own catalogue, listings, orders and deal lifecycle. TON RPC/indexers may be used only for technical chain-state verification, not as sources of third-party listings. No Portals, Swift Gifts, Tonnel or MRKT credentials are required or should be configured.
