@@ -18,6 +18,7 @@ from marketplace import create_marketplace_router, consume_telegram_init_data, c
 from demo_offers import create_demo_offers_router, init_demo_offers_db
 from catalog_store import get_catalogue_history, get_catalogue_item, search_catalogue_items, upsert_catalogue_items
 from security_controls import SecurityControlsMiddleware, rate_limit_status
+from financial_ledger import create_telegram_stars_invoice
 
 app = FastAPI(title="GIFT RADAR API", version="0.4.0")
 app.include_router(create_marketplace_router(
@@ -29,6 +30,18 @@ app.include_router(create_demo_offers_router(lambda value: _authenticate_telegra
 _telegram_bot = None
 _telegram_dispatcher = None
 _telegram_webhook_secret = None
+
+def _stars_payment_enabled() -> bool:
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    return bool(
+        os.getenv("TELEGRAM_STARS_PAYMENTS_ENABLED", "false").strip().lower() == "true"
+        and _telegram_bot is not None
+        and os.getenv("GIFT_RADAR_STORAGE_BACKEND", "sqlite").strip().lower() == "postgres"
+        and database_url.startswith(("postgres://", "postgresql://", "postgresql+psycopg://"))
+        and os.getenv("TERMS_URL", "").strip().startswith("https://")
+        and os.getenv("PAYMENT_SUPPORT_URL", "").strip().startswith("https://")
+    )
+
 
 # Browser access is restricted to the production Mini App origins.
 # Extra origins may be supplied explicitly for a controlled preview environment.
