@@ -69,24 +69,25 @@ def upgrade():
         ["user_id", "status", "created_at"]
     )
 
-    op.drop_constraint("ck_marketplace_assets_type", "marketplace_assets", type_="check")
-    op.drop_constraint("ck_marketplace_assets_identity", "marketplace_assets", type_="check")
-    op.create_check_constraint(
-        "ck_marketplace_assets_type", "marketplace_assets",
-        "asset_type IN ('ton_nft','telegram_gift','collectible_username','collectible_phone_number')"
-    )
-    op.create_check_constraint(
-        "ck_marketplace_assets_identity", "marketplace_assets",
-        "(asset_type IN ('ton_nft','collectible_username','collectible_phone_number') "
-        "AND network='ton-mainnet' AND collection_address <> '' AND token_id <> '') OR "
-        "(asset_type='telegram_gift' AND network='telegram' AND telegram_gift_id <> '')"
-    )
+    with op.batch_alter_table("marketplace_assets", recreate="always") as batch:
+        batch.drop_constraint("ck_marketplace_assets_type", type_="check")
+        batch.drop_constraint("ck_marketplace_assets_identity", type_="check")
+        batch.create_check_constraint(
+            "ck_marketplace_assets_type",
+            "asset_type IN ('ton_nft','telegram_gift','collectible_username','collectible_phone_number')"
+        )
+        batch.create_check_constraint(
+            "ck_marketplace_assets_identity",
+            "(asset_type IN ('ton_nft','collectible_username','collectible_phone_number') "
+            "AND network='ton-mainnet' AND collection_address <> '' AND token_id <> '') OR "
+            "(asset_type='telegram_gift' AND network='telegram' AND telegram_gift_id <> '')"
+        )
 
-    op.drop_constraint("ck_marketplace_listings_currency_xtr", "marketplace_listings", type_="check")
-    op.create_check_constraint(
-        "ck_marketplace_listings_currency", "marketplace_listings",
-        "currency IN ('XTR','GRAM','USDT')"
-    )
+    with op.batch_alter_table("marketplace_listings", recreate="always") as batch:
+        batch.drop_constraint("ck_marketplace_listings_currency_xtr", type_="check")
+        batch.create_check_constraint(
+            "ck_marketplace_listings_currency", "currency IN ('XTR','GRAM','USDT')"
+        )
 
     op.add_column("marketplace_assets", sa.Column(
         "custody_state", sa.String(24), nullable=False, server_default="wallet_owned"
@@ -107,22 +108,19 @@ def downgrade():
     op.drop_column("marketplace_assets", "deposit_tx_hash")
     op.drop_column("marketplace_assets", "custody_state")
 
-    op.drop_constraint("ck_marketplace_listings_currency", "marketplace_listings", type_="check")
-    op.create_check_constraint(
-        "ck_marketplace_listings_currency_xtr", "marketplace_listings", "currency='XTR'"
-    )
+    with op.batch_alter_table("marketplace_listings", recreate="always") as batch:
+        batch.drop_constraint("ck_marketplace_listings_currency", type_="check")
+        batch.create_check_constraint("ck_marketplace_listings_currency_xtr", "currency='XTR'")
 
-    op.drop_constraint("ck_marketplace_assets_identity", "marketplace_assets", type_="check")
-    op.drop_constraint("ck_marketplace_assets_type", "marketplace_assets", type_="check")
-    op.create_check_constraint(
-        "ck_marketplace_assets_type", "marketplace_assets",
-        "asset_type IN ('ton_nft','telegram_gift')"
-    )
-    op.create_check_constraint(
-        "ck_marketplace_assets_identity", "marketplace_assets",
-        "(asset_type <> 'ton_nft' OR (network='ton-mainnet' AND collection_address <> '' AND token_id <> '')) AND "
-        "(asset_type <> 'telegram_gift' OR (network='telegram' AND telegram_gift_id <> ''))"
-    )
+    with op.batch_alter_table("marketplace_assets", recreate="always") as batch:
+        batch.drop_constraint("ck_marketplace_assets_identity", type_="check")
+        batch.drop_constraint("ck_marketplace_assets_type", type_="check")
+        batch.create_check_constraint("ck_marketplace_assets_type", "asset_type IN ('ton_nft','telegram_gift')")
+        batch.create_check_constraint(
+            "ck_marketplace_assets_identity",
+            "(asset_type <> 'ton_nft' OR (network='ton-mainnet' AND collection_address <> '' AND token_id <> '')) AND "
+            "(asset_type <> 'telegram_gift' OR (network='telegram' AND telegram_gift_id <> ''))"
+        )
     op.drop_index("idx_withdrawal_user_status", table_name="withdrawal_requests")
     op.drop_table("withdrawal_requests")
     op.drop_index("idx_ton_observations_event", table_name="ton_chain_observations")
