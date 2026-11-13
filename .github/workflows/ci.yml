@@ -58,6 +58,22 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+  ton-proof-service:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install TON Proof service dependencies
+        working-directory: services/ton-proof
+        run: npm install --no-audit --no-fund
+      - name: Build TON Proof service
+        working-directory: services/ton-proof
+        run: npm run build
+
   deployment-config:
     runs-on: ubuntu-latest
     steps:
