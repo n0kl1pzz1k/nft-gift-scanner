@@ -17,7 +17,7 @@ from marketplace_inventory import (
 from marketplace_settlement import (
     create_deal_from_reservation, init_marketplace_settlement_schema,
     mark_deal_nft_transfer_pending, reserve_verified_deal_payment,
-    confirm_deal_nft_transfer, refund_unfulfilled_deal,
+    confirm_deal_nft_transfer, refund_unfulfilled_deal, expire_unpaid_marketplace_deals,
 )
 
 
@@ -96,6 +96,39 @@ class MarketplaceSettlementTests(unittest.TestCase):
     def tearDown(self):
         self.engine.dispose()
         self.tmp.cleanup()
+
+
+    def test_expired_unpaid_deal_releases_listing_once(self):
+        result = expire_unpaid_marketplace_deals(
+            engine=self.engine, now=431,
+        )
+        self.assertEqual(result, {"expired": 1, "relisted": 1})
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.execute(text(
+                "SELECT status FROM marketplace_deals WHERE deal_id=:id"
+            ), {"id": self.deal_id}).scalar_one(), "expired")
+            self.assertEqual(conn.execute(text(
+                "SELECT status FROM marketplace_reservations WHERE reservation_id=:id"
+            ), {"id": self.reservation_id}).scalar_one(), "expired")
+            self.assertEqual(conn.execute(text(
+                "SELECT status FROM marketplace_listings WHERE listing_id=:id"
+            ), {"id": self.listing_id}).scalar_one(), "active")
+        self.assertEqual(
+            expire_unpaid_marketplace_deals(engine=self.engine, now=432),
+            {"expired": 0, "relisted": 0},
+        )
+
+    def test_expired_unpaid_deal_does_not_relist_stale_escrow_proof(self):
+        with self.engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE marketplace_assets SET ownership_expires_at=400 WHERE asset_id=:id"
+            ), {"id": self.asset_id})
+        result = expire_unpaid_marketplace_deals(engine=self.engine, now=431)
+        self.assertEqual(result, {"expired": 1, "relisted": 0})
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.execute(text(
+                "SELECT status FROM marketplace_listings WHERE listing_id=:id"
+            ), {"id": self.listing_id}).scalar_one(), "expired")
 
     def test_payment_is_held_until_two_provider_nft_delivery(self):
         result = reserve_verified_deal_payment(
