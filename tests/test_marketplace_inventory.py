@@ -7,7 +7,7 @@ from sqlalchemy.exc import DBAPIError
 
 from marketplace_inventory import (
     init_inventory_schema, record_wallet_owned_nft, create_escrow_pending_listing,
-    confirm_nft_escrow_deposit, reserve_verified_listing, cancel_listing_reservation,
+    confirm_nft_escrow_deposit, reserve_verified_listing, cancel_listing_reservation, cancel_seller_listing,
     save_verified_wallet, revoke_verified_wallet, get_active_verified_wallet,
 )
 
@@ -136,6 +136,50 @@ class SellerInventoryTests(unittest.TestCase):
             engine=self.engine, now=150,
         )
         self.assertEqual(again["status"], "active")
+
+
+    def test_seller_can_cancel_active_listing_before_reservation(self):
+        listing = self.listing()
+        confirm_nft_escrow_deposit(
+            listing_id=listing["listing_id"], tx_hash="ab" * 32,
+            event_index=0, verified_escrow_owner="EQescrow",
+            expected_escrow_owner="EQescrow", evidence_hash="b" * 64,
+            provider_ids=["tonapi", "toncenter"], engine=self.engine, now=120,
+        )
+        result = cancel_seller_listing(
+            listing_id=listing["listing_id"], seller_user_id="101",
+            engine=self.engine, now=130,
+        )
+        self.assertTrue(result["cancelled"])
+        self.assertEqual(result["status"], "cancelled")
+        duplicate = cancel_seller_listing(
+            listing_id=listing["listing_id"], seller_user_id="101",
+            engine=self.engine, now=140,
+        )
+        self.assertTrue(duplicate["duplicate"])
+
+    def test_seller_cannot_cancel_reserved_listing_or_another_sellers_listing(self):
+        listing = self.listing()
+        confirm_nft_escrow_deposit(
+            listing_id=listing["listing_id"], tx_hash="ab" * 32,
+            event_index=0, verified_escrow_owner="EQescrow",
+            expected_escrow_owner="EQescrow", evidence_hash="b" * 64,
+            provider_ids=["tonapi", "toncenter"], engine=self.engine, now=120,
+        )
+        reserve_verified_listing(
+            listing_id=listing["listing_id"], buyer_user_id="202",
+            engine=self.engine, now=130,
+        )
+        with self.assertRaises(PermissionError):
+            cancel_seller_listing(
+                listing_id=listing["listing_id"], seller_user_id="202",
+                engine=self.engine, now=140,
+            )
+        with self.assertRaises(PermissionError):
+            cancel_seller_listing(
+                listing_id=listing["listing_id"], seller_user_id="101",
+                engine=self.engine, now=140,
+            )
 
     def test_listing_event_log_is_append_only(self):
         listing = self.listing()
