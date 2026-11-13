@@ -199,6 +199,15 @@ def reserve_verified_deal_payment(*, deal_id: str, invoice_id: str,
             return {"reserved": False, "duplicate": True, "status": deal["status"]}
         if deal["status"] != "reserved":
             raise ValueError("Deal is not accepting payment")
+        reservation_query = select(marketplace_reservations).where(
+            marketplace_reservations.c.reservation_id == deal["reservation_id"]
+        )
+        if lock:
+            reservation_query = reservation_query.with_for_update()
+        reservation = conn.execute(reservation_query).mappings().first()
+        if (reservation is None or reservation["status"] != "active"
+                or int(reservation["expires_at"]) <= current):
+            raise PermissionError("Marketplace reservation has expired or been cancelled")
         if deal["currency"] == "XTR":
             invoice = conn.execute(select(stars_invoices).where(
                 stars_invoices.c.invoice_id == invoice_id
