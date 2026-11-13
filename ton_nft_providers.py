@@ -50,6 +50,37 @@ class TonApiNftProvider:
         self.api_key = api_key
         self.timeout = timeout
 
+    async def get_nft_transfer(self, item_address: str, old_owner: str, new_owner: str) -> dict[str, Any] | None:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                "https://tonapi.io/v2/nfts/" + item_address + "/history",
+                params={"limit": 1000},
+                headers={"Authorization": "Bearer " + self.api_key},
+            )
+        response.raise_for_status()
+        data = response.json()
+        for operation in data.get("operations", []):
+            item = operation.get("item") or {}
+            old = operation.get("old_owner") or operation.get("old_owner_address") or {}
+            new = operation.get("new_owner") or operation.get("new_owner_address") or item.get("owner") or {}
+            old_address = old.get("address") if isinstance(old, dict) else old
+            new_address = new.get("address") if isinstance(new, dict) else new
+            candidate = item.get("address") or operation.get("nft_address")
+            tx_hash = operation.get("transaction_hash") or operation.get("tx_hash")
+            if not candidate or not tx_hash:
+                continue
+            try:
+                matches = (
+                    canonical_ton_address(candidate) == canonical_ton_address(item_address)
+                    and canonical_ton_address(old_address or "") == canonical_ton_address(old_owner)
+                    and canonical_ton_address(new_address or "") == canonical_ton_address(new_owner)
+                )
+            except ValueError:
+                matches = False
+            if matches and str(operation.get("operation", "")).lower() == "transfer":
+                return {"tx_hash": str(tx_hash).removeprefix("0x").lower(), "event_index": 0}
+        return None
+
     async def get_nft_state(self, item_address: str) -> dict[str, Any] | None:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.get(
@@ -79,6 +110,34 @@ class ToncenterNftProvider:
             raise RuntimeError("TONCENTER_API_KEY is required for the Toncenter NFT adapter")
         self.api_key = api_key
         self.timeout = timeout
+
+    async def get_nft_transfer(self, item_address: str, old_owner: str, new_owner: str) -> dict[str, Any] | None:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                "https://toncenter.com/api/v3/nft/transfers",
+                params={"item_address": item_address, "limit": 100, "sort": "desc"},
+                headers={"X-API-Key": self.api_key},
+            )
+        response.raise_for_status()
+        data = response.json()
+        for transfer in data.get("nft_transfers", []):
+            if transfer.get("transaction_aborted") is True:
+                continue
+            try:
+                matches = (
+                    canonical_ton_address(transfer.get("nft_address", "")) == canonical_ton_address(item_address)
+                    and canonical_ton_address(transfer.get("old_owner", "")) == canonical_ton_address(old_owner)
+                    and canonical_ton_address(transfer.get("new_owner", "")) == canonical_ton_address(new_owner)
+                )
+            except ValueError:
+                matches = False
+            tx_hash = transfer.get("transaction_hash")
+            if matches and tx_hash:
+                return {
+                    "tx_hash": str(tx_hash).removeprefix("0x").lower(),
+                    "event_index": 0,
+                }
+        return None
 
     async def get_nft_state(self, item_address: str) -> dict[str, Any] | None:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
