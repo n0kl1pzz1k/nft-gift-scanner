@@ -314,7 +314,11 @@ def confirm_nft_escrow_deposit(*, listing_id: str, tx_hash: str, event_index: in
                                evidence_hash: str, provider_ids: list[str],
                                engine: Engine | None = None, now: int | None = None) -> dict[str, Any]:
     """Activate only after independent providers prove the NFT's current escrow owner."""
-    if verified_escrow_owner != expected_escrow_owner or not tx_hash or event_index < 0:
+    if (
+        verified_escrow_owner != expected_escrow_owner
+        or not re.fullmatch(r"[0-9a-fA-F]{64}", str(tx_hash or "").removeprefix("0x"))
+        or event_index < 0
+    ):
         raise PermissionError("NFT escrow ownership proof failed")
     if set(provider_ids) != {"tonapi", "toncenter"} or len(evidence_hash) != 64:
         raise PermissionError("The named independent TON providers are required")
@@ -379,6 +383,8 @@ async def verify_and_activate_escrow_listing(*, listing_id: str,
     if not re.fullmatch(r"[0-9a-f]{64}", expected_code_hash):
         raise RuntimeError("A reviewed 32-byte GIFT_RADAR_ESCROW_CODE_HASH is required")
     escrow_address = canonical_ton_address(escrow_address)
+    if not escrow_address.startswith("0:"):
+        raise ValueError("GIFT RADAR escrow must be a TON basechain contract")
     providers = providers or configured_nft_providers()
     if {provider.provider_id for provider in providers} != {"tonapi", "toncenter"}:
         raise PermissionError("The named independent TON providers are required")
