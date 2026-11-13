@@ -434,6 +434,55 @@ def create_telegram_stars_invoice(*, deal_id: str, buyer_user_id: str,
     )
     if not has_current_telegram_stars_terms_acceptance(user_id=str(buyer_user_id), engine=db):
         raise PermissionError("Buyer must explicitly accept the current Telegram Stars terms")
+
+    # Native GIFT RADAR deals use the marketplace ledger, not legacy demo_orders.
+    if str(deal_id).startswith("grd_"):
+        lock_native = " FOR UPDATE OF d, r, l" if db.dialect.name == "postgresql" else ""
+        with db.begin() as conn:
+            native = conn.execute(text(
+                "SELECT d.deal_id, d.listing_id, d.buyer_user_id, d.seller_user_id, "
+                "d.price_raw, d.currency, d.status, r.status AS reservation_status, "
+                "r.expires_at, l.status AS listing_status "
+                "FROM marketplace_deals d "
+                "JOIN marketplace_reservations r ON r.reservation_id=d.reservation_id "
+                "JOIN marketplace_listings l ON l.listing_id=d.listing_id "
+                "WHERE d.deal_id=:deal_id" + lock_native
+            ), {"deal_id": str(deal_id)}).mappings().first()
+            if native is None:
+                raise ValueError("Unknown native marketplace deal")
+            if str(buyer_user_id) != str(native["buyer_user_id"]):
+                raise PermissionError("Only the native deal buyer can create its payment invoice")
+            if native["currency"] != "XTR":
+                raise PermissionError("Only XTR-priced native deals can use Telegram Stars")
+            if (native["status"] != "reserved" or native["reservation_status"] != "active"
+                    or native["listing_status"] != "reserved" or int(native["expires_at"]) <= current):
+                raise ValueError("Native deal reservation is no longer payable")
+            amount = int(native["price_raw"])
+            if amount <= 0 or amount > 2_147_483_647:
+                raise ValueError("Telegram Stars amount is outside the supported integer range")
+            existing = conn.execute(select(stars_invoices).where(
+                stars_invoices.c.deal_id == str(deal_id),
+                stars_invoices.c.status.in_(("pending", "pre_checkout_approved")),
+            ).order_by(stars_invoices.c.created_at.desc())).mappings().first()
+            if existing and int(existing["expires_at"]) > current:
+                return {**dict(existing), "title": "GIFT RADAR gift"}
+            if existing:
+                conn.execute(stars_invoices.update().where(
+                    stars_invoices.c.invoice_id == existing["invoice_id"]
+                ).values(status="expired"))
+            invoice_id = "gri_" + secrets.token_urlsafe(18)
+            payload = "grstars:" + secrets.token_urlsafe(24)
+            expires_at = current + ttl_seconds
+            conn.execute(insert(stars_invoices).values(
+                invoice_id=invoice_id, payload=payload, deal_id=str(deal_id),
+                order_id=str(native["listing_id"]), buyer_user_id=str(native["buyer_user_id"]),
+                seller_user_id=str(native["seller_user_id"]), amount_stars=amount,
+                currency="XTR", status="pending", expires_at=expires_at, created_at=current,
+            ))
+            row = conn.execute(select(stars_invoices).where(
+                stars_invoices.c.invoice_id == invoice_id)).mappings().one()
+            return {**dict(row), "title": "GIFT RADAR gift"}
+
     with db.begin() as conn:
         deal = conn.execute(text(query), {"deal_id": str(deal_id)}).mappings().first()
         if deal is None:
@@ -531,12 +580,27 @@ def approve_telegram_stars_pre_checkout(*, payload: str, buyer_user_id: str,
                 or invoice["currency"] != currency
                 or int(invoice["amount_stars"]) != int(amount_stars)):
             return False
-        deal = conn.execute(text(
-            "SELECT d.status AS deal_status, d.is_real, o.status AS order_status "
-            "FROM demo_deals d JOIN demo_orders o ON o.id=d.order_id WHERE d.id=:deal_id"
-        ), {"deal_id": invoice["deal_id"]}).mappings().first()
-        if deal is None or int(deal["is_real"] or 0) != 1 or deal["deal_status"] != "awaiting_payment" or deal["order_status"] != "matched":
-            return False
+        if str(invoice["deal_id"]).startswith("grd_"):
+            native = conn.execute(text(
+                "SELECT d.status AS deal_status, r.status AS reservation_status, "
+                "r.expires_at, l.status AS listing_status "
+                "FROM marketplace_deals d "
+                "JOIN marketplace_reservations r ON r.reservation_id=d.reservation_id "
+                "JOIN marketplace_listings l ON l.listing_id=d.listing_id "
+                "WHERE d.deal_id=:deal_id"
+            ), {"deal_id": invoice["deal_id"]}).mappings().first()
+            if (native is None or native["deal_status"] != "reserved"
+                    or native["reservation_status"] != "active"
+                    or native["listing_status"] != "reserved"
+                    or int(native["expires_at"]) <= current):
+                return False
+        else:
+            deal = conn.execute(text(
+                "SELECT d.status AS deal_status, d.is_real, o.status AS order_status "
+                "FROM demo_deals d JOIN demo_orders o ON o.id=d.order_id WHERE d.id=:deal_id"
+            ), {"deal_id": invoice["deal_id"]}).mappings().first()
+            if deal is None or int(deal["is_real"] or 0) != 1 or deal["deal_status"] != "awaiting_payment" or deal["order_status"] != "matched":
+                return False
         conn.execute(stars_invoices.update().where(
             stars_invoices.c.invoice_id == invoice["invoice_id"]
         ).values(status="pre_checkout_approved", pre_checkout_query_id=query_id,
@@ -583,14 +647,36 @@ def settle_telegram_stars_payment(*, payload: str, buyer_user_id: str, currency:
 
         if invoice["status"] != "pre_checkout_approved" or invoice["pre_checkout_approved_at"] is None:
             raise ValueError("Telegram payment was not pre-approved")
-        deal_state = conn.execute(text(
-            "SELECT d.is_real, d.status AS deal_status, o.status AS order_status "
-            "FROM demo_deals d JOIN demo_orders o ON o.id=d.order_id WHERE d.id=:deal_id"
-        ), {"deal_id": invoice["deal_id"]}).mappings().first()
-        if (deal_state is None or int(deal_state["is_real"] or 0) != 1
-                or deal_state["deal_status"] not in {"awaiting_payment", "payment_pending"}
-                or deal_state["order_status"] != "matched"):
-            raise RuntimeError("Payment receipt does not match a payable real deal")
+        native_deal = None
+        if str(invoice["deal_id"]).startswith("grd_"):
+            lock_native = " FOR UPDATE OF d, r, l" if db.dialect.name == "postgresql" else ""
+            native_deal = conn.execute(text(
+                "SELECT d.deal_id, d.status AS deal_status, d.buyer_user_id, d.seller_user_id, "
+                "d.price_raw, d.currency, d.reservation_id, d.listing_id, "
+                "r.status AS reservation_status, r.expires_at, l.status AS listing_status "
+                "FROM marketplace_deals d "
+                "JOIN marketplace_reservations r ON r.reservation_id=d.reservation_id "
+                "JOIN marketplace_listings l ON l.listing_id=d.listing_id "
+                "WHERE d.deal_id=:deal_id" + lock_native
+            ), {"deal_id": invoice["deal_id"]}).mappings().first()
+            if (native_deal is None or native_deal["deal_status"] != "reserved"
+                    or native_deal["reservation_status"] != "active"
+                    or native_deal["listing_status"] != "reserved"
+                    or int(native_deal["expires_at"]) <= current
+                    or str(native_deal["buyer_user_id"]) != str(buyer_user_id)
+                    or str(native_deal["seller_user_id"]) != str(invoice["seller_user_id"])
+                    or native_deal["currency"] != "XTR"
+                    or int(native_deal["price_raw"]) != int(amount_stars)):
+                raise RuntimeError("Stars receipt does not match an active native marketplace deal")
+        else:
+            deal_state = conn.execute(text(
+                "SELECT d.is_real, d.status AS deal_status, o.status AS order_status "
+                "FROM demo_deals d JOIN demo_orders o ON o.id=d.order_id WHERE d.id=:deal_id"
+            ), {"deal_id": invoice["deal_id"]}).mappings().first()
+            if (deal_state is None or int(deal_state["is_real"] or 0) != 1
+                    or deal_state["deal_status"] not in {"awaiting_payment", "payment_pending"}
+                    or deal_state["order_status"] != "matched"):
+                raise RuntimeError("Payment receipt does not match a payable real deal")
         payment_event_id = str(uuid.uuid4())
         conn.execute(insert(stars_payments).values(
             payment_event_id=payment_event_id, invoice_id=invoice["invoice_id"],
@@ -612,16 +698,36 @@ def settle_telegram_stars_payment(*, payload: str, buyer_user_id: str, currency:
             stars_invoices.c.invoice_id == invoice["invoice_id"]
         ).values(status="paid", paid_at=current, telegram_payment_charge_id=charge_id,
                  provider_payment_charge_id=provider_payment_charge_id or None))
-        changed = conn.execute(text(
-            "UPDATE demo_deals SET status='paid' "
-            "WHERE id=:deal_id AND is_real=1 AND status IN ('awaiting_payment','payment_pending')"
-        ), {"deal_id": invoice["deal_id"]})
-        if changed.rowcount != 1:
-            current_deal = conn.execute(text(
-                "SELECT status FROM demo_deals WHERE id=:deal_id"
-            ), {"deal_id": invoice["deal_id"]}).scalar_one_or_none()
-            if current_deal != "paid":
-                raise RuntimeError("Payment was received but deal state could not be reconciled")
+        if native_deal is not None:
+            changed = conn.execute(text(
+                "UPDATE marketplace_deals SET status='payment_confirmed', "
+                "payment_invoice_id=:invoice_id, payment_event_id=:payment_event_id, updated_at=:now "
+                "WHERE deal_id=:deal_id AND status='reserved'"
+            ), {"invoice_id": invoice["invoice_id"], "payment_event_id": payment_event_id,
+                 "now": current, "deal_id": invoice["deal_id"]})
+            if changed.rowcount != 1:
+                raise RuntimeError("Stars payment was received but native deal state could not be reconciled")
+            conn.execute(text(
+                "INSERT INTO marketplace_deal_events "
+                "(event_id,deal_id,actor_type,actor_id,event_type,event_data,created_at) "
+                "VALUES (:event_id,:deal_id,'system','', 'payment_confirmed',:event_data,:created_at)"
+            ), {"event_id": uuid.uuid4().hex, "deal_id": invoice["deal_id"],
+                 "event_data": json.dumps({"invoice_id": invoice["invoice_id"],
+                                           "payment_event_id": payment_event_id,
+                                           "journal_id": journal["entry_id"]},
+                                          sort_keys=True, separators=(",", ":")),
+                 "created_at": current})
+        else:
+            changed = conn.execute(text(
+                "UPDATE demo_deals SET status='paid' "
+                "WHERE id=:deal_id AND is_real=1 AND status IN ('awaiting_payment','payment_pending')"
+            ), {"deal_id": invoice["deal_id"]})
+            if changed.rowcount != 1:
+                current_deal = conn.execute(text(
+                    "SELECT status FROM demo_deals WHERE id=:deal_id"
+                ), {"deal_id": invoice["deal_id"]}).scalar_one_or_none()
+                if current_deal != "paid":
+                    raise RuntimeError("Payment was received but deal state could not be reconciled")
         return {"credited": True, "duplicate": False, "invoice_id": invoice["invoice_id"],
                 "payment_event_id": payment_event_id, "entry_id": journal["entry_id"]}
 
@@ -646,11 +752,18 @@ def request_telegram_stars_refund(*, invoice_id: str, buyer_user_id: str, reason
             raise PermissionError("Only the original buyer can request a refund")
         if invoice["status"] != "paid" or not invoice["telegram_payment_charge_id"]:
             raise ValueError("Only a paid, non-refunded invoice can be refunded")
-        deal_status = conn.execute(text(
-            "SELECT status FROM demo_deals WHERE id=:deal_id"
-        ), {"deal_id": invoice["deal_id"]}).scalar_one_or_none()
-        if deal_status not in {"paid", "delivery_pending", "disputed"}:
-            raise PermissionError("Completed or inactive deals cannot be refunded")
+        if str(invoice["deal_id"]).startswith("grd_"):
+            deal_status = conn.execute(text(
+                "SELECT status FROM marketplace_deals WHERE deal_id=:deal_id"
+            ), {"deal_id": invoice["deal_id"]}).scalar_one_or_none()
+            if deal_status not in {"payment_confirmed", "disputed"}:
+                raise PermissionError("Native deal is not eligible for a pre-transfer Stars refund")
+        else:
+            deal_status = conn.execute(text(
+                "SELECT status FROM demo_deals WHERE id=:deal_id"
+            ), {"deal_id": invoice["deal_id"]}).scalar_one_or_none()
+            if deal_status not in {"paid", "delivery_pending", "disputed"}:
+                raise PermissionError("Completed or inactive deals cannot be refunded")
         payment = conn.execute(select(stars_payments).where(
             stars_payments.c.invoice_id == str(invoice_id))).mappings().first()
         if (payment is None or payment["telegram_payment_charge_id"] != invoice["telegram_payment_charge_id"]
@@ -706,6 +819,18 @@ def prepare_telegram_stars_refund(*, request_id: str, admin_user_id: str,
             stars_invoices.c.invoice_id == row["invoice_id"])).mappings().first()
         if invoice is None or invoice["status"] != "paid":
             raise ValueError("Invoice is not in a refundable paid state")
+        if str(invoice["deal_id"]).startswith("grd_"):
+            native_status = conn.execute(text(
+                "SELECT status FROM marketplace_deals WHERE deal_id=:deal_id"
+            ), {"deal_id": invoice["deal_id"]}).scalar_one_or_none()
+            if native_status not in {"payment_confirmed", "disputed"}:
+                raise PermissionError("Native deal transfer state blocks a Stars refund")
+        else:
+            legacy_status = conn.execute(text(
+                "SELECT status FROM demo_deals WHERE id=:deal_id"
+            ), {"deal_id": invoice["deal_id"]}).scalar_one_or_none()
+            if legacy_status not in {"paid", "delivery_pending", "disputed"}:
+                raise PermissionError("Deal state blocks a Stars refund")
         conn.execute(stars_refund_requests.update().where(
             stars_refund_requests.c.request_id == str(request_id)
         ).values(status="processing", processed_by=str(admin_user_id), updated_at=current))
@@ -740,11 +865,19 @@ def complete_telegram_stars_refund(*, request_id: str, telegram_response_ref: st
         if (invoice is None or invoice["status"] != "paid"
                 or invoice["telegram_payment_charge_id"] != row["telegram_payment_charge_id"]):
             raise RuntimeError("Refund request no longer matches the paid invoice")
-        deal_status = conn.execute(text(
-            "SELECT status FROM demo_deals WHERE id=:deal_id"
-        ), {"deal_id": invoice["deal_id"]}).scalar_one_or_none()
-        if deal_status not in {"paid", "delivery_pending", "disputed"}:
-            raise PermissionError("Completed or inactive deals cannot be refunded through the Stars hold")
+        native_deal = str(invoice["deal_id"]).startswith("grd_")
+        if native_deal:
+            deal_status = conn.execute(text(
+                "SELECT status FROM marketplace_deals WHERE deal_id=:deal_id"
+            ), {"deal_id": invoice["deal_id"]}).scalar_one_or_none()
+            if deal_status not in {"payment_confirmed", "disputed"}:
+                raise PermissionError("Native deal is not eligible for a pre-transfer Stars refund")
+        else:
+            deal_status = conn.execute(text(
+                "SELECT status FROM demo_deals WHERE id=:deal_id"
+            ), {"deal_id": invoice["deal_id"]}).scalar_one_or_none()
+            if deal_status not in {"paid", "delivery_pending", "disputed"}:
+                raise PermissionError("Completed or inactive deals cannot be refunded through the Stars hold")
         amount = int(row["amount_stars"])
         hold_account = "liability:deal_hold:" + str(invoice["deal_id"]) + ":XTR"
         held_amount = -_account_balance_in_connection(conn, hold_account, "XTR")
@@ -763,10 +896,35 @@ def complete_telegram_stars_refund(*, request_id: str, telegram_response_ref: st
         conn.execute(stars_invoices.update().where(
             stars_invoices.c.invoice_id == row["invoice_id"]
         ).values(status="refunded", refunded_at=current))
-        conn.execute(text(
-            "UPDATE demo_deals SET status='cancelled' WHERE id=:deal_id "
-            "AND status IN ('paid','delivery_pending','disputed')"
-        ), {"deal_id": invoice["deal_id"]})
+        if native_deal:
+            conn.execute(text(
+                "UPDATE marketplace_deals SET status='refunded', updated_at=:now "
+                "WHERE deal_id=:deal_id AND status IN ('payment_confirmed','disputed')"
+            ), {"deal_id": invoice["deal_id"], "now": current})
+            conn.execute(text(
+                "UPDATE marketplace_reservations SET status='expired' "
+                "WHERE reservation_id=(SELECT reservation_id FROM marketplace_deals WHERE deal_id=:deal_id) "
+                "AND status='active'"
+            ), {"deal_id": invoice["deal_id"]})
+            conn.execute(text(
+                "UPDATE marketplace_listings SET status='pending_verification', updated_at=:now "
+                "WHERE listing_id=(SELECT listing_id FROM marketplace_deals WHERE deal_id=:deal_id) "
+                "AND status='reserved'"
+            ), {"deal_id": invoice["deal_id"], "now": current})
+            conn.execute(text(
+                "INSERT INTO marketplace_deal_events "
+                "(event_id,deal_id,actor_type,actor_id,event_type,event_data,created_at) "
+                "VALUES (:event_id,:deal_id,'system','', 'deal_refunded',:event_data,:created_at)"
+            ), {"event_id": uuid.uuid4().hex, "deal_id": invoice["deal_id"],
+                 "event_data": json.dumps({"reason": "telegram_stars_refund_confirmed",
+                                           "listing_status": "pending_verification"},
+                                          sort_keys=True, separators=(",", ":")),
+                 "created_at": current})
+        else:
+            conn.execute(text(
+                "UPDATE demo_deals SET status='cancelled' WHERE id=:deal_id "
+                "AND status IN ('paid','delivery_pending','disputed')"
+            ), {"deal_id": invoice["deal_id"]})
         conn.execute(stars_refund_requests.update().where(
             stars_refund_requests.c.request_id == str(request_id)
         ).values(status="succeeded", updated_at=current,
