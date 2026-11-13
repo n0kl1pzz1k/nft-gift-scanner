@@ -554,9 +554,9 @@ async def list_verified_inventory_listings(
     if search:
         term = "%" + search.strip().replace("%", "\\%").replace("_", "\\_") + "%"
         filters.append(or_(
-            marketplace_assets.c.token_id.ilike(term),
-            marketplace_assets.c.collection_address.ilike(term),
-            marketplace_listings.c.listing_id.ilike(term),
+            marketplace_assets.c.token_id.ilike(term, escape="\\"),
+            marketplace_assets.c.collection_address.ilike(term, escape="\\"),
+            marketplace_listings.c.listing_id.ilike(term, escape="\\"),
         ))
     join_from = marketplace_listings.join(
         marketplace_assets, marketplace_assets.c.asset_id == marketplace_listings.c.asset_id
