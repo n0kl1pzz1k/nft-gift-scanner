@@ -19,7 +19,7 @@ def upgrade():
 
 def downgrade():
     op.execute(
-        "UPDATE marketplace_deals SET status='reserved' WHERE status='expired'"
+        "UPDATE marketplace_deals SET status='reconciliation_required' WHERE status='expired'"
     )
     with op.batch_alter_table("marketplace_deals") as batch_op:
         batch_op.drop_constraint("ck_marketplace_deals_status", type_="check")
