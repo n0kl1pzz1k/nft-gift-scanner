@@ -655,7 +655,7 @@ async def get_native_marketplace_deal(
     x_telegram_init_data: str | None = Header(default=None),
 ):
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
-    from marketplace_settlement import marketplace_deals
+    from marketplace_settlement import marketplace_deals, marketplace_deal_events
     with get_engine().connect() as conn:
         row = conn.execute(select(
             marketplace_deals.c.deal_id, marketplace_deals.c.listing_id,
@@ -664,11 +664,22 @@ async def get_native_marketplace_deal(
             marketplace_deals.c.price_raw, marketplace_deals.c.status,
             marketplace_deals.c.created_at, marketplace_deals.c.updated_at,
         ).where(marketplace_deals.c.deal_id == deal_id)).mappings().first()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Deal not found")
-    if str(user["id"]) not in {row["buyer_user_id"], row["seller_user_id"]}:
-        raise HTTPException(status_code=404, detail="Deal not found")
-    return dict(row)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Deal not found")
+        if str(user["id"]) not in {row["buyer_user_id"], row["seller_user_id"]}:
+            raise HTTPException(status_code=404, detail="Deal not found")
+        events = conn.execute(select(
+            marketplace_deal_events.c.event_type,
+            marketplace_deal_events.c.actor_type,
+            marketplace_deal_events.c.actor_id,
+            marketplace_deal_events.c.event_data,
+            marketplace_deal_events.c.created_at,
+        ).where(
+            marketplace_deal_events.c.deal_id == deal_id
+        ).order_by(marketplace_deal_events.c.created_at)).mappings().all()
+    result = dict(row)
+    result["events"] = [dict(event) for event in events]
+    return result
 
 
 
