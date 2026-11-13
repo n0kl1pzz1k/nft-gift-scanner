@@ -34,9 +34,19 @@ class AssetPolicyTests(unittest.TestCase):
         with self.assertRaises(AssetRejected):
             get_asset("usdt-ton", "tron-mainnet", TON_USDT, "external")
 
-    def test_unapproved_gram_is_rejected(self):
+    def test_native_gram_is_recognized_without_a_jetton_master(self):
+        asset = get_asset("GRAM", "ton-mainnet", "", "telegram-mini-app")
+        self.assertEqual(asset.asset_kind, "native")
+        self.assertEqual(asset.decimals, 9)
+        self.assertFalse(asset.payment_enabled)
+
+    def test_native_gram_rejects_lookalike_jetton_contract(self):
         with self.assertRaises(AssetRejected):
-            get_asset("gram", "ton-mainnet", "unknown", "telegram-mini-app")
+            get_asset("GRAM", "ton-mainnet", "EQFakeGramJetton", "telegram-mini-app")
+
+    def test_old_gram_jetton_identifier_is_not_allowlisted(self):
+        with self.assertRaises(AssetRejected):
+            get_asset("gram", "ton-mainnet", "EQC47093oX5Xhb0xuk2lCr2RhS8rj-vul61u4W2UH5ORmG_O", "telegram-mini-app")
 
 
 if __name__ == "__main__":
