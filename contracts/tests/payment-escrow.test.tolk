@@ -121,7 +121,7 @@ fun confirmPaymentTwice(escrow: GiftRadarPaymentEscrow, signer1: address, signer
 }
 
 get fun `test TON payment enters escrow then requires two distinct signers before NFT release`() {
-    val (escrow, seller, buyer, nftItem, signer1, signer2, _, _, platformAdmin) =
+    val (escrow, seller, buyer, nftItem, signer1, signer2, _, _, _platformAdmin) =
         setupPaymentEscrow(ASSET_TON, 250000000);
     depositPaymentNft(escrow, seller, nftItem);
 
