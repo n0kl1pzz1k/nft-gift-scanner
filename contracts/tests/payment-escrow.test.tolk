@@ -38,16 +38,22 @@ fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscr
             nftItem: nftItem.address,
         }.toCell(),
         authorities: PaymentEscrowAuthorityConfig {
-            platformConfigAuthority: platformAdmin.address,
-            signer1: signer1.address,
-            signer2: signer2.address,
-            signer3: signer3.address,
-            arbitrator1: arb1.address,
-            arbitrator2: arb2.address,
-            arbitrator3: arb3.address,
-            resolverMultisig: resolver.address,
-            usdtJettonMaster: usdtMaster.address,
-            escrowUsdtJettonWallet: usdtWallet.address,
+            signers: PaymentEscrowSignerSet {
+                platformConfigAuthority: platformAdmin.address,
+                signer1: signer1.address,
+                signer2: signer2.address,
+                signer3: signer3.address,
+            }.toCell(),
+            arbitrators: PaymentEscrowArbitratorSet {
+                arbitrator1: arb1.address,
+                arbitrator2: arb2.address,
+                arbitrator3: arb3.address,
+                resolverMultisig: resolver.address,
+            }.toCell(),
+            assets: PaymentEscrowAssetConfig {
+                usdtJettonMaster: usdtMaster.address,
+                escrowUsdtJettonWallet: usdtWallet.address,
+            }.toCell(),
         }.toCell(),
     });
     val deployed = escrow.deploy(platformAdmin.address, { value: grams("1") });
