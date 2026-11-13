@@ -671,7 +671,6 @@ async def get_native_marketplace_deal(
         events = conn.execute(select(
             marketplace_deal_events.c.event_type,
             marketplace_deal_events.c.actor_type,
-            marketplace_deal_events.c.actor_id,
             marketplace_deal_events.c.event_data,
             marketplace_deal_events.c.created_at,
         ).where(
