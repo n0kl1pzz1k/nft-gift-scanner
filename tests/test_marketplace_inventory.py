@@ -138,6 +138,39 @@ class SellerInventoryTests(unittest.TestCase):
         self.assertEqual(again["status"], "active")
 
 
+
+    def test_buyer_cancel_requires_fresh_escrow_proof_before_relisting(self):
+        listing = self.listing()
+        confirm_nft_escrow_deposit(
+            listing_id=listing["listing_id"], tx_hash="ab" * 32,
+            event_index=0, verified_escrow_owner="EQescrow",
+            expected_escrow_owner="EQescrow", evidence_hash="b" * 64,
+            provider_ids=["tonapi", "toncenter"], engine=self.engine, now=120,
+        )
+        reservation = reserve_verified_listing(
+            listing_id=listing["listing_id"], buyer_user_id="202",
+            engine=self.engine, now=130,
+        )
+        with self.engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE marketplace_assets SET ownership_expires_at=140 WHERE asset_id=:id"
+            ), {"id": self.asset["asset_id"]})
+        cancelled = cancel_listing_reservation(
+            reservation_id=reservation["reservation_id"], actor_user_id="202",
+            engine=self.engine, now=150,
+        )
+        self.assertTrue(cancelled["cancelled"])
+        with self.engine.connect() as conn:
+            status = conn.execute(text(
+                "SELECT status FROM marketplace_listings WHERE listing_id=:id"
+            ), {"id": listing["listing_id"]}).scalar_one()
+        self.assertEqual(status, "pending_verification")
+        with self.assertRaises(ValueError):
+            reserve_verified_listing(
+                listing_id=listing["listing_id"], buyer_user_id="303",
+                engine=self.engine, now=160,
+            )
+
     def test_seller_can_cancel_active_listing_before_reservation(self):
         listing = self.listing()
         confirm_nft_escrow_deposit(
