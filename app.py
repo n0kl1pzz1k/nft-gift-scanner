@@ -849,7 +849,14 @@ async def health():
 async def status():
     # Keep public status intentionally coarse; internal security posture and
     # infrastructure details belong in private operator monitoring.
-    return {"status": "ok", "product": "GIFT RADAR", "mode": "independent_native_marketplace", "external_marketplaces": False}
+    return {
+        "status": "ok",
+        "product": "GIFT RADAR",
+        "mode": "independent_native_marketplace",
+        "external_marketplaces": False,
+        "marketplace_visibility": _marketplace_visibility(),
+        "sources": {"external_marketplaces": "disabled_by_product_policy"},
+    }
 
 
 @app.get("/api/collections")
