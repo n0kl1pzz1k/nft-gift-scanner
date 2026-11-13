@@ -9,15 +9,15 @@ depends_on = None
 
 def upgrade():
     op.create_index(
-        "idx_marketplace_ownership_proofs_asset_recorded",
+        "idx_marketplace_ownership_proofs_asset_source_recorded",
         "marketplace_ownership_proofs",
-        ["asset_id", "recorded_at"],
+        ["asset_id", "proof_source", "recorded_at"],
         unique=False,
     )
 
 
 def downgrade():
     op.drop_index(
-        "idx_marketplace_ownership_proofs_asset_recorded",
+        "idx_marketplace_ownership_proofs_asset_source_recorded",
         table_name="marketplace_ownership_proofs",
     )
