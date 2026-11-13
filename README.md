@@ -67,7 +67,7 @@ Catalogue and provider integrations are read-only. The separate order-book inter
 
 ## Financial infrastructure and wallet connection (in progress)
 
-Real deal activation requirements are documented in [SECURITY/REAL_DEAL_FULFILLMENT_GATES.md](SECURITY/REAL_DEAL_FULFILLMENT_GATES.md). This is a release gate, not an enabled fulfilment feature.
+Real deal activation requirements are documented in [SECURITY/REAL_DEAL_FULFILLMENT_GATES.md](SECURITY/REAL_DEAL_FULFILLMENT_GATES.md). This is a release gate, not an enabled fulfilment feature. Inventory identity and ownership evidence requirements are documented in [SECURITY/INVENTORY_AND_LISTING_VERIFICATION.md](SECURITY/INVENTORY_AND_LISTING_VERIFICATION.md). The new inventory tables are schema foundations only; no public listing or ownership-verification endpoint is enabled.
 
 The financial ledger and marketplace stores are separate logical subsystems. A guarded PostgreSQL adapter and a one-way migration path now cover the marketplace, offers, notifications and Portals catalogue tables; SQLite remains the default until a controlled data cutover is completed.
 
