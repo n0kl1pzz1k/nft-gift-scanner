@@ -104,6 +104,13 @@ class TelegramStarsLedgerTests(unittest.TestCase):
         )
         self.assertEqual(invoice["deal_id"], deal_id)
         self.assertEqual(invoice["amount_stars"], 75)
+        with self.engine.connect() as connection:
+            reservation_expiry = connection.execute(text(
+                "SELECT r.expires_at FROM marketplace_reservations r "
+                "JOIN marketplace_deals d ON d.reservation_id=r.reservation_id "
+                "WHERE d.deal_id=:deal_id"
+            ), {"deal_id": deal_id}).scalar_one()
+        self.assertGreater(reservation_expiry, invoice["expires_at"])
         self.assertTrue(approve_telegram_stars_pre_checkout(
             payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
             amount_stars=75, query_id="native-stars-precheckout", engine=self.engine, now=1040,
