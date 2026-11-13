@@ -77,3 +77,13 @@ All of the following are mandatory before any production real-deal activation:
 - Separate explicit release approval after staging evidence is reviewed.
 
 Until then, `TELEGRAM_STARS_PAYMENTS_ENABLED` and `MARKETPLACE_REAL_DEALS_ENABLED` remain false in production. No production deployment, database cutover, wallet transaction, or payment operation is authorized by this document.
+
+
+## Unpaid deal expiry
+
+- A reserved deal expires when its linked buyer reservation expires, provided no payment has been reserved into the deal hold.
+- Expiry is processed in bounded batches by the application worker and is idempotent.
+- Only deals still in `reserved` state are eligible. `payment_confirmed`, `nft_transfer_pending`, disputed, settled, and reconciliation-required deals are never expired by this worker.
+- A listing is reactivated only when the NFT remains in escrow and its ownership proof is still fresh. Otherwise the listing is marked expired and must be re-verified before relisting.
+- PostgreSQL deployments must apply Alembic revision `0012_expire_unpaid_marketplace_deals` or a later revision before settlement endpoints run.
+- Railway's pre-deploy command applies `alembic upgrade head`; deployment must still be reviewed and verified separately before production use.
