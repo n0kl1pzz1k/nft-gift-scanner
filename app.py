@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, get_app_setting, init_marketplace_db, set_app_setting, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update
 from demo_offers import create_demo_offers_router, init_demo_offers_db
 from catalog_store import get_catalogue_history, get_catalogue_item, search_catalogue_items, upsert_catalogue_items
+from security_controls import SecurityControlsMiddleware, rate_limit_status
 
 app = FastAPI(title="GIFT RADAR API", version="0.4.0")
 app.include_router(create_marketplace_router(
@@ -49,6 +50,7 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-Telegram-Init-Data"],
     max_age=600,
 )
+app.add_middleware(SecurityControlsMiddleware)
 
 PORTALS_BASE = "https://portal-market.com/partners"
 ALLOWED_PORTALS_PATHS = {
@@ -399,6 +401,23 @@ async def telegram_webhook(
         raise HTTPException(status_code=500, detail="Telegram update processing failed")
     finish_telegram_update(update_id)
     return {"ok": True, "duplicate": False}
+
+@app.get("/api/wallet/policy")
+async def wallet_policy():
+    """Public capability disclosure: TON Connect only; no signatures or payments."""
+    return {
+        "wallet_connect": "ton_connect_only",
+        "supported_network": "ton-mainnet",
+        "stores": ["public_wallet_address_only_after_verified_wallet_proof"],
+        "requests_seed_phrase": False,
+        "requests_private_key": False,
+        "signing_enabled": False,
+        "transfers_enabled": False,
+        "crypto_payments_enabled": False,
+        "payment_note": "Crypto checkout remains disabled pending platform/compliance approval.",
+        "rate_limiting": rate_limit_status(),
+    }
+
 
 @app.get("/health")
 async def health():
