@@ -30,7 +30,6 @@ struct PaymentEscrowParties {
 }
 
 struct PaymentEscrowSignerSet {
-    platformConfigAuthority: address
     signer1: address
     signer2: address
     signer3: address
@@ -40,7 +39,6 @@ struct PaymentEscrowArbitratorSet {
     arbitrator1: address
     arbitrator2: address
     arbitrator3: address
-    resolverMultisig: address
 }
 
 struct PaymentEscrowAssetConfig {
@@ -49,6 +47,8 @@ struct PaymentEscrowAssetConfig {
 }
 
 struct PaymentEscrowAuthorityConfig {
+    platformConfigAuthority: address
+    resolverMultisig: address
     signers: Cell<PaymentEscrowSignerSet>
     arbitrators: Cell<PaymentEscrowArbitratorSet>
     assets: Cell<PaymentEscrowAssetConfig>
