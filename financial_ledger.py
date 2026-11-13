@@ -246,6 +246,204 @@ def create_payment_invoice(*, user_id: str, asset_id: str, chain: str, master_ad
             expires_at=expires_at, status="pending", created_at=int(time.time())))
     return invoice_id
 
+def create_telegram_stars_invoice(*, deal_id: str, buyer_user_id: str,
+                                  engine: Engine | None = None, now: int | None = None,
+                                  ttl_seconds: int = 900) -> dict[str, Any]:
+    """Create/reuse a server-owned XTR invoice for the buyer of an accepted deal."""
+    db = engine or get_engine()
+    init_financial_schema(db)
+    current = int(now or time.time())
+    if ttl_seconds < 60 or ttl_seconds > 1800:
+        raise ValueError("Invoice lifetime must be between 60 and 1800 seconds")
+    lock = " FOR UPDATE OF d, o" if db.dialect.name == "postgresql" else ""
+    query = (
+        "SELECT d.id AS deal_id, d.order_id, d.listing_owner_id, d.offer_sender_id, "
+        "d.agreed_amount, d.currency, d.status AS deal_status, o.kind AS order_kind, "
+        "o.status AS order_status, o.title AS order_title "
+        "FROM demo_deals d JOIN demo_orders o ON o.id=d.order_id WHERE d.id=:deal_id" + lock
+    )
+    with db.begin() as conn:
+        deal = conn.execute(text(query), {"deal_id": str(deal_id)}).mappings().first()
+        if deal is None:
+            raise ValueError("Unknown deal")
+        if deal["order_status"] != "matched":
+            raise ValueError("Order is no longer reserved for this deal")
+        if deal["currency"] != "XTR":
+            raise PermissionError("Only Telegram Stars invoices are allowed for in-Telegram digital goods")
+        if deal["deal_status"] not in {"payment_not_enabled", "awaiting_payment"}:
+            raise ValueError("Deal is not awaiting payment")
+
+        if deal["order_kind"] == "listing":
+            expected_buyer, seller = str(deal["offer_sender_id"]), str(deal["listing_owner_id"])
+        elif deal["order_kind"] == "buy-order":
+            expected_buyer, seller = str(deal["listing_owner_id"]), str(deal["offer_sender_id"])
+        else:
+            raise ValueError("Unsupported order type")
+        if str(buyer_user_id) != expected_buyer:
+            raise PermissionError("Only the deal buyer can create its payment invoice")
+        if not seller or seller == expected_buyer:
+            raise ValueError("Invalid deal participants")
+
+        try:
+            amount_decimal = Decimal(str(deal["agreed_amount"]))
+        except (InvalidOperation, ValueError):
+            raise ValueError("Deal amount is not a valid Stars amount") from None
+        if not amount_decimal.is_finite() or amount_decimal <= 0 or amount_decimal != amount_decimal.to_integral_value():
+            raise ValueError("Telegram Stars amount must be a positive integer")
+        amount = int(amount_decimal)
+        if amount > 2_147_483_647:
+            raise ValueError("Telegram Stars amount exceeds the supported integer range")
+
+        existing = conn.execute(select(stars_invoices).where(
+            stars_invoices.c.deal_id == str(deal_id),
+            stars_invoices.c.status.in_(("pending", "pre_checkout_approved")),
+        ).order_by(stars_invoices.c.created_at.desc())).mappings().first()
+        if existing and int(existing["expires_at"]) > current:
+            return {**dict(existing), "title": str(deal["order_title"])[:32]}
+        if existing:
+            conn.execute(stars_invoices.update().where(
+                stars_invoices.c.invoice_id == existing["invoice_id"]
+            ).values(status="expired"))
+            conn.execute(text(
+                "UPDATE demo_deals SET status='payment_not_enabled' "
+                "WHERE id=:deal_id AND status='awaiting_payment'"
+            ), {"deal_id": str(deal_id)})
+
+        invoice_id = "gri_" + secrets.token_urlsafe(18)
+        payload = "grstars:" + secrets.token_urlsafe(24)
+        expires_at = current + ttl_seconds
+        conn.execute(insert(stars_invoices).values(
+            invoice_id=invoice_id, payload=payload, deal_id=str(deal_id),
+            order_id=str(deal["order_id"]), buyer_user_id=expected_buyer,
+            seller_user_id=seller, amount_stars=amount, currency="XTR",
+            status="pending", expires_at=expires_at, created_at=current,
+        ))
+        conn.execute(text(
+            "UPDATE demo_deals SET status='awaiting_payment' "
+            "WHERE id=:deal_id AND status='payment_not_enabled'"
+        ), {"deal_id": str(deal_id)})
+        row = conn.execute(select(stars_invoices).where(
+            stars_invoices.c.invoice_id == invoice_id)).mappings().one()
+        return {**dict(row), "title": str(deal["order_title"])[:32]}
+
+
+def approve_telegram_stars_pre_checkout(*, payload: str, buyer_user_id: str,
+                                        currency: str, amount_stars: int,
+                                        query_id: str, engine: Engine | None = None,
+                                        now: int | None = None) -> bool:
+    """Validate and atomically reserve a Stars invoice for one Telegram pre-checkout query."""
+    db = engine or get_engine()
+    init_financial_schema(db)
+    current = int(now or time.time())
+    if currency != "XTR" or int(amount_stars) <= 0 or not query_id or len(query_id) > 128:
+        return False
+    statement = select(stars_invoices).where(stars_invoices.c.payload == payload)
+    if db.dialect.name == "postgresql":
+        statement = statement.with_for_update()
+    with db.begin() as conn:
+        row = conn.execute(statement).mappings().first()
+        if row is None:
+            return False
+        invoice = dict(row)
+        if invoice["status"] == "pre_checkout_approved":
+            return (
+                invoice["pre_checkout_query_id"] == query_id
+                and invoice["buyer_user_id"] == str(buyer_user_id)
+                and invoice["currency"] == currency
+                and int(invoice["amount_stars"]) == int(amount_stars)
+            )
+        if (invoice["status"] != "pending" or int(invoice["expires_at"]) <= current
+                or invoice["buyer_user_id"] != str(buyer_user_id)
+                or invoice["currency"] != currency
+                or int(invoice["amount_stars"]) != int(amount_stars)):
+            return False
+        deal = conn.execute(text(
+            "SELECT d.status AS deal_status, o.status AS order_status "
+            "FROM demo_deals d JOIN demo_orders o ON o.id=d.order_id WHERE d.id=:deal_id"
+        ), {"deal_id": invoice["deal_id"]}).mappings().first()
+        if deal is None or deal["deal_status"] != "awaiting_payment" or deal["order_status"] != "matched":
+            return False
+        conn.execute(stars_invoices.update().where(
+            stars_invoices.c.invoice_id == invoice["invoice_id"]
+        ).values(status="pre_checkout_approved", pre_checkout_query_id=query_id,
+                 pre_checkout_approved_at=current))
+        return True
+
+
+def settle_telegram_stars_payment(*, payload: str, buyer_user_id: str, currency: str,
+                                  amount_stars: int, telegram_payment_charge_id: str,
+                                  provider_payment_charge_id: str | None = None,
+                                  engine: Engine | None = None,
+                                  now: int | None = None) -> dict[str, Any]:
+    """Idempotently settle Telegram's successful_payment update and the deal in one DB transaction."""
+    db = engine or get_engine()
+    init_financial_schema(db)
+    current = int(now or time.time())
+    charge_id = str(telegram_payment_charge_id).strip()
+    if currency != "XTR" or int(amount_stars) <= 0 or not charge_id or len(charge_id) > 256:
+        raise ValueError("Invalid Telegram Stars payment receipt")
+    statement = select(stars_invoices).where(stars_invoices.c.payload == payload)
+    if db.dialect.name == "postgresql":
+        statement = statement.with_for_update()
+    with db.begin() as conn:
+        row = conn.execute(statement).mappings().first()
+        if row is None:
+            raise ValueError("Unknown Telegram Stars invoice")
+        invoice = dict(row)
+        if (invoice["buyer_user_id"] != str(buyer_user_id)
+                or invoice["currency"] != currency
+                or int(invoice["amount_stars"]) != int(amount_stars)):
+            raise ValueError("Telegram Stars receipt does not match the invoice")
+
+        prior = conn.execute(select(stars_payments).where(
+            (stars_payments.c.telegram_payment_charge_id == charge_id)
+            | (stars_payments.c.invoice_id == invoice["invoice_id"])
+        )).mappings().first()
+        if prior:
+            if (prior["invoice_id"] == invoice["invoice_id"]
+                    and prior["telegram_payment_charge_id"] == charge_id
+                    and prior["buyer_user_id"] == str(buyer_user_id)
+                    and int(prior["amount_stars"]) == int(amount_stars)):
+                return {"credited": False, "duplicate": True, "invoice_id": invoice["invoice_id"]}
+            raise ValueError("Telegram payment charge or invoice was already used")
+
+        if invoice["status"] != "pre_checkout_approved" or invoice["pre_checkout_approved_at"] is None:
+            raise ValueError("Telegram payment was not pre-approved")
+        payment_event_id = str(uuid.uuid4())
+        conn.execute(insert(stars_payments).values(
+            payment_event_id=payment_event_id, invoice_id=invoice["invoice_id"],
+            telegram_payment_charge_id=charge_id, buyer_user_id=str(buyer_user_id),
+            amount_stars=int(amount_stars), currency="XTR", created_at=current,
+        ))
+        journal = _post(conn,
+            idempotency_key="telegram-stars:" + charge_id,
+            source_type="telegram_stars_payment",
+            source_reference=invoice["invoice_id"],
+            postings=[
+                {"account_id": "asset:telegram_stars:clearing", "account_type": "asset",
+                 "currency": "XTR", "amount_raw": int(amount_stars)},
+                {"account_id": "liability:seller:" + invoice["seller_user_id"] + ":XTR",
+                 "account_type": "liability", "currency": "XTR",
+                 "amount_raw": -int(amount_stars)},
+            ], now=current)
+        conn.execute(stars_invoices.update().where(
+            stars_invoices.c.invoice_id == invoice["invoice_id"]
+        ).values(status="paid", paid_at=current, telegram_payment_charge_id=charge_id,
+                 provider_payment_charge_id=provider_payment_charge_id or None))
+        changed = conn.execute(text(
+            "UPDATE demo_deals SET status='paid' "
+            "WHERE id=:deal_id AND status IN ('awaiting_payment','payment_pending')"
+        ), {"deal_id": invoice["deal_id"]})
+        if changed.rowcount != 1:
+            current_deal = conn.execute(text(
+                "SELECT status FROM demo_deals WHERE id=:deal_id"
+            ), {"deal_id": invoice["deal_id"]}).scalar_one_or_none()
+            if current_deal != "paid":
+                raise RuntimeError("Payment was received but deal state could not be reconciled")
+        return {"credited": True, "duplicate": False, "invoice_id": invoice["invoice_id"],
+                "payment_event_id": payment_event_id, "entry_id": journal["entry_id"]}
+
+
 def verify_ton_payment_trace(trace: dict[str, Any], invoice: dict[str, Any]) -> None:
     """Validate normalized evidence from a trusted indexer, never from a browser."""
     required = ("chain", "master_address", "source_jetton_wallet", "expected_source_jetton_wallet",
