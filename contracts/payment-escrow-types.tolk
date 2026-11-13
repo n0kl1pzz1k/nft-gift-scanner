@@ -9,6 +9,8 @@ enum PaymentEscrowErrors {
     NotEnoughGas = 2108,
 }
 
+const MAX_DEAL_LIFETIME = 2592000;
+
 const V2_CREATED = 0;
 const V2_DEPOSITED = 1;
 const V2_PAYMENT_PENDING = 2;
