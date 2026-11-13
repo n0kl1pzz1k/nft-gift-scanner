@@ -183,9 +183,11 @@ fun sendNftTo(nftItem: address, recipient: address, queryId: uint64) {
 
 fun onBouncedMessage(in: InMessageBounced) {
     in.bouncedBody.skipBouncedPrefix();
+    val bounced = lazy AskToChangeOwnership.fromSlice(in.bouncedBody);
     var storage = lazy EscrowStorage.load();
     val parties = storage.parties.load();
     assert (in.senderAddress == parties.nftItem) throw ERR_BAD_ASSET;
+    assert (bounced.queryId == storage.transferQueryId) throw ERR_BAD_PROOF;
     if ((storage.state == STATE_TRANSFER_PENDING) | (storage.state == STATE_REFUND_PENDING)) {
         // NFT transfer execution is ambiguous after a bounce. Never auto-retry or settle.
         storage.state = STATE_RECONCILIATION_REQUIRED;
@@ -311,6 +313,7 @@ fun onInternalMessage(in: InMessage) {
                 storage.paymentEvidence = evidence.toCell();
             }
             assert (contract.getOriginalBalance() >= grams("0.15")) throw ERR_NOT_ENOUGH_GAS;
+            storage.transferQueryId = msg.queryId;
             storage.state = STATE_REFUND_PENDING;
             storage.save();
             sendNftTo(parties.nftItem, parties.seller, msg.queryId);
@@ -406,6 +409,7 @@ fun onInternalMessage(in: InMessage) {
                     assert (payment.refundReferenceHash != 0) throw ERR_BAD_PROOF;
                 }
                 assert (contract.getOriginalBalance() >= grams("0.15")) throw ERR_NOT_ENOUGH_GAS;
+                storage.transferQueryId = msg.queryId;
                 storage.state = STATE_REFUND_PENDING;
                 storage.disputeApprovals = 3;
                 storage.save();
