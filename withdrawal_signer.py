@@ -272,10 +272,10 @@ async def execute_approved_withdrawal(*, request_id: str,
     )
     approval_ids = [str(row["approval_id"]) for row in approvals]
     advance_withdrawal_to_processing(request_id=request_id, engine=db, now=current)
-    with db.begin() as conn:
-        _event(conn, request_id=request_id, event_type="signing_requested",
-               data={"approval_count": len(approval_ids)}, now=current)
     try:
+        with db.begin() as conn:
+            _event(conn, request_id=request_id, event_type="signing_requested",
+                   data={"approval_count": len(approval_ids)}, now=current)
         signed = await selected_signer.sign_withdrawal(request, approval_ids)
         with db.begin() as conn:
             _event(conn, request_id=request_id, event_type="signed",
