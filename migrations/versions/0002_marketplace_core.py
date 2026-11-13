@@ -16,7 +16,7 @@ def upgrade():
         sa.Column("last_name", sa.String(128), nullable=False, server_default=""),
         sa.Column("photo_url", sa.String(2048), nullable=False, server_default=""),
         sa.Column("language_code", sa.String(16), nullable=False, server_default=""),
-        sa.Column("is_premium", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("is_premium", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("created_at", sa.BigInteger(), nullable=False),
         sa.Column("updated_at", sa.BigInteger(), nullable=False))
     op.create_index("idx_telegram_users_updated", "telegram_users", ["updated_at"])
@@ -160,6 +160,11 @@ def upgrade():
     op.create_index("idx_demo_deals_one_open_reservation", "demo_deals", ["order_id"], unique=True,
                     postgresql_where=sa.text("status NOT IN ('cancelled', 'expired')"))
 
+    bind = op.get_bind()
+    deal_event_sequence = (sa.Column("sequence", sa.Integer(), sa.Identity(), nullable=False, unique=True)
+                           if bind.dialect.name == "postgresql" else
+                           sa.Column("sequence", sa.Integer(), nullable=True, unique=True))
+
     op.create_table("demo_deal_events",
         sa.Column("id", sa.String(64), primary_key=True),
         sa.Column("deal_id", sa.String(64), sa.ForeignKey("demo_deals.id"), nullable=False),
@@ -168,7 +173,7 @@ def upgrade():
         sa.Column("event_type", sa.String(32), nullable=False),
         sa.Column("event_data", sa.Text(), nullable=False, server_default="{}"),
         sa.Column("created_at", sa.BigInteger(), nullable=False),
-        sa.Column("sequence", sa.Integer(), sa.Identity(), nullable=False, unique=True),
+        deal_event_sequence,
         sa.CheckConstraint("event_type IN ('deal_created', 'listing_reserved', 'payment_not_enabled')", name="ck_demo_deal_events_type"))
 
     op.create_table("demo_deal_lifecycle_events",
