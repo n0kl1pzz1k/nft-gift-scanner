@@ -234,6 +234,15 @@ class MarketplaceSettlementTests(unittest.TestCase):
                 admin_user_id="999", engine=self.engine, now=170,
             )
 
+
+    def test_admin_dispute_resolution_rejects_unknown_decision(self):
+        with self.assertRaises(ValueError):
+            resolve_deal_dispute(
+                deal_id=self.deal_id, decision="pay_seller",
+                reason="Attempt unsupported dispute decision",
+                admin_user_id="999", engine=self.engine, now=160,
+            )
+
     def test_buyer_cannot_cancel_reservation_after_deal_creation(self):
         with self.assertRaises(PermissionError):
             cancel_listing_reservation(
