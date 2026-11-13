@@ -22,7 +22,7 @@ class AssetPolicyTests(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=True):
             self.assertFalse(is_crypto_payment_enabled("usdt-ton"))
 
-    def test_ton_crypto_rails_require_all_release_gates(self):
+    def test_mainnet_crypto_rails_stay_disabled_even_when_legacy_release_flags_are_set(self):
         ready = {
             "TON_CRYPTO_DEPOSITS_ENABLED": "true",
             "TON_DEPOSIT_MONITOR_ENABLED": "true",
@@ -39,8 +39,8 @@ class AssetPolicyTests(unittest.TestCase):
             "KZ_SECURITY_REVIEW_APPROVED": "true",
         }
         with patch.dict("os.environ", ready, clear=True):
-            self.assertTrue(is_crypto_payment_enabled("GRAM"))
-            self.assertTrue(is_crypto_payment_enabled("usdt-ton"))
+            self.assertFalse(is_crypto_payment_enabled("GRAM"))
+            self.assertFalse(is_crypto_payment_enabled("usdt-ton"))
             self.assertFalse(is_crypto_payment_enabled("usdt-tron"))
         ready["KZ_DATA_RESIDENCY_VERIFIED"] = "false"
         with patch.dict("os.environ", ready, clear=True):

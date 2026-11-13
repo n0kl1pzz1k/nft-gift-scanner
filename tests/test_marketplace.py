@@ -15,10 +15,15 @@ from fastapi.testclient import TestClient
 import app as api
 import marketplace
 import demo_offers
+from security_controls import _local as _api_rate_limit_buckets
 
 
 class SharedMarketplaceTests(unittest.TestCase):
     def setUp(self):
+        # TestClient shares one synthetic peer IP across the whole unittest process.
+        # Reset only the in-process edge limiter between tests; domain rate-limit
+        # assertions continue to exercise the persistent per-user counters.
+        _api_rate_limit_buckets.clear()
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_patch = patch.object(marketplace, "DB_PATH", os.path.join(self.temp_dir.name, "test.sqlite3"))
         self.db_patch.start()

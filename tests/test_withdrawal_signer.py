@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from sqlalchemy import create_engine, insert
 
-from financial_ledger import withdrawal_requests, post_journal_entry, get_account_balance
+from financial_ledger import withdrawal_requests
 from withdrawal_signer import (approve_withdrawal, create_withdrawal_request, init_withdrawal_signer_schema, RemoteHsmSigner,
                                 _require_matching_message_hash)
 
@@ -54,78 +54,15 @@ class WithdrawalApprovalTests(unittest.TestCase):
             "TON_WITHDRAWAL_FEE_GRAM_RAW": "10000000",
         }
 
-    def test_withdrawal_request_reserves_balance_and_is_idempotent(self):
-        post_journal_entry(
-            idempotency_key="test-withdrawal-funding-0001",
-            source_type="test_funding", source_reference="user-12345",
-            postings=[
-                {"account_id": "asset:clearing:GRAM", "account_type": "asset",
-                 "currency": "GRAM", "amount_raw": 1_000_000_000},
-                {"account_id": "liability:user:12345:GRAM", "account_type": "liability",
-                 "currency": "GRAM", "amount_raw": -1_000_000_000},
-            ], engine=self.engine,
-        )
-        with patch.dict(os.environ, self._withdrawal_release_env()):
-            first = create_withdrawal_request(
-                user_id="12345", asset_id="GRAM",
-                destination_address="0:" + "22" * 32,
-                amount_raw=100_000_000,
-                idempotency_key="withdrawal-create-idempotency-0001",
-                engine=self.engine, now=120,
-            )
-            duplicate = create_withdrawal_request(
-                user_id="12345", asset_id="GRAM",
-                destination_address="0:" + "22" * 32,
-                amount_raw=100_000_000,
-                idempotency_key="withdrawal-create-idempotency-0001",
-                engine=self.engine, now=121,
-            )
-        self.assertEqual(first["status"], "requested")
-        self.assertFalse(first["duplicate"])
-        self.assertTrue(duplicate["duplicate"])
-        self.assertEqual(first["request_id"], duplicate["request_id"])
-        self.assertEqual(first["fee_raw"], 10_000_000)
-        self.assertEqual(get_account_balance(
-            "liability:user:12345:GRAM", "GRAM", self.engine
-        ), -890_000_000)
-        self.assertEqual(get_account_balance(
-            f"liability:withdrawal_hold:{first['request_id']}:GRAM", "GRAM", self.engine
-        ), -100_000_000)
-
-    def test_withdrawal_request_cannot_overdraw_or_reuse_idempotency_key(self):
-        post_journal_entry(
-            idempotency_key="test-withdrawal-funding-0002",
-            source_type="test_funding", source_reference="user-12345",
-            postings=[
-                {"account_id": "asset:clearing:GRAM", "account_type": "asset",
-                 "currency": "GRAM", "amount_raw": 100_000_000},
-                {"account_id": "liability:user:12345:GRAM", "account_type": "liability",
-                 "currency": "GRAM", "amount_raw": -100_000_000},
-            ], engine=self.engine,
-        )
+    def test_withdrawal_requests_stay_disabled_even_when_legacy_flags_are_true(self):
         with patch.dict(os.environ, self._withdrawal_release_env()):
             with self.assertRaises(PermissionError):
                 create_withdrawal_request(
                     user_id="12345", asset_id="GRAM",
                     destination_address="0:" + "22" * 32,
-                    amount_raw=200_000_000,
-                    idempotency_key="withdrawal-overdraw-idempotency-0001",
+                    amount_raw=100_000_000,
+                    idempotency_key="withdrawal-create-idempotency-0001",
                     engine=self.engine, now=120,
-                )
-            create_withdrawal_request(
-                user_id="12345", asset_id="GRAM",
-                destination_address="0:" + "22" * 32,
-                amount_raw=50_000_000,
-                idempotency_key="withdrawal-reuse-idempotency-0001",
-                engine=self.engine, now=121,
-            )
-            with self.assertRaises(ValueError):
-                create_withdrawal_request(
-                    user_id="12345", asset_id="GRAM",
-                    destination_address="0:" + "33" * 32,
-                    amount_raw=50_000_000,
-                    idempotency_key="withdrawal-reuse-idempotency-0001",
-                    engine=self.engine, now=122,
                 )
 
     def test_two_distinct_allowlisted_admins_are_required(self):

@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from unittest.mock import patch
 
-from sqlalchemy import create_engine, insert, select, text
+from sqlalchemy import create_engine, insert, text
 from sqlalchemy.exc import DBAPIError
 
 from financial_ledger import (
@@ -133,7 +133,7 @@ class FinancialLedgerTests(unittest.TestCase):
             get_account_balance("liability:user:88:GRAM", "GRAM", self.engine), 0
         )
 
-    def test_crypto_invoice_creation_requires_full_release_gates_and_uses_exact_amount(self):
+    def test_mainnet_crypto_invoice_creation_is_blocked_even_with_legacy_release_gates(self):
         env = {
             "TON_CRYPTO_DEPOSITS_ENABLED": "true",
             "TON_DEPOSIT_MONITOR_ENABLED": "true",
@@ -150,21 +150,14 @@ class FinancialLedgerTests(unittest.TestCase):
             "KZ_SECURITY_REVIEW_APPROVED": "true",
         }
         with patch.dict("os.environ", env, clear=True):
-            invoice_id = create_payment_invoice(
-                user_id="42", asset_id="usdt-ton", chain="ton-mainnet",
-                master_address="EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
-                recipient_address="0:" + "11" * 32, amount_raw=100_000,
-                payload="gri_crypto_invoice_test", expires_at=int(time.time()) + 600,
-                engine=self.engine,
-            )
-        with self.engine.connect() as conn:
-            invoice = conn.execute(select(invoices).where(
-                invoices.c.invoice_id == invoice_id
-            )).mappings().one()
-        self.assertEqual(invoice["asset_id"], "usdt-ton")
-        self.assertEqual(int(invoice["amount_raw"]), 100_000)
-        self.assertEqual(invoice["payload"], "gri_crypto_invoice_test")
-        self.assertEqual(invoice["status"], "pending")
+            with self.assertRaises(PermissionError):
+                create_payment_invoice(
+                    user_id="42", asset_id="usdt-ton", chain="ton-mainnet",
+                    master_address="EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
+                    recipient_address="0:" + "11" * 32, amount_raw=100_000,
+                    payload="gri_crypto_invoice_test", expires_at=int(time.time()) + 600,
+                    engine=self.engine,
+                )
 
     def test_crypto_invoice_creation_is_disabled_by_default(self):
         from financial_ledger import create_payment_invoice

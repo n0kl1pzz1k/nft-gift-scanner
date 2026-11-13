@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import GiftMedia from './GiftMedia.svelte';
-  import { TonConnectUI } from '@tonconnect/ui';
+  import { CHAIN, TonConnectUI } from '@tonconnect/ui';
 
   type Gift = {
     id?: string | number; name?: string; number?: string | number;
@@ -844,6 +844,9 @@
       });
       const wallet = await tonConnectUI.connectWallet();
       if (!wallet) throw new Error('Wallet connection was cancelled');
+      if (wallet.account.chain !== CHAIN.TESTNET) {
+        throw new Error('Switch your wallet to TON testnet and reconnect. Mainnet wallets are not accepted.');
+      }
       const proofItem = wallet.connectItems?.tonProof;
       if (!proofItem || !('proof' in proofItem)) {
         throw new Error('This wallet does not support TON Proof. Try a compatible TON wallet.');

@@ -25,6 +25,7 @@ from financial_ledger import (
     confirm_ton_withdrawal, quarantine_ton_withdrawal,
 )
 from asset_policy import ASSETS, validate_payment_amount, is_crypto_payment_enabled
+from release_policy import TON_TESTNET_WITHDRAWAL_ADAPTER_READY
 from ton_nft_providers import canonical_ton_address
 
 
@@ -75,7 +76,9 @@ def create_withdrawal_request(*, user_id: str, asset_id: str,
                               destination_address: str, amount_raw: int,
                               idempotency_key: str, engine: Engine | None = None,
                               now: int | None = None) -> dict[str, Any]:
-    """Reserve a user's available ledger funds for a two-admin TON withdrawal."""
+    """Reserve funds only when the dedicated TON testnet payout adapter exists."""
+    if not TON_TESTNET_WITHDRAWAL_ADAPTER_READY:
+        raise PermissionError("TON withdrawal requests are disabled: no testnet payout adapter is implemented")
     if os.getenv("TON_WITHDRAWAL_REQUESTS_ENABLED", "false").strip().lower() != "true":
         raise PermissionError("TON withdrawal requests are disabled by policy")
     if os.getenv("TON_WITHDRAWALS_ENABLED", "false").strip().lower() != "true":
@@ -346,6 +349,8 @@ class ToncenterBroadcaster:
         self.timeout = timeout
 
     async def broadcast(self, signed_boc: str) -> str:
+        if not TON_TESTNET_WITHDRAWAL_ADAPTER_READY:
+            raise RuntimeError("Mainnet TON broadcasting is disabled by the testnet-only release policy")
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(
                 "https://toncenter.com/api/v2/sendBoc",
@@ -393,7 +398,9 @@ async def execute_approved_withdrawal(*, request_id: str,
                                       signer: HsmSigner | None = None,
                                       broadcaster: ToncenterBroadcaster | None = None,
                                       now: int | None = None) -> dict[str, Any]:
-    """Execute a two-approved withdrawal once; every ambiguous external result is quarantined."""
+    """Execute a withdrawal only after a testnet broadcaster has been implemented."""
+    if not TON_TESTNET_WITHDRAWAL_ADAPTER_READY:
+        raise PermissionError("TON withdrawals are disabled: the current signer and broadcaster target mainnet")
     if os.getenv("TON_WITHDRAWALS_ENABLED", "false").strip().lower() != "true":
         raise PermissionError("TON withdrawals are disabled by policy")
     if os.getenv("TON_WITHDRAWAL_EXECUTOR_ENABLED", "false").strip().lower() != "true":

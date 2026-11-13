@@ -17,7 +17,6 @@ const allowedDomains = new Set(
   (process.env.TON_PROOF_ALLOWED_DOMAINS ?? "")
     .split(",").map((value) => value.trim().toLowerCase()).filter(Boolean)
 );
-const mainnetEndpoint = process.env.TON_MAINNET_ENDPOINT ?? "https://mainnet-v4.tonhubapi.com";
 const testnetEndpoint = process.env.TON_TESTNET_ENDPOINT ?? "https://testnet-v4.tonhubapi.com";
 const postgresCa = process.env.PGSSLROOTCERT_PEM;
 const pool = databaseUrl ? new Pool({
@@ -38,7 +37,7 @@ const proofSchema = z.object({
 const verifySchema = z.object({
   userId: z.string().regex(/^\\d{1,24}$/),
   address: z.string().min(3).max(128),
-  network: z.enum(["-239", "-3"]),
+  network: z.literal("-3"),
   public_key: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(),
   proof: proofSchema,
   state_init: z.string().min(1).max(12000)
@@ -58,9 +57,9 @@ app.addHook("preHandler", async (request, reply) => {
   }
 });
 
-async function getWalletTgPublicKey(address: Address, network: "-239" | "-3", stateInitCodeHash: string): Promise<Buffer> {
+async function getWalletTgPublicKey(address: Address, stateInitCodeHash: string): Promise<Buffer> {
   if (stateInitCodeHash !== WALLET_TG_CODE_HASH) throw new Error("WalletTg StateInit code hash mismatch");
-  const client = new TonClient4({ endpoint: network === "-239" ? mainnetEndpoint : testnetEndpoint });
+  const client = new TonClient4({ endpoint: testnetEndpoint });
   const provider = client.provider(address, null);
   const account = await provider.getState();
   if (account.state.type !== "active" || !account.state.code) {
@@ -97,7 +96,7 @@ async function verifyProof(input: z.infer<typeof verifySchema>): Promise<Buffer 
   if (!publicKey) {
     const codeHash = stateInit.code?.hash().toString("hex") ?? "";
     if (codeHash !== WALLET_TG_CODE_HASH) return null;
-    publicKey = await getWalletTgPublicKey(address, input.network, codeHash);
+    publicKey = await getWalletTgPublicKey(address, codeHash);
   }
   if (input.public_key && !publicKey.equals(Buffer.from(input.public_key, "hex"))) return null;
 

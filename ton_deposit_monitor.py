@@ -15,6 +15,8 @@ from sqlalchemy import insert, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
+from release_policy import TON_TESTNET_DEPOSIT_ADAPTER_READY
+
 from financial_ledger import (
     _hash,
     get_engine,
@@ -242,9 +244,12 @@ async def scan_pending_ton_invoices(
 
 
 async def run_ton_deposit_monitor(*, poll_seconds: int = 8) -> None:
-    """Worker stays inert unless the full crypto-deposit and production gates are enabled."""
+    """Worker stays inert until a testnet-only deposit adapter has been implemented."""
     import asyncio
     import logging
+
+    if not TON_TESTNET_DEPOSIT_ADAPTER_READY:
+        return
 
     enabled = os.getenv("TON_DEPOSIT_MONITOR_ENABLED", "false").strip().lower() == "true"
     crypto_enabled = os.getenv("TON_CRYPTO_DEPOSITS_ENABLED", "false").strip().lower() == "true"
