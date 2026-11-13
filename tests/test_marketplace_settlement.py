@@ -211,6 +211,44 @@ class MarketplaceSettlementTests(unittest.TestCase):
                 )
         self.assertEqual(get_account_balance("liability:seller:101:GRAM", "GRAM", self.engine), 0)
 
+
+    def test_refund_releases_listing_only_with_fresh_escrow_proof(self):
+        reserve_verified_deal_payment(
+            deal_id=self.deal_id, invoice_id=self.invoice_id,
+            engine=self.engine, now=150,
+        )
+        result = refund_unfulfilled_deal(
+            deal_id=self.deal_id, reason="seller cannot fulfil",
+            admin_user_id="999", engine=self.engine, now=160,
+        )
+        self.assertTrue(result["refunded"])
+        self.assertEqual(get_account_balance(
+            "liability:user:202:GRAM", "GRAM", self.engine
+        ), -250)
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.execute(text(
+                "SELECT status FROM marketplace_listings WHERE listing_id=:id"
+            ), {"id": self.listing_id}).scalar_one(), "active")
+
+    def test_refund_routes_stale_escrow_listing_back_to_verification(self):
+        reserve_verified_deal_payment(
+            deal_id=self.deal_id, invoice_id=self.invoice_id,
+            engine=self.engine, now=150,
+        )
+        with self.engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE marketplace_assets SET ownership_expires_at=155 WHERE asset_id=:id"
+            ), {"id": self.asset_id})
+        result = refund_unfulfilled_deal(
+            deal_id=self.deal_id, reason="seller cannot fulfil",
+            admin_user_id="999", engine=self.engine, now=160,
+        )
+        self.assertTrue(result["refunded"])
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.execute(text(
+                "SELECT status FROM marketplace_listings WHERE listing_id=:id"
+            ), {"id": self.listing_id}).scalar_one(), "pending_verification")
+
     def test_ambiguous_nft_transfer_cannot_be_refunded_automatically(self):
         reserve_verified_deal_payment(
             deal_id=self.deal_id, invoice_id=self.invoice_id, engine=self.engine, now=150,
