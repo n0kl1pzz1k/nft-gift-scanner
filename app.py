@@ -22,7 +22,7 @@ from security_controls import SecurityControlsMiddleware
 from financial_ledger import get_engine
 from marketplace_inventory import (
     save_verified_wallet, get_active_verified_wallet, revoke_verified_wallet, record_wallet_owned_nft,
-    create_escrow_pending_listing, marketplace_assets, marketplace_listings,
+    create_escrow_pending_listing, cancel_seller_listing, marketplace_assets, marketplace_listings,
     init_inventory_schema, scan_pending_nft_listings,
 )
 from ton_nft_verifier import verify_seller_nft_ownership_async
@@ -510,6 +510,23 @@ async def create_native_inventory_listing(
             idempotency_key=payload.idempotency_key, engine=get_engine(),
         )
         return {"listing": result, "public": False}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+
+@app.post("/api/inventory/listings/{listing_id}/cancel")
+async def cancel_native_inventory_listing(
+    listing_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    try:
+        return cancel_seller_listing(
+            listing_id=listing_id, seller_user_id=str(user["id"]), engine=get_engine(),
+        )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
