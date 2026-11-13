@@ -28,13 +28,14 @@ A ticker, symbol, token name, logo, wallet UI balance, QR code, screenshot, expl
 
 The phrase "flash USDT" is commonly used for counterfeit or fabricated token displays and fake payment claims. A fake token can copy the name, symbol, decimals and logo of a legitimate asset. A fabricated or unconfirmed transaction can also be presented as payment evidence.
 
-The only acceptable asset identity is a chain-specific, pre-approved contract/master address on the expected network, independently checked against authoritative issuer documentation and on-chain state.
+The asset identity depends on the asset kind. Jettons require an exact pre-approved master address; native TON GRAM has no Jetton master and must be verified as a native TON transfer. In both cases, the network and transaction trace must be independently checked.
 
 ## 3. Canonical asset registry
 
 Every accepted asset is a version-controlled, reviewed configuration record with:
 - chain_id / network (mainnet vs testnet explicitly separated)
-- canonical master/contract address in normalized form
+- asset kind (native coin vs Jetton)
+- canonical master/contract address for Jettons; an explicit native-asset identity and no master address for native GRAM
 - issuer/source URL and date checked
 - symbol and decimals as display metadata only
 - contract code hash / implementation identity where meaningful
@@ -44,13 +45,19 @@ Every accepted asset is a version-controlled, reviewed configuration record with
 
 No token can be added by a user, seller, administrator UI or remote metadata response. Adding/changing an asset requires a reviewed code/config change and two-person approval.
 
+### Native GRAM on TON
+
+GRAM is the native TON coin, not a Jetton. It has no master/contract address and uses 9 decimal places. The registry identifies it as `asset_kind=native` on `ton-mainnet`; native transfers are parsed and verified without a Jetton master or transfer-notification opcode. A Jetton that merely displays GRAM/Gram is rejected as native GRAM. The historical PoW Jetton now branded GRM is a separate asset and is not allowlisted as GRAM.
+
+Official network reference: https://www.ton.org/
+
 ### Official USDT on TON
 
 Tether lists the TON Jetton USDT master address as:
 
 EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs
 
-This is a candidate canonical address for mainnet verification, not permission to enable payments. The runtime must independently verify the chain/network and master contract state before allowlisting. Do not infer GRAM's canonical contract from its ticker or third-party listings.
+This is a candidate canonical address for mainnet verification, not permission to enable payments. The runtime must independently verify the chain/network and master contract state before allowlisting. Do not accept a Jetton named GRAM as the native coin. Native GRAM verification follows the native-transfer path.
 
 ### Official USDT on TRON
 
@@ -83,6 +90,7 @@ TON-specific mandatory protections:
 - Never accept a jetton based on name/symbol/image.
 - Never accept a jetton wallet without verifying its master-to-wallet relationship.
 - Reject unexpected master contracts even if they imitate USDT/GRAM metadata.
+- Native GRAM must be represented as a native transfer with no Jetton master; a Jetton master is a different asset.
 - Reject duplicate invoice IDs, replayed notifications, malformed payloads, bounced flows and amount mismatches.
 - If the trace is unavailable or conflicting between providers, mark the payment REVIEW_REQUIRED; do not credit or fulfil.
 - Treat any change in master code/admin/upgradeability state as a re-approval event.
@@ -164,4 +172,4 @@ No production payments until:
 - Payment state machine, idempotency and immutable ledger tests pass.
 - Provider outage and disagreement tests fail closed.
 - Security review, load test and backup-restore drill pass.
-- GRAM remains disabled until its exact canonical master, decimals, issuer provenance and risk profile are independently approved.
+- Native GRAM remains disabled until native-transfer parsing, two-provider finality, ledger reconciliation and the legal/platform gates are independently approved.
