@@ -340,7 +340,8 @@ def confirm_nft_escrow_deposit(*, listing_id: str, tx_hash: str, event_index: in
 
 
 async def verify_and_activate_escrow_listing(*, listing_id: str,
-                                          engine: Engine | None = None) -> dict[str, Any]:
+                                          engine: Engine | None = None,
+                                          providers: list[Any] | None = None) -> dict[str, Any]:
     """Poll two independent provider histories and live NFT state before publication."""
     from ton_nft_providers import configured_nft_providers, canonical_ton_address
 
@@ -350,7 +351,9 @@ async def verify_and_activate_escrow_listing(*, listing_id: str,
     if not escrow_address:
         raise RuntimeError("GIFT_RADAR_ESCROW_ADDRESS is not configured")
     escrow_address = canonical_ton_address(escrow_address)
-    providers = configured_nft_providers()
+    providers = providers or configured_nft_providers()
+    if {provider.provider_id for provider in providers} != {"tonapi", "toncenter"}:
+        raise PermissionError("The named independent TON providers are required")
     with db.connect() as conn:
         listing = conn.execute(select(marketplace_listings).where(
             marketplace_listings.c.listing_id == listing_id
