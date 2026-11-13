@@ -11,10 +11,17 @@ class SecurityControlTests(unittest.TestCase):
         self.assertFalse(_valid_origin("https://nft-gift-scanner.pages.dev.evil.example"))
         self.assertFalse(_valid_origin("https://evil.example"))
 
-    def test_inventory_mutations_use_distributed_edge_rate_limit(self):
-        self.assertTrue(_requires_edge_limit("/api/inventory/nft/import"))
-        self.assertTrue(_requires_edge_limit("/api/inventory/listings"))
-        self.assertTrue(_requires_edge_limit("/api/inventory/mine"))
+    def test_every_api_route_including_public_reads_and_admin_routes_is_rate_limited(self):
+        for path in (
+            "/api/inventory/nft/import", "/api/inventory/listings",
+            "/api/inventory/mine", "/api/collections", "/api/status",
+            "/api/admin/withdrawals", "/api/payments/capabilities",
+            "/api/telegram/webhook",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(_requires_edge_limit(path))
+        self.assertFalse(_requires_edge_limit("/health"))
+        self.assertFalse(_requires_edge_limit("/favicon.ico"))
 
     def test_api_responses_receive_security_and_no_store_headers(self):
         response = _apply_security_headers(Response(content="{}", media_type="application/json"))
