@@ -144,7 +144,7 @@ class MarketplaceSettlementTests(unittest.TestCase):
             ), {"id": self.listing_id}).scalar_one(), "active")
         self.assertEqual(
             expire_unpaid_marketplace_deals(engine=self.engine, now=432),
-            {"expired": 0, "relisted": 0},
+            {"expired": 0, "relisted": 0, "reverification_required": 0},
         )
 
     def test_expired_unpaid_deal_does_not_relist_stale_escrow_proof(self):
