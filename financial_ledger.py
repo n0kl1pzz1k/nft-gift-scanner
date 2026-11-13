@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
 import time
+from decimal import Decimal, InvalidOperation
 import uuid
 from typing import Any
 
@@ -56,6 +58,45 @@ payment_events = Table("payment_events", metadata,
     Column("recipient_address", String(128), nullable=False),
     Column("created_at", BigInteger, nullable=False),
     UniqueConstraint("chain", "tx_hash", "event_index", "asset_id", name="uq_payment_chain_event"))
+stars_invoices = Table("telegram_stars_invoices", metadata,
+    Column("invoice_id", String(64), primary_key=True),
+    Column("payload", String(128), nullable=False, unique=True),
+    Column("deal_id", String(64), nullable=False),
+    Column("order_id", String(64), nullable=False),
+    Column("buyer_user_id", String(64), nullable=False),
+    Column("seller_user_id", String(64), nullable=False),
+    Column("amount_stars", BigInteger, nullable=False),
+    Column("currency", String(8), nullable=False),
+    Column("status", String(32), nullable=False),
+    Column("expires_at", BigInteger, nullable=False),
+    Column("created_at", BigInteger, nullable=False),
+    Column("pre_checkout_query_id", String(128), unique=True),
+    Column("pre_checkout_approved_at", BigInteger),
+    Column("paid_at", BigInteger),
+    Column("telegram_payment_charge_id", String(256), unique=True),
+    Column("provider_payment_charge_id", String(256)),
+    Column("refunded_at", BigInteger),
+    CheckConstraint("amount_stars > 0", name="ck_telegram_stars_invoice_amount"),
+    CheckConstraint("currency = 'XTR'", name="ck_telegram_stars_invoice_currency"),
+    CheckConstraint("status IN ('pending', 'pre_checkout_approved', 'paid', 'expired', 'refunded')", name="ck_telegram_stars_invoice_status"))
+stars_payments = Table("telegram_stars_payments", metadata,
+    Column("payment_event_id", String(36), primary_key=True),
+    Column("invoice_id", String(64), ForeignKey("telegram_stars_invoices.invoice_id"), nullable=False, unique=True),
+    Column("telegram_payment_charge_id", String(256), nullable=False, unique=True),
+    Column("buyer_user_id", String(64), nullable=False),
+    Column("amount_stars", BigInteger, nullable=False),
+    Column("currency", String(8), nullable=False),
+    Column("created_at", BigInteger, nullable=False),
+    CheckConstraint("amount_stars > 0", name="ck_telegram_stars_payment_amount"),
+    CheckConstraint("currency = 'XTR'", name="ck_telegram_stars_payment_currency"))
+stars_refund_events = Table("telegram_stars_refund_events", metadata,
+    Column("refund_event_id", String(36), primary_key=True),
+    Column("invoice_id", String(64), ForeignKey("telegram_stars_invoices.invoice_id"), nullable=False),
+    Column("telegram_payment_charge_id", String(256), nullable=False),
+    Column("event_type", String(32), nullable=False),
+    Column("reason", String(500), nullable=False, default=""),
+    Column("created_at", BigInteger, nullable=False),
+    CheckConstraint("event_type IN ('refund_requested', 'refund_succeeded', 'refund_failed')", name="ck_telegram_stars_refund_event_type"))
 
 _engine: Engine | None = None
 
@@ -87,13 +128,13 @@ def init_financial_schema(engine: Engine | None = None) -> None:
             if not db.dialect.has_table(conn, "alembic_version"):
                 raise RuntimeError("PostgreSQL schema must be initialized through Alembic migrations")
             version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-            if version not in {"0001_financial_ledger", "0002_marketplace_core"}:
+            if version not in {"0001_financial_ledger", "0002_marketplace_core", "0003_telegram_stars_payments"}:
                 raise RuntimeError("Financial database migration is missing or not at the expected revision")
         return
     metadata.create_all(db)
     if db.dialect.name == "sqlite":
         with db.begin() as conn:
-            for table in ("ledger_entries", "ledger_lines", "payment_events"):
+            for table in ("ledger_entries", "ledger_lines", "payment_events", "telegram_stars_payments", "telegram_stars_refund_events"):
                 for action in ("UPDATE", "DELETE"):
                     conn.execute(text(f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_{action.lower()} BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT, 'append-only financial record'); END"))
 
