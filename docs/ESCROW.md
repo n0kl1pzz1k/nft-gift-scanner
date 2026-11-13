@@ -1,6 +1,6 @@
 # GIFT RADAR Escrow Architecture
 
-**Status:** DRAFT — owner approval pending. The contract code currently in this branch is an experimental prototype and must not be treated as approved implementation.  
+**Status:** Architecture approved by owner with six conditions on 2026-11-14. Implementation remains experimental and is not approved for deployment.  
 **Scope:** NFT custody and payment orchestration for Telegram Mini App marketplace  
 **Network:** TON testnet only. No mainnet addresses, real transfers, production keys or real funds.
 
@@ -117,9 +117,9 @@ Internal states may include `transfer_pending`, `refund_pending`, and `reconcili
 4. Seller settlement must not be marked complete from an arbitrary non-empty hash. Backend must validate the actual payout evidence and preserve a durable reconciliation record. Telegram Stars seller payout remains a separate legal/platform-policy blocker.
 5. Testnet deployment and full end-to-end exercise remain outstanding. No deployer key or seed phrase may be introduced; use a user wallet or external HSM interface with explicit testnet chain verification.
 
-## Security review: unresolved design decisions (owner approval required)
+## Security review: approved conditions and implementation gates
 
-The current contract prototype is not accepted as a money-safe design. These are mandatory gates, not optional future improvements.
+The current contract prototype is not accepted as a money-safe design. The owner approved the following target architecture subject to the conditions recorded here. These remain mandatory implementation and validation gates, not optional future improvements.
 
 ### 1. Adversarial test matrix
 
@@ -136,7 +136,7 @@ Tests must assert transaction result, post-transaction state, balances and actua
 
 ### 2. Payment attestation authority
 
-A single backend paymentAuthority is a critical custody key: compromise permits false payment attestations and may cause irreversible NFT release. Before any testnet end-to-end use, replace the single hot authority model with a reviewed signer design:
+A single backend paymentAuthority is a critical custody key: compromise permits false payment attestations and may cause irreversible NFT release. Replace it with configurable 2-of-3 signer membership for the first testnet vertical slice. Signer and arbitrator addresses are deployment configuration, never named people or hardcoded identities. The sets are immutable per active deal; the configuration schema is specified in `docs/ESCROW_AUTHORITY_CONFIG.md`. Before any testnet end-to-end use, implement:
 - Signing keys live only in an external HSM or threshold signer, never in app environment variables, source, database or logs.
 - Contract verifies a threshold of independent authorized signatures, proposed 2-of-3, bound to chain/network, escrow address, deal ID, exact amount/currency, Telegram charge ID hash, action, expiry and unique nonce.
 - Per-deal and per-signer limits, replay protection, key rotation/revocation, emergency pause, audit trail and reconciliation.
@@ -150,7 +150,7 @@ This requires a contract message/interface redesign and is not implemented by th
 The prototype requires two matching arbitrator votes. If they disagree or one never votes, the state remains disputed indefinitely.
 
 Proposed policy for owner review:
-- Use 2-of-3 independent arbitrators, not two fixed keys controlled by one operator.
+- Use configurable 2-of-3 independent arbitrators, not two fixed keys controlled by one operator. The three addresses are supplied per deal and frozen in its configuration snapshot.
 - Each dispute has a vote deadline and a separate appeal/escalation deadline.
 - Disagreement or missed quorum moves to ARBITRATION_ESCALATED; it must not silently count as approval or dismissal.
 - Escalation invokes a documented replacement/appeal quorum. No unilateral admin override.
