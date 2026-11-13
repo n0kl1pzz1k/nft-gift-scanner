@@ -10,7 +10,7 @@ from marketplace_inventory import (
 )
 from marketplace_settlement import (
     create_deal_from_reservation, init_marketplace_settlement_schema,
-    mark_deal_nft_transfer_pending,
+    mark_deal_nft_transfer_pending, confirm_deal_nft_transfer,
 )
 
 from financial_ledger import (
@@ -70,6 +70,55 @@ class TelegramStarsLedgerTests(unittest.TestCase):
             engine=self.engine, now=1030,
         )
         return deal["deal_id"], listing["listing_id"]
+
+    def test_native_stars_deal_pays_seller_only_after_dual_provider_delivery(self):
+        deal_id, listing_id = self._create_native_xtr_deal()
+        buyer_wallet = "0:" + "55" * 32
+        item = "0:" + "33" * 32
+        escrow = "0:" + "44" * 32
+        record_telegram_stars_terms_acceptance(user_id="10020", engine=self.engine, now=900)
+        invoice = create_telegram_stars_invoice(
+            deal_id=deal_id, buyer_user_id="10020", engine=self.engine, now=1035,
+        )
+        self.assertTrue(approve_telegram_stars_pre_checkout(
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
+            amount_stars=75, query_id="native-payout-precheckout", engine=self.engine, now=1040,
+        ))
+        settle_telegram_stars_payment(
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
+            amount_stars=75, telegram_payment_charge_id="native-payout-charge",
+            engine=self.engine, now=1050,
+        )
+        mark_deal_nft_transfer_pending(deal_id=deal_id, engine=self.engine, now=1060)
+        proofs = [
+            {"provider_id": "tonapi", "successful": True, "finalized": True,
+             "tx_hash": "ef" * 32, "item_address": item, "old_owner": escrow,
+             "new_owner": buyer_wallet, "evidence_hash": "f" * 64},
+            {"provider_id": "toncenter", "successful": True, "finalized": True,
+             "tx_hash": "ef" * 32, "item_address": item, "old_owner": escrow,
+             "new_owner": buyer_wallet, "evidence_hash": "f" * 64},
+        ]
+        with patch.dict("os.environ", {"GIFT_RADAR_ESCROW_ADDRESS": escrow}):
+            settled = confirm_deal_nft_transfer(
+                deal_id=deal_id, transfer_proofs=proofs,
+                current_owner_addresses=[buyer_wallet], engine=self.engine, now=1070,
+            )
+        self.assertTrue(settled["settled"])
+        self.assertEqual(get_account_balance(
+            f"liability:deal_hold:{deal_id}:XTR", "XTR", self.engine
+        ), 0)
+        self.assertEqual(get_account_balance(
+            "liability:seller:10010:XTR", "XTR", self.engine
+        ), -75)
+        with self.engine.connect() as connection:
+            deal_status = connection.execute(text(
+                "SELECT status FROM marketplace_deals WHERE deal_id=:id"
+            ), {"id": deal_id}).scalar_one()
+            listing_status = connection.execute(text(
+                "SELECT status FROM marketplace_listings WHERE listing_id=:id"
+            ), {"id": listing_id}).scalar_one()
+        self.assertEqual(deal_status, "settled")
+        self.assertEqual(listing_status, "sold")
 
     def test_native_stars_refund_is_blocked_after_nft_transfer_starts(self):
         deal_id, _ = self._create_native_xtr_deal()
