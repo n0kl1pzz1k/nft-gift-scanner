@@ -8,9 +8,7 @@
     "healthcheckPath": "/health",
     "healthcheckTimeout": 120,
     "preDeployCommand": [
-      "alembic",
-      "upgrade",
-      "head"
+      "alembic upgrade head"
     ]
   }
 }
