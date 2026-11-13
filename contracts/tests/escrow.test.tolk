@@ -17,6 +17,7 @@ fun setupEscrow(): (GiftRadarEscrow, Treasury, Treasury, Treasury, Treasury, Tre
         preDisputeState: 0,
         disputeApprovals: 0,
         resolutionDecision: 0,
+        disputeReasonHash: 0,
         transferQueryId: 0,
         parties: EscrowParties {
             seller: seller.address,
@@ -36,9 +37,6 @@ fun setupEscrow(): (GiftRadarEscrow, Treasury, Treasury, Treasury, Treasury, Tre
         deliveryEvidence: DeliveryEvidence {
             buyerOwnershipProofHash: 0,
             sellerOwnershipProofHash: 0,
-        }.toCell(),
-        disputeEvidence: DisputeEvidence {
-            reasonHash: 0,
             resolutionHash: 0,
         }.toCell(),
     });
