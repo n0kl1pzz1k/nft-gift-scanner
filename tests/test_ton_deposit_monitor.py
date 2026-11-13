@@ -8,9 +8,7 @@ from unittest.mock import patch
 from sqlalchemy import create_engine, insert, select
 from sqlalchemy.pool import StaticPool
 
-from financial_ledger import get_account_balance, init_financial_schema, invoices, insert
-
-from financial_ledger import invoices, get_account_balance, init_financial_schema
+from financial_ledger import get_account_balance, init_financial_schema, invoices
 from ton_deposit_monitor import record_ton_provider_observation
 
 
