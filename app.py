@@ -22,6 +22,10 @@ from security_controls import SecurityControlsMiddleware
 from financial_ledger import get_engine, get_account_balance, create_payment_invoice, invoices, payment_events
 from marketplace_settlement import reserve_verified_deal_payment
 from withdrawal_signer import create_withdrawal_request
+from release_policy import (
+    TELEGRAM_STARS_TEST_ENV_READY,
+    TON_TESTNET_NFT_VERIFIER_READY,
+)
 from marketplace_inventory import (
     save_verified_wallet, get_active_verified_wallet, revoke_verified_wallet, record_wallet_owned_nft,
     create_escrow_pending_listing, cancel_seller_listing, marketplace_assets, marketplace_listings,
@@ -103,7 +107,8 @@ class WalletWithdrawalRequest(BaseModel):
 def _stars_payment_enabled() -> bool:
     database_url = os.getenv("DATABASE_URL", "").strip()
     return bool(
-        os.getenv("TELEGRAM_STARS_PAYMENTS_ENABLED", "false").strip().lower() == "true"
+        TELEGRAM_STARS_TEST_ENV_READY
+        and os.getenv("TELEGRAM_STARS_PAYMENTS_ENABLED", "false").strip().lower() == "true"
         and os.getenv("MARKETPLACE_REAL_DEALS_ENABLED", "false").strip().lower() == "true"
         and bool(os.getenv("TELEGRAM_STARS_TERMS_VERSION", "").strip())
         and _telegram_bot is not None
@@ -550,8 +555,8 @@ async def ton_proof_verify(
     internal_token = os.getenv("TON_PROOF_INTERNAL_TOKEN", "").strip()
     if not service_url or not internal_token:
         raise HTTPException(status_code=503, detail="TON Proof service is not configured")
-    if payload.network not in {"-239", "-3"}:
-        raise HTTPException(status_code=422, detail="Unsupported TON network")
+    if payload.network != "-3":
+        raise HTTPException(status_code=422, detail="Only TON testnet wallet proofs are accepted in testnet-only mode")
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
@@ -575,9 +580,8 @@ async def ton_proof_verify(
         result = response.json()
         if not isinstance(result, dict) or result.get("verified") is not True:
             raise HTTPException(status_code=401, detail="TON wallet proof was not verified")
-        if result.get("network") == "-239":
-            save_verified_wallet(user_id=str(user["id"]), address=result.get("address", ""),
-                                 network="ton-mainnet", engine=get_engine())
+        if result.get("network") != "-3":
+            raise HTTPException(status_code=502, detail="TON Proof service returned a non-testnet wallet")
         return {"verified": True, "address": result.get("address"), "network": result.get("network")}
     except httpx.HTTPError:
         raise HTTPException(status_code=503, detail="TON Proof service is unreachable")
@@ -597,6 +601,8 @@ async def import_owned_nft(
     x_telegram_init_data: str | None = Header(default=None),
 ):
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    if not TON_TESTNET_NFT_VERIFIER_READY:
+        raise HTTPException(status_code=503, detail="NFT ownership verification is unavailable until the TON testnet verifier is implemented")
     if payload.asset_type not in {"ton_nft", "collectible_username", "collectible_phone_number"}:
         raise HTTPException(status_code=422, detail="Unsupported collectible asset type")
     try:
@@ -639,6 +645,8 @@ async def create_native_inventory_listing(
     x_telegram_init_data: str | None = Header(default=None),
 ):
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    if not TON_TESTNET_NFT_VERIFIER_READY:
+        raise HTTPException(status_code=503, detail="NFT listings are unavailable until testnet ownership and custody verification are implemented")
     if payload.currency not in {"XTR", "GRAM", "USDT"}:
         raise HTTPException(status_code=422, detail="Unsupported listing currency")
     try:
@@ -1155,6 +1163,8 @@ async def execute_stars_refund(
     x_telegram_init_data: str | None = Header(default=None),
 ):
     admin = _require_admin(x_telegram_init_data)
+    if not TELEGRAM_STARS_TEST_ENV_READY:
+        raise HTTPException(status_code=503, detail="Telegram Stars refunds are disabled: no isolated test payment environment is configured")
     if _telegram_bot is None:
         raise HTTPException(status_code=503, detail="Telegram payment bot is unavailable")
     try:
@@ -1311,7 +1321,8 @@ def _native_nft_escrow_monitor_enabled() -> bool:
         "TONCENTER_API_KEY",
     )
     return bool(
-        os.getenv("NATIVE_NFT_ESCROW_MONITOR_ENABLED", "false").strip().lower() == "true"
+        TON_TESTNET_NFT_VERIFIER_READY
+        and os.getenv("NATIVE_NFT_ESCROW_MONITOR_ENABLED", "false").strip().lower() == "true"
         and os.getenv("GIFT_RADAR_STORAGE_BACKEND", "").strip().lower() == "postgres"
         and database_url.startswith(("postgres://", "postgresql://", "postgresql+psycopg://"))
         and os.getenv("TON_NFT_PROVIDER_IDS", "").replace(" ", "").lower() == "tonapi,toncenter"
