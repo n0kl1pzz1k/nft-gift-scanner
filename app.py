@@ -728,7 +728,11 @@ async def create_wallet_withdrawal(
         )
     except PermissionError as exc:
         detail = str(exc)
-        if any(word in detail.lower() for word in ("disabled", "release gates", "sign-offs", "not approved")):
+        if any(word in detail.lower() for word in (
+            "disabled", "release gates", "sign-offs", "not approved",
+            "not enabled", "not fully configured", "not passed",
+            "approvers must be configured",
+        )):
             raise HTTPException(status_code=503, detail=detail)
         raise HTTPException(status_code=409, detail=detail)
     except ValueError as exc:
