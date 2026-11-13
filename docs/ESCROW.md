@@ -1,6 +1,6 @@
 # GIFT RADAR Escrow Architecture
 
-**Status:** approved for testnet implementation by project owner on 2026-11-14  
+**Status:** DRAFT — owner approval pending. The contract code currently in this branch is an experimental prototype and must not be treated as approved implementation.  
 **Scope:** NFT custody and payment orchestration for Telegram Mini App marketplace  
 **Network:** TON testnet only. No mainnet addresses, real transfers, production keys or real funds.
 
@@ -116,3 +116,91 @@ Internal states may include `transfer_pending`, `refund_pending`, and `reconcili
 3. NFT release confirmation must require matching finalized ownership observations from both TON providers, bound to the exact item, buyer, contract, transaction and deal.
 4. Seller settlement must not be marked complete from an arbitrary non-empty hash. Backend must validate the actual payout evidence and preserve a durable reconciliation record. Telegram Stars seller payout remains a separate legal/platform-policy blocker.
 5. Testnet deployment and full end-to-end exercise remain outstanding. No deployer key or seed phrase may be introduced; use a user wallet or external HSM interface with explicit testnet chain verification.
+
+## Security review: unresolved design decisions (owner approval required)
+
+The current contract prototype is not accepted as a money-safe design. These are mandatory gates, not optional future improvements.
+
+### 1. Adversarial test matrix
+
+The existing 12 emulator scenarios are a smoke-test baseline, not adequate coverage for custody software. Expand to a threat-oriented suite including:
+- Wrong NFT item sender; configured item reports a previous owner other than seller; duplicate deposit; deposit after deadline; malformed/truncated message bodies.
+- Unauthorized payment attestation; wrong amount; zero/reused Telegram charge reference; duplicate and conflicting attestations; payment after timeout; deadline-boundary payment; replay across deals.
+- Buyer-only release; duplicate release; insufficient inbound gas; insufficient retained balance; action-phase send failure; NFT contract rejects transfer; bounced transfer; delayed/duplicate ownership notification; provider outage after transfer.
+- No payment through deadline; Telegram refund failure; duplicate refund; conflicting refund evidence.
+- Arbitrator 1 only; arbitrator 2 only; duplicate vote; same arbitrator attempts both slots; conflicting decisions; matching decisions with different evidence hashes; no votes; one vote then silence; repeated dispute cycles.
+- Quarantine entry from every ambiguous path; recovery when NFT remains escrow-owned, buyer-owned or seller-owned; providers disagree; unauthorized recovery.
+- Property/state-machine tests over arbitrary message sequences, fuzzed cell payloads, gas-boundary tests and invariant checks after every failed transaction.
+
+Tests must assert transaction result, post-transaction state, balances and actual NFT owner. A failed transaction must not leave a state that enables settlement or loses custody.
+
+### 2. Payment attestation authority
+
+A single backend paymentAuthority is a critical custody key: compromise permits false payment attestations and may cause irreversible NFT release. Before any testnet end-to-end use, replace the single hot authority model with a reviewed signer design:
+- Signing keys live only in an external HSM or threshold signer, never in app environment variables, source, database or logs.
+- Contract verifies a threshold of independent authorized signatures, proposed 2-of-3, bound to chain/network, escrow address, deal ID, exact amount/currency, Telegram charge ID hash, action, expiry and unique nonce.
+- Per-deal and per-signer limits, replay protection, key rotation/revocation, emergency pause, audit trail and reconciliation.
+- Payment evidence originates only from Telegram's authenticated successful-payment update and is reconciled against Telegram charge history and refunds.
+- One compromised key must not be sufficient to attest payment or release an NFT.
+
+This requires a contract message/interface redesign and is not implemented by the current prototype.
+
+### 3. Arbitration deadlock and timeout policy
+
+The prototype requires two matching arbitrator votes. If they disagree or one never votes, the state remains disputed indefinitely.
+
+Proposed policy for owner review:
+- Use 2-of-3 independent arbitrators, not two fixed keys controlled by one operator.
+- Each dispute has a vote deadline and a separate appeal/escalation deadline.
+- Disagreement or missed quorum moves to ARBITRATION_ESCALATED; it must not silently count as approval or dismissal.
+- Escalation invokes a documented replacement/appeal quorum. No unilateral admin override.
+- Default unresolved behavior is freeze and preserve custody, not automatic refund or seller payout. Automatic refund is safe only when the Telegram refund is independently confirmed and NFT return is proven. Seller release is safe only when non-payment is independently reconciled and seller ownership is validated.
+- Every path out of dispute has an explicit terminal or reconciliation state and bounded, observable deadlines.
+
+This is fail-closed by design. The legal dispute authority and response SLA must be defined before implementation.
+
+### 4. Quarantine recovery
+
+reconciliation_required must not be a terminal parking lot. Define explicit proof-gated recovery operations:
+- Verify actual NFT item owner through independent TON providers and finalized transaction inclusion.
+- If NFT remains escrow-owned, threshold-authorized recovery may return it only to a precommitted seller/buyer address under a documented decision.
+- If NFT is buyer-owned, confirm delivery and continue only the legally permitted settlement path.
+- If NFT is seller-owned, confirm return and refund state before closing.
+- If providers disagree, ownership is unprovable or transfer remains pending, retain quarantine and escalate; never blindly retry.
+- Every recovery command is idempotent, threshold-authorized, time-bounded and recorded on-chain and in backend audit history.
+
+No unrestricted rescue method or arbitrary recipient parameter is permitted.
+
+### 5. Tolk and independent audit
+
+Tolk is acceptable for an experimental testnet prototype only. Before real funds:
+- Independent TON smart-contract audit by reviewers with Tolk/TVM expertise.
+- Independent financial/oracle/signing logic audit.
+- Reproducible compiler/toolchain and code hash verification.
+- Consider a FunC reference implementation or independent formal/state-machine model as a cross-check.
+- Fix and retest all critical findings; no unresolved critical/high findings.
+- Include audit report and remediation evidence in the buyer data room.
+
+### 6. Per-deal deployment economics
+
+Per-deal deployment has fixed chain cost, storage rent and operational/indexing costs. Viability for small-ticket gifts is unproven.
+
+Benchmark on testnet and estimate mainnet costs from current network parameters: deployment and initialization; NFT deposit and release/refund; storage rent for realistic deal lifetime and long disputes; recovery/arbitration; indexer, RPC and monitoring cost per active deal.
+
+Compare per-deal contracts with a factory/clone pattern and a shared escrow with isolated per-deal storage. Any shared model must preserve strict deal isolation and bounded blast radius. Define who pays deployment/gas, refund treatment if deployment fails, platform subsidy policy and minimum order value. No fee or break-even price is approved until measured.
+
+### 7. Approval sequence and change control
+
+1. Present this architecture and threat model to the owner.
+2. Obtain explicit approval of this exact document version.
+3. Only then implement the approved design on testnet in a feature branch and PR.
+4. Any material change to signer quorum, dispute policy, custody, fees or public message/API interfaces requires a new document revision and explicit approval before implementation.
+5. The existing contract code in this branch was written before approval of this exact document. It is prototype work only, not evidence that the approval step occurred. Do not merge, deploy or enable it.
+
+### Current status
+
+- Architecture document: draft, pending owner approval.
+- Existing Tolk contract: experimental prototype; not approved.
+- Existing 12 emulator tests: baseline only; insufficient for acceptance.
+- Testnet deployment: not performed.
+- Real-money use: prohibited.
