@@ -110,6 +110,14 @@ Until then, `TELEGRAM_STARS_PAYMENTS_ENABLED` and `MARKETPLACE_REAL_DEALS_ENABLE
 - This workflow records a decision and reason, not uploaded evidence or a full appeals/arbitration system.
 
 
+## TON GRAM and USDT deposit checkout
+
+- Authenticated buyers can request a server-owned TON deposit invoice at `POST /api/payments/crypto/invoices`; the client supplies only the allowlisted asset ID and an integer base-unit amount. The server chooses the deposit address, token master, unique invoice payload and expiry.
+- `GET /api/payments/crypto/invoices/{invoice_id}` returns status only to the invoice owner and exposes the confirmed chain event when one exists.
+- GRAM (native TON coin) and the allowlisted USDT TON jetton are eligible assets, but checkout remains fail-closed until the crypto-deposit monitor, dual providers, PostgreSQL, the configured deposit address and all Kazakhstan legal/data/tax/security gates are present. USDT on TRON remains unsupported by this Mini App payment rail.
+- The deposit API does not accept client-supplied recipient addresses, token master contracts, transaction hashes or proof screenshots. The client cannot directly credit balances; only the independent provider quorum and the ledger settlement gate can do so.
+- This endpoint does not activate seller withdrawals or NFT escrow settlement and does not change production configuration.
+
 ## Native marketplace Telegram Stars checkout
 
 - Native marketplace deals (`grd_…`) now use the same server-owned XTR invoice, pre-checkout validation and authenticated `successful_payment` receipt flow as the existing Stars checkout.
