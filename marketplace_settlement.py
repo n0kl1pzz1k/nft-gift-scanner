@@ -50,7 +50,7 @@ marketplace_deals = Table(
     CheckConstraint("price_raw > 0", name="ck_marketplace_deals_positive_price"),
     CheckConstraint("currency IN ('GRAM','USDT','XTR')", name="ck_marketplace_deals_currency"),
     CheckConstraint(
-        "status IN ('reserved','payment_confirmed','nft_transfer_pending','settled','disputed','refunded','reconciliation_required')",
+        "status IN ('reserved','payment_confirmed','nft_transfer_pending','settled','disputed','refunded','reconciliation_required','expired')",
         name="ck_marketplace_deals_status",
     ),
 )
@@ -76,8 +76,8 @@ def init_marketplace_settlement_schema(engine: Engine | None = None) -> None:
             version = conn.execute(__import__("sqlalchemy").text(
                 "SELECT version_num FROM alembic_version"
             )).scalar_one_or_none()
-        if version != "0011_withdrawal_approvals":
-            raise RuntimeError("Marketplace settlement and inventory migrations through 0011 are required")
+        if version != "0012_expire_unpaid_marketplace_deals":
+            raise RuntimeError("Marketplace settlement and inventory migrations through 0012 are required")
         return
     metadata.create_all(db)
     if db.dialect.name == "sqlite":
@@ -493,6 +493,81 @@ def refund_unfulfilled_deal(*, deal_id: str, reason: str, admin_user_id: str,
                                              "journal_id": journal["entry_id"]}, now=current)
         return {"refunded": True, "duplicate": False, "journal_id": journal["entry_id"]}
 
+
+
+def expire_unpaid_marketplace_deals(*, engine: Engine | None = None,
+                                    now: int | None = None,
+                                    limit: int = 100) -> dict[str, int]:
+    """Expire unpaid deals at reservation deadline and safely release their listing."""
+    if not 1 <= int(limit) <= 500:
+        raise ValueError("Invalid expiry batch size")
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    current = int(now or time.time())
+    lock = db.dialect.name == "postgresql"
+    query = select(
+        marketplace_deals.c.deal_id, marketplace_deals.c.listing_id,
+        marketplace_deals.c.reservation_id, marketplace_deals.c.asset_id,
+    ).select_from(marketplace_deals.join(
+        marketplace_reservations,
+        marketplace_reservations.c.reservation_id == marketplace_deals.c.reservation_id,
+    )).where(
+        marketplace_deals.c.status == "reserved",
+        marketplace_reservations.c.status == "active",
+        marketplace_reservations.c.expires_at <= current,
+    ).order_by(marketplace_reservations.c.expires_at, marketplace_deals.c.deal_id).limit(limit)
+    if lock:
+        query = query.with_for_update()
+    expired = 0
+    relisted = 0
+    with db.begin() as conn:
+        candidates = conn.execute(query).mappings().all()
+        for deal in candidates:
+            reservation_query = select(marketplace_reservations).where(
+                marketplace_reservations.c.reservation_id == deal["reservation_id"])
+            asset_query = select(marketplace_assets).where(
+                marketplace_assets.c.asset_id == deal["asset_id"])
+            listing_query = select(marketplace_listings).where(
+                marketplace_listings.c.listing_id == deal["listing_id"])
+            if lock:
+                reservation_query = reservation_query.with_for_update()
+                asset_query = asset_query.with_for_update()
+                listing_query = listing_query.with_for_update()
+            reservation = conn.execute(reservation_query).mappings().first()
+            asset = conn.execute(asset_query).mappings().first()
+            listing = conn.execute(listing_query).mappings().first()
+            if (not reservation or reservation["status"] != "active"
+                    or int(reservation["expires_at"]) > current or not listing
+                    or listing["status"] != "reserved"):
+                continue
+            conn.execute(update(marketplace_reservations).where(
+                marketplace_reservations.c.reservation_id == deal["reservation_id"],
+                marketplace_reservations.c.status == "active",
+            ).values(status="expired"))
+            reusable = bool(asset and asset["custody_state"] == "escrowed"
+                            and int(asset["ownership_expires_at"] or 0) > current)
+            next_status = "active" if reusable else "expired"
+            conn.execute(update(marketplace_listings).where(
+                marketplace_listings.c.listing_id == deal["listing_id"],
+                marketplace_listings.c.status == "reserved",
+            ).values(status=next_status, updated_at=current))
+            changed = conn.execute(update(marketplace_deals).where(
+                marketplace_deals.c.deal_id == deal["deal_id"],
+                marketplace_deals.c.status == "reserved",
+            ).values(status="expired", updated_at=current))
+            if changed.rowcount != 1:
+                continue
+            _event(conn, deal_id=deal["deal_id"], event_type="payment_window_expired",
+                   data={"listing_status": next_status}, now=current)
+            conn.execute(insert(marketplace_listing_events).values(
+                event_id=uuid.uuid4().hex, listing_id=deal["listing_id"],
+                actor_user_id="system", event_type="reservation_expired",
+                event_data=json.dumps({"deal_id": deal["deal_id"], "listing_status": next_status}),
+                created_at=current,
+            ))
+            expired += 1
+            relisted += int(next_status == "active")
+    return {"expired": expired, "relisted": relisted}
 
 def flag_deal_for_reconciliation(*, deal_id: str, reason: str,
                                  engine: Engine | None = None,
