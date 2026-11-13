@@ -81,10 +81,6 @@ class TelegramAuthRequest(BaseModel):
     init_data: str
 
 
-class MarketplaceSettingRequest(BaseModel):
-    enabled: bool
-
-
 class StarsTermsAcceptanceRequest(BaseModel):
     accepted: bool
 
@@ -227,17 +223,6 @@ async def admin_overview(x_telegram_init_data: str | None = Header(default=None)
         "marketplace_visibility": _marketplace_visibility(),
         "settings_persistence": "persistent_sqlite",
     }
-
-
-@app.post("/api/admin/marketplaces/{market}")
-async def admin_set_marketplace(
-    market: str,
-    payload: MarketplaceSettingRequest,
-    x_telegram_init_data: str | None = Header(default=None),
-):
-    _require_admin(x_telegram_init_data)
-    raise HTTPException(status_code=410, detail="External marketplace adapters are permanently disabled")
-
 
 
 def source_status() -> dict[str, str]:
@@ -507,70 +492,8 @@ async def status():
 
 @app.get("/api/collections")
 async def collections():
-    return {
-        "items": [],
-        "sources": source_status(),
-        "updated_at": None,
-        "connected": False,
-        "note": "The native GIFT RADAR collection index is being built. No third-party marketplace catalogue is queried.",
-    }
-
-
-@app.get("/api/collections")
-async def collections():
-    if not _marketplace_enabled("portals"):
-        return {"items": [], "sources": source_status(), "updated_at": None, "note": "Portals collection feed is disabled by the administrator."}
-    if not os.getenv("PORTALS_API_KEY", "").strip():
-        return {
-            "items": [],
-            "sources": source_status(),
-            "updated_at": None,
-            "note": "Portals data is not connected. No market values are fabricated.",
-        }
-
-    try:
-        preview, floors = await asyncio.gather(
-            cached_portals("/collections/preview?sort_by=name&sort_order=asc"),
-            cached_portals("/collections/floors"),
-        )
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=502, detail="Could not load Portals market data")
-
-    floor_map = floors.get("floorPrices", {})
-    if not isinstance(floor_map, dict):
-        floor_map = {}
-    collections_data = preview.get("collections", [])
-    if not isinstance(collections_data, list):
-        raise HTTPException(status_code=502, detail="Portals collections response is invalid")
-
-    items = []
-    for item in collections_data:
-        if not isinstance(item, dict):
-            continue
-        short_name = item.get("short_name")
-        floor = floor_map.get(short_name, item.get("floor_price"))
-        items.append({
-            "id": item.get("id"),
-            "name": item.get("name"),
-            "short_name": short_name,
-            "image": item.get("photo_url"),
-            "floor_price": floor,
-            "day_volume": item.get("day_volume"),
-            "supply": item.get("supply"),
-            "source": "Portals",
-        })
-
-    return {
-        "items": items,
-        "sources": {
-            **source_status(),
-            "portals": "online_read_only",
-        },
-        "updated_at": int(time.time()),
-        "note": "These are Portals collection-level figures, not item-level listings or cross-market price matches.",
-    }
+    return {"items": [], "sources": source_status(), "updated_at": None, "connected": False,
+            "note": "Native collection index is being built; external marketplace feeds are disabled."}
 
 
 @app.get("/api/gifts")
@@ -579,27 +502,10 @@ async def gifts(
     offset: int = Query(default=0, ge=0, le=10000),
     search: str | None = Query(default=None, max_length=80),
     collection_id: str | None = Query(default=None, max_length=64),
-    min_price: str | None = Query(default=None, max_length=32),
-    max_price: str | None = Query(default=None, max_length=32),
-    external_collection_number: str | None = Query(default=None, max_length=16),
-    filter_by_backdrops: str | None = Query(default=None, max_length=100),
-    filter_by_models: str | None = Query(default=None, max_length=100),
-    filter_by_symbols: str | None = Query(default=None, max_length=100),
-    mint_status: str | None = Query(default=None, max_length=16),
-    statuses: str | None = Query(default=None, max_length=100),
-    sort_by: str | None = Query(default=None, max_length=40),
-    status: str | None = Query(default=None, max_length=16),
 ):
-    """Read-only page of currently listed gifts from the documented Portals search endpoint."""
-    # Read only native GIFT RADAR inventory. Never fall back to an external market.
-    return {
-        "items": [],
-        "total_count": 0,
-        "connected": False,
-        "sources": source_status(),
-        "updated_at": None,
-        "note": "Native GIFT RADAR inventory is not yet published.",
-    }
+    return {"items": [], "total_count": 0, "connected": False, "sources": source_status(),
+            "updated_at": None, "note": "Native GIFT RADAR inventory is not yet published."}
+
 
 async def _refresh_public_catalogues():
     """No external marketplace polling. Native inventory is event-driven."""
