@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
@@ -14,6 +15,8 @@ from financial_ledger import (
 
 class TelegramStarsLedgerTests(unittest.TestCase):
     def setUp(self):
+        self.env = patch.dict('os.environ', {'MARKETPLACE_REAL_DEALS_ENABLED': 'true'})
+        self.env.start()
         self.engine = create_engine(
             "sqlite://",
             future=True,
@@ -37,6 +40,7 @@ class TelegramStarsLedgerTests(unittest.TestCase):
                     offer_sender_id TEXT NOT NULL,
                     agreed_amount TEXT NOT NULL,
                     currency TEXT NOT NULL,
+                    is_real INTEGER NOT NULL DEFAULT 1,
                     status TEXT NOT NULL
                 )
             """))
@@ -45,13 +49,14 @@ class TelegramStarsLedgerTests(unittest.TestCase):
                 VALUES ('order-1','listing','matched','Golden Gift')
             """))
             connection.execute(text("""
-                INSERT INTO demo_deals(id,order_id,listing_owner_id,offer_sender_id,agreed_amount,currency,status)
-                VALUES ('deal-1','order-1','seller-10','buyer-20','75','XTR','payment_not_enabled')
+                INSERT INTO demo_deals(id,order_id,listing_owner_id,offer_sender_id,agreed_amount,currency,is_real,status)
+                VALUES ('deal-1','order-1','seller-10','buyer-20','75','XTR',1,'payment_not_enabled')
             """))
         init_financial_schema(self.engine)
 
     def tearDown(self):
         self.engine.dispose()
+        self.env.stop()
 
     def _invoice(self):
         return create_telegram_stars_invoice(
