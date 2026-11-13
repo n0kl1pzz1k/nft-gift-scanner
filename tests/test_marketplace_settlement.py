@@ -12,7 +12,7 @@ from financial_ledger import (
 )
 from marketplace_inventory import (
     confirm_nft_escrow_deposit, create_escrow_pending_listing,
-    record_wallet_owned_nft, reserve_verified_listing, save_verified_wallet,
+    record_wallet_owned_nft, reserve_verified_listing, save_verified_wallet, cancel_listing_reservation,
 )
 from marketplace_settlement import (
     create_deal_from_reservation, init_marketplace_settlement_schema,
@@ -98,6 +98,19 @@ class MarketplaceSettlementTests(unittest.TestCase):
         self.tmp.cleanup()
 
 
+
+
+    def test_buyer_cannot_cancel_reservation_after_deal_creation(self):
+        with self.assertRaises(PermissionError):
+            cancel_listing_reservation(
+                reservation_id=self.reservation_id, actor_user_id="202",
+                engine=self.engine, now=140,
+            )
+        with self.assertRaises(PermissionError):
+            reserve_verified_deal_payment(
+                deal_id=self.deal_id, invoice_id=self.invoice_id,
+                engine=self.engine, now=431,
+            )
 
     def test_paid_deal_is_never_expired_by_reservation_worker(self):
         reserve_verified_deal_payment(
