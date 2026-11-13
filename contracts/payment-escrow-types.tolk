@@ -29,17 +29,29 @@ struct PaymentEscrowParties {
     nftItem: address
 }
 
-struct PaymentEscrowAuthorityConfig {
+struct PaymentEscrowSignerSet {
     platformConfigAuthority: address
     signer1: address
     signer2: address
     signer3: address
+}
+
+struct PaymentEscrowArbitratorSet {
     arbitrator1: address
     arbitrator2: address
     arbitrator3: address
     resolverMultisig: address
+}
+
+struct PaymentEscrowAssetConfig {
     usdtJettonMaster: address
     escrowUsdtJettonWallet: address
+}
+
+struct PaymentEscrowAuthorityConfig {
+    signers: Cell<PaymentEscrowSignerSet>
+    arbitrators: Cell<PaymentEscrowArbitratorSet>
+    assets: Cell<PaymentEscrowAssetConfig>
 }
 
 struct PaymentEscrowStorage {
@@ -125,7 +137,6 @@ type PaymentEscrowMessages =
     | ConfirmEscrowNftDelivery
     | RaisePaymentEscrowDispute
     | ApprovePaymentEscrowDispute
-    | AskToChangeOwnership
 
 struct PaymentEscrowStateReply {
     dealId: uint256
