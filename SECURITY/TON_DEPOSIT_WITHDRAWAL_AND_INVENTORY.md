@@ -51,7 +51,7 @@ Every listing must originate from an asset the seller owns and can transfer. A T
 - Seller wallet addresses are persisted only after server-side TON Proof succeeds on TON mainnet. Testnet proofs are not accepted for inventory.
 - The seller import API calls independent TonAPI and Toncenter adapters. Both must agree on canonical item address, collection, token index and current owner.
 - The configured collection allowlist is supplied by `GIFT_RADAR_NFT_COLLECTIONS` as JSON keyed by asset type; no collection can self-register.
-- A listing starts in `pending_verification`, never public. The background escrow monitor polls every 20 seconds when `TON_NFT_PROVIDER_IDS=tonapi,toncenter`, `TONAPI_KEY`, `TONCENTER_API_KEY` and `GIFT_RADAR_ESCROW_ADDRESS` are configured.
+- A listing starts in `pending_verification`, never public. The background escrow monitor polls every 20 seconds when `TON_NFT_PROVIDER_IDS=tonapi,toncenter`, `TONAPI_KEY`, `TONCENTER_API_KEY` and `GIFT_RADAR_ESCROW_ADDRESS` and the independently verified, reviewed `GIFT_RADAR_ESCROW_CODE_HASH` are configured. Both providers must report the expected escrow contract code hash before activation.
 - Activation requires both providers to report the same successful NFT transfer hash from the seller wallet to the configured escrow, plus current TEP-62 item state showing the exact NFT owned by escrow.
 - Only escrow-backed `active` listings appear in the public inventory endpoint.
 - The API endpoints are `POST /api/inventory/nft/import`, `POST /api/inventory/listings`, `GET /api/inventory/mine` and `GET /api/inventory/listings`.
