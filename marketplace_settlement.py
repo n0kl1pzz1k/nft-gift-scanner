@@ -723,7 +723,7 @@ def list_reconciliation_required_deals(*, engine: Engine | None = None,
             return {"items": [], "total": total, "limit": int(limit), "offset": int(offset)}
         ids = [row["deal_id"] for row in rows]
         asset_ids = list({row["asset_id"] for row in rows})
-        proofs = conn.execute(select(
+        proof_ranked = select(
             marketplace_ownership_proofs.c.asset_id,
             marketplace_ownership_proofs.c.owner_user_id,
             marketplace_ownership_proofs.c.proof_source,
@@ -733,10 +733,28 @@ def list_reconciliation_required_deals(*, engine: Engine | None = None,
             marketplace_ownership_proofs.c.verified_at,
             marketplace_ownership_proofs.c.expires_at,
             marketplace_ownership_proofs.c.recorded_at,
+            func.row_number().over(
+                partition_by=marketplace_ownership_proofs.c.asset_id,
+                order_by=(
+                    marketplace_ownership_proofs.c.recorded_at.desc(),
+                    marketplace_ownership_proofs.c.proof_id.desc(),
+                ),
+            ).label("proof_rank"),
         ).where(
             marketplace_ownership_proofs.c.asset_id.in_(asset_ids)
-        ).order_by(
-            marketplace_ownership_proofs.c.recorded_at.desc()
+        ).subquery()
+        proofs = conn.execute(select(
+            proof_ranked.c.asset_id,
+            proof_ranked.c.owner_user_id,
+            proof_ranked.c.proof_source,
+            proof_ranked.c.evidence_reference,
+            proof_ranked.c.evidence_hash,
+            proof_ranked.c.verification_status,
+            proof_ranked.c.verified_at,
+            proof_ranked.c.expires_at,
+            proof_ranked.c.recorded_at,
+        ).where(
+            proof_ranked.c.proof_rank == 1
         )).mappings().all()
         latest_proof: dict[str, dict[str, Any]] = {}
         for proof in proofs:
@@ -750,17 +768,33 @@ def list_reconciliation_required_deals(*, engine: Engine | None = None,
                 "expires_at": proof["expires_at"],
                 "recorded_at": proof["recorded_at"],
             })
-        events = conn.execute(select(
+        event_ranked = select(
             marketplace_deal_events.c.deal_id,
             marketplace_deal_events.c.actor_type,
             marketplace_deal_events.c.event_type,
             marketplace_deal_events.c.event_data,
             marketplace_deal_events.c.created_at,
+            func.row_number().over(
+                partition_by=marketplace_deal_events.c.deal_id,
+                order_by=(
+                    marketplace_deal_events.c.created_at.desc(),
+                    marketplace_deal_events.c.event_id.desc(),
+                ),
+            ).label("event_rank"),
         ).where(
             marketplace_deal_events.c.deal_id.in_(ids)
+        ).subquery()
+        events = conn.execute(select(
+            event_ranked.c.deal_id,
+            event_ranked.c.actor_type,
+            event_ranked.c.event_type,
+            event_ranked.c.event_data,
+            event_ranked.c.created_at,
+        ).where(
+            event_ranked.c.event_rank <= 25
         ).order_by(
-            marketplace_deal_events.c.created_at.asc(),
-            marketplace_deal_events.c.event_id.asc(),
+            event_ranked.c.deal_id.asc(),
+            event_ranked.c.created_at.asc(),
         )).mappings().all()
     by_deal: dict[str, list[dict[str, Any]]] = {deal_id: [] for deal_id in ids}
     for event in events:
