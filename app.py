@@ -912,7 +912,7 @@ async def _run_nft_inventory_monitor():
                 if result["activated"] or result["errors"]:
                     logging.info(
                         "NFT escrow monitor cycle completed; activated=%d; errors=%d",
-                        int(result["activated"]), len(result["errors"]),
+                        int(result["activated"]), int(result["errors"]),
                     )
             except Exception as exc:
                 logging.warning("NFT escrow monitor cycle failed (%s)", type(exc).__name__)
