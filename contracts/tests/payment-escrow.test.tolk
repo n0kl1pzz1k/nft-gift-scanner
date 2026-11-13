@@ -4,8 +4,10 @@ import "@acton/testing/expect"
 import "@contracts/payment-escrow-types"
 import "@wrappers/GiftRadarPaymentEscrow.gen"
 import "@wrappers/MockNftItem.gen"
+import "@wrappers/MockJettonWallet.gen"
+import "@contracts/test-support/MockJettonWallet"
 
-fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscrow, address, address, address, address, address, address, address, address) {
+fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscrow, address, address, address, address, address, address, address, address, address) {
     val platformAdmin = testing.treasury("platform-config-admin");
     val seller = testing.treasury("payment-seller");
     val buyer = testing.treasury("payment-buyer");
@@ -20,7 +22,22 @@ fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscr
     val arb3 = testing.treasury("payment-arb-3");
     val resolver = testing.treasury("neutral-resolver-multisig");
     val usdtMaster = testing.treasury("test-usdt-master");
-    val usdtWallet = testing.treasury("escrow-test-usdt-wallet");
+    val buyerUsdtWallet = MockJettonWallet.fromStorage({
+        ownerAddress: buyer.address,
+        platformConfigAuthority: platformAdmin.address,
+        peerWallet: null,
+        jettonBalance: 1000000,
+    });
+    val escrowUsdtWallet = MockJettonWallet.fromStorage({
+        ownerAddress: platformAdmin.address,
+        platformConfigAuthority: platformAdmin.address,
+        peerWallet: null,
+        jettonBalance: 0,
+    });
+    val buyerWalletDeploy = buyerUsdtWallet.deploy(platformAdmin.address, { value: grams("1") });
+    expect(buyerWalletDeploy).toHaveSuccessfulDeploy({ to: buyerUsdtWallet.address });
+    val escrowWalletDeploy = escrowUsdtWallet.deploy(platformAdmin.address, { value: grams("1") });
+    expect(escrowWalletDeploy).toHaveSuccessfulDeploy({ to: escrowUsdtWallet.address });
 
     val escrow = GiftRadarPaymentEscrow.fromStorage({
         dealId: 0x123456,
@@ -55,12 +72,33 @@ fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscr
             }.toCell(),
             assets: PaymentEscrowAssetConfig {
                 usdtJettonMaster: usdtMaster.address,
-                escrowUsdtJettonWallet: usdtWallet.address,
+                escrowUsdtJettonWallet: escrowUsdtWallet.address,
             }.toCell(),
         }.toCell(),
     });
     val deployed = escrow.deploy(platformAdmin.address, { value: grams("1") });
     expect(deployed).toHaveSuccessfulDeploy({ to: escrow.address });
+    val setEscrowOwner = net.send(platformAdmin.address, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrowUsdtWallet.address,
+        body: SetMockJettonOwner { ownerAddress: escrow.address },
+    }));
+    expect(setEscrowOwner).toHaveSuccessfulTx<SetMockJettonOwner>({ from: platformAdmin.address, to: escrowUsdtWallet.address });
+    val setBuyerPeer = net.send(platformAdmin.address, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: buyerUsdtWallet.address,
+        body: SetMockJettonPeer { peerWallet: escrowUsdtWallet.address },
+    }));
+    expect(setBuyerPeer).toHaveSuccessfulTx<SetMockJettonPeer>({ from: platformAdmin.address, to: buyerUsdtWallet.address });
+    val setEscrowPeer = net.send(platformAdmin.address, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrowUsdtWallet.address,
+        body: SetMockJettonPeer { peerWallet: buyerUsdtWallet.address },
+    }));
+    expect(setEscrowPeer).toHaveSuccessfulTx<SetMockJettonPeer>({ from: platformAdmin.address, to: escrowUsdtWallet.address });
     val initialized = net.send(platformAdmin.address, createMessage({
         bounce: true,
         value: grams("0.05"),
@@ -73,7 +111,7 @@ fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscr
     });
     return (escrow, seller.address, buyer.address, nftItem.address,
         signer1.address, signer2.address, signer3.address,
-        usdtWallet.address, platformAdmin.address);
+        escrowUsdtWallet.address, buyerUsdtWallet.address, platformAdmin.address);
 }
 
 fun depositPaymentNft(escrow: GiftRadarPaymentEscrow, seller: address, nftItem: address) {
@@ -133,7 +171,7 @@ fun confirmPaymentTwice(escrow: GiftRadarPaymentEscrow, signer1: address, signer
 }
 
 get fun `test TON payment enters escrow then requires two distinct signers before NFT release`() {
-    val (escrow, seller, buyer, nftItem, signer1, signer2, _, _, _platformAdmin) =
+    val (escrow, seller, buyer, nftItem, signer1, signer2, _, _, _, _platformAdmin) =
         setupPaymentEscrow(ASSET_TON, 250000000);
     depositPaymentNft(escrow, seller, nftItem);
 
@@ -207,8 +245,8 @@ get fun `test TON payment enters escrow then requires two distinct signers befor
     expect(readPaymentEscrowState(escrow).deliveryApprovals).toEqual(3);
 }
 
-get fun `test test USDT Jetton notification must come from configured escrow Jetton wallet and buyer`() {
-    val (escrow, seller, buyer, nftItem, signer1, signer2, _, usdtWallet, _) =
+get fun `test USDT test-Jetton transfers through TEP-74 wallet into escrow and needs two signers`() {
+    val (escrow, seller, buyer, nftItem, signer1, signer2, _, usdtWallet, buyerUsdtWallet, _) =
         setupPaymentEscrow(ASSET_TEST_USDT_JETTON, 1000000);
     depositPaymentNft(escrow, seller, nftItem);
 
@@ -221,7 +259,7 @@ get fun `test test USDT Jetton notification must come from configured escrow Jet
             queryId: 8001,
             amount: 1000000,
             sender: buyer,
-            forwardPayload: createEmptySlice(),
+            forwardPayload: beginCell().storeUint(0, 1).toSlice(),
         },
     }));
     expect(fake).toHaveFailedTx<JettonTransferNotification>({
@@ -231,19 +269,25 @@ get fun `test test USDT Jetton notification must come from configured escrow Jet
     });
     expect(readPaymentEscrowState(escrow).state).toEqual(V2_DEPOSITED);
 
-    val deposit = net.send(usdtWallet, createMessage({
+    val transfer = net.send(buyer, createMessage({
         bounce: true,
-        value: grams("0.05"),
-        dest: escrow.address,
-        body: JettonTransferNotification {
+        value: grams("0.3"),
+        dest: buyerUsdtWallet,
+        body: MockJettonTransfer {
             queryId: 8002,
-            amount: 1000000,
-            sender: buyer,
-            forwardPayload: createEmptySlice(),
+            jettonAmount: 1000000,
+            destination: usdtWallet,
+            responseDestination: buyer,
+            customPayload: null,
+            forwardTonAmount: grams("0.000000001"),
+            forwardPayload: beginCell().storeUint(0, 1).toSlice(),
         },
     }));
-    expect(deposit).toHaveSuccessfulTx<JettonTransferNotification>({ from: usdtWallet, to: escrow.address });
+    expect(transfer).toHaveSuccessfulTx<MockJettonTransfer>({ from: buyer, to: buyerUsdtWallet });
+    expect(net.runGetMethod<coins>(buyerUsdtWallet, "get_mock_jetton_balance")).toEqual(0);
+    expect(net.runGetMethod<coins>(usdtWallet, "get_mock_jetton_balance")).toEqual(1000000);
     expect(readPaymentEscrowState(escrow).state).toEqual(V2_PAYMENT_PENDING);
+
     confirmPaymentTwice(escrow, signer1, signer2, 8002, 1000000);
     expect(readPaymentEscrowState(escrow).state).toEqual(V2_PAID);
 }
