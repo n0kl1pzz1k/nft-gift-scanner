@@ -16,6 +16,11 @@ class TonNftProviderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             canonical_ton_address("EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDt")
 
+    def test_test_only_friendly_address_is_rejected_on_mainnet(self):
+        test_only = "kQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"
+        with self.assertRaises(ValueError):
+            canonical_ton_address(test_only)
+
     def test_raw_address_rejects_invalid_length_and_workchain(self):
         with self.assertRaises(ValueError):
             canonical_ton_address("0:abcd")
