@@ -857,10 +857,14 @@
     if (!tonConnectUI || walletBusy) return;
     walletBusy = true;
     try {
+      if (signedIn && walletVerified) {
+        await request('/api/wallet/ton-proof/revoke', undefined, { method:'POST' });
+      }
       await tonConnectUI.disconnect();
       connectedWallet = '';
       walletAppName = '';
       walletVerified = false;
+      notice = lang==='ru' ? 'Кошелёк отключён, подтверждённая привязка отозвана.' : 'Wallet disconnected and verified binding revoked.';
     } catch (e) {
       notice = e instanceof Error ? e.message : String(e);
     } finally {
