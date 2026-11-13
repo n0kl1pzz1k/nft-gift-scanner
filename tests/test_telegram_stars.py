@@ -63,6 +63,26 @@ class TelegramStarsLedgerTests(unittest.TestCase):
             deal_id="deal-1", buyer_user_id="buyer-20", engine=self.engine, now=1000
         )
 
+    def test_real_deal_feature_flag_is_fail_closed(self):
+        with patch.dict("os.environ", {"MARKETPLACE_REAL_DEALS_ENABLED": "false"}):
+            with self.assertRaises(PermissionError):
+                self._invoice()
+
+    def test_demo_deal_cannot_be_charged(self):
+        with self.engine.begin() as connection:
+            connection.execute(text("UPDATE demo_deals SET is_real=0 WHERE id='deal-1'"))
+        with self.assertRaises(PermissionError):
+            self._invoice()
+
+    def test_precheckout_rejects_deal_that_became_demo(self):
+        invoice = self._invoice()
+        with self.engine.begin() as connection:
+            connection.execute(text("UPDATE demo_deals SET is_real=0 WHERE id='deal-1'"))
+        self.assertFalse(approve_telegram_stars_pre_checkout(
+            payload=invoice["payload"], buyer_user_id="buyer-20", currency="XTR",
+            amount_stars=75, query_id="query-demo", engine=self.engine, now=1010
+        ))
+
     def test_only_buyer_can_create_stars_invoice(self):
         with self.assertRaises(PermissionError):
             create_telegram_stars_invoice(
