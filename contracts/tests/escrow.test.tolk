@@ -35,7 +35,7 @@ fun setupEscrow(): (GiftRadarEscrow, address, address, address, address, address
         }.toCell(),
         paymentEvidence: PaymentEvidence {
             paymentReferenceHash: 0,
-            refundReferenceHash: 0,
+            resolutionEvidenceHash: 0,
             settlementReferenceHash: 0,
         }.toCell(),
         deliveryEvidence: DeliveryEvidence {
