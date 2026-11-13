@@ -38,8 +38,9 @@ fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscr
             nftItem: nftItem.address,
         }.toCell(),
         authorities: PaymentEscrowAuthorityConfig {
+            platformConfigAuthority: platformAdmin.address,
+            resolverMultisig: resolver.address,
             signers: PaymentEscrowSignerSet {
-                platformConfigAuthority: platformAdmin.address,
                 signer1: signer1.address,
                 signer2: signer2.address,
                 signer3: signer3.address,
@@ -48,7 +49,6 @@ fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscr
                 arbitrator1: arb1.address,
                 arbitrator2: arb2.address,
                 arbitrator3: arb3.address,
-                resolverMultisig: resolver.address,
             }.toCell(),
             assets: PaymentEscrowAssetConfig {
                 usdtJettonMaster: usdtMaster.address,
