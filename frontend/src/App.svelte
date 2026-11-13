@@ -746,6 +746,7 @@
     walletBusy = true;
     try {
       const wallet = await tonConnectUI.connectWallet();
+      if (!wallet) return;
       connectedWallet = wallet.account.address;
       walletAppName = wallet.device.appName || 'TON Connect';
       notice = lang === 'ru'
