@@ -101,6 +101,23 @@ stars_refund_events = Table("telegram_stars_refund_events", metadata,
     Column("created_at", BigInteger, nullable=False),
     CheckConstraint("event_type IN ('refund_requested', 'refund_succeeded', 'refund_failed')", name="ck_telegram_stars_refund_event_type"))
 
+stars_refund_requests = Table("telegram_stars_refund_requests", metadata,
+    Column("request_id", String(36), primary_key=True),
+    Column("invoice_id", String(64), ForeignKey("telegram_stars_invoices.invoice_id"), nullable=False, unique=True),
+    Column("buyer_user_id", String(64), nullable=False),
+    Column("telegram_payment_charge_id", String(256), nullable=False, unique=True),
+    Column("amount_stars", BigInteger, nullable=False),
+    Column("reason", String(500), nullable=False, default=""),
+    Column("status", String(24), nullable=False, default="requested"),
+    Column("requested_at", BigInteger, nullable=False),
+    Column("updated_at", BigInteger, nullable=False),
+    Column("processed_by", String(64)),
+    Column("telegram_response_ref", String(256)),
+    CheckConstraint("amount_stars > 0", name="ck_telegram_stars_refund_request_amount"),
+    CheckConstraint("status IN ('requested', 'processing', 'succeeded', 'failed', 'reconciliation_required')",
+                    name="ck_telegram_stars_refund_request_status"))
+Index("idx_telegram_stars_refund_requests_status", stars_refund_requests.c.status, stars_refund_requests.c.requested_at)
+
 telegram_stars_terms_acceptances = Table("telegram_stars_terms_acceptances", metadata,
     Column("acceptance_id", String(36), primary_key=True),
     Column("user_id", String(64), nullable=False),
@@ -148,7 +165,7 @@ def init_financial_schema(engine: Engine | None = None) -> None:
             if not db.dialect.has_table(conn, "alembic_version"):
                 raise RuntimeError("PostgreSQL schema must be initialized through Alembic migrations")
             version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-            if version != "0005_marketplace_inventory":
+            if version != "0006_telegram_stars_refund_workflow":
                 raise RuntimeError("Financial database migration is missing or not at the expected revision")
         return
     metadata.create_all(db)
@@ -536,6 +553,164 @@ def settle_telegram_stars_payment(*, payload: str, buyer_user_id: str, currency:
         return {"credited": True, "duplicate": False, "invoice_id": invoice["invoice_id"],
                 "payment_event_id": payment_event_id, "entry_id": journal["entry_id"]}
 
+
+
+def request_telegram_stars_refund(*, invoice_id: str, buyer_user_id: str, reason: str,
+                                  engine: Engine | None = None, now: int | None = None) -> dict[str, Any]:
+    """Create an auditable buyer refund request; this never calls Telegram or moves funds."""
+    db = engine or get_engine()
+    init_financial_schema(db)
+    current = int(now or time.time())
+    clean_reason = " ".join(str(reason or "").split())[:500]
+    lock = " FOR UPDATE" if db.dialect.name == "postgresql" else ""
+    with db.begin() as conn:
+        invoice = conn.execute(text(
+            "SELECT invoice_id, buyer_user_id, amount_stars, status, telegram_payment_charge_id "
+            "FROM telegram_stars_invoices WHERE invoice_id=:invoice_id" + lock
+        ), {"invoice_id": str(invoice_id)}).mappings().first()
+        if invoice is None:
+            raise ValueError("Unknown Telegram Stars invoice")
+        if str(invoice["buyer_user_id"]) != str(buyer_user_id):
+            raise PermissionError("Only the original buyer can request a refund")
+        if invoice["status"] != "paid" or not invoice["telegram_payment_charge_id"]:
+            raise ValueError("Only a paid, non-refunded invoice can be refunded")
+        payment = conn.execute(select(stars_payments).where(
+            stars_payments.c.invoice_id == str(invoice_id))).mappings().first()
+        if (payment is None or payment["telegram_payment_charge_id"] != invoice["telegram_payment_charge_id"]
+                or int(payment["amount_stars"]) != int(invoice["amount_stars"])):
+            raise RuntimeError("Payment receipt does not reconcile with the invoice")
+        existing = conn.execute(select(stars_refund_requests).where(
+            stars_refund_requests.c.invoice_id == str(invoice_id)).with_for_update()
+            if db.dialect.name == "postgresql" else
+            select(stars_refund_requests).where(stars_refund_requests.c.invoice_id == str(invoice_id))
+        ).mappings().first()
+        if existing:
+            status = existing["status"]
+            if status != "failed":
+                return {"request_id": existing["request_id"], "status": status, "duplicate": True}
+            request_id = existing["request_id"]
+            conn.execute(stars_refund_requests.update().where(
+                stars_refund_requests.c.request_id == request_id
+            ).values(status="requested", reason=clean_reason, updated_at=current, processed_by=None,
+                     telegram_response_ref=None))
+        else:
+            request_id = str(uuid.uuid4())
+            conn.execute(insert(stars_refund_requests).values(
+                request_id=request_id, invoice_id=str(invoice_id), buyer_user_id=str(buyer_user_id),
+                telegram_payment_charge_id=invoice["telegram_payment_charge_id"],
+                amount_stars=int(invoice["amount_stars"]), reason=clean_reason,
+                status="requested", requested_at=current, updated_at=current,
+            ))
+        conn.execute(insert(stars_refund_events).values(
+            refund_event_id=str(uuid.uuid4()), invoice_id=str(invoice_id),
+            telegram_payment_charge_id=invoice["telegram_payment_charge_id"],
+            event_type="refund_requested", reason=clean_reason, created_at=current,
+        ))
+        return {"request_id": request_id, "status": "requested", "duplicate": False}
+
+
+def prepare_telegram_stars_refund(*, request_id: str, admin_user_id: str,
+                                  engine: Engine | None = None, now: int | None = None) -> dict[str, Any]:
+    """Claim a refund once before calling Telegram; processing claims cannot be blindly retried."""
+    db = engine or get_engine()
+    init_financial_schema(db)
+    current = int(now or time.time())
+    statement = select(stars_refund_requests).where(
+        stars_refund_requests.c.request_id == str(request_id))
+    if db.dialect.name == "postgresql":
+        statement = statement.with_for_update()
+    with db.begin() as conn:
+        row = conn.execute(statement).mappings().first()
+        if row is None:
+            raise ValueError("Unknown refund request")
+        if row["status"] != "requested":
+            raise ValueError("Refund request is not ready for execution")
+        invoice = conn.execute(select(stars_invoices).where(
+            stars_invoices.c.invoice_id == row["invoice_id"])).mappings().first()
+        if invoice is None or invoice["status"] != "paid":
+            raise ValueError("Invoice is not in a refundable paid state")
+        conn.execute(stars_refund_requests.update().where(
+            stars_refund_requests.c.request_id == str(request_id)
+        ).values(status="processing", processed_by=str(admin_user_id), updated_at=current))
+        return {
+            "request_id": str(request_id), "invoice_id": row["invoice_id"],
+            "buyer_user_id": row["buyer_user_id"],
+            "telegram_payment_charge_id": row["telegram_payment_charge_id"],
+            "amount_stars": int(row["amount_stars"]),
+        }
+
+
+def complete_telegram_stars_refund(*, request_id: str, telegram_response_ref: str = "",
+                                   engine: Engine | None = None, now: int | None = None) -> dict[str, Any]:
+    """Record Telegram-confirmed refund and post the compensating journal entry atomically."""
+    db = engine or get_engine()
+    init_financial_schema(db)
+    current = int(now or time.time())
+    statement = select(stars_refund_requests).where(
+        stars_refund_requests.c.request_id == str(request_id))
+    if db.dialect.name == "postgresql":
+        statement = statement.with_for_update()
+    with db.begin() as conn:
+        row = conn.execute(statement).mappings().first()
+        if row is None:
+            raise ValueError("Unknown refund request")
+        if row["status"] == "succeeded":
+            return {"refunded": False, "duplicate": True, "request_id": str(request_id)}
+        if row["status"] != "processing":
+            raise ValueError("Refund was not claimed for execution")
+        invoice = conn.execute(select(stars_invoices).where(
+            stars_invoices.c.invoice_id == row["invoice_id"])).mappings().first()
+        if (invoice is None or invoice["status"] != "paid"
+                or invoice["telegram_payment_charge_id"] != row["telegram_payment_charge_id"]):
+            raise RuntimeError("Refund request no longer matches the paid invoice")
+        amount = int(row["amount_stars"])
+        journal = _post(conn,
+            idempotency_key="telegram-stars-refund:" + hashlib.sha256(
+                row["telegram_payment_charge_id"].encode("utf-8")).hexdigest(),
+            source_type="telegram_stars_refund", source_reference=row["invoice_id"],
+            postings=[
+                {"account_id": "asset:telegram_stars:clearing", "account_type": "asset",
+                 "currency": "XTR", "amount_raw": -amount},
+                {"account_id": "liability:seller:" + invoice["seller_user_id"] + ":XTR",
+                 "account_type": "liability", "currency": "XTR", "amount_raw": amount},
+            ], now=current)
+        conn.execute(stars_invoices.update().where(
+            stars_invoices.c.invoice_id == row["invoice_id"]
+        ).values(status="refunded", refunded_at=current))
+        conn.execute(stars_refund_requests.update().where(
+            stars_refund_requests.c.request_id == str(request_id)
+        ).values(status="succeeded", updated_at=current,
+                 telegram_response_ref=str(telegram_response_ref)[:256] or None))
+        conn.execute(insert(stars_refund_events).values(
+            refund_event_id=str(uuid.uuid4()), invoice_id=row["invoice_id"],
+            telegram_payment_charge_id=row["telegram_payment_charge_id"],
+            event_type="refund_succeeded", reason=row["reason"], created_at=current,
+        ))
+        return {"refunded": True, "duplicate": False, "request_id": str(request_id),
+                "entry_id": journal["entry_id"]}
+
+
+def fail_telegram_stars_refund(*, request_id: str, reason: str,
+                               engine: Engine | None = None, now: int | None = None) -> None:
+    """Record a definite Telegram rejection. Network timeouts must remain processing for reconciliation."""
+    db = engine or get_engine()
+    init_financial_schema(db)
+    current = int(now or time.time())
+    clean_reason = " ".join(str(reason or "").split())[:500] or "Telegram rejected refund"
+    with db.begin() as conn:
+        row = conn.execute(select(stars_refund_requests).where(
+            stars_refund_requests.c.request_id == str(request_id)
+        )).mappings().first()
+        if row is None or row["status"] != "processing":
+            raise ValueError("Refund request is not processing")
+        conn.execute(stars_refund_requests.update().where(
+            stars_refund_requests.c.request_id == str(request_id)
+        ).values(status="failed", updated_at=current))
+        conn.execute(insert(stars_refund_events).values(
+            refund_event_id=str(uuid.uuid4()), invoice_id=row["invoice_id"],
+            telegram_payment_charge_id=row["telegram_payment_charge_id"],
+            event_type="refund_failed", reason=clean_reason, created_at=current,
+        ))
 
 def verify_ton_payment_trace(trace: dict[str, Any], invoice: dict[str, Any]) -> None:
     """Validate normalized evidence from a trusted indexer, never from a browser."""
