@@ -3,12 +3,15 @@ import "@acton/emulation/testing"
 import "@acton/testing/expect"
 import "@contracts/payment-escrow-types"
 import "@wrappers/GiftRadarPaymentEscrow.gen"
+import "@wrappers/MockNftItem.gen"
 
 fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscrow, address, address, address, address, address, address, address, address) {
     val platformAdmin = testing.treasury("platform-config-admin");
     val seller = testing.treasury("payment-seller");
     val buyer = testing.treasury("payment-buyer");
-    val nftItem = testing.treasury("payment-nft-item");
+    val nftItem = MockNftItem.fromStorage({ ownerAddress: seller.address });
+    val nftDeploy = nftItem.deploy(seller.address, { value: grams("1") });
+    expect(nftDeploy).toHaveSuccessfulDeploy({ to: nftItem.address });
     val signer1 = testing.treasury("payment-signer-1");
     val signer2 = testing.treasury("payment-signer-2");
     val signer3 = testing.treasury("payment-signer-3");
@@ -74,20 +77,22 @@ fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscr
 }
 
 fun depositPaymentNft(escrow: GiftRadarPaymentEscrow, seller: address, nftItem: address) {
-    val result = net.send(nftItem, createMessage({
+    val result = net.send(seller, createMessage({
         bounce: true,
         value: grams("0.2"),
-        dest: escrow.address,
-        body: PaymentEscrowNftDeposit {
+        dest: nftItem,
+        body: AskToChangeOwnership {
             queryId: 1,
-            oldOwnerAddress: seller,
-            payload: createEmptySlice(),
+            newOwnerAddress: escrow.address,
+            sendExcessesTo: seller,
+            customPayload: null,
+            forwardGrams: grams("0.15"),
+            forwardPayload: beginCell().storeUint(0, 1).toSlice(),
         },
     }));
-    expect(result).toHaveSuccessfulTx<PaymentEscrowNftDeposit>({
-        from: nftItem,
-        to: escrow.address,
-    });
+    expect(result).toHaveSuccessfulTx<AskToChangeOwnership>({ from: seller, to: nftItem });
+    expect(net.runGetMethod<address>(nftItem, "get_nft_owner")).toEqual(escrow.address);
+    expect(readPaymentEscrowState(escrow).state).toEqual(V2_DEPOSITED);
 }
 
 fun readPaymentEscrowState(escrow: GiftRadarPaymentEscrow): PaymentEscrowStateReply {
@@ -178,6 +183,7 @@ get fun `test TON payment enters escrow then requires two distinct signers befor
     }));
     expect(release).toHaveSuccessfulTx<RequestEscrowNftRelease>({ from: buyer, to: escrow.address });
     expect(release).toHaveTx<AskToChangeOwnership>({ from: escrow.address, to: nftItem });
+    expect(net.runGetMethod<address>(nftItem, "get_nft_owner")).toEqual(buyer);
     expect(readPaymentEscrowState(escrow).state).toEqual(V2_TRANSFER_PENDING);
 
     val proof = 0x987654321;
