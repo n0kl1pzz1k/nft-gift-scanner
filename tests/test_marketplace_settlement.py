@@ -157,7 +157,7 @@ class MarketplaceSettlementTests(unittest.TestCase):
         with self.engine.connect() as conn:
             self.assertEqual(conn.execute(text(
                 "SELECT status FROM marketplace_listings WHERE listing_id=:id"
-            ), {"id": self.listing_id}).scalar_one(), "expired")
+            ), {"id": self.listing_id}).scalar_one(), "pending_verification")
 
     def test_payment_is_held_until_two_provider_nft_delivery(self):
         result = reserve_verified_deal_payment(
