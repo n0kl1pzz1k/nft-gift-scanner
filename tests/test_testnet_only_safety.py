@@ -19,7 +19,11 @@ from release_policy import (
     TON_TESTNET_WITHDRAWAL_ADAPTER_READY,
 )
 from ton_deposit_monitor import run_ton_deposit_monitor
-from withdrawal_signer import create_withdrawal_request, execute_approved_withdrawal
+from withdrawal_signer import (
+    ToncenterBroadcaster,
+    create_withdrawal_request,
+    execute_approved_withdrawal,
+)
 
 
 class TestnetOnlySafetyTests(unittest.TestCase):
@@ -105,6 +109,14 @@ class TestnetOnlySafetyTests(unittest.TestCase):
         }, clear=True):
             importlib.reload(bot)
             self.assertFalse(bot.STARS_PAYMENTS_ENABLED)
+
+    def test_toncenter_broadcaster_refuses_direct_mainnet_send(self):
+        async def attempt():
+            broadcaster = ToncenterBroadcaster(api_key="test-key")
+            await broadcaster.broadcast("test-boc")
+
+        with self.assertRaises(RuntimeError):
+            asyncio.run(attempt())
 
     def test_stars_payment_and_refund_are_disabled_without_test_bot_environment(self):
         ready = {
