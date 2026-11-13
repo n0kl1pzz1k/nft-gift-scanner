@@ -1133,6 +1133,70 @@ async def create_stars_invoice_endpoint(
         raise HTTPException(status_code=503, detail="Telegram Stars invoice service is unavailable")
 
 
+@app.post("/api/inventory/deals/{deal_id}/testnet-payment-intent")
+async def create_testnet_deal_payment_intent(
+    deal_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    from marketplace_settlement import create_deal_payment_intent_via_route
+    from payment_routes import configured_payment_route
+    try:
+        route = configured_payment_route()
+        intent = await create_deal_payment_intent_via_route(
+            deal_id=deal_id, route=route, actor_user_id=str(user["id"]),
+            engine=get_engine(),
+        )
+        jetton_wallet = os.getenv("TON_TESTNET_ESCROW_JETTON_WALLET", "").strip()
+        if not jetton_wallet:
+            raise RuntimeError("The escrow test Jetton wallet is not configured")
+        return {
+            "deal_id": intent.deal_id, "route_id": route.route_id,
+            "network": intent.network, "currency": intent.currency,
+            "amount_raw": intent.amount, "reference": intent.reference,
+            "escrow_address": os.getenv("TON_TESTNET_ESCROW_ADDRESS", "").strip(),
+            "jetton_master": os.getenv("TON_TESTNET_USDT_MASTER", "").strip(),
+            "jetton_wallet": jetton_wallet,
+            "note": "Platform-issued test Jetton only. Attach the reference as a text forward payload.",
+        }
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        logging.warning("TON testnet payment intent unavailable (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="TON testnet payment route is not configured")
+
+
+@app.post("/api/inventory/deals/{deal_id}/testnet-payment-confirmation")
+async def confirm_testnet_deal_payment(
+    deal_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    from marketplace_settlement import (
+        create_deal_payment_intent_via_route, confirm_deal_payment_via_route,
+    )
+    from payment_routes import configured_payment_route
+    try:
+        route = configured_payment_route()
+        intent = await create_deal_payment_intent_via_route(
+            deal_id=deal_id, route=route, actor_user_id=str(user["id"]),
+            engine=get_engine(),
+        )
+        return await confirm_deal_payment_via_route(
+            deal_id=deal_id, intent=intent, route=route,
+            actor_user_id=str(user["id"]), engine=get_engine(),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        logging.warning("TON testnet payment verification unavailable (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="TON testnet payment verification is unavailable")
+
+
 @app.post("/api/inventory/deals/{deal_id}/pay-from-invoice")
 async def pay_marketplace_deal_from_invoice(
     deal_id: str,

@@ -192,7 +192,7 @@ async def create_deal_payment_intent_via_route(*, deal_id: str, route: Any,
         raise ValueError("Unknown marketplace deal")
     if str(deal["buyer_user_id"]) != str(actor_user_id):
         raise PermissionError("Only the deal buyer can create its payment intent")
-    if deal["status"] != "reserved" or deal["currency"] != "USDT":
+    if deal["status"] not in {"reserved", "payment_confirmed"} or deal["currency"] != "USDT":
         raise ValueError("Deal is not eligible for the TON testnet tUSDT route")
     if not getattr(route, "enabled", False) or route.route_id != "ton_usdt_testnet":
         raise PermissionError("The selected payment route is not enabled for testnet deals")
