@@ -40,7 +40,7 @@ class PostgresMigrationSmokeTests(unittest.TestCase):
             "demo_deals", "demo_deal_events", "demo_notifications",
             "catalogue_gifts", "ledger_accounts", "ledger_entries", "ledger_lines",
             "payment_invoices", "payment_events", "telegram_stars_invoices",
-            "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances", "telegram_stars_refund_requests", "marketplace_assets", "marketplace_ownership_proofs", "marketplace_listings", "marketplace_reservations", "marketplace_listing_events", "ton_chain_observations", "withdrawal_requests",
+            "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances", "telegram_stars_refund_requests", "marketplace_assets", "marketplace_ownership_proofs", "marketplace_listings", "marketplace_reservations", "marketplace_listing_events", "ton_chain_observations", "withdrawal_requests", "withdrawal_events",
         }
         self.assertTrue(expected.issubset(tables), f"Missing tables: {sorted(expected - tables)}")
 
