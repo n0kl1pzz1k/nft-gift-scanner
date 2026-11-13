@@ -34,6 +34,7 @@ struct EscrowStorage {
     arbitrator2: address
     expectedAmount: uint128
     deadline: uint64
+    initialized: bool
     state: uint8
     preDisputeState: uint8
     disputeApprovals: uint8
@@ -41,6 +42,7 @@ struct EscrowStorage {
     paymentReferenceHash: uint256
     refundReferenceHash: uint256
     deliveryProofHash: uint256
+    returnProofHash: uint256
     settlementReferenceHash: uint256
     disputeReasonHash: uint256
     resolutionHash: uint256
@@ -161,20 +163,31 @@ fun sendNftTo(storage: EscrowStorage, recipient: address, queryId: uint64) {
 }
 
 fun onInternalMessage(in: InMessage) {
+    if (in.body.isEmpty()) {
+        // Acton deployment wrappers send an empty initial message. The explicit
+        // DeployEscrow message below performs one-time configuration validation.
+        return;
+    }
     val msg = lazy AllowedMessage.fromSlice(in.body);
 
     match (msg) {
         DeployEscrow => {
             val storage = lazy EscrowStorage.load();
             assert (in.senderAddress == storage.paymentAuthority) throw ERR_UNAUTHORIZED;
+            assert (!storage.initialized) throw ERR_BAD_STATE;
             assert (storage.state == STATE_CREATED) throw ERR_BAD_STATE;
             assert (storage.expectedAmount > 0) throw ERR_BAD_AMOUNT;
             assert (storage.deadline > blockchain.now()) throw ERR_EXPIRED;
             assert (storage.seller != storage.buyer) throw ERR_BAD_ASSET;
+            assert (storage.arbitrator1 != storage.arbitrator2) throw ERR_BAD_DISPUTE;
+            assert (storage.nftItem != storage.seller) throw ERR_BAD_ASSET;
+            storage.initialized = true;
+            storage.save();
         }
 
         NotificationForNewOwner => {
             var storage = lazy EscrowStorage.load();
+            assert (storage.initialized) throw ERR_BAD_STATE;
             assert (in.senderAddress == storage.nftItem) throw ERR_BAD_ASSET;
             assert (storage.state == STATE_CREATED) throw ERR_BAD_STATE;
             assert (msg.oldOwnerAddress == storage.seller) throw ERR_UNAUTHORIZED;
@@ -187,6 +200,7 @@ fun onInternalMessage(in: InMessage) {
 
         RecordStarsPayment => {
             var storage = lazy EscrowStorage.load();
+            assert (storage.initialized) throw ERR_BAD_STATE;
             assert (in.senderAddress == storage.paymentAuthority) throw ERR_UNAUTHORIZED;
             // Safe replay: same Telegram charge and amount is a no-op.
             if (storage.state == STATE_PAID) {
@@ -205,6 +219,7 @@ fun onInternalMessage(in: InMessage) {
 
         RequestNftRelease => {
             var storage = lazy EscrowStorage.load();
+            assert (storage.initialized) throw ERR_BAD_STATE;
             assert (in.senderAddress == storage.buyer) throw ERR_UNAUTHORIZED;
             assert (storage.state == STATE_PAID) throw ERR_BAD_STATE;
             assert (blockchain.now() < storage.deadline) throw ERR_EXPIRED;
@@ -257,7 +272,7 @@ fun onInternalMessage(in: InMessage) {
             assert (in.senderAddress == storage.paymentAuthority) throw ERR_UNAUTHORIZED;
             assert (storage.state == STATE_REFUND_PENDING) throw ERR_BAD_STATE;
             assert (msg.sellerOwnershipProofHash != 0) throw ERR_BAD_PROOF;
-            storage.deliveryProofHash = msg.sellerOwnershipProofHash;
+            storage.returnProofHash = msg.sellerOwnershipProofHash;
             storage.state = STATE_REFUNDED;
             storage.save();
         }
@@ -266,6 +281,7 @@ fun onInternalMessage(in: InMessage) {
             var storage = lazy EscrowStorage.load();
             assert (in.senderAddress == storage.buyer | in.senderAddress == storage.seller) throw ERR_UNAUTHORIZED;
             assert (msg.reasonHash != 0) throw ERR_BAD_DISPUTE;
+            storage.disputeReasonHash = msg.reasonHash;
             assert (storage.state == STATE_DEPOSITED |
                     storage.state == STATE_PAID |
                     storage.state == STATE_TRANSFER_PENDING) throw ERR_BAD_STATE;
@@ -356,6 +372,7 @@ struct EscrowStateReply {
     paymentReferenceHash: uint256
     refundReferenceHash: uint256
     deliveryProofHash: uint256
+    returnProofHash: uint256
     settlementReferenceHash: uint256
     disputeApprovals: uint8
     resolutionDecision: uint8
@@ -375,6 +392,7 @@ get fun get_escrow_state(): EscrowStateReply {
         paymentReferenceHash: storage.paymentReferenceHash,
         refundReferenceHash: storage.refundReferenceHash,
         deliveryProofHash: storage.deliveryProofHash,
+        returnProofHash: storage.returnProofHash,
         settlementReferenceHash: storage.settlementReferenceHash,
         disputeApprovals: storage.disputeApprovals,
         resolutionDecision: storage.resolutionDecision,
