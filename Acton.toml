@@ -19,11 +19,6 @@ src = "contracts/test-support/MockNftItem.tolk"
 depends = []
 output = "artifacts/MockNftItem.boc"
 
-[contracts.MockJettonWallet]
-src = "contracts/test-support/MockJettonWallet.tolk"
-depends = []
-output = "artifacts/MockJettonWallet.boc"
-
 [contracts.JettonWallet]
 src = "contracts/test-jetton/JettonWallet.tolk"
 depends = []
