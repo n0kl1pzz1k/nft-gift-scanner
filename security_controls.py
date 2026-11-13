@@ -87,7 +87,13 @@ class SecurityControlsMiddleware(BaseHTTPMiddleware):
             key = f"{method}:{route_bucket}:{ip}"
             # Public reads receive a larger budget; mutations and the signed
             # Telegram webhook have separate budgets to preserve retry headroom.
-            limit = 300 if path == "/api/telegram/webhook" else (60 if is_mutation else 120)
+            if path == "/api/telegram/webhook":
+                limit = 300
+            elif route_bucket == "/api/marketplace" and is_mutation:
+                # Domain routes also enforce per-account action quotas.
+                limit = 300
+            else:
+                limit = 60 if is_mutation else 120
             window = 60
             redis_url = os.getenv("REDIS_URL", "").strip()
             if redis_url and Redis is not None:
