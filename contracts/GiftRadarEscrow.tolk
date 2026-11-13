@@ -3,15 +3,17 @@
 // Ledger. This contract records a server attestation; it does not custody Stars.
 // All contract deployment and interaction in this phase is TON testnet only.
 
-const ERR_UNAUTHORIZED = 1001;
-const ERR_BAD_STATE = 1002;
-const ERR_BAD_ASSET = 1003;
-const ERR_BAD_AMOUNT = 1004;
-const ERR_EXPIRED = 1005;
-const ERR_BAD_PROOF = 1006;
-const ERR_BAD_DISPUTE = 1007;
-const ERR_UNKNOWN_MESSAGE = 1008;
-const ERR_NOT_ENOUGH_GAS = 1009;
+enum Errors {
+    Unauthorized = 1001,
+    BadState = 1002,
+    BadAsset = 1003,
+    BadAmount = 1004,
+    Expired = 1005,
+    BadProof = 1006,
+    BadDispute = 1007,
+    UnknownMessage = 1008,
+    NotEnoughGas = 1009,
+}
 
 const STATE_CREATED = 0;
 const STATE_DEPOSITED = 1;
@@ -185,8 +187,8 @@ fun onBouncedMessage(in: InMessageBounced) {
     val bounced = lazy AskToChangeOwnership.fromSlice(in.bouncedBody);
     var storage = lazy EscrowStorage.load();
     val parties = storage.parties.load();
-    assert (in.senderAddress == parties.nftItem) throw ERR_BAD_ASSET;
-    assert (bounced.queryId == storage.transferQueryId) throw ERR_BAD_PROOF;
+    assert (in.senderAddress == parties.nftItem) throw Errors.BadAsset;
+    assert (bounced.queryId == storage.transferQueryId) throw Errors.BadProof;
     if ((storage.state == STATE_TRANSFER_PENDING) | (storage.state == STATE_REFUND_PENDING)) {
         // NFT transfer execution is ambiguous after a bounce. Never auto-retry or settle.
         storage.state = STATE_RECONCILIATION_REQUIRED;
@@ -206,14 +208,14 @@ fun onInternalMessage(in: InMessage) {
             var storage = lazy EscrowStorage.load();
             val parties = storage.parties.load();
             val authorities = storage.authorities.load();
-            assert (in.senderAddress == authorities.paymentAuthority) throw ERR_UNAUTHORIZED;
-            assert (!storage.initialized) throw ERR_BAD_STATE;
-            assert (storage.state == STATE_CREATED) throw ERR_BAD_STATE;
-            assert (storage.expectedAmount > 0) throw ERR_BAD_AMOUNT;
-            assert (storage.deadline > blockchain.now()) throw ERR_EXPIRED;
-            assert (parties.seller != parties.buyer) throw ERR_BAD_ASSET;
-            assert (parties.nftItem != parties.seller) throw ERR_BAD_ASSET;
-            assert (authorities.arbitrator1 != authorities.arbitrator2) throw ERR_BAD_DISPUTE;
+            assert (in.senderAddress == authorities.paymentAuthority) throw Errors.Unauthorized;
+            assert (!storage.initialized) throw Errors.BadState;
+            assert (storage.state == STATE_CREATED) throw Errors.BadState;
+            assert (storage.expectedAmount > 0) throw Errors.BadAmount;
+            assert (storage.deadline > blockchain.now()) throw Errors.Expired;
+            assert (parties.seller != parties.buyer) throw Errors.BadAsset;
+            assert (parties.nftItem != parties.seller) throw Errors.BadAsset;
+            assert (authorities.arbitrator1 != authorities.arbitrator2) throw Errors.BadDispute;
             storage.initialized = true;
             storage.save();
         }
@@ -221,13 +223,13 @@ fun onInternalMessage(in: InMessage) {
         NotificationForNewOwner => {
             var storage = lazy EscrowStorage.load();
             val parties = storage.parties.load();
-            assert (storage.initialized) throw ERR_BAD_STATE;
-            assert (in.senderAddress == parties.nftItem) throw ERR_BAD_ASSET;
-            assert (storage.state == STATE_CREATED) throw ERR_BAD_STATE;
-            assert (msg.oldOwnerAddress == parties.seller) throw ERR_UNAUTHORIZED;
-            assert (blockchain.now() < storage.deadline) throw ERR_EXPIRED;
+            assert (storage.initialized) throw Errors.BadState;
+            assert (in.senderAddress == parties.nftItem) throw Errors.BadAsset;
+            assert (storage.state == STATE_CREATED) throw Errors.BadState;
+            assert (msg.oldOwnerAddress == parties.seller) throw Errors.Unauthorized;
+            assert (blockchain.now() < storage.deadline) throw Errors.Expired;
             // Seller's TEP-62 forward amount must fund a later outbound NFT transfer.
-            assert (in.valueCoins >= grams("0.12")) throw ERR_NOT_ENOUGH_GAS;
+            assert (in.valueCoins >= grams("0.12")) throw Errors.NotEnoughGas;
             storage.state = STATE_DEPOSITED;
             storage.save();
         }
@@ -236,17 +238,17 @@ fun onInternalMessage(in: InMessage) {
             var storage = lazy EscrowStorage.load();
             val authorities = storage.authorities.load();
             var evidence = storage.paymentEvidence.load();
-            assert (storage.initialized) throw ERR_BAD_STATE;
-            assert (in.senderAddress == authorities.paymentAuthority) throw ERR_UNAUTHORIZED;
+            assert (storage.initialized) throw Errors.BadState;
+            assert (in.senderAddress == authorities.paymentAuthority) throw Errors.Unauthorized;
             if (storage.state == STATE_PAID) {
-                assert (evidence.paymentReferenceHash == msg.telegramChargeHash) throw ERR_BAD_AMOUNT;
-                assert (storage.expectedAmount == msg.amount) throw ERR_BAD_AMOUNT;
+                assert (evidence.paymentReferenceHash == msg.telegramChargeHash) throw Errors.BadAmount;
+                assert (storage.expectedAmount == msg.amount) throw Errors.BadAmount;
                 return;
             }
-            assert (storage.state == STATE_DEPOSITED) throw ERR_BAD_STATE;
-            assert (blockchain.now() < storage.deadline) throw ERR_EXPIRED;
-            assert (msg.amount == storage.expectedAmount) throw ERR_BAD_AMOUNT;
-            assert (msg.telegramChargeHash != 0) throw ERR_BAD_PROOF;
+            assert (storage.state == STATE_DEPOSITED) throw Errors.BadState;
+            assert (blockchain.now() < storage.deadline) throw Errors.Expired;
+            assert (msg.amount == storage.expectedAmount) throw Errors.BadAmount;
+            assert (msg.telegramChargeHash != 0) throw Errors.BadProof;
             evidence.paymentReferenceHash = msg.telegramChargeHash;
             storage.paymentEvidence = evidence.toCell();
             storage.state = STATE_PAID;
@@ -256,11 +258,11 @@ fun onInternalMessage(in: InMessage) {
         RequestNftRelease => {
             var storage = lazy EscrowStorage.load();
             val parties = storage.parties.load();
-            assert (storage.initialized) throw ERR_BAD_STATE;
-            assert (in.senderAddress == parties.buyer) throw ERR_UNAUTHORIZED;
-            assert (storage.state == STATE_PAID) throw ERR_BAD_STATE;
-            assert (blockchain.now() < storage.deadline) throw ERR_EXPIRED;
-            assert (contract.getOriginalBalance() >= grams("0.15")) throw ERR_NOT_ENOUGH_GAS;
+            assert (storage.initialized) throw Errors.BadState;
+            assert (in.senderAddress == parties.buyer) throw Errors.Unauthorized;
+            assert (storage.state == STATE_PAID) throw Errors.BadState;
+            assert (blockchain.now() < storage.deadline) throw Errors.Expired;
+            assert (contract.getOriginalBalance() >= grams("0.15")) throw Errors.NotEnoughGas;
             storage.transferQueryId = msg.queryId;
             storage.state = STATE_TRANSFER_PENDING;
             storage.save();
@@ -271,10 +273,10 @@ fun onInternalMessage(in: InMessage) {
             var storage = lazy EscrowStorage.load();
             val authorities = storage.authorities.load();
             var evidence = storage.deliveryEvidence.load();
-            assert (storage.initialized) throw ERR_BAD_STATE;
-            assert (in.senderAddress == authorities.paymentAuthority) throw ERR_UNAUTHORIZED;
-            assert (storage.state == STATE_TRANSFER_PENDING) throw ERR_BAD_STATE;
-            assert (msg.buyerOwnershipProofHash != 0) throw ERR_BAD_PROOF;
+            assert (storage.initialized) throw Errors.BadState;
+            assert (in.senderAddress == authorities.paymentAuthority) throw Errors.Unauthorized;
+            assert (storage.state == STATE_TRANSFER_PENDING) throw Errors.BadState;
+            assert (msg.buyerOwnershipProofHash != 0) throw Errors.BadProof;
             evidence.buyerOwnershipProofHash = msg.buyerOwnershipProofHash;
             storage.deliveryEvidence = evidence.toCell();
             storage.state = STATE_DELIVERED;
@@ -285,10 +287,10 @@ fun onInternalMessage(in: InMessage) {
             var storage = lazy EscrowStorage.load();
             val authorities = storage.authorities.load();
             var evidence = storage.paymentEvidence.load();
-            assert (storage.initialized) throw ERR_BAD_STATE;
-            assert (in.senderAddress == authorities.paymentAuthority) throw ERR_UNAUTHORIZED;
-            assert (storage.state == STATE_DELIVERED) throw ERR_BAD_STATE;
-            assert (msg.payoutReferenceHash != 0) throw ERR_BAD_PROOF;
+            assert (storage.initialized) throw Errors.BadState;
+            assert (in.senderAddress == authorities.paymentAuthority) throw Errors.Unauthorized;
+            assert (storage.state == STATE_DELIVERED) throw Errors.BadState;
+            assert (msg.payoutReferenceHash != 0) throw Errors.BadProof;
             evidence.settlementReferenceHash = msg.payoutReferenceHash;
             storage.paymentEvidence = evidence.toCell();
             storage.state = STATE_SETTLED;
@@ -300,18 +302,18 @@ fun onInternalMessage(in: InMessage) {
             val parties = storage.parties.load();
             val authorities = storage.authorities.load();
             var evidence = storage.paymentEvidence.load();
-            assert (storage.initialized) throw ERR_BAD_STATE;
-            assert (in.senderAddress == authorities.paymentAuthority) throw ERR_UNAUTHORIZED;
-            assert ((storage.state == STATE_DEPOSITED) | (storage.state == STATE_PAID)) throw ERR_BAD_STATE;
+            assert (storage.initialized) throw Errors.BadState;
+            assert (in.senderAddress == authorities.paymentAuthority) throw Errors.Unauthorized;
+            assert ((storage.state == STATE_DEPOSITED) | (storage.state == STATE_PAID)) throw Errors.BadState;
             if (storage.state == STATE_DEPOSITED) {
-                assert (blockchain.now() >= storage.deadline) throw ERR_EXPIRED;
+                assert (blockchain.now() >= storage.deadline) throw Errors.Expired;
             } else {
                 // Hash is recorded only after Telegram refundStarPayment succeeds.
-                assert (msg.telegramRefundHash != 0) throw ERR_BAD_PROOF;
+                assert (msg.telegramRefundHash != 0) throw Errors.BadProof;
                 evidence.refundReferenceHash = msg.telegramRefundHash;
                 storage.paymentEvidence = evidence.toCell();
             }
-            assert (contract.getOriginalBalance() >= grams("0.15")) throw ERR_NOT_ENOUGH_GAS;
+            assert (contract.getOriginalBalance() >= grams("0.15")) throw Errors.NotEnoughGas;
             storage.transferQueryId = msg.queryId;
             storage.state = STATE_REFUND_PENDING;
             storage.save();
@@ -322,10 +324,10 @@ fun onInternalMessage(in: InMessage) {
             var storage = lazy EscrowStorage.load();
             val authorities = storage.authorities.load();
             var evidence = storage.deliveryEvidence.load();
-            assert (storage.initialized) throw ERR_BAD_STATE;
-            assert (in.senderAddress == authorities.paymentAuthority) throw ERR_UNAUTHORIZED;
-            assert (storage.state == STATE_REFUND_PENDING) throw ERR_BAD_STATE;
-            assert (msg.sellerOwnershipProofHash != 0) throw ERR_BAD_PROOF;
+            assert (storage.initialized) throw Errors.BadState;
+            assert (in.senderAddress == authorities.paymentAuthority) throw Errors.Unauthorized;
+            assert (storage.state == STATE_REFUND_PENDING) throw Errors.BadState;
+            assert (msg.sellerOwnershipProofHash != 0) throw Errors.BadProof;
             evidence.sellerOwnershipProofHash = msg.sellerOwnershipProofHash;
             storage.deliveryEvidence = evidence.toCell();
             storage.state = STATE_REFUNDED;
@@ -335,12 +337,12 @@ fun onInternalMessage(in: InMessage) {
         RaiseDispute => {
             var storage = lazy EscrowStorage.load();
             val parties = storage.parties.load();
-            assert (storage.initialized) throw ERR_BAD_STATE;
-            assert ((in.senderAddress == parties.buyer) | (in.senderAddress == parties.seller)) throw ERR_UNAUTHORIZED;
-            assert (msg.reasonHash != 0) throw ERR_BAD_DISPUTE;
+            assert (storage.initialized) throw Errors.BadState;
+            assert ((in.senderAddress == parties.buyer) | (in.senderAddress == parties.seller)) throw Errors.Unauthorized;
+            assert (msg.reasonHash != 0) throw Errors.BadDispute;
             assert ((storage.state == STATE_DEPOSITED) |
                     (storage.state == STATE_PAID) |
-                    (storage.state == STATE_TRANSFER_PENDING)) throw ERR_BAD_STATE;
+                    (storage.state == STATE_TRANSFER_PENDING)) throw Errors.BadState;
             storage.disputeReasonHash = msg.reasonHash;
             if (storage.state == STATE_TRANSFER_PENDING) {
                 // A transfer may already have executed on the NFT item. Never guess ownership.
@@ -356,13 +358,13 @@ fun onInternalMessage(in: InMessage) {
             var storage = lazy EscrowStorage.load();
             val authorities = storage.authorities.load();
             var evidence = storage.paymentEvidence.load();
-            assert (storage.initialized) throw ERR_BAD_STATE;
-            assert (in.senderAddress == authorities.paymentAuthority) throw ERR_UNAUTHORIZED;
-            assert (storage.state == STATE_DISPUTED) throw ERR_BAD_STATE;
-            assert (storage.preDisputeState == STATE_PAID) throw ERR_BAD_STATE;
-            assert (msg.telegramRefundHash != 0) throw ERR_BAD_PROOF;
+            assert (storage.initialized) throw Errors.BadState;
+            assert (in.senderAddress == authorities.paymentAuthority) throw Errors.Unauthorized;
+            assert (storage.state == STATE_DISPUTED) throw Errors.BadState;
+            assert (storage.preDisputeState == STATE_PAID) throw Errors.BadState;
+            assert (msg.telegramRefundHash != 0) throw Errors.BadProof;
             if (evidence.refundReferenceHash != 0) {
-                assert (evidence.refundReferenceHash == msg.telegramRefundHash) throw ERR_BAD_PROOF;
+                assert (evidence.refundReferenceHash == msg.telegramRefundHash) throw Errors.BadProof;
                 return;
             }
             evidence.refundReferenceHash = msg.telegramRefundHash;
@@ -376,11 +378,11 @@ fun onInternalMessage(in: InMessage) {
             val authorities = storage.authorities.load();
             val payment = storage.paymentEvidence.load();
             var deliveryEvidence = storage.deliveryEvidence.load();
-            assert (storage.initialized) throw ERR_BAD_STATE;
-            assert (storage.state == STATE_DISPUTED) throw ERR_BAD_STATE;
-            assert ((in.senderAddress == authorities.arbitrator1) | (in.senderAddress == authorities.arbitrator2)) throw ERR_UNAUTHORIZED;
-            assert ((msg.decision == 1) | (msg.decision == 2)) throw ERR_BAD_DISPUTE;
-            assert (msg.resolutionHash != 0) throw ERR_BAD_DISPUTE;
+            assert (storage.initialized) throw Errors.BadState;
+            assert (storage.state == STATE_DISPUTED) throw Errors.BadState;
+            assert ((in.senderAddress == authorities.arbitrator1) | (in.senderAddress == authorities.arbitrator2)) throw Errors.Unauthorized;
+            assert ((msg.decision == 1) | (msg.decision == 2)) throw Errors.BadDispute;
+            assert (msg.resolutionHash != 0) throw Errors.BadDispute;
 
             val approval = in.senderAddress == authorities.arbitrator1 ? 1 : 2;
             if (storage.disputeApprovals == 0) {
@@ -394,20 +396,20 @@ fun onInternalMessage(in: InMessage) {
 
             // Repeated approval from the same arbitrator is idempotent.
             if (storage.disputeApprovals == approval) {
-                assert (storage.resolutionDecision == msg.decision) throw ERR_BAD_DISPUTE;
-                assert (deliveryEvidence.resolutionHash == msg.resolutionHash) throw ERR_BAD_DISPUTE;
+                assert (storage.resolutionDecision == msg.decision) throw Errors.BadDispute;
+                assert (deliveryEvidence.resolutionHash == msg.resolutionHash) throw Errors.BadDispute;
                 return;
             }
 
-            assert ((storage.disputeApprovals == 1) | (storage.disputeApprovals == 2)) throw ERR_BAD_DISPUTE;
-            assert (storage.resolutionDecision == msg.decision) throw ERR_BAD_DISPUTE;
-            assert (deliveryEvidence.resolutionHash == msg.resolutionHash) throw ERR_BAD_DISPUTE;
+            assert ((storage.disputeApprovals == 1) | (storage.disputeApprovals == 2)) throw Errors.BadDispute;
+            assert (storage.resolutionDecision == msg.decision) throw Errors.BadDispute;
+            assert (deliveryEvidence.resolutionHash == msg.resolutionHash) throw Errors.BadDispute;
 
             if (msg.decision == 1) {
                 if (storage.preDisputeState == STATE_PAID) {
-                    assert (payment.refundReferenceHash != 0) throw ERR_BAD_PROOF;
+                    assert (payment.refundReferenceHash != 0) throw Errors.BadProof;
                 }
-                assert (contract.getOriginalBalance() >= grams("0.15")) throw ERR_NOT_ENOUGH_GAS;
+                assert (contract.getOriginalBalance() >= grams("0.15")) throw Errors.NotEnoughGas;
                 storage.transferQueryId = msg.queryId;
                 storage.state = STATE_REFUND_PENDING;
                 storage.disputeApprovals = 3;
@@ -423,7 +425,7 @@ fun onInternalMessage(in: InMessage) {
         }
 
         else => {
-            assert (in.body.isEmpty()) throw ERR_UNKNOWN_MESSAGE;
+            assert (in.body.isEmpty()) throw Errors.UnknownMessage;
         }
     }
 }
