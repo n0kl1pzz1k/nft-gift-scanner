@@ -359,7 +359,7 @@ def confirm_deal_nft_transfer(*, deal_id: str, transfer_proofs: list[dict[str, A
         ).order_by(
             marketplace_ownership_proofs.c.recorded_at.desc()
         ).limit(1)).first()
-        if proof_row is None or normalized[0]["item_address"] != canonical_ton_address(proof_row.evidence_reference):
+        if proof_row is None or normalized[0]["item_address"] != canonical_ton_address(asset["item_address"]):
             raise ValueError("NFT item does not match the reserved listing")
         owner_addresses = {canonical_ton_address(value) for value in current_owner_addresses}
         if owner_addresses != {expected_buyer}:
