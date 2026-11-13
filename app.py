@@ -915,6 +915,43 @@ async def add_native_marketplace_reconciliation_note(
 
 
 
+@app.get("/api/admin/withdrawals")
+async def list_admin_withdrawals(
+    status: str | None = Query(default=None, pattern="^(requested|processing|submitted|confirmed|failed|reconciliation_required|cancelled)$"),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    if str(user["id"]) not in _admin_ids():
+        raise HTTPException(status_code=403, detail="Forbidden")
+    filters = []
+    if status:
+        filters.append(withdrawal_requests.c.status == status)
+    with get_engine().connect() as conn:
+        count_query = select(func.count()).select_from(withdrawal_requests)
+        rows_query = select(
+            withdrawal_requests.c.request_id, withdrawal_requests.c.user_id,
+            withdrawal_requests.c.asset_id, withdrawal_requests.c.network,
+            withdrawal_requests.c.destination_address, withdrawal_requests.c.amount_raw,
+            withdrawal_requests.c.fee_raw, withdrawal_requests.c.status,
+            withdrawal_requests.c.request_hash, withdrawal_requests.c.tx_hash,
+            withdrawal_requests.c.created_at, withdrawal_requests.c.updated_at,
+        )
+        if filters:
+            count_query = count_query.where(*filters)
+            rows_query = rows_query.where(*filters)
+        total = conn.execute(count_query).scalar_one()
+        rows = conn.execute(rows_query.order_by(
+            withdrawal_requests.c.created_at.asc(), withdrawal_requests.c.request_id
+        ).limit(limit).offset(offset)).mappings().all()
+    return {
+        "total": int(total), "limit": limit, "offset": offset,
+        "items": [{**dict(row), "amount_raw": int(row["amount_raw"]),
+                   "fee_raw": int(row["fee_raw"])} for row in rows],
+    }
+
+
 @app.post("/api/admin/withdrawals/{request_id}/approve")
 async def approve_admin_withdrawal(
     request_id: str,
