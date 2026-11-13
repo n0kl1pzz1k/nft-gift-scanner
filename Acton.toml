@@ -9,6 +9,11 @@ src = "contracts/GiftRadarEscrow.tolk"
 depends = []
 output = "artifacts/GiftRadarEscrow.boc"
 
+[contracts.GiftRadarPaymentEscrow]
+src = "contracts/GiftRadarPaymentEscrow.tolk"
+depends = []
+output = "artifacts/GiftRadarPaymentEscrow.boc"
+
 [wrappers.tolk]
 output-dir = "wrappers"
 
