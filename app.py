@@ -30,6 +30,7 @@ from sqlalchemy import select
 
 from financial_ledger import (
     create_telegram_stars_invoice, record_telegram_stars_terms_acceptance,
+    request_ton_withdrawal, withdrawal_requests,
     request_telegram_stars_refund, prepare_telegram_stars_refund,
     complete_telegram_stars_refund, fail_telegram_stars_refund,
     require_telegram_stars_refund_reconciliation,
@@ -40,6 +41,13 @@ class TonNftImportRequest(BaseModel):
     collection_address: str = Field(min_length=3, max_length=128)
     token_id: str = Field(min_length=1, max_length=40)
     item_address: str = Field(min_length=3, max_length=128)
+
+
+class TonWithdrawalRequest(BaseModel):
+    asset_id: str = Field(min_length=2, max_length=32)
+    destination_address: str = Field(min_length=3, max_length=128)
+    amount_raw: int = Field(gt=0, le=9_000_000_000_000_000)
+    idempotency_key: str = Field(min_length=16, max_length=200)
 
 
 class NativeListingRequest(BaseModel):
@@ -469,6 +477,63 @@ async def create_native_inventory_listing(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/inventory/listings")
+async def list_verified_inventory_listings(limit: int = Query(default=50, ge=1, le=100), offset: int = Query(default=0, ge=0)):
+    db = get_engine()
+    init_inventory_schema(db)
+    with db.connect() as conn:
+        rows = conn.execute(select(
+            marketplace_listings.c.listing_id, marketplace_listings.c.asset_id,
+            marketplace_listings.c.seller_user_id, marketplace_listings.c.price_raw,
+            marketplace_listings.c.currency, marketplace_listings.c.created_at,
+            marketplace_assets.c.asset_type, marketplace_assets.c.collection_address,
+            marketplace_assets.c.token_id,
+        ).select_from(
+            marketplace_listings.join(
+                marketplace_assets, marketplace_assets.c.asset_id == marketplace_listings.c.asset_id
+            )
+        ).where(
+            marketplace_listings.c.status == "active",
+            marketplace_assets.c.custody_state == "escrowed",
+        ).order_by(marketplace_listings.c.created_at.desc()).limit(limit).offset(offset)).mappings().all()
+    return {"items": [dict(row) for row in rows], "total": len(rows)}
+
+
+@app.post("/api/wallet/withdrawals", status_code=202)
+async def create_wallet_withdrawal(
+    payload: TonWithdrawalRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    if os.getenv("TON_WITHDRAWALS_ENABLED", "false").strip().lower() != "true":
+        raise HTTPException(status_code=503, detail="TON withdrawals are not enabled")
+    try:
+        result = request_ton_withdrawal(
+            user_id=str(user["id"]), asset_id=payload.asset_id,
+            destination_address=payload.destination_address, amount_raw=payload.amount_raw,
+            idempotency_key=payload.idempotency_key, fee_raw=0, engine=get_engine(),
+        )
+        return {"withdrawal": result, "broadcast": False}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@app.get("/api/wallet/withdrawals")
+async def list_wallet_withdrawals(
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    db = get_engine()
+    from sqlalchemy import select as sa_select
+    with db.connect() as conn:
+        rows = conn.execute(sa_select(withdrawal_requests).where(
+            withdrawal_requests.c.user_id == str(user["id"])
+        ).order_by(withdrawal_requests.c.created_at.desc()).limit(100)).mappings().all()
+    return {"items": [dict(row) for row in rows]}
 
 
 @app.get("/api/inventory/mine")
