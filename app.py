@@ -22,6 +22,7 @@ from financial_ledger import (
     create_telegram_stars_invoice, record_telegram_stars_terms_acceptance,
     request_telegram_stars_refund, prepare_telegram_stars_refund,
     complete_telegram_stars_refund, fail_telegram_stars_refund,
+    require_telegram_stars_refund_reconciliation,
 )
 
 app = FastAPI(title="GIFT RADAR API", version="0.4.0")
@@ -515,7 +516,14 @@ async def execute_stars_refund(
     except Exception:
         # Telegram may have processed the refund before a timeout. Never retry automatically.
         logging.exception("Telegram Stars refund outcome is ambiguous; manual reconciliation required")
-        raise HTTPException(status_code=503, detail="Refund outcome is ambiguous; reconcile Telegram transactions before retrying")
+        try:
+            require_telegram_stars_refund_reconciliation(
+                request_id=request_id,
+                reason="Telegram refund API outcome was ambiguous; verify Telegram transaction history before any further action",
+            )
+        except Exception:
+            logging.exception("Could not mark Telegram Stars refund for reconciliation")
+        raise HTTPException(status_code=503, detail="Refund outcome is ambiguous and locked for manual reconciliation; do not retry automatically")
     if not confirmed:
         fail_telegram_stars_refund(
             request_id=request_id,
