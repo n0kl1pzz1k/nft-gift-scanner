@@ -246,10 +246,11 @@ class TonTestnetPaymentGateway:
         assert first is not None and second is not None
         center = first if first.provider_id == "toncenter" else second
         embed = second if second.provider_id == "tonapi" else first
-        comparable = lambda item: (
-            item.transaction_id, item.deal_id, item.reference, item.amount,
-            item.currency, item.network, item.finalized,
-        )
+        def comparable(item):
+            return (
+                item.transaction_id, item.deal_id, item.reference, item.amount,
+                item.currency, item.network, item.finalized,
+            )
         if comparable(first) != comparable(second):
             raise PaymentRouteError("TON testnet providers disagree on payment evidence")
         if (not center.finalized or not embed.finalized
