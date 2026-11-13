@@ -1,5 +1,6 @@
-from asset_policy import AssetRejected, get_asset, is_crypto_payment_enabled
 import unittest
+
+from asset_policy import AssetRejected, get_asset, is_crypto_payment_enabled
 
 
 TON_USDT = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"
