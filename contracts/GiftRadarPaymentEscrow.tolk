@@ -38,9 +38,9 @@ fun isTwoOfThree(mask: uint8): bool {
 }
 
 fun signerBit(sender: address, auth: PaymentEscrowAuthorityConfig): uint8 {
-    if (sender == auth.signer1) { return 1; }
-    if (sender == auth.signer2) { return 2; }
-    if (sender == auth.signer3) { return 4; }
+    if (sender == signers.signer1) { return 1; }
+    if (sender == signers.signer2) { return 2; }
+    if (sender == signers.signer3) { return 4; }
     return 0;
 }
 
@@ -68,7 +68,10 @@ fun onInternalMessage(in: InMessage) {
             var storage = lazy PaymentEscrowStorage.load();
             val parties = storage.parties.load();
             val auth = storage.authorities.load();
-            assert (in.senderAddress == auth.platformConfigAuthority) throw PaymentEscrowErrors.Unauthorized;
+            val signers = auth.signers.load();
+            val arbitrators = auth.arbitrators.load();
+            val assets = auth.assets.load();
+            assert (in.senderAddress == signers.platformConfigAuthority) throw PaymentEscrowErrors.Unauthorized;
             assert (!storage.initialized) throw PaymentEscrowErrors.BadState;
             assert (storage.state == V2_CREATED) throw PaymentEscrowErrors.BadState;
             assert (storage.expectedAmount > 0) throw PaymentEscrowErrors.BadAmount;
@@ -78,51 +81,51 @@ fun onInternalMessage(in: InMessage) {
             assert (parties.seller != parties.buyer) throw PaymentEscrowErrors.BadAsset;
             assert (parties.seller != auth.platformConfigAuthority) throw PaymentEscrowErrors.Unauthorized;
             assert (parties.buyer != auth.platformConfigAuthority) throw PaymentEscrowErrors.Unauthorized;
-            assert (auth.signer1 != auth.signer2) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.signer1 != auth.signer3) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.signer2 != auth.signer3) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.arbitrator1 != auth.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.arbitrator1 != auth.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.arbitrator2 != auth.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.signer1 != auth.arbitrator1) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.signer1 != auth.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.signer1 != auth.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.signer2 != auth.arbitrator1) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.signer2 != auth.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.signer2 != auth.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.signer3 != auth.arbitrator1) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.signer3 != auth.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.signer3 != auth.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
-            assert (parties.seller != auth.signer1) throw PaymentEscrowErrors.Unauthorized;
-            assert (parties.seller != auth.signer2) throw PaymentEscrowErrors.Unauthorized;
-            assert (parties.seller != auth.signer3) throw PaymentEscrowErrors.Unauthorized;
-            assert (parties.buyer != auth.signer1) throw PaymentEscrowErrors.Unauthorized;
-            assert (parties.buyer != auth.signer2) throw PaymentEscrowErrors.Unauthorized;
-            assert (parties.buyer != auth.signer3) throw PaymentEscrowErrors.Unauthorized;
-            assert (parties.seller != auth.arbitrator1) throw PaymentEscrowErrors.Unauthorized;
-            assert (parties.seller != auth.arbitrator2) throw PaymentEscrowErrors.Unauthorized;
-            assert (parties.seller != auth.arbitrator3) throw PaymentEscrowErrors.Unauthorized;
-            assert (parties.buyer != auth.arbitrator1) throw PaymentEscrowErrors.Unauthorized;
-            assert (parties.buyer != auth.arbitrator2) throw PaymentEscrowErrors.Unauthorized;
-            assert (parties.buyer != auth.arbitrator3) throw PaymentEscrowErrors.Unauthorized;
-            assert (auth.platformConfigAuthority != auth.signer1) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.platformConfigAuthority != auth.signer2) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.platformConfigAuthority != auth.signer3) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.platformConfigAuthority != auth.arbitrator1) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.platformConfigAuthority != auth.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.platformConfigAuthority != auth.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.resolverMultisig != parties.seller) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.resolverMultisig != parties.buyer) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.resolverMultisig != auth.signer1) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.resolverMultisig != auth.signer2) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.resolverMultisig != auth.signer3) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.resolverMultisig != auth.arbitrator1) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.resolverMultisig != auth.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.resolverMultisig != auth.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.signer1 != signers.signer2) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.signer1 != signers.signer3) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.signer2 != signers.signer3) throw PaymentEscrowErrors.BadQuorum;
+            assert (arbitrators.arbitrator1 != arbitrators.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
+            assert (arbitrators.arbitrator1 != arbitrators.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
+            assert (arbitrators.arbitrator2 != arbitrators.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.signer1 != arbitrators.arbitrator1) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.signer1 != arbitrators.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.signer1 != arbitrators.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.signer2 != arbitrators.arbitrator1) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.signer2 != arbitrators.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.signer2 != arbitrators.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.signer3 != arbitrators.arbitrator1) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.signer3 != arbitrators.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.signer3 != arbitrators.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
+            assert (parties.seller != signers.signer1) throw PaymentEscrowErrors.Unauthorized;
+            assert (parties.seller != signers.signer2) throw PaymentEscrowErrors.Unauthorized;
+            assert (parties.seller != signers.signer3) throw PaymentEscrowErrors.Unauthorized;
+            assert (parties.buyer != signers.signer1) throw PaymentEscrowErrors.Unauthorized;
+            assert (parties.buyer != signers.signer2) throw PaymentEscrowErrors.Unauthorized;
+            assert (parties.buyer != signers.signer3) throw PaymentEscrowErrors.Unauthorized;
+            assert (parties.seller != arbitrators.arbitrator1) throw PaymentEscrowErrors.Unauthorized;
+            assert (parties.seller != arbitrators.arbitrator2) throw PaymentEscrowErrors.Unauthorized;
+            assert (parties.seller != arbitrators.arbitrator3) throw PaymentEscrowErrors.Unauthorized;
+            assert (parties.buyer != arbitrators.arbitrator1) throw PaymentEscrowErrors.Unauthorized;
+            assert (parties.buyer != arbitrators.arbitrator2) throw PaymentEscrowErrors.Unauthorized;
+            assert (parties.buyer != arbitrators.arbitrator3) throw PaymentEscrowErrors.Unauthorized;
+            assert (auth.platformConfigAuthority != signers.signer1) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.platformConfigAuthority != signers.signer2) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.platformConfigAuthority != signers.signer3) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.platformConfigAuthority != arbitrators.arbitrator1) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.platformConfigAuthority != arbitrators.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
+            assert (auth.platformConfigAuthority != arbitrators.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
+            assert (arbitrators.resolverMultisig != parties.seller) throw PaymentEscrowErrors.BadQuorum;
+            assert (arbitrators.resolverMultisig != parties.buyer) throw PaymentEscrowErrors.BadQuorum;
+            assert (arbitrators.resolverMultisig != signers.signer1) throw PaymentEscrowErrors.BadQuorum;
+            assert (arbitrators.resolverMultisig != signers.signer2) throw PaymentEscrowErrors.BadQuorum;
+            assert (arbitrators.resolverMultisig != signers.signer3) throw PaymentEscrowErrors.BadQuorum;
+            assert (arbitrators.resolverMultisig != arbitrators.arbitrator1) throw PaymentEscrowErrors.BadQuorum;
+            assert (arbitrators.resolverMultisig != arbitrators.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
+            assert (arbitrators.resolverMultisig != arbitrators.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
             if (storage.assetKind == ASSET_TEST_USDT_JETTON) {
-                assert (auth.usdtJettonMaster != auth.escrowUsdtJettonWallet) throw PaymentEscrowErrors.BadAsset;
-                assert (auth.usdtJettonMaster != parties.buyer) throw PaymentEscrowErrors.BadAsset;
-                assert (auth.escrowUsdtJettonWallet != parties.buyer) throw PaymentEscrowErrors.BadAsset;
+                assert (assets.usdtJettonMaster != assets.escrowUsdtJettonWallet) throw PaymentEscrowErrors.BadAsset;
+                assert (assets.usdtJettonMaster != parties.buyer) throw PaymentEscrowErrors.BadAsset;
+                assert (assets.escrowUsdtJettonWallet != parties.buyer) throw PaymentEscrowErrors.BadAsset;
             }
             storage.initialized = true;
             storage.save();
@@ -164,7 +167,7 @@ fun onInternalMessage(in: InMessage) {
             val auth = storage.authorities.load();
             assert (storage.initialized) throw PaymentEscrowErrors.BadState;
             assert (storage.assetKind == ASSET_TEST_USDT_JETTON) throw PaymentEscrowErrors.BadAsset;
-            assert (in.senderAddress == auth.escrowUsdtJettonWallet) throw PaymentEscrowErrors.Unauthorized;
+            assert (in.senderAddress == assets.escrowUsdtJettonWallet) throw PaymentEscrowErrors.Unauthorized;
             assert (msg.sender == parties.buyer) throw PaymentEscrowErrors.Unauthorized;
             assert (storage.state == V2_DEPOSITED) throw PaymentEscrowErrors.BadState;
             assert (blockchain.now() < storage.deadline) throw PaymentEscrowErrors.Expired;
@@ -249,9 +252,10 @@ fun onInternalMessage(in: InMessage) {
         ApprovePaymentEscrowDispute => {
             val storage = lazy PaymentEscrowStorage.load();
             val auth = storage.authorities.load();
+            val arbitrators = auth.arbitrators.load();
             assert (storage.initialized) throw PaymentEscrowErrors.BadState;
             assert (storage.state == V2_DISPUTED) throw PaymentEscrowErrors.BadState;
-            assert ((in.senderAddress == auth.arbitrator1) | (in.senderAddress == auth.arbitrator2) | (in.senderAddress == auth.arbitrator3)) throw PaymentEscrowErrors.Unauthorized;
+            assert ((in.senderAddress == arbitrators.arbitrator1) | (in.senderAddress == arbitrators.arbitrator2) | (in.senderAddress == arbitrators.arbitrator3)) throw PaymentEscrowErrors.Unauthorized;
             assert ((msg.decision == 1) | (msg.decision == 2)) throw PaymentEscrowErrors.BadProof;
             assert (msg.resolutionHash != 0) throw PaymentEscrowErrors.BadProof;
             // Dispute voting is a separate 2-of-3 contour; first implementation records
