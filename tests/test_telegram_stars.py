@@ -116,6 +116,7 @@ class TelegramStarsLedgerTests(unittest.TestCase):
         ))
 
     def test_only_buyer_can_create_stars_invoice(self):
+        record_telegram_stars_terms_acceptance(user_id="10010", engine=self.engine, now=900)
         with self.assertRaises(PermissionError):
             create_telegram_stars_invoice(
                 deal_id="deal-1", buyer_user_id="10010", engine=self.engine, now=1000
@@ -141,7 +142,7 @@ class TelegramStarsLedgerTests(unittest.TestCase):
     def test_precheckout_validates_identity_amount_currency_and_single_use(self):
         invoice = self._invoice()
         self.assertFalse(approve_telegram_stars_pre_checkout(
-            payload=invoice["payload"], buyer_user_id="buyer-20", currency="XTR",
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
             amount_stars=74, query_id="query-1", engine=self.engine, now=1010
         ))
         self.assertFalse(approve_telegram_stars_pre_checkout(
@@ -149,39 +150,39 @@ class TelegramStarsLedgerTests(unittest.TestCase):
             amount_stars=75, query_id="query-1", engine=self.engine, now=1010
         ))
         self.assertTrue(approve_telegram_stars_pre_checkout(
-            payload=invoice["payload"], buyer_user_id="buyer-20", currency="XTR",
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
             amount_stars=75, query_id="query-1", engine=self.engine, now=1010
         ))
         self.assertTrue(approve_telegram_stars_pre_checkout(
-            payload=invoice["payload"], buyer_user_id="buyer-20", currency="XTR",
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
             amount_stars=75, query_id="query-1", engine=self.engine, now=1011
         ))
         self.assertFalse(approve_telegram_stars_pre_checkout(
-            payload=invoice["payload"], buyer_user_id="buyer-20", currency="XTR",
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
             amount_stars=75, query_id="query-2", engine=self.engine, now=1011
         ))
 
     def test_successful_payment_is_atomic_balanced_and_idempotent(self):
         invoice = self._invoice()
         approved = approve_telegram_stars_pre_checkout(
-            payload=invoice["payload"], buyer_user_id="buyer-20", currency="XTR",
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
             amount_stars=75, query_id="query-1", engine=self.engine, now=1010
         )
         self.assertTrue(approved)
         result = settle_telegram_stars_payment(
-            payload=invoice["payload"], buyer_user_id="buyer-20", currency="XTR",
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
             amount_stars=75, telegram_payment_charge_id="telegram-charge-1",
             provider_payment_charge_id=None, engine=self.engine, now=1020
         )
         self.assertTrue(result["credited"])
         self.assertEqual(get_account_balance("asset:telegram_stars:clearing", "XTR", self.engine), 75)
-        self.assertEqual(get_account_balance("liability:seller:seller-10:XTR", "XTR", self.engine), -75)
+        self.assertEqual(get_account_balance("liability:seller:10010:XTR", "XTR", self.engine), -75)
         with self.engine.connect() as connection:
             status = connection.execute(text("SELECT status FROM demo_deals WHERE id='deal-1'")).scalar_one()
         self.assertEqual(status, "paid")
 
         duplicate = settle_telegram_stars_payment(
-            payload=invoice["payload"], buyer_user_id="buyer-20", currency="XTR",
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
             amount_stars=75, telegram_payment_charge_id="telegram-charge-1",
             provider_payment_charge_id=None, engine=self.engine, now=1030
         )
@@ -192,7 +193,7 @@ class TelegramStarsLedgerTests(unittest.TestCase):
         invoice = self._invoice()
         with self.assertRaises(ValueError):
             settle_telegram_stars_payment(
-                payload=invoice["payload"], buyer_user_id="buyer-20", currency="XTR",
+                payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
                 amount_stars=75, telegram_payment_charge_id="charge-no-precheckout",
                 engine=self.engine, now=1010
             )
@@ -200,11 +201,11 @@ class TelegramStarsLedgerTests(unittest.TestCase):
     def test_payment_events_are_append_only(self):
         invoice = self._invoice()
         approve_telegram_stars_pre_checkout(
-            payload=invoice["payload"], buyer_user_id="buyer-20", currency="XTR",
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
             amount_stars=75, query_id="query-1", engine=self.engine, now=1010
         )
         settle_telegram_stars_payment(
-            payload=invoice["payload"], buyer_user_id="buyer-20", currency="XTR",
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
             amount_stars=75, telegram_payment_charge_id="telegram-charge-1",
             engine=self.engine, now=1020
         )
