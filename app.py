@@ -141,11 +141,13 @@ class TonProofVerifyRequest(BaseModel):
 # Admin controls are limited to catalogue visibility; the setting is persisted in SQLite.
 # Administrator identities are verified server-side from Telegram initData and env configuration.
 def _marketplace_visibility() -> dict[str, bool]:
-    return {"portals": get_app_setting("marketplace.portals.enabled", "true").lower() == "true"}
+    # GIFT RADAR is the marketplace. Third-party marketplace feeds are disabled.
+    return {"native": True, "external_marketplaces": False}
 
 
 def _marketplace_enabled(market: str) -> bool:
-    return _marketplace_visibility().get(market, False)
+    # Legacy adapter switch is permanently fail-closed during removal.
+    return False
 
 
 def _admin_ids() -> set[str]:
@@ -261,7 +263,7 @@ async def admin_overview(x_telegram_init_data: str | None = Header(default=None)
     user = _require_admin(x_telegram_init_data)
     return {
         "admin": {"id": str(user["id"]), "first_name": user.get("first_name", ""), "username": user.get("username", "")},
-        "mode": "catalogue_read_only_with_shared_demo_marketplace",
+        "mode": "independent_native_marketplace",
         "sources": source_status(),
         "marketplace_visibility": _marketplace_visibility(),
         "settings_persistence": "persistent_sqlite",
@@ -275,23 +277,20 @@ async def admin_set_marketplace(
     x_telegram_init_data: str | None = Header(default=None),
 ):
     _require_admin(x_telegram_init_data)
-    if market != "portals":
-        raise HTTPException(status_code=404, detail="Unknown marketplace")
-    set_app_setting(f"marketplace.{market}.enabled", "true" if payload.enabled else "false")
-    return {"market": market, "enabled": _marketplace_enabled(market)}
+    raise HTTPException(status_code=410, detail="External marketplace adapters are permanently disabled")
 
 
 
 def source_status() -> dict[str, str]:
     return {
-        "portals": "configured_read_only" if os.getenv("PORTALS_API_KEY", "").strip() else "needs_api_key",
-        "gift_changes": "public_read_only",
-        "tg_gifts_daily": "public_daily_read_only",
+        "native_inventory": "awaiting_native_inventory_index",
+        "external_marketplaces": "disabled_by_product_policy",
     }
 
 
 async def _portals_get_json(route: str, params: dict[str, Any] | None = None) -> dict:
-    """Perform a rate-limited, retryable read-only request to the Portals Partners API."""
+    """Retired legacy adapter. External marketplace feeds are never queried."""
+    raise HTTPException(status_code=410, detail="External marketplace integrations are disabled by GIFT RADAR policy")
     if route not in {"/collections/preview", "/collections/floors", "/nfts/search"}:
         raise HTTPException(status_code=400, detail="Portals route is not enabled")
     token = os.getenv("PORTALS_API_KEY", "").strip()
@@ -613,31 +612,17 @@ async def health():
 @app.get("/api/status")
 async def status():
     return {
-        "mode": "catalogue_read_only_with_shared_demo_marketplace",
+        "mode": "independent_native_marketplace",
+        "product": "GIFT RADAR",
         "sources": source_status(),
-        "available_data": {
-            "portals": ["collection_list", "collection_floor", "reported_24h_volume", "reported_supply", "listed_gift_catalog", "gift_price", "gift_attributes"],
-            "gift_changes": ["public_gift_metadata_changes_beta"],
-            "tg_gifts_daily": ["daily_collection_floor_history_cc_by_4_0"],
-        },
+        "available_data": {"native_inventory": ["internally_created_listings", "verified_asset_records", "native_orders"]},
         "marketplace_visibility": _marketplace_visibility(),
+        "external_marketplaces": False,
         "cross_market_comparison": False,
         "data_pipeline": {
-            "delivery": "server_to_app_api",
-            "cache": "server_memory_cache",
+            "delivery": "native_database_to_app_api",
+            "external_marketplace_ingestion": False,
             "refresh_interval_seconds": _refresh_interval_seconds(),
-            "persistent_history": True,
-            "history_kind": "portals_metadata_snapshots",
-            "history_limit_per_gift": 50,
-            "history_requires_persistent_volume_for_deploys": True,
-        },
-        "demo_marketplace": {
-            "enabled": True,
-            "storage": "sqlite_server_database",
-            "payments": False,
-            "telegram_stars": "disabled_not_configured",
-            "wallet_operations": False,
-            "blockchain_transactions": False,
         },
         "security": {
             "telegram_initdata_exchange": "signed_freshness_and_replay_protected",
@@ -646,7 +631,18 @@ async def status():
             "user_wallet_access": False,
             "user_api_key_storage": False,
         },
-        "note": "Portals is the sole marketplace catalogue. Independent public reference feeds provide beta gift-metadata changes and daily historical collection floors; these are not live listings.",
+        "note": "GIFT RADAR listings and orders are native platform records. External marketplace feeds are disabled. Native inventory indexing and verified listing publication remain release-gated.",
+    }
+
+
+@app.get("/api/collections")
+async def collections():
+    return {
+        "items": [],
+        "sources": source_status(),
+        "updated_at": None,
+        "connected": False,
+        "note": "The native GIFT RADAR collection index is being built. No third-party marketplace catalogue is queried.",
     }
 
 
@@ -725,119 +721,15 @@ async def gifts(
     status: str | None = Query(default=None, max_length=16),
 ):
     """Read-only page of currently listed gifts from the documented Portals search endpoint."""
-    if not _marketplace_enabled("portals"):
-        raise HTTPException(status_code=503, detail="Portals catalogue is temporarily disabled by the administrator")
-    if not os.getenv("PORTALS_API_KEY", "").strip():
-        return {"items": [], "total_count": 0, "connected": False, "sources": source_status(), "updated_at": None}
-
-    params: dict[str, Any] = {"limit": limit, "offset": offset}
-    if search and search.strip():
-        params["search"] = search.strip()
-    if collection_id and collection_id.strip():
-        params["collection_id"] = collection_id.strip()
-    for key, value in (("min_price", min_price), ("max_price", max_price)):
-        if value and value.strip():
-            try:
-                amount = Decimal(value.strip())
-                if not amount.is_finite() or amount < 0:
-                    raise InvalidOperation
-            except (InvalidOperation, ValueError):
-                raise HTTPException(status_code=422, detail=f"{key} must be a non-negative decimal")
-            params[key] = value.strip()
-    if min_price and min_price.strip() and max_price and max_price.strip() and Decimal(min_price.strip()) > Decimal(max_price.strip()):
-        raise HTTPException(status_code=422, detail="min_price cannot exceed max_price")
-    if external_collection_number and external_collection_number.strip():
-        if not external_collection_number.strip().isdigit():
-            raise HTTPException(status_code=422, detail="external_collection_number must contain digits only")
-        params["external_collection_number"] = external_collection_number.strip()
-    if filter_by_backdrops and filter_by_backdrops.strip():
-        params["filter_by_backdrops"] = filter_by_backdrops.strip()
-    if filter_by_models and filter_by_models.strip():
-        params["filter_by_models"] = filter_by_models.strip()
-    if filter_by_symbols and filter_by_symbols.strip():
-        params["filter_by_symbols"] = filter_by_symbols.strip()
-    if mint_status:
-        if mint_status not in {"all", "minted", "not_minted"}:
-            raise HTTPException(status_code=422, detail="mint_status must be all, minted or not_minted")
-        params["mint_status"] = mint_status
-    if statuses and statuses.strip():
-        allowed_statuses = {"listed", "unlisted", "withdrawn", "auction", "deleted"}
-        requested_statuses = [value.strip() for value in statuses.split(",") if value.strip()]
-        if not requested_statuses or any(value not in allowed_statuses for value in requested_statuses):
-            raise HTTPException(status_code=422, detail="statuses contains an unsupported value")
-        params["statuses"] = ",".join(requested_statuses)
-    allowed_sorts = {
-        "listed_at desc", "price asc", "price desc",
-        "external_collection_number asc", "external_collection_number desc",
-        "model_rarity asc", "model_rarity desc", "name asc", "name desc",
+    # Read only native GIFT RADAR inventory. Never fall back to an external market.
+    return {
+        "items": [],
+        "total_count": 0,
+        "connected": False,
+        "sources": source_status(),
+        "updated_at": None,
+        "note": "Native GIFT RADAR inventory is not yet published.",
     }
-    if sort_by:
-        if sort_by not in allowed_sorts:
-            raise HTTPException(status_code=422, detail="Unsupported sort_by value")
-        params["sort_by"] = sort_by
-    if status:
-        if status not in {"listed", "unlisted"}:
-            raise HTTPException(status_code=422, detail="status must be listed or unlisted")
-        params["status"] = status
-
-    # Reuse the last server-side result for identical filters.
-    cache_key = json.dumps(params, sort_keys=True, separators=(",", ":"))
-    cached = _gifts_cache.get(cache_key)
-    if cached and time.monotonic() - cached[0] < GIFTS_CACHE_SECONDS:
-        return cached[1]
-
-    try:
-        payload = await _portals_get_json("/nfts/search", params)
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=502, detail="Could not load Portals gift listings")
-
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=502, detail="Portals gift search response is invalid")
-    results = payload.get("results", [])
-    if not isinstance(results, list):
-        raise HTTPException(status_code=502, detail="Portals gift search response is invalid")
-
-    items = []
-    for gift in results:
-        if not isinstance(gift, dict):
-            continue
-        items.append({
-            "id": gift.get("id"),
-            "name": gift.get("name"),
-            "number": gift.get("external_collection_number"),
-            "collection_id": gift.get("collection_id"),
-            "image": gift.get("photo_url"),
-            "animation_url": gift.get("animation_url") or gift.get("animationUrl"),
-            "has_animation": bool(gift.get("has_animation") or gift.get("hasAnimation") or gift.get("animation_url") or gift.get("animationUrl")),
-            "price": gift.get("price"),
-            "floor_price": gift.get("floor_price"),
-            "attributes": _safe_gift_attributes(gift.get("attributes")),
-            "status": gift.get("status"),
-            "listed_at": gift.get("listed_at"),
-            "source": "Portals",
-            "currency": "GRAM",
-        })
-
-    result = {
-        "items": items,
-        "total_count": _safe_total_count(payload.get("total_count"), len(items)),
-        "connected": True,
-        "sources": {**source_status(), "portals": "online_read_only"},
-        "updated_at": int(time.time()),
-    }
-    # Persist only authoritative Portals catalogue metadata. This is a metadata index,
-    # not custody, ownership proof, or a transfer of the underlying NFT.
-    upsert_catalogue_items(items)
-    _gifts_cache[cache_key] = (time.monotonic(), result)
-    if len(_gifts_cache) > 200:
-        oldest = sorted(_gifts_cache, key=lambda key: _gifts_cache[key][0])[:-150]
-        for old_key in oldest:
-            _gifts_cache.pop(old_key, None)
-    return result
-
-
 
 @app.get("/api/catalog/items/{gift_id}")
 async def catalogue_item(gift_id: str):
@@ -960,34 +852,9 @@ async def reference_daily_floors(full: bool = Query(default=False)):
 
 
 async def _refresh_public_catalogues():
-    """Warm backend caches from upstream public APIs independently of browser visits."""
-    interval = _refresh_interval_seconds()
+    """No external marketplace polling. Native inventory is event-driven."""
     while True:
-        if _marketplace_enabled("portals") and os.getenv("PORTALS_API_KEY", "").strip():
-            try:
-                await collections()
-            except Exception:
-                pass
-            try:
-                await gifts(
-                    limit=24,
-                    offset=0,
-                    search=None,
-                    collection_id=None,
-                    min_price=None,
-                    max_price=None,
-                    external_collection_number=None,
-                    filter_by_backdrops=None,
-                    filter_by_models=None,
-                    filter_by_symbols=None,
-                    mint_status=None,
-                    statuses=None,
-                    sort_by=None,
-                    status=None,
-                )
-            except Exception:
-                pass
-        await asyncio.sleep(interval)
+        await asyncio.sleep(_refresh_interval_seconds())
 
 
 @app.on_event("startup")
