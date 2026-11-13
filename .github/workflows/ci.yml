@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, payments/stars-ton-proof-phase-2026-11-13]
     types: [opened, synchronize, reopened, edited, ready_for_review]
 
 permissions:
@@ -26,11 +26,13 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install Python dependencies and lint tool
-        run: pip install -r requirements.txt ruff
+        run: pip install -r requirements.txt ruff pip-audit
       - name: Lint newly added security and test modules
-        run: ruff check --select E4,E7,E9,F app.py tests/test_api_surface_security.py asset_policy.py financial_ledger.py access_control.py security_controls.py tests/test_asset_policy.py tests/test_telegram_update_idempotency.py tests/test_financial_ledger.py tests/test_security_controls.py postgres_compat.py scripts/migrate_sqlite_to_postgres.py ton_deposit_monitor.py ton_payment_providers.py marketplace_settlement.py withdrawal_signer.py tests/test_marketplace_settlement.py tests/test_withdrawal_signer.py ton_nft_verifier.py ton_nft_providers.py marketplace_inventory.py tests/test_ton_deposit_monitor.py tests/test_ton_nft_verifier.py tests/test_ton_nft_providers.py tests/test_marketplace_inventory.py tests/test_nft_escrow_monitor.py tests/test_nft_escrow_release_gate.py tests/test_postgres_compat.py tests/test_telegram_stars.py tests/test_postgres_migrations.py migrations/versions/0012_expire_unpaid_marketplace_deals.py
+        run: ruff check --select E4,E7,E9,F app.py tests/test_api_surface_security.py asset_policy.py financial_ledger.py access_control.py security_controls.py tests/test_asset_policy.py tests/test_telegram_update_idempotency.py tests/test_financial_ledger.py tests/test_security_controls.py postgres_compat.py scripts/migrate_sqlite_to_postgres.py ton_deposit_monitor.py ton_payment_providers.py marketplace_settlement.py withdrawal_signer.py tests/test_marketplace_settlement.py tests/test_withdrawal_signer.py ton_nft_verifier.py ton_nft_providers.py marketplace_inventory.py tests/test_ton_deposit_monitor.py tests/test_ton_nft_verifier.py tests/test_ton_nft_providers.py tests/test_marketplace_inventory.py tests/test_nft_escrow_monitor.py tests/test_nft_escrow_release_gate.py tests/test_postgres_compat.py tests/test_telegram_stars.py tests/test_postgres_migrations.py release_policy.py tests/test_testnet_only_safety.py migrations/versions/0012_expire_unpaid_marketplace_deals.py
       - name: Compile all backend modules
         run: python -m compileall -q app.py bot.py marketplace.py demo_offers.py catalog_store.py financial_ledger.py ton_deposit_monitor.py ton_payment_providers.py marketplace_settlement.py withdrawal_signer.py ton_nft_verifier.py ton_nft_providers.py marketplace_inventory.py access_control.py security_controls.py postgres_compat.py scripts migrations tests
+      - name: Audit Python dependencies
+        run: pip-audit -r requirements.txt
       - name: Apply full schema migrations to CI SQLite database
         env:
           DATABASE_URL: sqlite:////tmp/gift-radar-ci-finance.sqlite3
@@ -52,6 +54,9 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm install --no-audit --no-fund
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: npm audit --audit-level=high
       - name: Check Svelte and TypeScript
         working-directory: frontend
         run: npm run check
