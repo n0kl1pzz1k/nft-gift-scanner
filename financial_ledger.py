@@ -925,11 +925,16 @@ def request_ton_withdrawal(*, user_id: str, asset_id: str, destination_address: 
     init_financial_schema(db)
     uid = str(user_id).strip()
     asset = ASSETS.get(asset_id)
-    destination = str(destination_address or "").strip()
+    from ton_nft_providers import canonical_ton_address
+    destination_input = str(destination_address or "").strip()
+    try:
+        destination = canonical_ton_address(destination_input)
+    except (TypeError, ValueError):
+        raise ValueError("A valid TON mainnet destination address is required") from None
+    if not destination.startswith("0:"):
+        raise ValueError("Only TON basechain destination addresses are supported")
     if not uid.isdigit() or int(uid) <= 0 or asset is None or asset.chain.value != "ton-mainnet":
         raise ValueError("Unsupported withdrawal owner or asset")
-    if not destination or len(destination) > 128 or any(ch.isspace() for ch in destination):
-        raise ValueError("A valid TON destination address is required")
     if int(amount_raw) <= 0 or int(fee_raw) < 0 or not idempotency_key or len(idempotency_key) > 200:
         raise ValueError("Invalid withdrawal amount, fee or idempotency key")
     total = int(amount_raw) + int(fee_raw)
