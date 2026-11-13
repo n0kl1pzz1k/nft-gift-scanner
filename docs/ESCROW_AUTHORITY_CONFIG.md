@@ -27,7 +27,15 @@ Each escrow deployment receives exactly three distinct signer addresses and thre
 }
 ```
 
-The values above are placeholders, not usable addresses. The first end-to-end testnet flow uses the minimal 2-of-3 policy. Membership is supplied at deal creation/deployment and validated before deployment.
+The values above are placeholders, not usable addresses. The first end-to-end testnet flow uses the minimal 2-of-3 policy. Membership is loaded only from the platform's access-controlled authority registry by the backend at deal creation/deployment. It is never accepted from seller/buyer request fields. The backend validates it before deployment.
+
+## Sole source of truth and validation enforcement
+
+- The platform authority registry is the sole source of signer and arbitrator addresses. It is not editable through seller or buyer APIs, Telegram Mini App payloads, deal metadata or client-supplied wallet addresses.
+- Deal creation accepts commercial terms and participant wallet addresses only. The backend injects authority membership from the platform registry, computes a canonical configuration hash and stores an audit record.
+- Backend rejects any request attempting to set or override signer/arbitrator addresses. It also rejects a configuration where seller/buyer appears in either set.
+- Contract initialization verifies the platform authorization over the exact network, deal ID, escrow address and configuration hash, then stores an immutable per-deal snapshot. Contract messages from seller/buyer cannot write authority fields.
+- Every privileged action is checked against the on-chain snapshot. Backend compares its cached configuration hash with the contract getter before sending the action.
 
 ## Validation rules
 
@@ -42,7 +50,7 @@ The values above are placeholders, not usable addresses. The first end-to-end te
 
 - The authority set is immutable for an active deal. Changing a global operator configuration affects only future deals.
 - No single operator, admin API call or one signer can rewrite the authority set for an existing escrow.
-- A future authority rotation mechanism must be a separately reviewed protocol change. It must preserve the current deal's quorum, record old/new configuration hashes and prevent a compromised minority from replacing the set.
+- Normal membership is immutable for an active deal. Emergency rotation after one signer compromise is allowed only through a dedicated contract operation requiring 2-of-2 signatures from the two remaining original signers; it removes the compromised key, adds a new platform-approved key, preserves the 2-of-3 threshold and records old/new configuration hashes. Seller/buyer cannot request or approve the rotation. If both remaining signers are not available, privileged actions stay paused and the deal follows the bounded escalation policy. A compromised key alone cannot rotate or unpause the deal.
 - Keys remain in independent external signers/HSMs. The application stores public addresses and non-secret configuration only. It never stores seed phrases or private keys.
 
 ## Operational separation
@@ -61,5 +69,7 @@ The values above are placeholders, not usable addresses. The first end-to-end te
 5. One arbitrator cannot meet a 2-of-3 dispute quorum; two distinct configured arbitrators can.
 6. Duplicate votes, outsider votes, cross-deal replay and wrong-network authorizations are rejected.
 7. Getters return the exact immutable configuration and configuration hash.
+8. Seller/buyer API payloads cannot override authority members; attempted injection is rejected.
+9. A single compromised signer cannot authorize payment, release, dispute resolution, recovery, pause bypass or key rotation; emergency rotation requires both remaining original signers.
 
 The existing prototype does not yet satisfy these acceptance tests. This document defines the target; it is not evidence of implementation or testnet deployment.
