@@ -87,6 +87,8 @@ def create_withdrawal_request(*, user_id: str, asset_id: str,
             or not os.getenv("TON_SIGNER_WALLET_ID", "").strip()
             or not os.getenv("TONCENTER_API_KEY", "").strip()):
         raise PermissionError("The remote HSM signer and TON broadcaster are not fully configured")
+    if len(_approved_admin_ids()) < 2:
+        raise PermissionError("At least two distinct withdrawal approvers must be configured")
     release_gates = (
         "KZ_LEGAL_REVIEW_APPROVED", "KZ_DATA_RESIDENCY_VERIFIED",
         "KZ_TAX_REVIEW_APPROVED", "KZ_SECURITY_REVIEW_APPROVED",
