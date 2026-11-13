@@ -533,15 +533,16 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 raise HTTPException(status_code=404, detail="Deal not found")
             if user_id not in (deal["listing_owner_id"], deal["offer_sender_id"]):
                 raise HTTPException(status_code=404, detail="Deal not found")
+            event_sequence = "sequence" if postgres_storage_enabled() else "rowid"
             rows = conn.execute(
-                """SELECT id, event_type, actor_user_id, event_data, created_at, sequence
+                f"""SELECT id, event_type, actor_user_id, event_data, created_at, sequence
                    FROM (
                        SELECT id, event_type, actor_user_id, event_data, created_at,
-                              CAST(id AS TEXT) AS sequence
+                              {event_sequence} AS sequence
                        FROM demo_deal_events WHERE deal_id = ?
                        UNION ALL
                        SELECT id, event_type, actor_user_id, event_data, created_at,
-                              CAST(1000000000 + sequence AS TEXT) AS sequence
+                              1000000000 + sequence AS sequence
                        FROM demo_deal_lifecycle_events WHERE deal_id = ?
                    )
                    ORDER BY created_at ASC, sequence ASC""",
