@@ -7,6 +7,7 @@ identity/owner. Listings stay pending until the NFT is independently observed in
 from __future__ import annotations
 
 import os
+import re
 import time
 import uuid
 from typing import Any
@@ -372,8 +373,11 @@ async def verify_and_activate_escrow_listing(*, listing_id: str,
     db = engine or get_engine()
     init_inventory_schema(db)
     escrow_address = os.getenv("GIFT_RADAR_ESCROW_ADDRESS", "").strip()
+    expected_code_hash = os.getenv("GIFT_RADAR_ESCROW_CODE_HASH", "").strip().lower().removeprefix("0x")
     if not escrow_address:
         raise RuntimeError("GIFT_RADAR_ESCROW_ADDRESS is not configured")
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_code_hash):
+        raise RuntimeError("A reviewed 32-byte GIFT_RADAR_ESCROW_CODE_HASH is required")
     escrow_address = canonical_ton_address(escrow_address)
     providers = providers or configured_nft_providers()
     if {provider.provider_id for provider in providers} != {"tonapi", "toncenter"}:
@@ -396,7 +400,13 @@ async def verify_and_activate_escrow_listing(*, listing_id: str,
     item_address = proof["evidence_reference"]
     seller_wallet = canonical_ton_address(asset["owner_wallet_address"] or "")
     results = []
+    escrow_code_hashes = set()
     for provider in providers:
+        code_hash = await provider.get_account_code_hash(escrow_address)
+        normalized_code_hash = str(code_hash or "").lower().removeprefix("0x")
+        if not re.fullmatch(r"[0-9a-f]{64}", normalized_code_hash):
+            raise PermissionError("Provider did not return a valid escrow contract code hash")
+        escrow_code_hashes.add(normalized_code_hash)
         state = await provider.get_nft_state(item_address)
         transfer = await provider.get_nft_transfer(
             item_address=item_address, old_owner=seller_wallet, new_owner=escrow_address,
@@ -428,6 +438,8 @@ async def verify_and_activate_escrow_listing(*, listing_id: str,
         })
     if {item["provider_id"] for item in results} != {"tonapi", "toncenter"}:
         raise PermissionError("Two independent TON providers are required")
+    if escrow_code_hashes != {expected_code_hash}:
+        raise PermissionError("On-chain escrow contract code hash does not match the reviewed deployment")
     transfer_hashes = {item["transfer"]["tx_hash"] for item in results}
     state_hashes = {_hash(item["state"]) for item in results}
     if len(transfer_hashes) != 1 or len(state_hashes) != 1:
