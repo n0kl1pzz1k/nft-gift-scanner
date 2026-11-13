@@ -77,6 +77,14 @@ def get_engine() -> Engine:
 
 def init_financial_schema(engine: Engine | None = None) -> None:
     db = engine or get_engine()
+    if db.dialect.name == "postgresql":
+        with db.connect() as conn:
+            if not db.dialect.has_table(conn, "alembic_version"):
+                raise RuntimeError("PostgreSQL schema must be initialized through Alembic migrations")
+            version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
+            if version != "0001_financial_ledger":
+                raise RuntimeError("Financial database migration is missing or not at the expected revision")
+        return
     metadata.create_all(db)
     if db.dialect.name == "sqlite":
         with db.begin() as conn:
@@ -204,8 +212,6 @@ def settle_verified_ton_payment(*, invoice_id: str, trace: dict[str, Any],
         if row is None:
             raise ValueError("Unknown payment invoice")
         invoice = dict(row)
-        if invoice["status"] != "pending" or int(invoice["expires_at"]) < int(time.time()):
-            raise ValueError("Invoice is not payable")
         verify_ton_payment_trace(trace, invoice)
         duplicate = conn.execute(select(payment_events.c.payment_event_id).where(
             payment_events.c.chain == trace["chain"], payment_events.c.tx_hash == trace["tx_hash"],
@@ -213,6 +219,8 @@ def settle_verified_ton_payment(*, invoice_id: str, trace: dict[str, Any],
             payment_events.c.asset_id == invoice["asset_id"])).first()
         if duplicate:
             return {"credited": False, "duplicate": True}
+        if invoice["status"] != "pending" or int(invoice["expires_at"]) < int(time.time()):
+            raise ValueError("Invoice is not payable")
         event_id = str(uuid.uuid4())
         conn.execute(insert(payment_events).values(payment_event_id=event_id, invoice_id=invoice_id,
             chain=trace["chain"], tx_hash=trace["tx_hash"], event_index=int(trace["event_index"]),
