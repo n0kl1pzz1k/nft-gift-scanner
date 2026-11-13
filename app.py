@@ -1187,6 +1187,16 @@ async def wallet_policy():
         asset_id: is_crypto_payment_enabled(asset_id)
         for asset_id in ("GRAM", "usdt-ton", "usdt-tron")
     }
+    withdrawal_requests_enabled = bool(
+        any(crypto_enabled.values())
+        and os.getenv("TON_WITHDRAWAL_REQUESTS_ENABLED", "false").strip().lower() == "true"
+        and os.getenv("TON_WITHDRAWALS_ENABLED", "false").strip().lower() == "true"
+        and os.getenv("TON_WITHDRAWAL_EXECUTOR_ENABLED", "false").strip().lower() == "true"
+        and os.getenv("TON_SIGNER_SERVICE_URL", "").strip().startswith("https://")
+        and bool(os.getenv("TON_SIGNER_SERVICE_TOKEN", "").strip())
+        and bool(os.getenv("TON_SIGNER_WALLET_ID", "").strip())
+        and bool(os.getenv("TONCENTER_API_KEY", "").strip())
+    )
     return {
         "wallet_connect": "ton_connect_with_server_verified_ton_proof",
         "supported_network": "ton-mainnet",
@@ -1198,7 +1208,8 @@ async def wallet_policy():
         "crypto_payments_enabled": any(crypto_enabled.values()),
         "crypto_assets": crypto_enabled,
         "telegram_stars_payments_enabled": _stars_payment_enabled(),
-        "withdrawals_enabled": False,
+        "withdrawal_requests_enabled": withdrawal_requests_enabled,
+        "withdrawals_enabled": withdrawal_requests_enabled,
         "payment_note": (
             "TON deposits are available only when all independent-provider and Kazakhstan release gates pass."
             if any(crypto_enabled.values())
