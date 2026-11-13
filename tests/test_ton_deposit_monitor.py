@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from sqlalchemy import create_engine, insert
 
-from financial_ledger import invoices, get_account_balance
+from financial_ledger import invoices, get_account_balance, init_financial_schema
 from ton_deposit_monitor import record_ton_provider_observation
 
 
@@ -17,6 +17,7 @@ class TonDepositMonitorTests(unittest.TestCase):
         self.engine = create_engine(
             f"sqlite:///{Path(self.temp.name) / 'ton-monitor.sqlite3'}", future=True
         )
+        init_financial_schema(self.engine)
         self.invoice = {
             "invoice_id": "gri_monitor", "user_id": "501", "asset_id": "GRAM",
             "chain": "ton-mainnet", "master_address": "", "asset_kind": "native",
