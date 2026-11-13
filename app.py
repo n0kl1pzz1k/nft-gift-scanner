@@ -1196,6 +1196,8 @@ async def wallet_policy():
         and bool(os.getenv("TON_SIGNER_SERVICE_TOKEN", "").strip())
         and bool(os.getenv("TON_SIGNER_WALLET_ID", "").strip())
         and bool(os.getenv("TONCENTER_API_KEY", "").strip())
+        and len({part.strip() for part in os.getenv("WITHDRAWAL_APPROVER_IDS", "").split(",")
+                 if part.strip().isdigit()}) >= 2
     )
     return {
         "wallet_connect": "ton_connect_with_server_verified_ton_proof",
