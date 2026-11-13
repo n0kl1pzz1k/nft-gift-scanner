@@ -17,14 +17,14 @@ except ImportError:
     Redis = None
     RedisError = ConnectionError
 
-_MUTATING_PREFIXES = ("/api/auth/", "/api/wallet/", "/api/payments/")
+_MUTATING_PREFIXES = ("/api/auth/", "/api/wallet/", "/api/payments/", "/api/inventory/")
 # Marketplace and offer routers already enforce authenticated, per-user action limits.
 _EXEMPT = {"/api/telegram/webhook", "/health"}
 _local: dict[str, deque[float]] = defaultdict(deque)
 _redis = None
 
 
-def _origins() -> set[str]:
+def _requires_edge_limit(path: str) -> bool:\n    return path.startswith(_MUTATING_PREFIXES)\n\n\ndef _apply_security_headers(response):\n    response.headers.setdefault("X-Content-Type-Options", "nosniff")\n    response.headers.setdefault("X-Frame-Options", "DENY")\n    response.headers.setdefault("Referrer-Policy", "no-referrer")\n    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")\n    response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains")\n    if response.headers.get("content-type", "").lower().startswith("application/json"):\n        response.headers.setdefault("Cache-Control", "no-store")\n    return response\n\n\ndef _origins() -> set[str]:
     raw = os.getenv(
         "CORS_ALLOWED_ORIGINS",
         "https://nft-gift-scanner.fj7kmzkhn9.workers.dev,https://nft-gift-scanner.pages.dev",
@@ -64,10 +64,10 @@ class SecurityControlsMiddleware(BaseHTTPMiddleware):
             if not origin and request.headers.get("sec-fetch-site", "").lower() == "cross-site":
                 return JSONResponse({"detail": "Cross-site mutation rejected"}, status_code=403)
 
-        needs_edge_limit = path.startswith(_MUTATING_PREFIXES)
+        needs_edge_limit = _requires_edge_limit(path)
         if path not in _EXEMPT and needs_edge_limit:
             ip = request.client.host if request.client else "unknown"
-            key = f"{method}:{path}:{ip}"
+            bucket = next(prefix for prefix in _MUTATING_PREFIXES if path.startswith(prefix))\n            key = f"{method}:{bucket}:{ip}"
             limit, window = 60, 60
             redis_url = os.getenv("REDIS_URL", "").strip()
             if redis_url and Redis is not None:
@@ -106,7 +106,7 @@ class SecurityControlsMiddleware(BaseHTTPMiddleware):
                         headers={"Retry-After": str(window)},
                     )
                 hits.append(now)
-        return await call_next(request)
+        response = await call_next(request)\n        return _apply_security_headers(response)
 
 
 def _is_production() -> bool:
