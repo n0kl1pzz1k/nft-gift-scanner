@@ -119,6 +119,7 @@ class MarketplaceSettlementTests(unittest.TestCase):
                     deal_id=intent.deal_id, reference=intent.reference,
                     amount=intent.amount, currency="tUSDT",
                     transaction_id="ef" * 32, finalized=True, network="testnet",
+                    query_id=777,
                 )
 
             async def refund(self, evidence):

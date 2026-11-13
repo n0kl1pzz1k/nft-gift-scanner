@@ -33,6 +33,7 @@ class PaymentEvidence:
     transaction_id: str
     finalized: bool
     network: str
+    query_id: int | None = None
 
 
 @runtime_checkable
@@ -141,7 +142,8 @@ def configured_payment_route(*, ton_gateway: TestnetTonUsdtGateway | None = None
     if selected != "ton_usdt_testnet":
         raise PaymentRouteError(f"Unsupported payment route: {selected}")
     if ton_gateway is None:
-        raise PaymentRouteError("TON testnet gateway is not configured")
+        from ton_testnet_gateway import configured_ton_testnet_gateway
+        ton_gateway = configured_ton_testnet_gateway()
     return TonUsdtTestnetPaymentRoute(
         ton_gateway,
         network=os.getenv("TON_NETWORK", "testnet").strip().lower(),

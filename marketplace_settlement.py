@@ -216,7 +216,8 @@ async def confirm_deal_payment_via_route(*, deal_id: str, intent: Any, route: An
     if (evidence.deal_id != deal_id or evidence.reference != intent.reference
             or evidence.amount != intent.amount or evidence.currency != "tUSDT"
             or evidence.network != "testnet" or not evidence.finalized
-            or not evidence.transaction_id):
+            or not evidence.transaction_id or not evidence.query_id
+            or int(evidence.query_id) <= 0):
         raise ValueError("Payment route returned mismatched or incomplete evidence")
     db = engine or get_engine()
     init_marketplace_settlement_schema(db)
@@ -262,6 +263,7 @@ async def confirm_deal_payment_via_route(*, deal_id: str, intent: Any, route: An
                 "route_id": route.route_id, "network": "testnet",
                 "currency": "tUSDT", "transaction_id": evidence.transaction_id,
                 "reference": intent.reference, "amount_raw": int(evidence.amount),
+                "query_id": int(evidence.query_id),
             }, now=current,
         )
     return {

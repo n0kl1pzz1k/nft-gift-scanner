@@ -31,6 +31,7 @@ class TestnetTransfer:
     sender: str
     recipient: str
     finalized: bool
+    query_id: int
 
 
 class TransferProvider(Protocol):
@@ -148,6 +149,7 @@ class TonCenterTestnetProvider:
                 sender=str(_pick(row, "source", "sender") or ""),
                 recipient=str(recipient),
                 finalized=bool(mc_seqno > 0 and account_lt >= lt),
+                query_id=int(_pick(row, "query_id") or 0),
             )
         return None
 
@@ -197,6 +199,7 @@ class TonApiEmbedTestnetProvider:
                 sender=str(_pick(row, "source", "sender") or ""),
                 recipient=str(recipient),
                 finalized=bool(mc_seqno > 0 and last_lt >= lt),
+                query_id=int(_pick(row, "query_id") or 0),
             )
         return None
 
@@ -243,18 +246,19 @@ class TonTestnetPaymentGateway:
         assert first is not None and second is not None
         comparable = lambda item: (
             item.transaction_id, item.deal_id, item.reference, item.amount,
-            item.currency, item.network, item.finalized,
+            item.currency, item.network, item.finalized, item.query_id,
         )
         if comparable(first) != comparable(second):
             raise PaymentRouteError("TON testnet providers disagree on payment evidence")
-        if not first.finalized or first.amount != intent.amount or first.deal_id != intent.deal_id:
+        if (not first.finalized or first.amount != intent.amount
+                or first.deal_id != intent.deal_id or first.query_id <= 0):
             return None
         if first.reference != intent.reference:
             return None
         return PaymentEvidence(
             deal_id=first.deal_id, reference=first.reference, amount=first.amount,
             currency="tUSDT", transaction_id=first.transaction_id,
-            finalized=True, network="testnet",
+            finalized=True, network="testnet", query_id=first.query_id,
         )
 
     async def refund(self, evidence: PaymentEvidence) -> str:
