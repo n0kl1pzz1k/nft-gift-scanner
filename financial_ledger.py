@@ -1,10 +1,17 @@
 """Append-only double-entry ledger and fail-closed TON trace verification."""
 from __future__ import annotations
-import hashlib, json, os, time, uuid
+import hashlib
+import json
+import os
+import time
+import uuid
 from typing import Any
-from sqlalchemy import (BigInteger, CheckConstraint, Column, ForeignKey, Integer, MetaData,
-    String, Table, UniqueConstraint, create_engine, insert, select, func, text)
-from sqlalchemy.engine import Engine, Connection
+
+from sqlalchemy import (
+    BigInteger, CheckConstraint, Column, ForeignKey, Integer, MetaData, String,
+    Table, UniqueConstraint, create_engine, insert, select, text,
+)
+from sqlalchemy.engine import Connection, Engine
 
 metadata = MetaData()
 accounts = Table("ledger_accounts", metadata,
