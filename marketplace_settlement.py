@@ -178,6 +178,99 @@ def create_deal_from_reservation(*, reservation_id: str, buyer_user_id: str,
                 "price_raw": int(listing["price_raw"]), "duplicate": False}
 
 
+async def create_deal_payment_intent_via_route(*, deal_id: str, route: Any,
+                                           actor_user_id: str,
+                                           engine: Engine | None = None) -> Any:
+    """Create a payment intent for a reserved deal without touching the Ledger."""
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    with db.connect() as conn:
+        deal = conn.execute(select(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id
+        )).mappings().first()
+    if deal is None:
+        raise ValueError("Unknown marketplace deal")
+    if str(deal["buyer_user_id"]) != str(actor_user_id):
+        raise PermissionError("Only the deal buyer can create its payment intent")
+    if deal["status"] != "reserved" or deal["currency"] != "USDT":
+        raise ValueError("Deal is not eligible for the TON testnet tUSDT route")
+    if not getattr(route, "enabled", False) or route.route_id != "ton_usdt_testnet":
+        raise PermissionError("The selected payment route is not enabled for testnet deals")
+    return await route.create_intent(
+        deal_id=deal_id, amount=int(deal["price_raw"]), currency="tUSDT",
+    )
+
+
+async def confirm_deal_payment_via_route(*, deal_id: str, intent: Any, route: Any,
+                                         actor_user_id: str,
+                                         engine: Engine | None = None,
+                                         now: int | None = None) -> dict[str, Any]:
+    """Confirm a direct escrow payment from independent chain evidence, never via Ledger."""
+    if not getattr(route, "enabled", False) or route.route_id != "ton_usdt_testnet":
+        raise PermissionError("The selected payment route is not enabled for testnet deals")
+    if intent.deal_id != deal_id or intent.network != "testnet" or intent.currency != "tUSDT":
+        raise ValueError("Payment intent does not match the TON testnet deal")
+    evidence = await route.verify_payment(intent)
+    if evidence is None:
+        return {"confirmed": False, "status": "reserved", "reason": "payment_not_finalized"}
+    if (evidence.deal_id != deal_id or evidence.reference != intent.reference
+            or evidence.amount != intent.amount or evidence.currency != "tUSDT"
+            or evidence.network != "testnet" or not evidence.finalized
+            or not evidence.transaction_id):
+        raise ValueError("Payment route returned mismatched or incomplete evidence")
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    current = int(now or time.time())
+    lock = db.dialect.name == "postgresql"
+    with db.begin() as conn:
+        query = select(marketplace_deals).where(marketplace_deals.c.deal_id == deal_id)
+        if lock:
+            query = query.with_for_update()
+        deal = conn.execute(query).mappings().first()
+        if deal is None:
+            raise ValueError("Unknown marketplace deal")
+        if str(deal["buyer_user_id"]) != str(actor_user_id):
+            raise PermissionError("Only the deal buyer can confirm payment")
+        if deal["status"] == "payment_confirmed":
+            if (deal["payment_invoice_id"] == intent.reference
+                    and deal["payment_event_id"] == evidence.transaction_id):
+                return {"confirmed": True, "duplicate": True, "status": "payment_confirmed"}
+            raise ValueError("Deal already has a different payment confirmation")
+        if deal["status"] != "reserved" or deal["currency"] != "USDT":
+            raise ValueError("Deal is not accepting TON testnet tUSDT payment")
+        if int(deal["price_raw"]) != int(evidence.amount):
+            raise ValueError("Payment amount does not match the reserved deal")
+        reservation = conn.execute(select(marketplace_reservations).where(
+            marketplace_reservations.c.reservation_id == deal["reservation_id"]
+        )).mappings().first()
+        if (reservation is None or reservation["status"] != "active"
+                or int(reservation["expires_at"]) <= current):
+            raise PermissionError("Marketplace reservation has expired or been cancelled")
+        conn.execute(update(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id,
+            marketplace_deals.c.status == "reserved",
+        ).values(
+            status="payment_confirmed",
+            payment_invoice_id=intent.reference,
+            payment_event_id=evidence.transaction_id,
+            updated_at=current,
+        ))
+        _event(
+            conn, deal_id=deal_id, event_type="payment_route_confirmed",
+            actor_type="buyer", actor_id=str(actor_user_id),
+            data={
+                "route_id": route.route_id, "network": "testnet",
+                "currency": "tUSDT", "transaction_id": evidence.transaction_id,
+                "reference": intent.reference, "amount_raw": int(evidence.amount),
+            }, now=current,
+        )
+    return {
+        "confirmed": True, "duplicate": False, "status": "payment_confirmed",
+        "route_id": route.route_id, "network": "testnet",
+        "transaction_id": evidence.transaction_id,
+    }
+
+
 def reserve_verified_deal_payment(*, deal_id: str, invoice_id: str,
                                   actor_user_id: str | None = None,
                                   engine: Engine | None = None,

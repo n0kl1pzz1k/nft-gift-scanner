@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 import unittest
@@ -5,6 +6,8 @@ from unittest import mock
 from pathlib import Path
 
 from sqlalchemy import create_engine, text
+
+from payment_routes import PaymentEvidence, PaymentIntent, TonUsdtTestnetPaymentRoute
 
 from financial_ledger import (
     get_account_balance, invoices, payment_events,
@@ -16,6 +19,7 @@ from marketplace_inventory import (
 )
 from marketplace_settlement import (
     create_deal_from_reservation, init_marketplace_settlement_schema,
+    create_deal_payment_intent_via_route, confirm_deal_payment_via_route,
     mark_deal_nft_transfer_pending, reserve_verified_deal_payment,
     confirm_deal_nft_transfer, refund_unfulfilled_deal, expire_unpaid_marketplace_deals, open_deal_dispute, resolve_deal_dispute, list_reconciliation_required_deals, add_deal_reconciliation_note, marketplace_deal_events,
 )
@@ -100,6 +104,71 @@ class MarketplaceSettlementTests(unittest.TestCase):
 
 
 
+
+    def test_payment_route_confirms_deal_without_touching_ledger(self):
+        class Gateway:
+            async def create_intent(self, **kwargs):
+                return PaymentIntent(
+                    deal_id=kwargs["deal_id"], amount=kwargs["amount"],
+                    currency=kwargs["currency"], reference="grpay:" + kwargs["deal_id"],
+                    network="testnet",
+                )
+
+            async def verify_payment(self, intent):
+                return PaymentEvidence(
+                    deal_id=intent.deal_id, reference=intent.reference,
+                    amount=intent.amount, currency="tUSDT",
+                    transaction_id="ef" * 32, finalized=True, network="testnet",
+                )
+
+            async def refund(self, evidence):
+                raise AssertionError("Refund is deliberately not part of this test")
+
+        with self.engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE marketplace_deals SET currency='USDT' WHERE deal_id=:deal_id"
+            ), {"deal_id": self.deal_id})
+        buyer_before = get_account_balance(
+            "liability:user:202:GRAM", "GRAM", engine=self.engine,
+        )
+        hold_before = get_account_balance(
+            f"liability:deal_hold:{self.deal_id}:USDT", "USDT", engine=self.engine,
+        )
+        route = TonUsdtTestnetPaymentRoute(
+            Gateway(), network="testnet", escrow_address=self.escrow,
+            jetton_master="0:" + "66" * 32,
+        )
+        intent = asyncio.run(create_deal_payment_intent_via_route(
+            deal_id=self.deal_id, route=route, actor_user_id="202",
+            engine=self.engine,
+        ))
+        result = asyncio.run(confirm_deal_payment_via_route(
+            deal_id=self.deal_id, intent=intent, route=route,
+            actor_user_id="202", engine=self.engine, now=150,
+        ))
+        self.assertTrue(result["confirmed"])
+        self.assertEqual(result["status"], "payment_confirmed")
+        self.assertEqual(buyer_before, get_account_balance(
+            "liability:user:202:GRAM", "GRAM", engine=self.engine,
+        ))
+        self.assertEqual(hold_before, get_account_balance(
+            f"liability:deal_hold:{self.deal_id}:USDT", "USDT", engine=self.engine,
+        ))
+        with self.engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT status,payment_invoice_id,payment_event_id FROM marketplace_deals WHERE deal_id=:id"
+            ), {"id": self.deal_id}).one()
+            self.assertEqual(row.status, "payment_confirmed")
+            self.assertEqual(row.payment_invoice_id, intent.reference)
+            self.assertEqual(row.payment_event_id, "ef" * 32)
+            self.assertEqual(conn.execute(text(
+                "SELECT COUNT(*) FROM marketplace_deal_events WHERE deal_id=:id AND event_type='payment_route_confirmed'"
+            ), {"id": self.deal_id}).scalar_one(), 1)
+        duplicate = asyncio.run(confirm_deal_payment_via_route(
+            deal_id=self.deal_id, intent=intent, route=route,
+            actor_user_id="202", engine=self.engine, now=151,
+        ))
+        self.assertTrue(duplicate["duplicate"])
 
     def test_buyer_can_open_dispute_before_transfer_and_duplicate_is_idempotent(self):
         reserve_verified_deal_payment(
