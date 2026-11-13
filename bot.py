@@ -3,7 +3,7 @@ import html
 import os
 
 import httpx
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
@@ -12,8 +12,10 @@ from aiogram.types import (
     WebAppInfo,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
+    PreCheckoutQuery,
 )
 from dotenv import load_dotenv
+from financial_ledger import approve_telegram_stars_pre_checkout, settle_telegram_stars_payment
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
@@ -32,6 +34,9 @@ ADMIN_TELEGRAM_IDS = {
     if part.strip().isdigit()
 }
 CHANNEL_URL = "https://t.me/nopzw"
+STARS_PAYMENTS_ENABLED = os.getenv("TELEGRAM_STARS_PAYMENTS_ENABLED", "false").strip().lower() == "true"
+TERMS_URL = os.getenv("TERMS_URL", "").strip()
+PAYMENT_SUPPORT_URL = os.getenv("PAYMENT_SUPPORT_URL", "").strip()
 
 
 def is_admin(message: Message) -> bool:
@@ -104,6 +109,58 @@ def create_dispatcher() -> Dispatcher:
             "/myid — показать твой Telegram ID\n\n"
             "Если Mini App не открывается, обнови Telegram и попробуй /start ещё раз."
         )
+
+    @dp.message(Command("terms"))
+    async def terms_command(message: Message):
+        if TERMS_URL.startswith("https://"):
+            await message.answer("Условия использования и оплаты: " + html.escape(TERMS_URL))
+        else:
+            await message.answer("Условия оплаты пока не опубликованы. Покупки временно отключены.")
+
+    @dp.message(Command("paysupport"))
+    async def payment_support_command(message: Message):
+        if PAYMENT_SUPPORT_URL.startswith("https://"):
+            await message.answer("Поддержка по платежам: " + html.escape(PAYMENT_SUPPORT_URL))
+        else:
+            await message.answer("Платежи сейчас отключены. Обратись в поддержку через официальный канал GIFT RADAR.")
+
+    @dp.pre_checkout_query()
+    async def stars_pre_checkout(query: PreCheckoutQuery):
+        if not (STARS_PAYMENTS_ENABLED and TERMS_URL.startswith("https://") and PAYMENT_SUPPORT_URL.startswith("https://")):
+            await query.answer(ok=False, error_message="Оплата временно недоступна. Попробуйте позже.")
+            return
+        try:
+            approved = approve_telegram_stars_pre_checkout(
+                payload=query.invoice_payload,
+                buyer_user_id=str(query.from_user.id),
+                currency=query.currency,
+                amount_stars=query.total_amount,
+                query_id=query.id,
+            )
+        except Exception:
+            approved = False
+        await query.answer(
+            ok=approved,
+            error_message=None if approved else "Счёт недействителен, истёк или не соответствует заказу.",
+        )
+
+    @dp.message(F.successful_payment)
+    async def stars_successful_payment(message: Message):
+        payment = message.successful_payment
+        if payment is None or message.from_user is None:
+            raise RuntimeError("Telegram successful_payment update is incomplete")
+        result = settle_telegram_stars_payment(
+            payload=payment.invoice_payload,
+            buyer_user_id=str(message.from_user.id),
+            currency=payment.currency,
+            amount_stars=payment.total_amount,
+            telegram_payment_charge_id=payment.telegram_payment_charge_id,
+            provider_payment_charge_id=payment.provider_payment_charge_id,
+        )
+        if result["duplicate"]:
+            await message.answer("Эта оплата уже была учтена. Повторного начисления не произошло.")
+        else:
+            await message.answer("Оплата Stars подтверждена. Сделка переведена в статус «оплачена».")
 
     @dp.message(Command("admin"))
     async def admin_panel(message: Message):
