@@ -39,6 +39,7 @@ PAYMENT_SUPPORT_URL = os.getenv("PAYMENT_SUPPORT_URL", "").strip()
 STARS_PAYMENTS_ENABLED = (
     os.getenv("TELEGRAM_STARS_PAYMENTS_ENABLED", "false").strip().lower() == "true"
     and os.getenv("MARKETPLACE_REAL_DEALS_ENABLED", "false").strip().lower() == "true"
+    and bool(os.getenv("TELEGRAM_STARS_TERMS_VERSION", "").strip())
     and os.getenv("GIFT_RADAR_STORAGE_BACKEND", "sqlite").strip().lower() == "postgres"
     and os.getenv("DATABASE_URL", "").strip().startswith(("postgres://", "postgresql://", "postgresql+psycopg://"))
     and TERMS_URL.startswith("https://")
