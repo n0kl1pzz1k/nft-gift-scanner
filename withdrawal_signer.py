@@ -25,6 +25,7 @@ from financial_ledger import (
     confirm_ton_withdrawal, quarantine_ton_withdrawal,
 )
 from asset_policy import ASSETS, validate_payment_amount, is_crypto_payment_enabled
+from release_policy import TON_TESTNET_WITHDRAWAL_ADAPTER_READY
 from ton_nft_providers import canonical_ton_address
 
 
@@ -393,7 +394,9 @@ async def execute_approved_withdrawal(*, request_id: str,
                                       signer: HsmSigner | None = None,
                                       broadcaster: ToncenterBroadcaster | None = None,
                                       now: int | None = None) -> dict[str, Any]:
-    """Execute a two-approved withdrawal once; every ambiguous external result is quarantined."""
+    """Execute a withdrawal only after a testnet broadcaster has been implemented."""
+    if not TON_TESTNET_WITHDRAWAL_ADAPTER_READY:
+        raise PermissionError("TON withdrawals are disabled: the current signer and broadcaster target mainnet")
     if os.getenv("TON_WITHDRAWALS_ENABLED", "false").strip().lower() != "true":
         raise PermissionError("TON withdrawals are disabled by policy")
     if os.getenv("TON_WITHDRAWAL_EXECUTOR_ENABLED", "false").strip().lower() != "true":
