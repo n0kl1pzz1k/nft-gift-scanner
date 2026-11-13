@@ -207,12 +207,22 @@ def init_financial_schema(engine: Engine | None = None) -> None:
     metadata.create_all(db)
     if db.dialect.name == "sqlite":
         with db.begin() as conn:
-            for table in ("ledger_entries", "ledger_lines", "payment_events", "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances"):
+            for table in ("ledger_entries", "ledger_lines", "payment_events", "ton_chain_observations", "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances"):
                 for action in ("UPDATE", "DELETE"):
                     conn.execute(text(f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_{action.lower()} BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT, 'append-only financial record'); END"))
 
 def _hash(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+
+
+def ton_trace_evidence_hash(trace: dict[str, Any]) -> str:
+    keys = (
+        "chain", "asset_kind", "master_address", "source_jetton_wallet",
+        "expected_source_jetton_wallet", "sender_address", "recipient_address",
+        "amount_raw", "payload", "opcode", "successful", "bounced", "finalized",
+        "tx_hash", "event_index",
+    )
+    return _hash({key: trace.get(key) for key in keys if key in trace})
 
 def _ensure_account(conn: Connection, account_id: str, account_type: str, currency: str, now: int) -> None:
     row = conn.execute(select(accounts.c.currency).where(accounts.c.account_id == account_id)).first()
@@ -837,6 +847,23 @@ def settle_verified_ton_payment(*, invoice_id: str, trace: dict[str, Any],
             raise ValueError("Unknown payment invoice")
         invoice = dict(row)
         verify_ton_payment_trace(trace, invoice)
+        evidence_hash = ton_trace_evidence_hash(trace)
+        observations = conn.execute(select(
+            ton_chain_observations.c.provider_id,
+            ton_chain_observations.c.evidence_hash,
+            ton_chain_observations.c.finalized,
+        ).where(
+            ton_chain_observations.c.network == trace["chain"],
+            ton_chain_observations.c.tx_hash == trace["tx_hash"],
+            ton_chain_observations.c.event_index == int(trace["event_index"]),
+            ton_chain_observations.c.asset_id == invoice["asset_id"],
+        )).mappings().all()
+        independent_providers = {
+            item["provider_id"] for item in observations
+            if bool(item["finalized"]) and item["evidence_hash"] == evidence_hash
+        }
+        if len(independent_providers) < 2:
+            raise PermissionError("Two matching finalized TON provider observations are required")
         duplicate = conn.execute(select(payment_events.c.payment_event_id).where(
             payment_events.c.chain == trace["chain"], payment_events.c.tx_hash == trace["tx_hash"],
             payment_events.c.event_index == int(trace["event_index"]),
