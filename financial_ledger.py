@@ -113,6 +113,7 @@ stars_refund_requests = Table("telegram_stars_refund_requests", metadata,
     Column("updated_at", BigInteger, nullable=False),
     Column("processed_by", String(64)),
     Column("telegram_response_ref", String(256)),
+    Column("reconciliation_note", String(500)),
     CheckConstraint("amount_stars > 0", name="ck_telegram_stars_refund_request_amount"),
     CheckConstraint("status IN ('requested', 'processing', 'succeeded', 'failed', 'reconciliation_required')",
                     name="ck_telegram_stars_refund_request_status"))
@@ -165,7 +166,7 @@ def init_financial_schema(engine: Engine | None = None) -> None:
             if not db.dialect.has_table(conn, "alembic_version"):
                 raise RuntimeError("PostgreSQL schema must be initialized through Alembic migrations")
             version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-            if version != "0006_stars_refunds":
+            if version != "0007_stars_refund_reconciliation":
                 raise RuntimeError("Financial database migration is missing or not at the expected revision")
         return
     metadata.create_all(db)
@@ -689,6 +690,31 @@ def complete_telegram_stars_refund(*, request_id: str, telegram_response_ref: st
         return {"refunded": True, "duplicate": False, "request_id": str(request_id),
                 "entry_id": journal["entry_id"]}
 
+
+def require_telegram_stars_refund_reconciliation(*, request_id: str, reason: str,
+                                                engine: Engine | None = None,
+                                                now: int | None = None) -> None:
+    """Quarantine an ambiguous Telegram refund result; never make it retryable automatically."""
+    db = engine or get_engine()
+    init_financial_schema(db)
+    current = int(now or time.time())
+    clean_reason = " ".join(str(reason or "").split())[:500] or "Telegram refund outcome is ambiguous"
+    statement = select(stars_refund_requests).where(
+        stars_refund_requests.c.request_id == str(request_id))
+    if db.dialect.name == "postgresql":
+        statement = statement.with_for_update()
+    with db.begin() as conn:
+        row = conn.execute(statement).mappings().first()
+        if row is None:
+            raise ValueError("Unknown refund request")
+        if row["status"] == "reconciliation_required":
+            return
+        if row["status"] != "processing":
+            raise ValueError("Only an ambiguous processing refund can require reconciliation")
+        conn.execute(stars_refund_requests.update().where(
+            stars_refund_requests.c.request_id == str(request_id)
+        ).values(status="reconciliation_required", reconciliation_note=clean_reason,
+                 updated_at=current))
 
 def fail_telegram_stars_refund(*, request_id: str, reason: str,
                                engine: Engine | None = None, now: int | None = None) -> None:
