@@ -98,6 +98,21 @@ class PostgresMigrationSmokeTests(unittest.TestCase):
                 connection.execute(text(
                     "UPDATE marketplace_ownership_proofs SET evidence_reference='tampered' WHERE proof_id=:id"
                 ), {"id": proof_id})
+        reservation_id = "ci-reservation-" + uuid.uuid4().hex
+        with self.engine.begin() as connection:
+            connection.execute(text(
+                "INSERT INTO marketplace_reservations "
+                "(reservation_id,listing_id,buyer_user_id,status,expires_at,created_at) "
+                "VALUES (:id,:listing,:buyer,'active',300,200)"
+            ), {"id": reservation_id, "listing": listing_id, "buyer": str(900000000 + uuid.uuid4().int % 900000000)})
+        with self.assertRaises(Exception):
+            with self.engine.begin() as connection:
+                connection.execute(text(
+                    "INSERT INTO marketplace_reservations "
+                    "(reservation_id,listing_id,buyer_user_id,status,expires_at,created_at) "
+                    "VALUES (:id,:listing,:buyer,'active',400,200)"
+                ), {"id": "ci-reservation-" + uuid.uuid4().hex, "listing": listing_id,
+                     "buyer": str(900000000 + uuid.uuid4().int % 900000000)})
         with self.assertRaises(Exception):
             with self.engine.begin() as connection:
                 connection.execute(text(
