@@ -1,8 +1,7 @@
 import "@acton/testing/expect"
-import "@acton/testing/treasury"
 import "@wrappers/GiftRadarEscrow.gen"
 
-fun setupEscrow(): (GiftRadarEscrow, Treasury, Treasury, Treasury, Treasury, Treasury, Treasury) {
+fun setupEscrow(): (GiftRadarEscrow, address, address, address, address, address, address) {
     val seller = testing.treasury("seller");
     val buyer = testing.treasury("buyer");
     val nftItem = testing.treasury("nft-item");
@@ -54,22 +53,22 @@ fun setupEscrow(): (GiftRadarEscrow, Treasury, Treasury, Treasury, Treasury, Tre
         from: authority.address,
         to: escrow.address,
     });
-    return (escrow, seller, buyer, nftItem, authority, arb1, arb2);
+    return (escrow, seller.address, buyer.address, nftItem.address, authority.address, arb1.address, arb2.address);
 }
 
-fun depositNft(escrow: GiftRadarEscrow, seller: Treasury, nftItem: Treasury) {
+fun depositNft(escrow: GiftRadarEscrow, seller: address, nftItem: address) {
     val result = net.send(nftItem.address, createMessage({
         bounce: true,
         value: grams("0.2"),
         dest: escrow.address,
         body: NotificationForNewOwner {
             queryId: 1,
-            oldOwnerAddress: seller.address,
+            oldOwnerAddress: seller,
             payload: createEmptySlice(),
         },
     }));
     expect(result).toHaveSuccessfulTx<NotificationForNewOwner>({
-        from: nftItem.address,
+        from: nftItem,
         to: escrow.address,
     });
 }
@@ -90,7 +89,7 @@ get fun `test only configured NFT item and seller can deposit`() {
         dest: escrow.address,
         body: NotificationForNewOwner {
             queryId: 1,
-            oldOwnerAddress: seller.address,
+            oldOwnerAddress: seller,
             payload: createEmptySlice(),
         },
     }));
@@ -108,7 +107,7 @@ get fun `test only configured NFT item and seller can deposit`() {
 get fun `test deposit rejects a previous owner other than seller`() {
     val (escrow, _, _, nftItem, _, _, _) = setupEscrow();
     val impostor = testing.treasury("impostor-seller");
-    val bad = net.send(nftItem.address, createMessage({
+    val bad = net.send(nftItem, createMessage({
         bounce: true,
         value: grams("0.2"),
         dest: escrow.address,
@@ -119,7 +118,7 @@ get fun `test deposit rejects a previous owner other than seller`() {
         },
     }));
     expect(bad).toHaveFailedTx<NotificationForNewOwner>({
-        from: nftItem.address,
+        from: nftItem,
         to: escrow.address,
         exitCode: 1001,
     });
@@ -147,7 +146,7 @@ get fun `test payment attestation is authority-only and exact-amount`() {
         exitCode: 1001,
     });
 
-    val wrongAmount = net.send(authority.address, createMessage({
+    val wrongAmount = net.send(authority, createMessage({
         bounce: true,
         value: grams("0.05"),
         dest: escrow.address,
@@ -158,7 +157,7 @@ get fun `test payment attestation is authority-only and exact-amount`() {
         },
     }));
     expect(wrongAmount).toHaveFailedTx<RecordStarsPayment>({
-        from: authority.address,
+        from: authority,
         to: escrow.address,
         exitCode: 1004,
     });
@@ -174,25 +173,25 @@ get fun `test duplicate Telegram payment attestation is idempotent`() {
         amount: 250,
         telegramChargeHash: 0xabc123,
     };
-    val first = net.send(authority.address, createMessage({
+    val first = net.send(authority, createMessage({
         bounce: true,
         value: grams("0.05"),
         dest: escrow.address,
         body: payment,
     }));
     expect(first).toHaveSuccessfulTx<RecordStarsPayment>({
-        from: authority.address,
+        from: authority,
         to: escrow.address,
     });
 
-    val duplicate = net.send(authority.address, createMessage({
+    val duplicate = net.send(authority, createMessage({
         bounce: true,
         value: grams("0.05"),
         dest: escrow.address,
         body: payment,
     }));
     expect(duplicate).toHaveSuccessfulTx<RecordStarsPayment>({
-        from: authority.address,
+        from: authority,
         to: escrow.address,
     });
     expect(readEscrowState(escrow).state).toEqual(2);
@@ -201,7 +200,7 @@ get fun `test duplicate Telegram payment attestation is idempotent`() {
 get fun `test seller payout cannot be marked before buyer delivery`() {
     val (escrow, seller, _, nftItem, authority, _, _) = setupEscrow();
     depositNft(escrow, seller, nftItem);
-    net.send(authority.address, createMessage({
+    net.send(authority, createMessage({
         bounce: true,
         value: grams("0.05"),
         dest: escrow.address,
@@ -212,7 +211,7 @@ get fun `test seller payout cannot be marked before buyer delivery`() {
         },
     }));
 
-    val early = net.send(authority.address, createMessage({
+    val early = net.send(authority, createMessage({
         bounce: true,
         value: grams("0.05"),
         dest: escrow.address,
@@ -222,7 +221,7 @@ get fun `test seller payout cannot be marked before buyer delivery`() {
         },
     }));
     expect(early).toHaveFailedTx<MarkSellerSettled>({
-        from: authority.address,
+        from: authority,
         to: escrow.address,
         exitCode: 1002,
     });
@@ -232,7 +231,7 @@ get fun `test seller payout cannot be marked before buyer delivery`() {
 get fun `test release is buyer-only and moves to transfer pending`() {
     val (escrow, seller, buyer, nftItem, authority, _, _) = setupEscrow();
     depositNft(escrow, seller, nftItem);
-    net.send(authority.address, createMessage({
+    net.send(authority, createMessage({
         bounce: true,
         value: grams("0.05"),
         dest: escrow.address,
@@ -257,19 +256,19 @@ get fun `test release is buyer-only and moves to transfer pending`() {
     });
     expect(readEscrowState(escrow).state).toEqual(2);
 
-    val release = net.send(buyer.address, createMessage({
+    val release = net.send(buyer, createMessage({
         bounce: true,
         value: grams("0.05"),
         dest: escrow.address,
         body: RequestNftRelease { queryId: 8 },
     }));
     expect(release).toHaveSuccessfulTx<RequestNftRelease>({
-        from: buyer.address,
+        from: buyer,
         to: escrow.address,
     });
     expect(release).toHaveTx<AskToChangeOwnership>({
         from: escrow.address,
-        to: nftItem.address,
+        to: nftItem,
     });
     expect(readEscrowState(escrow).state).toEqual(3);
 }
@@ -277,7 +276,7 @@ get fun `test release is buyer-only and moves to transfer pending`() {
 get fun `test dispute dismissal requires two distinct arbitrators`() {
     val (escrow, seller, _, nftItem, authority, arb1, arb2) = setupEscrow();
     depositNft(escrow, seller, nftItem);
-    net.send(authority.address, createMessage({
+    net.send(authority, createMessage({
         bounce: true,
         value: grams("0.05"),
         dest: escrow.address,
@@ -288,19 +287,19 @@ get fun `test dispute dismissal requires two distinct arbitrators`() {
         },
     }));
 
-    val dispute = net.send(seller.address, createMessage({
+    val dispute = net.send(seller, createMessage({
         bounce: true,
         value: grams("0.05"),
         dest: escrow.address,
         body: RaiseDispute { queryId: 10, reasonHash: 0xdef001 },
     }));
     expect(dispute).toHaveSuccessfulTx<RaiseDispute>({
-        from: seller.address,
+        from: seller,
         to: escrow.address,
     });
     expect(readEscrowState(escrow).state).toEqual(7);
 
-    val first = net.send(arb1.address, createMessage({
+    val first = net.send(arb1, createMessage({
         bounce: true,
         value: grams("0.05"),
         dest: escrow.address,
@@ -311,12 +310,12 @@ get fun `test dispute dismissal requires two distinct arbitrators`() {
         },
     }));
     expect(first).toHaveSuccessfulTx<ApproveDisputeResolution>({
-        from: arb1.address,
+        from: arb1,
         to: escrow.address,
     });
     expect(readEscrowState(escrow).state).toEqual(7);
 
-    val second = net.send(arb2.address, createMessage({
+    val second = net.send(arb2, createMessage({
         bounce: true,
         value: grams("0.05"),
         dest: escrow.address,
@@ -327,7 +326,7 @@ get fun `test dispute dismissal requires two distinct arbitrators`() {
         },
     }));
     expect(second).toHaveSuccessfulTx<ApproveDisputeResolution>({
-        from: arb2.address,
+        from: arb2,
         to: escrow.address,
     });
     expect(readEscrowState(escrow).state).toEqual(2);
@@ -337,7 +336,7 @@ get fun `test dispute dismissal requires two distinct arbitrators`() {
 get fun `test dispute during pending NFT transfer is quarantined`() {
     val (escrow, seller, buyer, nftItem, authority, _, _) = setupEscrow();
     depositNft(escrow, seller, nftItem);
-    net.send(authority.address, createMessage({
+    net.send(authority, createMessage({
         bounce: true,
         value: grams("0.05"),
         dest: escrow.address,
@@ -347,21 +346,21 @@ get fun `test dispute during pending NFT transfer is quarantined`() {
             telegramChargeHash: 0xabc128,
         },
     }));
-    net.send(buyer.address, createMessage({
+    net.send(buyer, createMessage({
         bounce: true,
         value: grams("0.05"),
         dest: escrow.address,
         body: RequestNftRelease { queryId: 14 },
     }));
 
-    val dispute = net.send(buyer.address, createMessage({
+    val dispute = net.send(buyer, createMessage({
         bounce: true,
         value: grams("0.05"),
         dest: escrow.address,
         body: RaiseDispute { queryId: 15, reasonHash: 0xdef003 },
     }));
     expect(dispute).toHaveSuccessfulTx<RaiseDispute>({
-        from: buyer.address,
+        from: buyer,
         to: escrow.address,
     });
     expect(readEscrowState(escrow).state).toEqual(8);
