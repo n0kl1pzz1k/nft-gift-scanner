@@ -12,8 +12,8 @@ import uuid
 from typing import Any
 
 from sqlalchemy import (
-    BigInteger, Boolean, CheckConstraint, Column, ForeignKey, Index, MetaData,
-    String, Table, Text, UniqueConstraint, insert, select, update,
+    BigInteger, CheckConstraint, Column, ForeignKey, Index,
+    String, Table, Text, UniqueConstraint, insert, select, update, text,
 )
 from sqlalchemy.engine import Engine
 
@@ -125,9 +125,7 @@ def init_inventory_schema(engine: Engine | None = None) -> None:
     db = engine or get_engine()
     if db.dialect.name == "postgresql":
         with db.connect() as conn:
-            version = conn.execute(select(__import__("sqlalchemy").text("version_num")).select_from(
-                __import__("sqlalchemy").text("alembic_version")
-            )).scalar_one_or_none()
+            version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
         if version != "0009_seller_wallet_inventory":
             raise RuntimeError("Seller inventory migration 0009 is required")
         return
@@ -135,7 +133,7 @@ def init_inventory_schema(engine: Engine | None = None) -> None:
     if db.dialect.name == "sqlite":
         with db.begin() as conn:
             for table in ("marketplace_ownership_proofs", "marketplace_listing_events"):
-                conn.execute(__import__("sqlalchemy").text(
+                conn.execute(text(
                     f"CREATE TRIGGER IF NOT EXISTS {table}_no_update BEFORE UPDATE ON {table} "
                     "BEGIN SELECT RAISE(ABORT, 'marketplace evidence and events are append-only'); END"
                 ))
