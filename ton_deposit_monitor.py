@@ -164,21 +164,33 @@ async def scan_ton_invoice(
         raise ValueError("Unknown payment invoice")
     invoice = dict(row)
     results = []
+    provider_errors: list[dict[str, str]] = []
+    # An outage at one indexer must not prevent collecting evidence from the
+    # other. A single provider can never satisfy the settlement quorum.
     for provider_id in sorted(by_id):
-        trace = await by_id[provider_id].find_invoice_transfer(invoice)
-        if trace is None:
-            continue
-        results.append(record_ton_provider_observation(
-            invoice_id=invoice_id, provider_id=provider_id, trace=trace, engine=db
-        ))
+        try:
+            trace = await by_id[provider_id].find_invoice_transfer(invoice)
+            if trace is None:
+                continue
+            results.append(record_ton_provider_observation(
+                invoice_id=invoice_id, provider_id=provider_id, trace=trace, engine=db
+            ))
+        except Exception as exc:
+            provider_errors.append({
+                "provider_id": provider_id,
+                "error_type": type(exc).__name__,
+            })
     settled = next((item for item in results if item.get("settled")), None)
     if settled:
-        return settled
+        return {**settled, "provider_errors": provider_errors,
+                "provider_error_count": len(provider_errors)}
     return {
         "settled": False,
         "review_required": any(item.get("review_required") for item in results),
         "provider_count": max((item.get("provider_count", 0) for item in results), default=0),
         "observations": len(results),
+        "provider_errors": provider_errors,
+        "provider_error_count": len(provider_errors),
     }
 
 
@@ -211,7 +223,7 @@ async def scan_pending_ton_invoices(
             invoices.c.expires_at > grace_cutoff,
         ).order_by(invoices.c.created_at.asc()).limit(max(1, min(int(batch_size), 500)))).scalars().all()
     stats = {"checked": 0, "settled": 0, "observations": 0,
-             "duplicates": 0, "review_required": 0, "errors": 0}
+             "duplicates": 0, "review_required": 0, "provider_errors": 0, "errors": 0}
     for invoice_id in invoice_ids:
         stats["checked"] += 1
         try:
@@ -220,6 +232,7 @@ async def scan_pending_ton_invoices(
             stats["settled"] += int(bool(result.get("settled")))
             stats["duplicates"] += int(bool(result.get("duplicate")))
             stats["review_required"] += int(bool(result.get("review_required")))
+            stats["provider_errors"] += int(result.get("provider_error_count", 0))
         except Exception as exc:
             # Never log transaction payloads, wallet addresses, invoice data or API credentials.
             import logging
