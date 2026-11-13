@@ -194,6 +194,13 @@ class MarketplaceSettlementTests(unittest.TestCase):
             engine=self.engine, now=171,
         )
         self.assertTrue(duplicate["duplicate"])
+        with self.assertRaises(ValueError):
+            add_deal_reconciliation_note(
+                deal_id=self.deal_id, admin_user_id="999",
+                note="A different note using the same key",
+                idempotency_key="reconcile-note-0001",
+                engine=self.engine, now=172,
+            )
         updated = list_reconciliation_required_deals(
             engine=self.engine, limit=10, offset=0,
         )
