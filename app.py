@@ -880,6 +880,7 @@ async def telegram_stars_policy():
     }
 
 
+@app.post("/api/inventory/deals/{deal_id}/stars-invoice")
 @app.post("/api/marketplace/deals/{deal_id}/stars-invoice")
 async def create_stars_invoice_endpoint(
     deal_id: str,
