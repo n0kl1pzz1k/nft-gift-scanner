@@ -722,7 +722,16 @@ def complete_telegram_stars_refund(*, request_id: str, telegram_response_ref: st
         if (invoice is None or invoice["status"] != "paid"
                 or invoice["telegram_payment_charge_id"] != row["telegram_payment_charge_id"]):
             raise RuntimeError("Refund request no longer matches the paid invoice")
+        deal_status = conn.execute(text(
+            "SELECT status FROM demo_deals WHERE id=:deal_id"
+        ), {"deal_id": invoice["deal_id"]}).scalar_one_or_none()
+        if deal_status not in {"paid", "delivery_pending", "disputed"}:
+            raise PermissionError("Completed or inactive deals cannot be refunded through the Stars hold")
         amount = int(row["amount_stars"])
+        hold_account = "liability:deal_hold:" + str(invoice["deal_id"]) + ":XTR"
+        held_amount = -_account_balance_in_connection(conn, hold_account, "XTR")
+        if held_amount != amount:
+            raise PermissionError("Stars proceeds are not fully available in the original deal hold")
         journal = _post(conn,
             idempotency_key="telegram-stars-refund:" + hashlib.sha256(
                 row["telegram_payment_charge_id"].encode("utf-8")).hexdigest(),
@@ -736,6 +745,10 @@ def complete_telegram_stars_refund(*, request_id: str, telegram_response_ref: st
         conn.execute(stars_invoices.update().where(
             stars_invoices.c.invoice_id == row["invoice_id"]
         ).values(status="refunded", refunded_at=current))
+        conn.execute(text(
+            "UPDATE demo_deals SET status='cancelled' WHERE id=:deal_id "
+            "AND status IN ('paid','delivery_pending','disputed')"
+        ), {"deal_id": invoice["deal_id"]})
         conn.execute(stars_refund_requests.update().where(
             stars_refund_requests.c.request_id == str(request_id)
         ).values(status="succeeded", updated_at=current,
