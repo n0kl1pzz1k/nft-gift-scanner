@@ -812,10 +812,19 @@ def add_deal_reconciliation_note(*, deal_id: str, admin_user_id: str,
         status = conn.execute(query).scalar_one_or_none()
         if status is None:
             raise ValueError("Unknown marketplace deal")
-        prior = conn.execute(select(marketplace_deal_events.c.event_id).where(
+        prior = conn.execute(select(
+            marketplace_deal_events.c.actor_id,
+            marketplace_deal_events.c.event_data,
+        ).where(
             marketplace_deal_events.c.event_id == event_id
-        )).first()
+        )).mappings().first()
         if prior:
+            try:
+                prior_data = json.loads(prior["event_data"] or "{}")
+            except (TypeError, ValueError):
+                prior_data = {}
+            if prior["actor_id"] != admin or prior_data.get("note") != clean_note:
+                raise ValueError("Reconciliation idempotency key was reused with different details")
             return {"recorded": False, "duplicate": True,
                     "status": "reconciliation_required"}
         if status != "reconciliation_required":
