@@ -79,6 +79,10 @@ def _stars_payment_enabled() -> bool:
         and database_url.startswith(("postgres://", "postgresql://", "postgresql+psycopg://"))
         and os.getenv("TERMS_URL", "").strip().startswith("https://")
         and os.getenv("PAYMENT_SUPPORT_URL", "").strip().startswith("https://")
+        and os.getenv("KZ_LEGAL_REVIEW_APPROVED", "false").strip().lower() == "true"
+        and os.getenv("KZ_DATA_RESIDENCY_VERIFIED", "false").strip().lower() == "true"
+        and os.getenv("KZ_TAX_REVIEW_APPROVED", "false").strip().lower() == "true"
+        and os.getenv("KZ_SECURITY_REVIEW_APPROVED", "false").strip().lower() == "true"
     )
 
 
