@@ -9,7 +9,7 @@ from sqlalchemy.exc import DBAPIError
 
 from financial_ledger import (
     get_account_balance, init_financial_schema, invoices, post_journal_entry,
-    ton_chain_observations, ton_trace_evidence_hash, withdrawal_events,
+    ton_chain_observations, ton_trace_evidence_hash,
     settle_verified_ton_payment, verify_ton_payment_trace,
     request_ton_withdrawal, advance_withdrawal_to_processing,
     mark_withdrawal_submitted, confirm_ton_withdrawal,
