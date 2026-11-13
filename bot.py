@@ -186,11 +186,10 @@ def create_dispatcher() -> Dispatcher:
         await message.answer(
             "🔐 <b>GIFT RADAR — админ-панель</b>\n\n"
             f"Mini App: {app_ready}\n"
-            f"Portals: {portals}\n"
             "<b>Команды:</b>\n"
             "/admin_status — проверить backend и источники\n"
             "/admin — открыть эту панель\n\n"
-            "Платежи: Telegram Stars (XTR), пока отключены до прохождения release gates.\\n"
+            "Платежи: Telegram Stars (XTR), пока отключены до прохождения release gates.\n"
             "Внешние маркетплейсы отключены. Реальные сделки и выплаты не активированы."
         )
 
@@ -213,7 +212,7 @@ def create_dispatcher() -> Dispatcher:
             await message.answer(
                 "📊 <b>Статус GIFT RADAR</b>\n\n"
                 "Backend: 🟢 онлайн\n"
-                f"Portals: <code>{portals}</code>\n"
+                f"Собственный каталог: <code>{native}</code>\\n"
                 f"Демо-ордера: <code>{stats.get('total_orders', 0)}</code>\n"
                 "Режим: <code>independent_native_marketplace</code>"
             )
