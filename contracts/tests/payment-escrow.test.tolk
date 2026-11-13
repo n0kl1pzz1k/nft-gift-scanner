@@ -5,10 +5,8 @@ import "@contracts/payment-escrow-types"
 import "@wrappers/GiftRadarPaymentEscrow.gen"
 import "@wrappers/MockNftItem.gen"
 import "@wrappers/JettonMinter.gen"
-import "@wrappers/JettonWallet.gen"
 import "@contracts/test-jetton/messages"
 import "@contracts/test-jetton/storage"
-import "@stdlib/strings"
 
 fun buildTestJettonMetadata(): cell {
     var metadata: OnchainMetadataReply = { contentDict: [] };
@@ -39,7 +37,12 @@ fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscr
         nextAdminAddress: null,
         metadata: buildTestJettonMetadata(),
     });
-    val minterDeploy = minter.sendDeploy(platformAdmin.address, { value: grams("1") });
+    val minterDeploy = net.send(platformAdmin.address, createMessage({
+        bounce: false,
+        value: grams("1"),
+        dest: { workchain: 0, stateInit: minter.stateInit! },
+        body: TopUpTons {},
+    }));
     expect(minterDeploy).toHaveSuccessfulDeploy({ to: minter.address });
 
     val escrow = GiftRadarPaymentEscrow.fromStorage({
