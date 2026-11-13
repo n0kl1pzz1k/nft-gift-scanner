@@ -70,7 +70,7 @@ Catalogue and provider integrations are read-only. The separate order-book inter
 The financial ledger and marketplace stores are separate logical subsystems. A guarded PostgreSQL adapter and a one-way migration path now cover the marketplace, offers, notifications and Portals catalogue tables; SQLite remains the default until a controlled data cutover is completed.
 
 - financial_ledger.py implements balanced signed integer-unit postings, immutable journal rows, idempotency keys, account balance projections, server-owned payment invoices and strict normalized TON Jetton trace checks.
-- migrations/ and alembic.ini provide an Alembic migration for PostgreSQL and SQLite CI. The PostgreSQL application stores require Alembic revision 0003_telegram_stars_payments (which includes the financial ledger base revision).
+- migrations/ and alembic.ini provide an Alembic migration for PostgreSQL and SQLite CI. The PostgreSQL application stores require Alembic revision 0004_telegram_stars_terms (which includes the financial ledger base revision).
 - payment_events has unique chain/transaction/event/asset identity and unique invoice binding. Ledger entries, lines and payment events are append-only at the database layer.
 - TON Connect requests a TON Proof challenge. The private verifier checks the proof against the authenticated Telegram user, exact dApp domain, wallet StateInit/address and supported wallet public key before persisting the public wallet binding. The client never receives or stores seed phrases/private keys; no transaction signing, transfers or crypto checkout are enabled.
 - /api/wallet/policy advertises the current disabled capabilities.
@@ -89,12 +89,12 @@ The financial ledger and marketplace stores are separate logical subsystems. A g
 8. Obtain written platform/legal approval for the exact digital-goods payment model. Crypto payment policy remains disabled; GRAM is not allowlisted; TRON remains excluded from Mini App.
 9. Run migration, backup/restore, load, concurrency, and security testing against staging before any production activation.
 
-The SQLite-to-PostgreSQL cutover is prepared but has not been executed. Telegram Stars invoice, pre-checkout and successful-payment handlers plus an authenticated invoice-link endpoint are implemented behind fail-closed gates. They cannot charge the current demo deals: all existing deals are `is_real=0`, no real-deal creation/fulfilment path exists, and the live backend still uses SQLite. The invoice-link request omits `provider_token` as required for XTR. `postgres_compat.py` provides the deliberately narrow SQL compatibility layer, and `migrations/versions/0003_telegram_stars_payments.py` creates the PostgreSQL marketplace, offer/deal, notification and catalogue schema. Catalogue JSON search uses PostgreSQL JSONB casts while preserving the stored JSON text.
+The SQLite-to-PostgreSQL cutover is prepared but has not been executed. Telegram Stars invoice, pre-checkout and successful-payment handlers plus an authenticated invoice-link endpoint are implemented behind fail-closed gates. They cannot charge the current demo deals: all existing deals are `is_real=0`, no real-deal creation/fulfilment path exists, and the live backend still uses SQLite. The invoice-link request omits `provider_token` as required for XTR. `postgres_compat.py` provides the deliberately narrow SQL compatibility layer, and `migrations/versions/0004_telegram_stars_terms.py` creates the PostgreSQL marketplace, offer/deal, notification and catalogue schema. Catalogue JSON search uses PostgreSQL JSONB casts while preserving the stored JSON text.
 
 #### Controlled SQLite-to-PostgreSQL cutover
 
 1. Take a verified backup of the SQLite database and record its file size and checksum. Keep the backup immutable.
-2. Provision PostgreSQL and apply `alembic upgrade head`. Confirm the Alembic revision is exactly `0003_telegram_stars_payments`.
+2. Provision PostgreSQL and apply `alembic upgrade head`. Confirm the Alembic revision is exactly `0004_telegram_stars_terms`.
 3. Copy the SQLite source to a controlled migration runner or securely mount its Railway volume. Do not print or paste database credentials.
 4. Run a dry-run first: `python scripts/migrate_sqlite_to_postgres.py --source /path/to/gift-radar.sqlite3`. It checks target emptiness, required source tables, row counts and deterministic SHA-256 checksums.
 5. Schedule a maintenance window, stop every SQLite writer, and take a final consistent backup. Only then run `python scripts/migrate_sqlite_to_postgres.py --source /path/to/gift-radar.sqlite3 --apply --source-quiesced`.
