@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import GiftMedia from './GiftMedia.svelte';
-  import { TonConnectUI } from '@tonconnect/ui';
+  import { CHAIN, TonConnectUI } from '@tonconnect/ui';
 
   type Gift = {
     id?: string | number; name?: string; number?: string | number;
@@ -941,6 +941,7 @@
     try {
       tonConnectUI = new TonConnectUI({
         manifestUrl: `${window.location.origin}/tonconnect-manifest.json`,
+        network: CHAIN.TESTNET,
       });
       tonConnectUI.onStatusChange((wallet) => {
         const nextAddress = wallet?.account.address || '';
