@@ -1100,6 +1100,11 @@ def settle_verified_ton_payment(*, invoice_id: str, trace: dict[str, Any],
             payment_events.c.asset_id == invoice["asset_id"])).first()
         if duplicate:
             return {"credited": False, "duplicate": True}
+        if invoice["status"] == "reconciliation_required":
+            return {
+                "credited": False, "duplicate": False,
+                "review_required": True, "reason": "late_payment_after_invoice_expiry",
+            }
         if invoice["status"] == "pending" and int(invoice["expires_at"]) <= current:
             conn.execute(invoices.update().where(
                 invoices.c.invoice_id == invoice_id,
