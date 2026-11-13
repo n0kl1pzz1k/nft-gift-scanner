@@ -30,7 +30,7 @@ from sqlalchemy import select
 
 from financial_ledger import (
     create_telegram_stars_invoice, record_telegram_stars_terms_acceptance,
-    request_ton_withdrawal, withdrawal_requests,
+    withdrawal_requests,
     request_telegram_stars_refund, prepare_telegram_stars_refund,
     complete_telegram_stars_refund, fail_telegram_stars_refund,
     require_telegram_stars_refund_reconciliation,
@@ -508,25 +508,15 @@ async def list_verified_inventory_listings(limit: int = Query(default=50, ge=1, 
     return {"items": [dict(row) for row in rows], "total": len(rows)}
 
 
-@app.post("/api/wallet/withdrawals", status_code=202)
+@app.post("/api/wallet/withdrawals", status_code=503)
 async def create_wallet_withdrawal(
     payload: TonWithdrawalRequest,
     x_telegram_init_data: str | None = Header(default=None),
 ):
-    user = _authenticate_telegram_credential(x_telegram_init_data or "")
-    if os.getenv("TON_WITHDRAWALS_ENABLED", "false").strip().lower() != "true":
-        raise HTTPException(status_code=503, detail="TON withdrawals are not enabled")
-    try:
-        result = request_ton_withdrawal(
-            user_id=str(user["id"]), asset_id=payload.asset_id,
-            destination_address=payload.destination_address, amount_raw=payload.amount_raw,
-            idempotency_key=payload.idempotency_key, fee_raw=0, engine=get_engine(),
-        )
-        return {"withdrawal": result, "broadcast": False}
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    _authenticate_telegram_credential(x_telegram_init_data or "")
+    # No audited signer, broadcaster or reconciliation worker exists yet.
+    # Do not accept requests or reserve user funds until that complete path is reviewed.
+    raise HTTPException(status_code=503, detail="TON withdrawals are temporarily unavailable")
 
 
 @app.get("/api/wallet/withdrawals")
@@ -537,7 +527,14 @@ async def list_wallet_withdrawals(
     db = get_engine()
     from sqlalchemy import select as sa_select
     with db.connect() as conn:
-        rows = conn.execute(sa_select(withdrawal_requests).where(
+        rows = conn.execute(sa_select(
+            withdrawal_requests.c.request_id, withdrawal_requests.c.asset_id,
+            withdrawal_requests.c.network, withdrawal_requests.c.destination_address,
+            withdrawal_requests.c.amount_raw, withdrawal_requests.c.fee_raw,
+            withdrawal_requests.c.status, withdrawal_requests.c.tx_hash,
+            withdrawal_requests.c.failure_reason, withdrawal_requests.c.created_at,
+            withdrawal_requests.c.updated_at,
+        ).where(
             withdrawal_requests.c.user_id == str(user["id"])
         ).order_by(withdrawal_requests.c.created_at.desc()).limit(100)).mappings().all()
     return {"items": [dict(row) for row in rows]}
@@ -649,8 +646,8 @@ async def create_stars_invoice_endpoint(
         raise HTTPException(status_code=403, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    except Exception:
-        logging.exception("Could not create Telegram Stars invoice")
+    except Exception as exc:
+        logging.warning("Telegram Stars invoice creation failed (%s)", type(exc).__name__)
         raise HTTPException(status_code=503, detail="Telegram Stars invoice service is unavailable")
 
 
@@ -671,8 +668,8 @@ async def request_stars_refund(
         raise HTTPException(status_code=403, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    except Exception:
-        logging.exception("Could not create Telegram Stars refund request")
+    except Exception as exc:
+        logging.warning("Telegram Stars refund request failed (%s)", type(exc).__name__)
         raise HTTPException(status_code=503, detail="Refund request could not be stored")
 
 
@@ -695,16 +692,16 @@ async def execute_stars_refund(
             user_id=int(refund["buyer_user_id"]),
             telegram_payment_charge_id=refund["telegram_payment_charge_id"],
         )
-    except Exception:
+    except Exception as exc:
         # Telegram may have processed the refund before a timeout. Never retry automatically.
-        logging.exception("Telegram Stars refund outcome is ambiguous; manual reconciliation required")
+        logging.warning("Telegram Stars refund outcome is ambiguous (%s); manual reconciliation required", type(exc).__name__)
         try:
             require_telegram_stars_refund_reconciliation(
                 request_id=request_id,
                 reason="Telegram refund API outcome was ambiguous; verify Telegram transaction history before any further action",
             )
-        except Exception:
-            logging.exception("Could not mark Telegram Stars refund for reconciliation")
+        except Exception as exc:
+            logging.error("Stars refund reconciliation lock failed (%s)", type(exc).__name__)
         raise HTTPException(status_code=503, detail="Refund outcome is ambiguous and locked for manual reconciliation; do not retry automatically")
     if not confirmed:
         fail_telegram_stars_refund(
@@ -718,8 +715,8 @@ async def execute_stars_refund(
             telegram_response_ref=refund["telegram_payment_charge_id"],
         )
         return result
-    except Exception:
-        logging.exception("Telegram confirmed refund but ledger finalization failed; reconciliation required")
+    except Exception as exc:
+        logging.error("Confirmed Stars refund ledger finalization failed (%s)", type(exc).__name__)
         raise HTTPException(status_code=503, detail="Telegram confirmed refund; ledger reconciliation is required")
 
 
@@ -728,7 +725,6 @@ async def wallet_policy():
     """Public capability disclosure: TON Connect only; no signatures or payments."""
     return {
         "wallet_connect": "ton_connect_with_server_verified_ton_proof",
-        "ton_proof_verification_configured": bool(os.getenv("TON_PROOF_SERVICE_URL", "").strip() and os.getenv("TON_PROOF_INTERNAL_TOKEN", "").strip()),
         "supported_network": "ton-mainnet",
         "stores": ["public_wallet_address_only_after_verified_wallet_proof"],
         "requests_seed_phrase": False,
@@ -738,7 +734,6 @@ async def wallet_policy():
         "crypto_payments_enabled": False,
         "telegram_stars_payments_enabled": _stars_payment_enabled(),
         "payment_note": "Crypto checkout remains disabled pending platform/compliance approval.",
-        "rate_limiting": rate_limit_status(),
     }
 
 
@@ -819,9 +814,9 @@ async def start_catalogue_refresh():
                 secret_token=_telegram_webhook_secret,
                 allowed_updates=_telegram_dispatcher.resolve_used_update_types(),
             )
-        except Exception:
+        except Exception as exc:
             import logging
-            logging.exception("Could not configure Telegram webhook")
+            logging.warning("Telegram webhook configuration failed (%s)", type(exc).__name__)
 
 
 @app.on_event("shutdown")
