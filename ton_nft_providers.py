@@ -84,6 +84,18 @@ class TonApiNftProvider:
                 return {"tx_hash": str(tx_hash).removeprefix("0x").lower(), "event_index": 0}
         return None
 
+    async def get_account_code_hash(self, account_address: str) -> str | None:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                "https://tonapi.io/v2/blockchain/accounts/" + account_address,
+                headers={"Authorization": "Bearer " + self.api_key},
+            )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        data = response.json()
+        return str(data.get("code_hash") or "").lower() or None
+
     async def get_nft_state(self, item_address: str) -> dict[str, Any] | None:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.get(
@@ -141,6 +153,20 @@ class ToncenterNftProvider:
                     "event_index": 0,
                 }
         return None
+
+    async def get_account_code_hash(self, account_address: str) -> str | None:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                "https://toncenter.com/api/v3/accountStates",
+                params={"address": account_address, "include_boc": "false"},
+                headers={"X-API-Key": self.api_key},
+            )
+        response.raise_for_status()
+        data = response.json()
+        accounts = data.get("accounts") or []
+        if len(accounts) != 1:
+            return None
+        return str(accounts[0].get("code_hash") or "").lower() or None
 
     async def get_nft_state(self, item_address: str) -> dict[str, Any] | None:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
