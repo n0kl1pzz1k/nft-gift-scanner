@@ -98,3 +98,15 @@ The release manager must attach evidence and obtain explicit approval for every 
 - [ ] Explicit written production release approval.
 
 Until all applicable boxes are evidenced, production payment and real-deal feature flags stay disabled. This document does not authorize deployment, migration, collection of Stars, refunds, wallet operations or movement of assets/funds.
+
+## 7. Infrastructure audit snapshot (2026-11-13)
+
+A read-only inspection of the currently configured Railway production environment found:
+
+- The live backend service is still configured to deploy from GitHub branch `main`, not the draft payment/compliance branch.
+- The backend and managed PostgreSQL service are configured in Railway region `iad` (US East / Ashburn). This is not Kazakhstan-resident storage.
+- The backend's production variable-name list does not include `DATABASE_URL` or `GIFT_RADAR_STORAGE_BACKEND`; it does include `GIFT_RADAR_DB_PATH`. The live app therefore has not been demonstrated to use the provisioned PostgreSQL service for its financial/user records.
+- The production backend still has a `PORTALS_API_KEY` variable configured, and the current `main` branch contains Portals references. The standalone-marketplace implementation exists in the unmerged draft PR branch and is not yet the live production version.
+- Railway reports the backend, PostgreSQL and Redis services as online, but online infrastructure status does not establish compliance, correct database connectivity, or application readiness.
+
+**Consequences:** production must not be treated as compliant with Kazakhstan personal-data localization; do not load real customer/payment data or enable checkout there. Do not remove the legacy Portals variable or change the live source/deploy configuration as part of this read-only audit, because doing so may affect the currently running service. A separately reviewed cutover plan must move the application and all in-scope data to a verified Kazakhstan-resident architecture, remove unused legacy integration secrets, connect and migrate to the intended database, and prove backup/restore and reconciliation before any live activation.
