@@ -9,7 +9,7 @@ from sqlalchemy.exc import DBAPIError
 
 from financial_ledger import (
     get_account_balance, init_financial_schema, invoices, post_journal_entry,
-    ton_chain_observations, ton_trace_evidence_hash,
+    ton_chain_observations, ton_trace_evidence_hash, withdrawal_events,
     settle_verified_ton_payment, verify_ton_payment_trace,
     request_ton_withdrawal, advance_withdrawal_to_processing,
     mark_withdrawal_submitted, confirm_ton_withdrawal,
@@ -181,6 +181,14 @@ class FinancialLedgerTests(unittest.TestCase):
             idempotency_key="withdrawal-1", engine=self.engine)
         self.assertFalse(first["duplicate"])
         self.assertTrue(second["duplicate"])
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.execute(text(
+                "SELECT COUNT(*) FROM withdrawal_events WHERE request_id=:id"
+            ), {"id": first["request_id"]}).scalar_one(), 1)
+        with self.assertRaises(DBAPIError), self.engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE withdrawal_events SET event_type='failed' WHERE request_id=:id"
+            ), {"id": first["request_id"]})
         self.assertEqual(get_account_balance("liability:user:42:GRAM", "GRAM", self.engine), -20)
         with self.assertRaises(ValueError):
             request_ton_withdrawal(user_id="42", asset_id="GRAM",
