@@ -253,12 +253,14 @@ def create_telegram_stars_invoice(*, deal_id: str, buyer_user_id: str,
     db = engine or get_engine()
     init_financial_schema(db)
     current = int(now or time.time())
+    if os.getenv("MARKETPLACE_REAL_DEALS_ENABLED", "false").strip().lower() != "true":
+        raise PermissionError("Real marketplace fulfilment is not enabled")
     if ttl_seconds < 60 or ttl_seconds > 1800:
         raise ValueError("Invoice lifetime must be between 60 and 1800 seconds")
     lock = " FOR UPDATE OF d, o" if db.dialect.name == "postgresql" else ""
     query = (
         "SELECT d.id AS deal_id, d.order_id, d.listing_owner_id, d.offer_sender_id, "
-        "d.agreed_amount, d.currency, d.status AS deal_status, o.kind AS order_kind, "
+        "d.agreed_amount, d.currency, d.is_real, d.status AS deal_status, o.kind AS order_kind, "
         "o.status AS order_status, o.title AS order_title "
         "FROM demo_deals d JOIN demo_orders o ON o.id=d.order_id WHERE d.id=:deal_id" + lock
     )
@@ -266,6 +268,8 @@ def create_telegram_stars_invoice(*, deal_id: str, buyer_user_id: str,
         deal = conn.execute(text(query), {"deal_id": str(deal_id)}).mappings().first()
         if deal is None:
             raise ValueError("Unknown deal")
+        if int(deal["is_real"] or 0) != 1:
+            raise PermissionError("Demo deals cannot be charged")
         if deal["order_status"] != "matched":
             raise ValueError("Order is no longer reserved for this deal")
         if deal["currency"] != "XTR":
@@ -335,7 +339,7 @@ def approve_telegram_stars_pre_checkout(*, payload: str, buyer_user_id: str,
     db = engine or get_engine()
     init_financial_schema(db)
     current = int(now or time.time())
-    if currency != "XTR" or int(amount_stars) <= 0 or not query_id or len(query_id) > 128:
+    if (os.getenv("MARKETPLACE_REAL_DEALS_ENABLED", "false").strip().lower() != "true" or currency != "XTR" or int(amount_stars) <= 0 or not query_id or len(query_id) > 128):
         return False
     statement = select(stars_invoices).where(stars_invoices.c.payload == payload)
     if db.dialect.name == "postgresql":
@@ -358,10 +362,10 @@ def approve_telegram_stars_pre_checkout(*, payload: str, buyer_user_id: str,
                 or int(invoice["amount_stars"]) != int(amount_stars)):
             return False
         deal = conn.execute(text(
-            "SELECT d.status AS deal_status, o.status AS order_status "
+            "SELECT d.status AS deal_status, d.is_real, o.status AS order_status "
             "FROM demo_deals d JOIN demo_orders o ON o.id=d.order_id WHERE d.id=:deal_id"
         ), {"deal_id": invoice["deal_id"]}).mappings().first()
-        if deal is None or deal["deal_status"] != "awaiting_payment" or deal["order_status"] != "matched":
+        if deal is None or int(deal["is_real"] or 0) != 1 or deal["deal_status"] != "awaiting_payment" or deal["order_status"] != "matched":
             return False
         conn.execute(stars_invoices.update().where(
             stars_invoices.c.invoice_id == invoice["invoice_id"]
@@ -432,7 +436,7 @@ def settle_telegram_stars_payment(*, payload: str, buyer_user_id: str, currency:
                  provider_payment_charge_id=provider_payment_charge_id or None))
         changed = conn.execute(text(
             "UPDATE demo_deals SET status='paid' "
-            "WHERE id=:deal_id AND status IN ('awaiting_payment','payment_pending')"
+            "WHERE id=:deal_id AND is_real=1 AND status IN ('awaiting_payment','payment_pending')"
         ), {"deal_id": invoice["deal_id"]})
         if changed.rowcount != 1:
             current_deal = conn.execute(text(
