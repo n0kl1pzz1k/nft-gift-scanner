@@ -773,7 +773,7 @@
   function toRawListingPrice(value: string, currency: 'GRAM'|'USDT'|'XTR') {
     const decimals = currency === 'GRAM' ? 9 : currency === 'USDT' ? 6 : 0;
     const normalized = value.trim().replace(',', '.');
-    if (!/^\\d+(\\.\\d+)?$/.test(normalized)) throw new Error('Invalid listing price');
+    if (!/^\d+(\.\d+)?$/.test(normalized)) throw new Error('Invalid listing price');
     const [whole, fraction=''] = normalized.split('.');
     if (fraction.length > decimals) throw new Error('Too many decimal places for selected currency');
     const raw = BigInt(whole) * (10n ** BigInt(decimals)) + BigInt((fraction + '0'.repeat(decimals)).slice(0, decimals) || '0');
@@ -958,7 +958,7 @@
     <div class="nav-caption">WORKSPACE</div>
     <nav class="side-nav">
       {#each [{id:'market',label:t.market,icon:'▦'},{id:'inventory',label:lang==='ru'?'Мои NFT':'My NFTs',icon:'◈'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
-        <button class:active={view===item.id} class="nav-item" onclick={()=>{view=item.id as View;notice='';}}><span>{item.icon}</span>{item.label}</button>
+        <button class:active={view===item.id} class="nav-item" onclick={()=>{view=item.id as View;notice='';if(item.id==='inventory')void loadMyInventory();}}><span>{item.icon}</span>{item.label}</button>
       {/each}
     </nav>
     <div class="sidebar-bottom"><div class="demo-card"><span class="demo-dot"></span>{t.demo}<p>{t.demoWalletText}</p></div><div class="sidebar-version">INDEPENDENT MARKET · GIFT RADAR</div></div>
@@ -1231,7 +1231,7 @@
 </div>
 
 <nav class="mobile-nav">
-  {#each [{id:'market',label:t.market,icon:'▦'},{id:'inventory',label:'NFT',icon:'◈'},{id:'orders',label:t.orders,icon:'⇄'},{id:'create',label:t.create,icon:'＋'},{id:'profile',label:t.profile,icon:'◉'}] as item}
+  {#each [{id:'market',label:t.market,icon:'▦'},{id:'inventory',label:'NFT',icon:'◈'},{id:'orders',label:t.orders,icon:'⇄'},{id:'create',label:t.create,icon:'＋'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
     <button class:active={view===item.id} onclick={()=>{view=item.id as View;notice='';}}><span>{item.icon}</span><small>{item.label}</small></button>
   {/each}
 </nav>
