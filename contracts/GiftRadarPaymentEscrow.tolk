@@ -123,9 +123,15 @@ fun onInternalMessage(in: InMessage) {
             assert (auth.resolverMultisig != arbitrators.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
             assert (auth.resolverMultisig != arbitrators.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
             if (storage.assetKind == ASSET_TEST_USDT_JETTON) {
-                assert (assets.usdtJettonMaster != assets.escrowUsdtJettonWallet) throw PaymentEscrowErrors.BadAsset;
+                assert (msg.escrowUsdtJettonWallet != null) throw PaymentEscrowErrors.BadAsset;
+                assert (assets.usdtJettonMaster != msg.escrowUsdtJettonWallet!) throw PaymentEscrowErrors.BadAsset;
                 assert (assets.usdtJettonMaster != parties.buyer) throw PaymentEscrowErrors.BadAsset;
-                assert (assets.escrowUsdtJettonWallet != parties.buyer) throw PaymentEscrowErrors.BadAsset;
+                assert (msg.escrowUsdtJettonWallet! != parties.buyer) throw PaymentEscrowErrors.BadAsset;
+                assets.escrowUsdtJettonWallet = msg.escrowUsdtJettonWallet;
+                auth.assets = assets.toCell();
+                storage.authorities = auth.toCell();
+            } else {
+                assert (msg.escrowUsdtJettonWallet == null) throw PaymentEscrowErrors.BadAsset;
             }
             storage.initialized = true;
             storage.save();
@@ -168,7 +174,8 @@ fun onInternalMessage(in: InMessage) {
             val assets = auth.assets.load();
             assert (storage.initialized) throw PaymentEscrowErrors.BadState;
             assert (storage.assetKind == ASSET_TEST_USDT_JETTON) throw PaymentEscrowErrors.BadAsset;
-            assert (in.senderAddress == assets.escrowUsdtJettonWallet) throw PaymentEscrowErrors.Unauthorized;
+            assert (assets.escrowUsdtJettonWallet != null) throw PaymentEscrowErrors.BadAsset;
+            assert (in.senderAddress == assets.escrowUsdtJettonWallet!) throw PaymentEscrowErrors.Unauthorized;
             assert (msg.sender == parties.buyer) throw PaymentEscrowErrors.Unauthorized;
             assert (storage.state == V2_DEPOSITED) throw PaymentEscrowErrors.BadState;
             assert (blockchain.now() < storage.deadline) throw PaymentEscrowErrors.Expired;
