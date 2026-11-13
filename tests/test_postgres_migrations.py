@@ -53,8 +53,20 @@ class PostgresMigrationSmokeTests(unittest.TestCase):
                 connection.execute(text(
                     "UPDATE ledger_entries SET source_reference='tampered' WHERE entry_id=:entry"
                 ), {"entry": entry_id})
+    def test_terms_acceptance_is_append_only_in_postgres(self):
+        acceptance_id = str(uuid.uuid4())
         with self.engine.begin() as connection:
-            connection.execute(text("DELETE FROM ledger_entries WHERE entry_id=:entry"), {"entry": entry_id})
+            connection.execute(text(
+                "INSERT INTO telegram_stars_terms_acceptances "
+                "(acceptance_id,user_id,terms_version,terms_url,accepted_at) "
+                "VALUES (:id,:user,'ci-v1','https://example.invalid/terms',1)"
+            ), {"id": acceptance_id, "user": str(900000000 + uuid.uuid4().int % 900000000)})
+        with self.assertRaises(Exception):
+            with self.engine.begin() as connection:
+                connection.execute(text(
+                    "UPDATE telegram_stars_terms_acceptances SET terms_url='https://tampered.invalid' "
+                    "WHERE acceptance_id=:id"
+                ), {"id": acceptance_id})
 
     def test_postgres_compat_adapter_uses_real_driver_and_row_shapes(self):
         url = os.getenv("DATABASE_URL", "").strip()
