@@ -25,7 +25,7 @@ from financial_ledger import (
 )
 from marketplace_inventory import (
     init_inventory_schema, marketplace_assets, marketplace_listings,
-    marketplace_listing_events, marketplace_reservations, verified_wallets,
+    marketplace_listing_events, marketplace_reservations, marketplace_ownership_proofs, verified_wallets,
 )
 from ton_nft_providers import canonical_ton_address
 
@@ -686,7 +686,16 @@ def list_reconciliation_required_deals(*, engine: Engine | None = None,
         marketplace_deals.c.price_raw, marketplace_deals.c.nft_transfer_tx_hash,
         marketplace_deals.c.created_at, marketplace_deals.c.updated_at,
         marketplace_listings.c.status.label("listing_status"),
-        marketplace_assets.c.custody_state, marketplace_assets.c.ownership_state,
+        marketplace_assets.c.canonical_asset_id,
+        marketplace_assets.c.collection_address,
+        marketplace_assets.c.token_id,
+        marketplace_assets.c.owner_wallet_address,
+        marketplace_assets.c.deposit_tx_hash,
+        marketplace_assets.c.deposit_event_index,
+        marketplace_assets.c.custody_state,
+        marketplace_assets.c.ownership_state,
+        marketplace_assets.c.ownership_expires_at,
+        marketplace_reservations.c.expires_at.label("reservation_expires_at"),
     ).select_from(
         marketplace_deals.join(
             marketplace_listings,
@@ -694,6 +703,9 @@ def list_reconciliation_required_deals(*, engine: Engine | None = None,
         ).join(
             marketplace_assets,
             marketplace_assets.c.asset_id == marketplace_deals.c.asset_id,
+        ).join(
+            marketplace_reservations,
+            marketplace_reservations.c.reservation_id == marketplace_deals.c.reservation_id,
         )
     ).where(
         marketplace_deals.c.status == "reconciliation_required"
@@ -705,6 +717,34 @@ def list_reconciliation_required_deals(*, engine: Engine | None = None,
         if not rows:
             return {"items": [], "limit": int(limit), "offset": int(offset)}
         ids = [row["deal_id"] for row in rows]
+        asset_ids = list({row["asset_id"] for row in rows})
+        proofs = conn.execute(select(
+            marketplace_ownership_proofs.c.asset_id,
+            marketplace_ownership_proofs.c.owner_user_id,
+            marketplace_ownership_proofs.c.proof_source,
+            marketplace_ownership_proofs.c.evidence_reference,
+            marketplace_ownership_proofs.c.evidence_hash,
+            marketplace_ownership_proofs.c.verification_status,
+            marketplace_ownership_proofs.c.verified_at,
+            marketplace_ownership_proofs.c.expires_at,
+            marketplace_ownership_proofs.c.recorded_at,
+        ).where(
+            marketplace_ownership_proofs.c.asset_id.in_(asset_ids)
+        ).order_by(
+            marketplace_ownership_proofs.c.recorded_at.desc()
+        )).mappings().all()
+        latest_proof: dict[str, dict[str, Any]] = {}
+        for proof in proofs:
+            latest_proof.setdefault(proof["asset_id"], {
+                "owner_user_id": proof["owner_user_id"],
+                "proof_source": proof["proof_source"],
+                "evidence_reference": proof["evidence_reference"],
+                "evidence_hash": proof["evidence_hash"],
+                "verification_status": proof["verification_status"],
+                "verified_at": proof["verified_at"],
+                "expires_at": proof["expires_at"],
+                "recorded_at": proof["recorded_at"],
+            })
         events = conn.execute(select(
             marketplace_deal_events.c.deal_id,
             marketplace_deal_events.c.actor_type,
@@ -732,6 +772,7 @@ def list_reconciliation_required_deals(*, engine: Engine | None = None,
             "created_at": int(event["created_at"]),
         })
     for row in rows:
+        row["latest_ownership_proof"] = latest_proof.get(row["asset_id"])
         row["events"] = by_deal[row["deal_id"]][-25:]
     return {"items": rows, "limit": int(limit), "offset": int(offset)}
 
