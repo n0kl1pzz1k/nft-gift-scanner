@@ -23,7 +23,7 @@ TABLES = (
     "demo_notifications", "catalogue_gifts", "catalogue_gift_snapshots",
 )
 OPTIONAL_SOURCE_TABLES = {"catalogue_gifts", "catalogue_gift_snapshots"}
-TARGET_GUARD_TABLES = TABLES + ("telegram_stars_invoices", "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances", "marketplace_assets", "marketplace_ownership_proofs", "marketplace_listings", "marketplace_listing_events", "marketplace_reservations")
+TARGET_GUARD_TABLES = TABLES + ("telegram_stars_invoices", "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances", "telegram_stars_refund_requests", "marketplace_assets", "marketplace_ownership_proofs", "marketplace_listings", "marketplace_listing_events", "marketplace_reservations")
 SEQUENCE_COLUMNS = {
     "demo_order_events": "id",
     "demo_order_revisions": "id",
@@ -71,8 +71,8 @@ def migrate(source_path: Path, apply: bool, source_quiesced: bool = False, batch
     try:
         with engine.connect() as connection:
             revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-            if revision != "0005_marketplace_inventory":
-                raise RuntimeError("Target must be migrated to Alembic revision 0005_marketplace_inventory")
+            if revision != "0006_telegram_stars_refund_workflow":
+                raise RuntimeError("Target must be migrated to Alembic revision 0006_telegram_stars_refund_workflow")
             metadata = MetaData()
             metadata.reflect(bind=connection, only=list(TARGET_GUARD_TABLES))
             missing_targets = sorted(set(TARGET_GUARD_TABLES) - set(metadata.tables))
@@ -84,7 +84,7 @@ def migrate(source_path: Path, apply: bool, source_quiesced: bool = False, batch
                     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
                 ).fetchall()
             }
-            for stars_table in ("telegram_stars_invoices", "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances"):
+            for stars_table in ("telegram_stars_invoices", "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances", "telegram_stars_refund_requests"):
                 if stars_table in source_tables:
                     rows = source.execute('SELECT COUNT(*) FROM "' + stars_table + '"').fetchone()[0]
                     if rows:
