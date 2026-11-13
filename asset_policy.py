@@ -127,9 +127,18 @@ def validate_payment_amount(asset_id: str, amount_raw: int) -> int:
 
 
 def is_crypto_payment_enabled(asset_id: str) -> bool:
-    """Enable only reviewed TON assets after every operational and Kazakhstan release gate."""
+    """Return true only after a reviewed TON testnet adapter exists and all gates pass."""
+    from release_policy import TON_TESTNET_DEPOSIT_ADAPTER_READY
+
     asset = ASSETS.get(asset_id)
-    if asset is None or not asset.payment_enabled or asset.chain is not Chain.TON:
+    # Every currently allowlisted TON asset and provider adapter targets mainnet.
+    # Do not let environment flags turn that implementation into a real-money rail.
+    if (
+        not TON_TESTNET_DEPOSIT_ADAPTER_READY
+        or asset is None
+        or not asset.payment_enabled
+        or asset.chain.value != "ton-testnet"
+    ):
         return False
     if asset_id not in {"GRAM", "usdt-ton"}:
         return False
