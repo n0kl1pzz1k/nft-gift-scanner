@@ -162,6 +162,18 @@ fun sendNftTo(storage: EscrowStorage, recipient: address, queryId: uint64) {
     );
 }
 
+fun onBouncedMessage(in: InMessageBounced) {
+    in.bouncedBody.skipBouncedPrefix();
+    val bounced = lazy AskToChangeOwnership.fromSlice(in.bouncedBody);
+    var storage = lazy EscrowStorage.load();
+    assert (in.senderAddress == storage.nftItem) throw ERR_BAD_ASSET;
+    if (storage.state == STATE_TRANSFER_PENDING | storage.state == STATE_REFUND_PENDING) {
+        // The NFT item rejected the transfer. Do not assume ownership or retry automatically.
+        storage.state = STATE_RECONCILIATION_REQUIRED;
+        storage.save();
+    }
+}
+
 fun onInternalMessage(in: InMessage) {
     if (in.body.isEmpty()) {
         // Acton deployment wrappers send an empty initial message. The explicit
@@ -232,6 +244,7 @@ fun onInternalMessage(in: InMessage) {
 
         ConfirmNftDelivery => {
             var storage = lazy EscrowStorage.load();
+            assert (storage.initialized) throw ERR_BAD_STATE;
             assert (in.senderAddress == storage.paymentAuthority) throw ERR_UNAUTHORIZED;
             assert (storage.state == STATE_TRANSFER_PENDING) throw ERR_BAD_STATE;
             assert (msg.buyerOwnershipProofHash != 0) throw ERR_BAD_PROOF;
@@ -242,6 +255,7 @@ fun onInternalMessage(in: InMessage) {
 
         MarkSellerSettled => {
             var storage = lazy EscrowStorage.load();
+            assert (storage.initialized) throw ERR_BAD_STATE;
             assert (in.senderAddress == storage.paymentAuthority) throw ERR_UNAUTHORIZED;
             assert (storage.state == STATE_DELIVERED) throw ERR_BAD_STATE;
             assert (msg.payoutReferenceHash != 0) throw ERR_BAD_PROOF;
@@ -252,6 +266,7 @@ fun onInternalMessage(in: InMessage) {
 
         RequestRefund => {
             var storage = lazy EscrowStorage.load();
+            assert (storage.initialized) throw ERR_BAD_STATE;
             assert (in.senderAddress == storage.paymentAuthority) throw ERR_UNAUTHORIZED;
             assert ((storage.state == STATE_DEPOSITED) | (storage.state == STATE_PAID)) throw ERR_BAD_STATE;
             if (storage.state == STATE_DEPOSITED) {
@@ -269,6 +284,7 @@ fun onInternalMessage(in: InMessage) {
 
         ConfirmNftReturned => {
             var storage = lazy EscrowStorage.load();
+            assert (storage.initialized) throw ERR_BAD_STATE;
             assert (in.senderAddress == storage.paymentAuthority) throw ERR_UNAUTHORIZED;
             assert (storage.state == STATE_REFUND_PENDING) throw ERR_BAD_STATE;
             assert (msg.sellerOwnershipProofHash != 0) throw ERR_BAD_PROOF;
@@ -298,6 +314,7 @@ fun onInternalMessage(in: InMessage) {
 
         RecordStarsRefund => {
             var storage = lazy EscrowStorage.load();
+            assert (storage.initialized) throw ERR_BAD_STATE;
             assert (in.senderAddress == storage.paymentAuthority) throw ERR_UNAUTHORIZED;
             assert (storage.state == STATE_DISPUTED) throw ERR_BAD_STATE;
             assert (storage.preDisputeState == STATE_PAID) throw ERR_BAD_STATE;
@@ -312,6 +329,7 @@ fun onInternalMessage(in: InMessage) {
 
         ApproveDisputeResolution => {
             var storage = lazy EscrowStorage.load();
+            assert (storage.initialized) throw ERR_BAD_STATE;
             assert (storage.state == STATE_DISPUTED) throw ERR_BAD_STATE;
             assert ((in.senderAddress == storage.arbitrator1) | (in.senderAddress == storage.arbitrator2)) throw ERR_UNAUTHORIZED;
             assert ((msg.decision == 1) | (msg.decision == 2)) throw ERR_BAD_DISPUTE;
