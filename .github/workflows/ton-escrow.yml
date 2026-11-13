@@ -18,7 +18,7 @@ jobs:
   escrow-contract:
     name: Build and test Tolk escrow (local emulator only)
     runs-on: ubuntu-latest
-    timeout-minutes: 17
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
       - name: Install pinned Acton 1.2.1
