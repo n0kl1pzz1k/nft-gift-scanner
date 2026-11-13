@@ -18,6 +18,9 @@ class FakeEscrowProvider:
         self.state = state
         self.transfer = transfer
 
+    async def get_account_code_hash(self, account_address):
+        return "b" * 64
+
     async def get_nft_state(self, item_address):
         return dict(self.state)
 
@@ -60,7 +63,7 @@ class NftEscrowMonitorTests(unittest.IsolatedAsyncioTestCase):
             FakeEscrowProvider("tonapi", self.state, self.transfer),
             FakeEscrowProvider("toncenter", self.state, self.transfer),
         ]
-        self.env = patch.dict(os.environ, {"GIFT_RADAR_ESCROW_ADDRESS": self.escrow})
+        self.env = patch.dict(os.environ, {"GIFT_RADAR_ESCROW_ADDRESS": self.escrow, "GIFT_RADAR_ESCROW_CODE_HASH": "b" * 64})
         self.env.start()
 
     def tearDown(self):
