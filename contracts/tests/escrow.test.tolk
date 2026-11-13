@@ -10,27 +10,37 @@ fun setupEscrow(): (GiftRadarEscrow, Treasury, Treasury, Treasury, Treasury, Tre
 
     val escrow = GiftRadarEscrow.fromStorage({
         dealId: 77,
-        seller: seller.address,
-        buyer: buyer.address,
-        nftItem: nftItem.address,
-        paymentAuthority: authority.address,
-        arbitrator1: arb1.address,
-        arbitrator2: arb2.address,
         expectedAmount: 250,
-        initialized: false,
         deadline: testing.getNow() + 86400,
+        initialized: false,
         state: 0,
         preDisputeState: 0,
         disputeApprovals: 0,
         resolutionDecision: 0,
-        paymentReferenceHash: 0,
-        refundReferenceHash: 0,
-        deliveryProofHash: 0,
-        returnProofHash: 0,
-        settlementReferenceHash: 0,
-        disputeReasonHash: 0,
-        resolutionHash: 0,
         transferQueryId: 0,
+        parties: EscrowParties {
+            seller: seller.address,
+            buyer: buyer.address,
+            nftItem: nftItem.address,
+        }.toCell(),
+        authorities: EscrowAuthorities {
+            paymentAuthority: authority.address,
+            arbitrator1: arb1.address,
+            arbitrator2: arb2.address,
+        }.toCell(),
+        paymentEvidence: PaymentEvidence {
+            paymentReferenceHash: 0,
+            refundReferenceHash: 0,
+            settlementReferenceHash: 0,
+        }.toCell(),
+        deliveryEvidence: DeliveryEvidence {
+            buyerOwnershipProofHash: 0,
+            sellerOwnershipProofHash: 0,
+        }.toCell(),
+        disputeEvidence: DisputeEvidence {
+            reasonHash: 0,
+            resolutionHash: 0,
+        }.toCell(),
     });
     val deployed = escrow.deploy(authority.address, { value: grams("1") });
     expect(deployed).toHaveSuccessfulDeploy({ to: escrow.address });
