@@ -17,6 +17,7 @@ from typing import Callable, Literal
 from fastapi import APIRouter, Header, HTTPException, Query
 
 from marketplace import _enforce_user_rate_limit
+from postgres_compat import assert_marketplace_schema_ready, postgres_storage_enabled
 from pydantic import BaseModel, Field, field_validator
 
 DB_PATH = os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3"))
@@ -38,6 +39,10 @@ def _db():
 
 
 def init_demo_offers_db() -> None:
+    if postgres_storage_enabled():
+        with _db() as conn:
+            assert_marketplace_schema_ready(conn)
+        return
     with _db() as conn:
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS demo_offers (
@@ -65,6 +70,7 @@ def init_demo_offers_db() -> None:
             agreed_amount TEXT NOT NULL,
             currency TEXT NOT NULL CHECK(currency IN ('TON', 'XTR')),
             created_at INTEGER NOT NULL,
+            is_real INTEGER NOT NULL DEFAULT 0 CHECK(is_real IN (0,1)),
             status TEXT NOT NULL DEFAULT 'payment_not_enabled'
                 CHECK(status IN ('payment_not_enabled', 'awaiting_payment', 'payment_pending', 'paid', 'delivery_pending', 'completed', 'disputed', 'cancelled', 'expired')),
             FOREIGN KEY(order_id) REFERENCES demo_orders(id),
@@ -176,6 +182,9 @@ def init_demo_offers_db() -> None:
             WHERE order_id=NEW.id AND status='pending';
         END;
         """)
+        deal_columns = [row["name"] for row in conn.execute("PRAGMA table_info(demo_deals)").fetchall()]
+        if "is_real" not in deal_columns:
+            conn.execute("ALTER TABLE demo_deals ADD COLUMN is_real INTEGER NOT NULL DEFAULT 0 CHECK(is_real IN (0,1))")
         # Older releases enforced one deal per order forever. Rebuild that table
         # so cancelled/expired history remains intact while a fresh reservation can be made.
         unique_order_index = False
@@ -201,6 +210,7 @@ def init_demo_offers_db() -> None:
                         agreed_amount TEXT NOT NULL,
                         currency TEXT NOT NULL CHECK(currency IN ('TON', 'XTR')),
                         created_at INTEGER NOT NULL,
+                        is_real INTEGER NOT NULL DEFAULT 0 CHECK(is_real IN (0,1)),
                         status TEXT NOT NULL DEFAULT 'payment_not_enabled'
                             CHECK(status IN ('payment_not_enabled', 'awaiting_payment',
                                              'payment_pending', 'paid', 'delivery_pending',
@@ -212,9 +222,9 @@ def init_demo_offers_db() -> None:
                 conn.execute("""
                     INSERT INTO demo_deals_new
                     (id, order_id, offer_id, listing_owner_id, offer_sender_id,
-                     agreed_amount, currency, created_at, status)
+                     agreed_amount, currency, created_at, is_real, status)
                     SELECT id, order_id, offer_id, listing_owner_id, offer_sender_id,
-                           agreed_amount, currency, created_at, status
+                           agreed_amount, currency, created_at, is_real, status
                     FROM demo_deals
                 """)
                 conn.execute("DROP TABLE demo_deals")
@@ -528,11 +538,12 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 raise HTTPException(status_code=404, detail="Deal not found")
             if user_id not in (deal["listing_owner_id"], deal["offer_sender_id"]):
                 raise HTTPException(status_code=404, detail="Deal not found")
+            event_sequence = "sequence" if postgres_storage_enabled() else "rowid"
             rows = conn.execute(
-                """SELECT id, event_type, actor_user_id, event_data, created_at, sequence
+                f"""SELECT id, event_type, actor_user_id, event_data, created_at, sequence
                    FROM (
                        SELECT id, event_type, actor_user_id, event_data, created_at,
-                              rowid AS sequence
+                              {event_sequence} AS sequence
                        FROM demo_deal_events WHERE deal_id = ?
                        UNION ALL
                        SELECT id, event_type, actor_user_id, event_data, created_at,

@@ -19,16 +19,18 @@ from typing import Callable, Literal, Any
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
+from postgres_compat import (assert_marketplace_schema_ready, connect_postgres, postgres_storage_enabled)
 
 DB_PATH = os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3"))
 
 
-def _connect_database(database_path: str | Path) -> sqlite3.Connection:
-    """Open the shared SQLite database with explicit durability/contention settings.
-
-    SQLite remains a single-writer, single-instance deployment baseline; these
-    settings reduce transient lock failures but do not replace PostgreSQL.
-    """
+def _connect_database(database_path: str | Path):
+    """Open the configured shared store; PostgreSQL is opt-in until migration is verified."""
+    if postgres_storage_enabled():
+        database_url = os.getenv("DATABASE_URL", "").strip()
+        if not database_url:
+            raise RuntimeError("DATABASE_URL is required when GIFT_RADAR_STORAGE_BACKEND=postgres")
+        return connect_postgres(database_url)
     path = Path(database_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), timeout=30, isolation_level=None)
@@ -40,7 +42,7 @@ def _connect_database(database_path: str | Path) -> sqlite3.Connection:
     return conn
 
 
-def _connect() -> sqlite3.Connection:
+def _connect():
     return _connect_database(DB_PATH)
 
 
@@ -54,6 +56,10 @@ def _db():
 
 
 def init_marketplace_db() -> None:
+    if postgres_storage_enabled():
+        with _db() as conn:
+            assert_marketplace_schema_ready(conn)
+        return
     with _db() as conn:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA wal_autocheckpoint = 1000")
@@ -258,7 +264,9 @@ def consume_telegram_init_data(init_data: str, telegram_id: str, ttl_seconds: in
                 "INSERT INTO telegram_initdata_uses(initdata_hash, telegram_id, consumed_at, expires_at) VALUES (?, ?, ?, ?)",
                 (digest, str(telegram_id), now, now + max(300, min(int(ttl_seconds), 3600))),
             )
-        except sqlite3.IntegrityError:
+        except Exception as exc:
+            if not isinstance(exc, sqlite3.IntegrityError) and getattr(exc, "sqlstate", None) != "23505":
+                raise
             conn.rollback()
             return False
         conn.commit()
@@ -583,9 +591,9 @@ def create_marketplace_router(
         fallback_name = (user.get("first_name") or user.get("username") or "Telegram user")[:48]
         with _db() as conn:
             conn.execute(
-                """INSERT OR IGNORE INTO user_profiles
+                """INSERT INTO user_profiles
                    (profile_id, telegram_id, display_name, bio, created_at, updated_at)
-                   VALUES (?, ?, ?, '', ?, ?)""",
+                   VALUES (?, ?, ?, '', ?, ?) ON CONFLICT(telegram_id) DO NOTHING""",
                 ("usr_" + secrets.token_urlsafe(12), telegram_id, fallback_name, now, now),
             )
             row = conn.execute(
@@ -610,9 +618,9 @@ def create_marketplace_router(
         with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute(
-                """INSERT OR IGNORE INTO user_profiles
+                """INSERT INTO user_profiles
                    (profile_id, telegram_id, display_name, bio, created_at, updated_at)
-                   VALUES (?, ?, ?, '', ?, ?)""",
+                   VALUES (?, ?, ?, '', ?, ?) ON CONFLICT(telegram_id) DO NOTHING""",
                 ("usr_" + secrets.token_urlsafe(12), telegram_id, fallback_name, now, now),
             )
             conn.execute(

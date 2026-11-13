@@ -11,9 +11,14 @@ import time
 from typing import Any
 
 from marketplace import _db
+from postgres_compat import assert_marketplace_schema_ready, postgres_storage_enabled
 
 
 def _ensure_table() -> None:
+    if postgres_storage_enabled():
+        with _db() as conn:
+            assert_marketplace_schema_ready(conn)
+        return
     with _db() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS catalogue_gifts (
@@ -63,8 +68,8 @@ def upsert_catalogue_items(items: list[dict[str, Any]]) -> int:
                 continue
             fingerprint = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
             conn.execute(
-                """INSERT OR IGNORE INTO catalogue_gift_snapshots(gift_id, fingerprint, gift_json, observed_at)
-                   VALUES (?, ?, ?, ?)""",
+                """INSERT INTO catalogue_gift_snapshots(gift_id, fingerprint, gift_json, observed_at)
+                   VALUES (?, ?, ?, ?) ON CONFLICT(gift_id, fingerprint) DO NOTHING""",
                 (gift_id, fingerprint, encoded, observed_at),
             )
             conn.execute(
@@ -134,10 +139,14 @@ def search_catalogue_items(
     params: list[Any] = []
     if safe_query:
         pattern = f"%{safe_query}%"
-        clauses.append("(json_extract(gift_json, '$.name') LIKE ? OR gift_id LIKE ? OR json_extract(gift_json, '$.number') LIKE ?)")
+        if postgres_storage_enabled():
+            clauses.append("(gift_json::jsonb ->> 'name' ILIKE ? OR gift_id ILIKE ? OR gift_json::jsonb ->> 'number' ILIKE ?)")
+        else:
+            clauses.append("(json_extract(gift_json, '$.name') LIKE ? OR gift_id LIKE ? OR json_extract(gift_json, '$.number') LIKE ?)")
         params.extend([pattern, pattern, pattern])
     if safe_collection:
-        clauses.append("json_extract(gift_json, '$.collection_id') = ?")
+        clauses.append("(gift_json::jsonb ->> 'collection_id') = ?" if postgres_storage_enabled()
+                       else "json_extract(gift_json, '$.collection_id') = ?")
         params.append(safe_collection)
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     with _db() as conn:

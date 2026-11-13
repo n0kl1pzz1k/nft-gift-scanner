@@ -1,0 +1,42 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+private/
+credentials/
+
+# Local databases and runtime data
+data/
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-journal
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/

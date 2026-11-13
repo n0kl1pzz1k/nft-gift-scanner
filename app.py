@@ -5,20 +5,75 @@ import json
 import hmac
 import hashlib
 import secrets
+import logging
 from urllib.parse import parse_qsl
-from pydantic import BaseModel
-from decimal import Decimal, InvalidOperation
+from pydantic import BaseModel, Field
 from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Header, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, get_app_setting, init_marketplace_db, set_app_setting, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update
+from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update
 from demo_offers import create_demo_offers_router, init_demo_offers_db
-from catalog_store import get_catalogue_history, get_catalogue_item, search_catalogue_items, upsert_catalogue_items
+from security_controls import SecurityControlsMiddleware
+from financial_ledger import get_engine, get_account_balance, create_payment_invoice, invoices, payment_events
+from marketplace_settlement import reserve_verified_deal_payment
+from withdrawal_signer import create_withdrawal_request
+from marketplace_inventory import (
+    save_verified_wallet, get_active_verified_wallet, revoke_verified_wallet, record_wallet_owned_nft,
+    create_escrow_pending_listing, cancel_seller_listing, marketplace_assets, marketplace_listings,
+    init_inventory_schema, scan_pending_nft_listings,
+)
+from ton_nft_verifier import verify_seller_nft_ownership_async
+from ton_nft_providers import configured_nft_providers, canonical_ton_address
+from sqlalchemy import select, func, or_
 
-app = FastAPI(title="GIFT RADAR API", version="0.4.0")
+from financial_ledger import (
+    create_telegram_stars_invoice, record_telegram_stars_terms_acceptance,
+    withdrawal_requests,
+    request_telegram_stars_refund, prepare_telegram_stars_refund,
+    complete_telegram_stars_refund, fail_telegram_stars_refund,
+    require_telegram_stars_refund_reconciliation,
+)
+
+class DealDisputeResolutionRequest(BaseModel):
+    decision: str = Field(pattern="^(refund|dismiss)$")
+    reason: str = Field(min_length=8, max_length=500)
+
+
+class DealDisputeRequest(BaseModel):
+    reason: str = Field(min_length=8, max_length=500)
+
+
+class DealReconciliationNoteRequest(BaseModel):
+    note: str = Field(min_length=8, max_length=1000)
+    idempotency_key: str = Field(min_length=16, max_length=128)
+
+
+class TonNftImportRequest(BaseModel):
+    asset_type: str
+    collection_address: str = Field(min_length=3, max_length=128)
+    token_id: str = Field(min_length=1, max_length=40)
+    item_address: str = Field(min_length=3, max_length=128)
+
+
+class NativeListingRequest(BaseModel):
+    asset_id: str = Field(min_length=4, max_length=64)
+    price_raw: int = Field(gt=0, le=9_000_000_000_000_000)
+    currency: str
+    idempotency_key: str = Field(min_length=16, max_length=128)
+
+
+app = FastAPI(title="GIFT RADAR API", version="0.4.0", docs_url=None, redoc_url=None, openapi_url=None)
+
+
+@app.exception_handler(RequestValidationError)
+async def generic_validation_error_handler(request: Request, exc: RequestValidationError):
+    # Never echo rejected request values, credentials or detailed internal field paths.
+    return JSONResponse(status_code=422, content={"detail": "Invalid request"})
 app.include_router(create_marketplace_router(
     lambda value: _authenticate_telegram_credential(value),
     lambda value: _require_admin(value),
@@ -28,6 +83,169 @@ app.include_router(create_demo_offers_router(lambda value: _authenticate_telegra
 _telegram_bot = None
 _telegram_dispatcher = None
 _telegram_webhook_secret = None
+
+class CryptoPaymentInvoiceRequest(BaseModel):
+    asset_id: str = Field(pattern="^(GRAM|usdt-ton)$")
+    amount_raw: int = Field(gt=0, strict=True)
+
+
+class DealInvoicePaymentRequest(BaseModel):
+    invoice_id: str = Field(min_length=8, max_length=64)
+
+
+class WalletWithdrawalRequest(BaseModel):
+    asset_id: str = Field(pattern="^(GRAM|usdt-ton)$")
+    destination_address: str = Field(min_length=3, max_length=128)
+    amount_raw: int = Field(gt=0, strict=True)
+    idempotency_key: str = Field(min_length=16, max_length=200)
+
+
+def _stars_payment_enabled() -> bool:
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    return bool(
+        os.getenv("TELEGRAM_STARS_PAYMENTS_ENABLED", "false").strip().lower() == "true"
+        and os.getenv("MARKETPLACE_REAL_DEALS_ENABLED", "false").strip().lower() == "true"
+        and bool(os.getenv("TELEGRAM_STARS_TERMS_VERSION", "").strip())
+        and _telegram_bot is not None
+        and os.getenv("GIFT_RADAR_STORAGE_BACKEND", "sqlite").strip().lower() == "postgres"
+        and database_url.startswith(("postgres://", "postgresql://", "postgresql+psycopg://"))
+        and os.getenv("TERMS_URL", "").strip().startswith("https://")
+        and os.getenv("PAYMENT_SUPPORT_URL", "").strip().startswith("https://")
+        and os.getenv("KZ_LEGAL_REVIEW_APPROVED", "false").strip().lower() == "true"
+        and os.getenv("KZ_DATA_RESIDENCY_VERIFIED", "false").strip().lower() == "true"
+        and os.getenv("KZ_TAX_REVIEW_APPROVED", "false").strip().lower() == "true"
+        and os.getenv("KZ_SECURITY_REVIEW_APPROVED", "false").strip().lower() == "true"
+    )
+
+
+@app.post("/api/payments/crypto/invoices", status_code=201)
+async def create_crypto_payment_invoice(
+    payload: CryptoPaymentInvoiceRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    from asset_policy import ASSETS, is_crypto_payment_enabled
+
+    asset = ASSETS[payload.asset_id]
+    if not is_crypto_payment_enabled(payload.asset_id):
+        raise HTTPException(status_code=503, detail="Crypto deposits are disabled until all release gates pass")
+    configured_address = os.getenv("TON_DEPOSIT_ADDRESS", "").strip()
+    try:
+        recipient = canonical_ton_address(configured_address)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=503, detail="The platform TON deposit address is not configured")
+    if not recipient.startswith("0:"):
+        raise HTTPException(status_code=503, detail="Only a TON mainnet basechain deposit address is supported")
+
+    invoice_payload = "gri_" + secrets.token_urlsafe(18)
+    expires_at = int(time.time()) + 1200
+    try:
+        invoice_id = create_payment_invoice(
+            user_id=str(user["id"]), asset_id=asset.asset_id,
+            chain=asset.chain.value, master_address=asset.master_address,
+            recipient_address=recipient, amount_raw=payload.amount_raw,
+            payload=invoice_payload, expires_at=expires_at, engine=get_engine(),
+        )
+        with get_engine().connect() as conn:
+            invoice = conn.execute(select(invoices).where(
+                invoices.c.invoice_id == invoice_id,
+                invoices.c.user_id == str(user["id"]),
+            )).mappings().one()
+        return {
+            "invoice_id": invoice_id, "asset_id": asset.asset_id,
+            "chain": asset.chain.value, "asset_kind": asset.asset_kind,
+            "master_address": asset.master_address,
+            "recipient_address": invoice["recipient_address"],
+            "amount_raw": int(invoice["amount_raw"]),
+            "payload": invoice["payload"], "expires_at": int(invoice["expires_at"]),
+            "status": invoice["status"],
+            "instructions": "Отправьте точную сумму на указанный TON-адрес и обязательно укажите invoice payload в комментарии перевода.",
+        }
+    except PermissionError:
+        raise HTTPException(status_code=503, detail="Crypto deposits are disabled by payment policy")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        logging.warning("Crypto payment invoice creation failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Crypto invoice service is unavailable")
+
+
+@app.get("/api/payments/crypto/invoices/{invoice_id}")
+async def get_crypto_payment_invoice(
+    invoice_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    with get_engine().connect() as conn:
+        invoice = conn.execute(select(invoices).where(
+            invoices.c.invoice_id == invoice_id,
+            invoices.c.user_id == str(user["id"]),
+        )).mappings().first()
+        if invoice is None:
+            raise HTTPException(status_code=404, detail="Payment invoice not found")
+        event = conn.execute(select(payment_events).where(
+            payment_events.c.invoice_id == invoice_id
+        )).mappings().first()
+    return {
+        "invoice_id": invoice["invoice_id"], "asset_id": invoice["asset_id"],
+        "amount_raw": int(invoice["amount_raw"]), "status": invoice["status"],
+        "expires_at": int(invoice["expires_at"]),
+        "review_required": invoice["status"] == "reconciliation_required",
+        "payment": None if event is None else {
+            "tx_hash": event["tx_hash"], "event_index": int(event["event_index"]),
+            "confirmed_at": int(event["created_at"]),
+        },
+    }
+
+
+@app.get("/api/admin/payments/crypto/reconciliation")
+async def list_crypto_payment_reconciliation(
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    _require_admin(x_telegram_init_data)
+    with get_engine().connect() as conn:
+        total = conn.execute(select(func.count()).select_from(invoices).where(
+            invoices.c.status == "reconciliation_required"
+        )).scalar_one()
+        rows = conn.execute(select(
+            invoices.c.invoice_id, invoices.c.user_id, invoices.c.asset_id,
+            invoices.c.chain, invoices.c.master_address, invoices.c.recipient_address,
+            invoices.c.amount_raw, invoices.c.payload, invoices.c.expires_at,
+            invoices.c.created_at,
+        ).where(
+            invoices.c.status == "reconciliation_required"
+        ).order_by(invoices.c.created_at.asc()).limit(limit).offset(offset)).mappings().all()
+    return {
+        "total": int(total), "limit": limit, "offset": offset,
+        "items": [{**dict(row), "amount_raw": int(row["amount_raw"])} for row in rows],
+    }
+
+
+@app.get("/api/payments/capabilities")
+async def payment_capabilities():
+    """Expose only payment methods that have passed their server-side release gates."""
+    from asset_policy import ASSETS, is_crypto_payment_enabled
+
+    crypto = {}
+    for asset_id in ("GRAM", "usdt-ton", "usdt-tron"):
+        asset = ASSETS[asset_id]
+        enabled = is_crypto_payment_enabled(asset_id)
+        crypto[asset_id] = {
+            "enabled": enabled,
+            "symbol": asset.display_symbol,
+            "message": None if enabled else "Временно недоступно: проверка платёжного контура и разрешение на запуск не завершены.",
+        }
+    stars_enabled = _stars_payment_enabled()
+    return {
+        "stars": {
+            "enabled": stars_enabled,
+            "message": None if stars_enabled else "Оплата Telegram Stars временно недоступна.",
+        },
+        "crypto": crypto,
+    }
+
 
 # Browser access is restricted to the production Mini App origins.
 # Extra origins may be supplied explicitly for a controlled preview environment.
@@ -49,48 +267,20 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-Telegram-Init-Data"],
     max_age=600,
 )
+app.add_middleware(SecurityControlsMiddleware)
 
-PORTALS_BASE = "https://portal-market.com/partners"
-ALLOWED_PORTALS_PATHS = {
-    "/collections/preview?sort_by=name&sort_order=asc",
-    "/collections/floors",
-}
-_cache: dict[str, tuple[float, Any]] = {}
-CACHE_SECONDS = 60
-# Per-query cache for item listings. The browser always reads from this backend;
-# upstream marketplaces are queried at a controlled cadence, not on every tap.
-_gifts_cache: dict[str, tuple[float, Any]] = {}
-GIFTS_CACHE_SECONDS = 60
-
-
-def _safe_gift_attributes(raw_attributes: Any) -> list[dict[str, str]]:
-    """Keep upstream attribute payloads small and aligned with the Mini App schema."""
-    if not isinstance(raw_attributes, list):
-        return []
-    safe: list[dict[str, str]] = []
-    for attribute in raw_attributes[:40]:
-        if not isinstance(attribute, dict):
-            continue
-        normalized: dict[str, str] = {}
-        for field in ("type", "name", "value"):
-            value = attribute.get(field)
-            if value is None or isinstance(value, (dict, list)):
-                normalized[field] = ""
-            else:
-                normalized[field] = str(value).strip()[:160]
-        if any(normalized.values()):
-            safe.append(normalized)
-    return safe
+_refresh_task: asyncio.Task | None = None
+_inventory_task: asyncio.Task | None = None
+_deposit_task: asyncio.Task | None = None
+_deal_expiry_task: asyncio.Task | None = None
 
 
 def _safe_total_count(reported_total: Any, item_count: int) -> int:
+    """Never report fewer catalogue rows than are actually returned."""
     try:
         return max(item_count, int(reported_total or 0))
     except (TypeError, ValueError):
         return item_count
-_request_lock = asyncio.Lock()
-_last_request_at = 0.0
-_refresh_task: asyncio.Task | None = None
 
 
 def _refresh_interval_seconds() -> int:
@@ -108,14 +298,33 @@ class MarketplaceSettingRequest(BaseModel):
     enabled: bool
 
 
+class StarsTermsAcceptanceRequest(BaseModel):
+    accepted: bool
+
+
+class StarsRefundRequestBody(BaseModel):
+    invoice_id: str
+    reason: str = ""
+
+
+class TonProofVerifyRequest(BaseModel):
+    address: str
+    network: str
+    public_key: str | None = None
+    state_init: str
+    proof: dict[str, Any]
+
+
 # Admin controls are limited to catalogue visibility; the setting is persisted in SQLite.
 # Administrator identities are verified server-side from Telegram initData and env configuration.
 def _marketplace_visibility() -> dict[str, bool]:
-    return {"portals": get_app_setting("marketplace.portals.enabled", "true").lower() == "true"}
+    # GIFT RADAR is the marketplace. Third-party marketplace feeds are disabled.
+    return {"native": True, "external_marketplaces": False}
 
 
 def _marketplace_enabled(market: str) -> bool:
-    return _marketplace_visibility().get(market, False)
+    # Legacy adapter switch is permanently fail-closed during removal.
+    return False
 
 
 def _admin_ids() -> set[str]:
@@ -214,9 +423,9 @@ async def telegram_sessions(x_telegram_init_data: str | None = Header(default=No
 
 @app.post("/api/auth/logout")
 async def telegram_logout(x_telegram_init_data: str | None = Header(default=None)):
-    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    _authenticate_telegram_credential(x_telegram_init_data or "")
     revoked = revoke_telegram_session(x_telegram_init_data or "")
-    return {"authenticated": False, "revoked": revoked, "user_id": str(user["id"])}
+    return {"authenticated": False, "revoked": revoked}
 
 
 @app.post("/api/auth/logout-all")
@@ -226,126 +435,33 @@ async def telegram_logout_all(x_telegram_init_data: str | None = Header(default=
     return {"revoked_sessions": revoked_count}
 
 
-@app.get("/api/admin/overview")
-async def admin_overview(x_telegram_init_data: str | None = Header(default=None)):
-    user = _require_admin(x_telegram_init_data)
-    return {
-        "admin": {"id": str(user["id"]), "first_name": user.get("first_name", ""), "username": user.get("username", "")},
-        "mode": "catalogue_read_only_with_shared_demo_marketplace",
-        "sources": source_status(),
-        "marketplace_visibility": _marketplace_visibility(),
-        "settings_persistence": "persistent_sqlite",
-    }
-
-
-@app.post("/api/admin/marketplaces/{market}")
+@app.post("/api/admin/marketplaces/{market}", include_in_schema=False)
 async def admin_set_marketplace(
     market: str,
     payload: MarketplaceSettingRequest,
     x_telegram_init_data: str | None = Header(default=None),
 ):
     _require_admin(x_telegram_init_data)
-    if market != "portals":
-        raise HTTPException(status_code=404, detail="Unknown marketplace")
-    set_app_setting(f"marketplace.{market}.enabled", "true" if payload.enabled else "false")
-    return {"market": market, "enabled": _marketplace_enabled(market)}
+    raise HTTPException(status_code=410, detail="External marketplace adapters are permanently disabled")
 
+
+@app.get("/api/admin/overview")
+async def admin_overview(x_telegram_init_data: str | None = Header(default=None)):
+    user = _require_admin(x_telegram_init_data)
+    return {
+        "admin": {"id": str(user["id"]), "first_name": user.get("first_name", ""), "username": user.get("username", "")},
+        "mode": "independent_native_marketplace",
+        "sources": source_status(),
+        "marketplace_visibility": _marketplace_visibility(),
+        "settings_persistence": "persistent_sqlite",
+    }
 
 
 def source_status() -> dict[str, str]:
     return {
-        "portals": "configured_read_only" if os.getenv("PORTALS_API_KEY", "").strip() else "needs_api_key",
-        "gift_changes": "public_read_only",
-        "tg_gifts_daily": "public_daily_read_only",
+        "native_inventory": "awaiting_native_inventory_index",
+        "external_marketplaces": "disabled_by_product_policy",
     }
-
-
-async def _portals_get_json(route: str, params: dict[str, Any] | None = None) -> dict:
-    """Perform a rate-limited, retryable read-only request to the Portals Partners API."""
-    if route not in {"/collections/preview", "/collections/floors", "/nfts/search"}:
-        raise HTTPException(status_code=400, detail="Portals route is not enabled")
-    token = os.getenv("PORTALS_API_KEY", "").strip()
-    if not token:
-        raise HTTPException(status_code=503, detail="PORTALS_API_KEY is not configured")
-
-    headers = {"Authorization": f"partners {token}", "Accept": "application/json"}
-    global _last_request_at
-    last_status: int | None = None
-
-    for attempt in range(3):
-        try:
-            async with _request_lock:
-                wait = 1.05 - (time.monotonic() - _last_request_at)
-                if wait > 0:
-                    await asyncio.sleep(wait)
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    response = await client.get(
-                        f"{PORTALS_BASE}{route}",
-                        headers=headers,
-                        params=params,
-                    )
-                _last_request_at = time.monotonic()
-        except httpx.HTTPError:
-            if attempt < 2:
-                await asyncio.sleep(1.05 * (attempt + 1))
-                continue
-            raise HTTPException(status_code=503, detail="Portals API is temporarily unreachable")
-
-        last_status = response.status_code
-        if response.status_code == 429:
-            retry_after_raw = response.headers.get("Retry-After", "1.05")
-            try:
-                retry_after = max(1.05, float(retry_after_raw))
-            except (TypeError, ValueError):
-                retry_after = 1.05
-            if attempt < 2 and retry_after <= 15:
-                await asyncio.sleep(retry_after)
-                continue
-            raise HTTPException(
-                status_code=503,
-                detail="Portals rate limit reached; retry shortly",
-                headers={"Retry-After": str(max(1, int(retry_after)))},
-            )
-        if response.status_code in {500, 502, 503, 504} and attempt < 2:
-            await asyncio.sleep(1.05 * (attempt + 1))
-            continue
-        if response.status_code == 401:
-            raise HTTPException(status_code=502, detail="Portals rejected the API key")
-        if response.status_code == 403:
-            raise HTTPException(status_code=502, detail="Portals API subscription or access is not active")
-        if response.is_error:
-            raise HTTPException(status_code=502, detail=f"Portals API error: HTTP {response.status_code}")
-        try:
-            payload = response.json()
-        except ValueError:
-            raise HTTPException(status_code=502, detail="Portals returned invalid JSON")
-        if not isinstance(payload, dict):
-            raise HTTPException(status_code=502, detail="Portals returned an unexpected response")
-        return payload
-
-    raise HTTPException(
-        status_code=503,
-        detail=f"Portals API temporarily unavailable (HTTP {last_status or 'network error'})",
-    )
-
-
-async def portals_get(path: str) -> dict:
-    # Keep the legacy internal path contract while enforcing an explicit read-only route allowlist.
-    if path not in ALLOWED_PORTALS_PATHS:
-        raise HTTPException(status_code=400, detail="Portals route is not enabled")
-    route, _, query = path.partition("?")
-    params = dict(parse_qsl(query, keep_blank_values=True))
-    return await _portals_get_json(route, params or None)
-
-
-async def cached_portals(path: str) -> dict:
-    now = time.monotonic()
-    cached = _cache.get(path)
-    if cached and now - cached[0] < CACHE_SECONDS:
-        return cached[1]
-    data = await portals_get(path)
-    _cache[path] = (time.monotonic(), data)
-    return data
 
 
 @app.post("/api/telegram/webhook")
@@ -400,106 +516,773 @@ async def telegram_webhook(
     finish_telegram_update(update_id)
     return {"ok": True, "duplicate": False}
 
+@app.post("/api/wallet/ton-proof/payload")
+async def ton_proof_payload(x_telegram_init_data: str | None = Header(default=None)):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    service_url = os.getenv("TON_PROOF_SERVICE_URL", "").strip().rstrip("/")
+    internal_token = os.getenv("TON_PROOF_INTERNAL_TOKEN", "").strip()
+    if not service_url or not internal_token:
+        raise HTTPException(status_code=503, detail="TON Proof service is not configured")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{service_url}/v1/challenges",
+                headers={"X-Gift-Radar-Internal": internal_token},
+                json={"userId": str(user["id"])},
+            )
+        if response.status_code != 200:
+            raise HTTPException(status_code=503, detail="TON Proof challenge service is unavailable")
+        result = response.json()
+        if not isinstance(result, dict) or not isinstance(result.get("payload"), str):
+            raise HTTPException(status_code=502, detail="TON Proof service returned an invalid challenge")
+        return {"payload": result["payload"], "expires_at": result.get("expiresAt")}
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="TON Proof service is unreachable")
+
+
+@app.post("/api/wallet/ton-proof/verify")
+async def ton_proof_verify(
+    payload: TonProofVerifyRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    service_url = os.getenv("TON_PROOF_SERVICE_URL", "").strip().rstrip("/")
+    internal_token = os.getenv("TON_PROOF_INTERNAL_TOKEN", "").strip()
+    if not service_url or not internal_token:
+        raise HTTPException(status_code=503, detail="TON Proof service is not configured")
+    if payload.network not in {"-239", "-3"}:
+        raise HTTPException(status_code=422, detail="Unsupported TON network")
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(
+                f"{service_url}/v1/verify",
+                headers={"X-Gift-Radar-Internal": internal_token},
+                json={
+                    "userId": str(user["id"]),
+                    "address": payload.address,
+                    "network": payload.network,
+                    "public_key": payload.public_key,
+                    "state_init": payload.state_init,
+                    "proof": payload.proof,
+                },
+            )
+        if response.status_code == 401:
+            raise HTTPException(status_code=401, detail="TON wallet proof was rejected")
+        if response.status_code == 409:
+            raise HTTPException(status_code=409, detail="TON wallet proof challenge expired or was already used")
+        if response.status_code != 200:
+            raise HTTPException(status_code=503, detail="TON Proof verification service is unavailable")
+        result = response.json()
+        if not isinstance(result, dict) or result.get("verified") is not True:
+            raise HTTPException(status_code=401, detail="TON wallet proof was not verified")
+        if result.get("network") == "-239":
+            save_verified_wallet(user_id=str(user["id"]), address=result.get("address", ""),
+                                 network="ton-mainnet", engine=get_engine())
+        return {"verified": True, "address": result.get("address"), "network": result.get("network")}
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="TON Proof service is unreachable")
+
+
+
+@app.post("/api/wallet/ton-proof/revoke")
+async def revoke_ton_wallet_proof(x_telegram_init_data: str | None = Header(default=None)):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    revoked = revoke_verified_wallet(user_id=str(user["id"]), engine=get_engine())
+    return {"revoked": revoked > 0, "revoked_bindings": revoked}
+
+
+@app.post("/api/inventory/nft/import")
+async def import_owned_nft(
+    payload: TonNftImportRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    if payload.asset_type not in {"ton_nft", "collectible_username", "collectible_phone_number"}:
+        raise HTTPException(status_code=422, detail="Unsupported collectible asset type")
+    try:
+        wallet = get_active_verified_wallet(user_id=str(user["id"]), engine=get_engine())
+        registry = json.loads(os.getenv("GIFT_RADAR_NFT_COLLECTIONS", "{}"))
+        allowed = {
+            key: {canonical_ton_address(value) for value in values}
+            for key, values in registry.items() if isinstance(values, list)
+        }
+        providers = configured_nft_providers()
+        evidence = await verify_seller_nft_ownership_async(
+            seller_user_id=str(user["id"]), wallet_user_id=str(user["id"]),
+            verified_wallet_address=wallet, asset_type=payload.asset_type,
+            network="ton-mainnet", collection_address=payload.collection_address,
+            token_id=payload.token_id, item_address=payload.item_address,
+            allowed_collections=allowed, providers=providers,
+        )
+        result = record_wallet_owned_nft(
+            user_id=str(user["id"]), wallet_address=wallet,
+            asset_type=payload.asset_type,
+            collection_address=evidence["collection_address"],
+            token_id=evidence["token_id"], item_address=evidence["item_address"],
+            evidence=evidence, engine=get_engine(),
+        )
+        return {"item": result, "next_step": "Create a listing, then transfer the NFT to the official escrow address"}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="TON NFT verification providers are not configured") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        logging.warning("TON NFT provider unavailable: %s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="TON NFT verification providers are temporarily unavailable") from exc
+
+
+@app.post("/api/inventory/listings", status_code=201)
+async def create_native_inventory_listing(
+    payload: NativeListingRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    if payload.currency not in {"XTR", "GRAM", "USDT"}:
+        raise HTTPException(status_code=422, detail="Unsupported listing currency")
+    try:
+        result = create_escrow_pending_listing(
+            user_id=str(user["id"]), asset_id=payload.asset_id,
+            price_raw=payload.price_raw, currency=payload.currency,
+            idempotency_key=payload.idempotency_key, engine=get_engine(),
+        )
+        return {"listing": result, "public": False}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+
+@app.post("/api/inventory/listings/{listing_id}/cancel")
+async def cancel_native_inventory_listing(
+    listing_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    try:
+        return cancel_seller_listing(
+            listing_id=listing_id, seller_user_id=str(user["id"]), engine=get_engine(),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/inventory/listings")
+async def list_verified_inventory_listings(
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    search: str | None = Query(default=None, min_length=1, max_length=80),
+    currency: str | None = Query(default=None, pattern="^(XTR|GRAM|USDT)$"),
+    asset_type: str | None = Query(default=None, max_length=40),
+):
+    db = get_engine()
+    init_inventory_schema(db)
+    filters = [
+        marketplace_listings.c.status == "active",
+        marketplace_assets.c.custody_state == "escrowed",
+    ]
+    if currency:
+        filters.append(marketplace_listings.c.currency == currency)
+    if asset_type:
+        filters.append(marketplace_assets.c.asset_type == asset_type)
+    if search:
+        term = "%" + search.strip().replace("%", "\\%").replace("_", "\\_") + "%"
+        filters.append(or_(
+            marketplace_assets.c.token_id.ilike(term, escape="\\"),
+            marketplace_assets.c.collection_address.ilike(term, escape="\\"),
+            marketplace_listings.c.listing_id.ilike(term, escape="\\"),
+        ))
+    join_from = marketplace_listings.join(
+        marketplace_assets, marketplace_assets.c.asset_id == marketplace_listings.c.asset_id
+    )
+    with db.connect() as conn:
+        total = conn.execute(select(func.count()).select_from(join_from).where(*filters)).scalar_one()
+        rows = conn.execute(select(
+            marketplace_listings.c.listing_id, marketplace_listings.c.price_raw,
+            marketplace_listings.c.currency, marketplace_listings.c.created_at,
+            marketplace_assets.c.asset_type, marketplace_assets.c.collection_address,
+            marketplace_assets.c.token_id,
+        ).select_from(join_from).where(*filters)
+          .order_by(marketplace_listings.c.created_at.desc(), marketplace_listings.c.listing_id)
+          .limit(limit).offset(offset)).mappings().all()
+    return {"items": [dict(row) for row in rows], "total": int(total),
+            "limit": limit, "offset": offset}
+
+
+@app.post("/api/wallet/withdrawals", status_code=201)
+async def create_wallet_withdrawal(
+    payload: WalletWithdrawalRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    try:
+        return create_withdrawal_request(
+            user_id=str(user["id"]), asset_id=payload.asset_id,
+            destination_address=payload.destination_address,
+            amount_raw=payload.amount_raw, idempotency_key=payload.idempotency_key,
+            engine=get_engine(),
+        )
+    except PermissionError as exc:
+        detail = str(exc)
+        if any(word in detail.lower() for word in (
+            "disabled", "release gates", "sign-offs", "not approved",
+            "not enabled", "not fully configured", "not passed",
+            "approvers must be configured",
+        )):
+            raise HTTPException(status_code=503, detail=detail)
+        raise HTTPException(status_code=409, detail=detail)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        logging.warning("TON withdrawal request failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="TON withdrawal request service is unavailable")
+
+
+@app.get("/api/wallet/withdrawals")
+async def list_wallet_withdrawals(
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    db = get_engine()
+    from sqlalchemy import select as sa_select
+    with db.connect() as conn:
+        rows = conn.execute(sa_select(
+            withdrawal_requests.c.request_id, withdrawal_requests.c.asset_id,
+            withdrawal_requests.c.network, withdrawal_requests.c.destination_address,
+            withdrawal_requests.c.amount_raw, withdrawal_requests.c.fee_raw,
+            withdrawal_requests.c.status, withdrawal_requests.c.tx_hash,
+            withdrawal_requests.c.created_at,
+            withdrawal_requests.c.updated_at,
+        ).where(
+            withdrawal_requests.c.user_id == str(user["id"])
+        ).order_by(withdrawal_requests.c.created_at.desc()).limit(100)).mappings().all()
+    return {"items": [dict(row) for row in rows]}
+
+
+@app.post("/api/inventory/listings/{listing_id}/reserve")
+async def reserve_native_listing(
+    listing_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    from marketplace_inventory import reserve_verified_listing
+    try:
+        return reserve_verified_listing(
+            listing_id=listing_id, buyer_user_id=str(user["id"]), engine=get_engine()
+        )
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Listing cannot be reserved")
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Listing is unavailable")
+
+
+@app.post("/api/inventory/reservations/{reservation_id}/deal")
+async def create_native_marketplace_deal(
+    reservation_id: str,
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=16, max_length=128),
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    try:
+        wallet = get_active_verified_wallet(user_id=str(user["id"]), engine=get_engine())
+        from marketplace_settlement import create_deal_from_reservation
+        return create_deal_from_reservation(
+            reservation_id=reservation_id, buyer_user_id=str(user["id"]),
+            buyer_wallet_address=wallet, idempotency_key=idempotency_key,
+            engine=get_engine(),
+        )
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="A verified buyer wallet and active reservation are required")
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Reservation cannot become a deal")
+
+
+@app.get("/api/inventory/deals/{deal_id}")
+async def get_native_marketplace_deal(
+    deal_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    from marketplace_settlement import marketplace_deals, marketplace_deal_events
+    with get_engine().connect() as conn:
+        row = conn.execute(select(
+            marketplace_deals.c.deal_id, marketplace_deals.c.listing_id,
+            marketplace_deals.c.asset_id, marketplace_deals.c.buyer_user_id,
+            marketplace_deals.c.seller_user_id, marketplace_deals.c.currency,
+            marketplace_deals.c.price_raw, marketplace_deals.c.status,
+            marketplace_deals.c.created_at, marketplace_deals.c.updated_at,
+        ).where(marketplace_deals.c.deal_id == deal_id)).mappings().first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Deal not found")
+        if str(user["id"]) not in {row["buyer_user_id"], row["seller_user_id"]}:
+            raise HTTPException(status_code=404, detail="Deal not found")
+        events = conn.execute(select(
+            marketplace_deal_events.c.event_type,
+            marketplace_deal_events.c.actor_type,
+            marketplace_deal_events.c.event_data,
+            marketplace_deal_events.c.created_at,
+        ).where(
+            marketplace_deal_events.c.deal_id == deal_id
+        ).order_by(marketplace_deal_events.c.created_at)).mappings().all()
+    result = dict(row)
+    result["events"] = [dict(event) for event in events]
+    return result
+
+
+
+@app.post("/api/inventory/deals/{deal_id}/dispute")
+async def open_native_marketplace_deal_dispute(
+    deal_id: str,
+    payload: DealDisputeRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    from marketplace_settlement import open_deal_dispute
+    try:
+        return open_deal_dispute(
+            deal_id=deal_id, actor_user_id=str(user["id"]),
+            reason=payload.reason, engine=get_engine(),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+
+
+
+@app.post("/api/admin/inventory/deals/{deal_id}/resolve-dispute")
+async def resolve_native_marketplace_deal_dispute(
+    deal_id: str,
+    payload: DealDisputeResolutionRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _require_admin(x_telegram_init_data)
+    from marketplace_settlement import resolve_deal_dispute
+    try:
+        return resolve_deal_dispute(
+            deal_id=deal_id, decision=payload.decision, reason=payload.reason,
+            admin_user_id=str(user["id"]), engine=get_engine(),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.get("/api/admin/inventory/reconciliation")
+async def list_native_marketplace_reconciliation_queue(
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    _require_admin(x_telegram_init_data)
+    from marketplace_settlement import list_reconciliation_required_deals
+    try:
+        return list_reconciliation_required_deals(
+            engine=get_engine(), limit=limit, offset=offset,
+        )
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid reconciliation queue pagination")
+
+
+@app.post("/api/admin/inventory/deals/{deal_id}/reconciliation-notes")
+async def add_native_marketplace_reconciliation_note(
+    deal_id: str,
+    payload: DealReconciliationNoteRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _require_admin(x_telegram_init_data)
+    from marketplace_settlement import add_deal_reconciliation_note
+    try:
+        return add_deal_reconciliation_note(
+            deal_id=deal_id, admin_user_id=str(user["id"]),
+            note=payload.note, idempotency_key=payload.idempotency_key,
+            engine=get_engine(),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+
+
+@app.get("/api/admin/withdrawals")
+async def list_admin_withdrawals(
+    status: str | None = Query(default=None, pattern="^(requested|processing|submitted|confirmed|failed|reconciliation_required|cancelled)$"),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    if str(user["id"]) not in _admin_ids():
+        raise HTTPException(status_code=403, detail="Forbidden")
+    filters = []
+    if status:
+        filters.append(withdrawal_requests.c.status == status)
+    with get_engine().connect() as conn:
+        count_query = select(func.count()).select_from(withdrawal_requests)
+        rows_query = select(
+            withdrawal_requests.c.request_id, withdrawal_requests.c.user_id,
+            withdrawal_requests.c.asset_id, withdrawal_requests.c.network,
+            withdrawal_requests.c.destination_address, withdrawal_requests.c.amount_raw,
+            withdrawal_requests.c.fee_raw, withdrawal_requests.c.status,
+            withdrawal_requests.c.request_hash, withdrawal_requests.c.tx_hash,
+            withdrawal_requests.c.created_at, withdrawal_requests.c.updated_at,
+        )
+        if filters:
+            count_query = count_query.where(*filters)
+            rows_query = rows_query.where(*filters)
+        total = conn.execute(count_query).scalar_one()
+        rows = conn.execute(rows_query.order_by(
+            withdrawal_requests.c.created_at.asc(), withdrawal_requests.c.request_id
+        ).limit(limit).offset(offset)).mappings().all()
+    return {
+        "total": int(total), "limit": limit, "offset": offset,
+        "items": [{**dict(row), "amount_raw": int(row["amount_raw"]),
+                   "fee_raw": int(row["fee_raw"])} for row in rows],
+    }
+
+
+@app.post("/api/admin/withdrawals/{request_id}/approve")
+async def approve_admin_withdrawal(
+    request_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    if str(user["id"]) not in _admin_ids():
+        raise HTTPException(status_code=403, detail="Forbidden")
+    from withdrawal_signer import approve_withdrawal
+    try:
+        return approve_withdrawal(
+            request_id=request_id, admin_user_id=str(user["id"]), engine=get_engine()
+        )
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Withdrawal approval is not permitted")
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Withdrawal cannot be approved")
+
+
+@app.post("/api/admin/withdrawals/{request_id}/execute")
+async def execute_admin_withdrawal(
+    request_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    if str(user["id"]) not in _admin_ids():
+        raise HTTPException(status_code=403, detail="Forbidden")
+    from withdrawal_signer import execute_approved_withdrawal
+    try:
+        return await execute_approved_withdrawal(request_id=request_id, engine=get_engine())
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Withdrawal execution is disabled or not approved")
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Withdrawal cannot be executed")
+    except Exception as exc:
+        logging.error("Withdrawal execution failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Withdrawal requires reconciliation")
+
+
+@app.get("/api/inventory/mine")
+async def get_my_native_inventory(x_telegram_init_data: str | None = Header(default=None)):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    db = get_engine()
+    init_inventory_schema(db)
+    with db.connect() as conn:
+        rows = conn.execute(select(
+            marketplace_assets.c.asset_id, marketplace_assets.c.asset_type,
+            marketplace_assets.c.collection_address, marketplace_assets.c.token_id,
+            marketplace_assets.c.custody_state, marketplace_assets.c.ownership_state,
+            marketplace_listings.c.listing_id, marketplace_listings.c.price_raw,
+            marketplace_listings.c.currency, marketplace_listings.c.status,
+        ).select_from(
+            marketplace_assets.outerjoin(
+                marketplace_listings, marketplace_listings.c.asset_id == marketplace_assets.c.asset_id
+            )
+        ).where(marketplace_assets.c.owner_user_id == str(user["id"]))).mappings().all()
+    return {"items": [dict(row) for row in rows]}
+
+
+@app.post("/api/payments/stars/terms/accept")
+async def accept_telegram_stars_terms(
+    payload: StarsTermsAcceptanceRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    terms_version = os.getenv("TELEGRAM_STARS_TERMS_VERSION", "").strip()
+    terms_url = os.getenv("TERMS_URL", "").strip()
+    if not (
+        payload.accepted is True
+        and os.getenv("GIFT_RADAR_STORAGE_BACKEND", "sqlite").strip().lower() == "postgres"
+        and database_url.startswith(("postgres://", "postgresql://", "postgresql+psycopg://"))
+        and terms_version
+        and terms_url.startswith("https://")
+    ):
+        raise HTTPException(status_code=503, detail="Terms acceptance is not configured")
+    try:
+        result = record_telegram_stars_terms_acceptance(
+            user_id=str(user["id"]),
+            terms_version=terms_version,
+            terms_url=terms_url,
+        )
+        return {
+            "accepted": True,
+            "terms_version": result["terms_version"],
+            "accepted_at": result["accepted_at"],
+            "duplicate": result["duplicate"],
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception:
+        logging.exception("Could not persist Telegram Stars terms acceptance")
+        raise HTTPException(status_code=503, detail="Terms acceptance could not be stored")
+
+
+@app.get("/api/payments/stars/policy")
+async def telegram_stars_policy():
+    enabled = _stars_payment_enabled()
+    return {
+        "enabled": enabled,
+        "currency": "XTR",
+        "provider": "Telegram Stars",
+        "terms_url": os.getenv("TERMS_URL", "").strip() if enabled else None,
+        "support_url": os.getenv("PAYMENT_SUPPORT_URL", "").strip() if enabled else None,
+        "terms_version": os.getenv("TELEGRAM_STARS_TERMS_VERSION", "").strip() if enabled else None,
+        "note": "Digital goods inside Telegram are payable only in Telegram Stars; explicit current terms acceptance is required before invoice creation.",
+    }
+
+
+@app.post("/api/inventory/deals/{deal_id}/stars-invoice")
+@app.post("/api/marketplace/deals/{deal_id}/stars-invoice")
+async def create_stars_invoice_endpoint(
+    deal_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    if not _stars_payment_enabled():
+        raise HTTPException(status_code=503, detail="Telegram Stars checkout is not enabled")
+    try:
+        invoice = create_telegram_stars_invoice(
+            deal_id=deal_id,
+            buyer_user_id=str(user["id"]),
+        )
+        from aiogram.types import LabeledPrice
+        title = str(invoice.get("title") or "GIFT RADAR gift")[:32]
+        description = ("GIFT RADAR order " + str(invoice["order_id"]))[:255]
+        invoice_url = await _telegram_bot.create_invoice_link(
+            title=title,
+            description=description,
+            payload=invoice["payload"],
+            currency="XTR",
+            prices=[LabeledPrice(label=title, amount=int(invoice["amount_stars"]))],
+        )
+        if not isinstance(invoice_url, str) or not invoice_url.startswith("https://"):
+            raise RuntimeError("Telegram returned an invalid invoice link")
+        return {
+            "invoice_url": invoice_url,
+            "invoice_id": invoice["invoice_id"],
+            "amount": int(invoice["amount_stars"]),
+            "currency": "XTR",
+            "expires_at": int(invoice["expires_at"]),
+        }
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        logging.warning("Telegram Stars invoice creation failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Telegram Stars invoice service is unavailable")
+
+
+@app.post("/api/inventory/deals/{deal_id}/pay-from-invoice")
+async def pay_marketplace_deal_from_invoice(
+    deal_id: str,
+    payload: DealInvoicePaymentRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    try:
+        result = reserve_verified_deal_payment(
+            deal_id=deal_id, invoice_id=payload.invoice_id,
+            actor_user_id=str(user["id"]), engine=get_engine(),
+        )
+        return result
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        logging.warning("Marketplace invoice funding failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Marketplace payment reservation is unavailable")
+
+
+@app.post("/api/payments/stars/refunds")
+async def request_stars_refund(
+    payload: StarsRefundRequestBody,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    try:
+        result = request_telegram_stars_refund(
+            invoice_id=payload.invoice_id,
+            buyer_user_id=str(user["id"]),
+            reason=payload.reason,
+        )
+        return result
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        logging.warning("Telegram Stars refund request failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Refund request could not be stored")
+
+
+@app.post("/api/admin/payments/stars/refunds/{request_id}/execute")
+async def execute_stars_refund(
+    request_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    admin = _require_admin(x_telegram_init_data)
+    if _telegram_bot is None:
+        raise HTTPException(status_code=503, detail="Telegram payment bot is unavailable")
+    try:
+        refund = prepare_telegram_stars_refund(request_id=request_id, admin_user_id=str(admin["id"]))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    try:
+        confirmed = await _telegram_bot.refund_star_payment(
+            user_id=int(refund["buyer_user_id"]),
+            telegram_payment_charge_id=refund["telegram_payment_charge_id"],
+        )
+    except Exception as exc:
+        # Telegram may have processed the refund before a timeout. Never retry automatically.
+        logging.warning("Telegram Stars refund outcome is ambiguous (%s); manual reconciliation required", type(exc).__name__)
+        try:
+            require_telegram_stars_refund_reconciliation(
+                request_id=request_id,
+                reason="Telegram refund API outcome was ambiguous; verify Telegram transaction history before any further action",
+            )
+        except Exception as exc:
+            logging.error("Stars refund reconciliation lock failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Refund outcome is ambiguous and locked for manual reconciliation; do not retry automatically")
+    if not confirmed:
+        fail_telegram_stars_refund(
+            request_id=request_id,
+            reason="Telegram explicitly rejected refundStarPayment",
+        )
+        raise HTTPException(status_code=409, detail="Telegram did not confirm the refund")
+    try:
+        result = complete_telegram_stars_refund(
+            request_id=request_id,
+            telegram_response_ref=refund["telegram_payment_charge_id"],
+        )
+        return result
+    except Exception as exc:
+        logging.error("Confirmed Stars refund ledger finalization failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Telegram confirmed refund; ledger reconciliation is required")
+
+
+@app.get("/api/wallet/balances")
+async def wallet_balances(x_telegram_init_data: str | None = Header(default=None)):
+    """Return computed ledger liabilities; there is no balance setter or client credit path."""
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    assets = ("GRAM", "usdt-ton", "XTR")
+    balances = {}
+    for asset_id in assets:
+        user_liability = get_account_balance(
+            f"liability:user:{user['id']}:{asset_id}", asset_id, engine=get_engine()
+        )
+        seller_liability = get_account_balance(
+            f"liability:seller:{user['id']}:{asset_id}", asset_id, engine=get_engine()
+        )
+        user_available = max(0, -int(user_liability))
+        seller_available = max(0, -int(seller_liability))
+        balances[asset_id] = {
+            "available_raw": user_available + seller_available,
+            "user_deposits_raw": user_available,
+            "seller_proceeds_raw": seller_available,
+        }
+    return {"balances": balances, "source": "append_only_double_entry_ledger"}
+
+
+@app.get("/api/wallet/policy")
+async def wallet_policy():
+    """Disclose TON wallet proof and gated payment capabilities without enabling signing."""
+    from asset_policy import is_crypto_payment_enabled
+
+    crypto_enabled = {
+        asset_id: is_crypto_payment_enabled(asset_id)
+        for asset_id in ("GRAM", "usdt-ton", "usdt-tron")
+    }
+    withdrawal_requests_enabled = bool(
+        any(crypto_enabled.values())
+        and os.getenv("TON_WITHDRAWAL_REQUESTS_ENABLED", "false").strip().lower() == "true"
+        and os.getenv("TON_WITHDRAWALS_ENABLED", "false").strip().lower() == "true"
+        and os.getenv("TON_WITHDRAWAL_EXECUTOR_ENABLED", "false").strip().lower() == "true"
+        and os.getenv("TON_SIGNER_SERVICE_URL", "").strip().startswith("https://")
+        and bool(os.getenv("TON_SIGNER_SERVICE_TOKEN", "").strip())
+        and bool(os.getenv("TON_SIGNER_WALLET_ID", "").strip())
+        and bool(os.getenv("TONCENTER_API_KEY", "").strip())
+        and len({part.strip() for part in os.getenv("WITHDRAWAL_APPROVER_IDS", "").split(",")
+                 if part.strip().isdigit()}) >= 2
+    )
+    return {
+        "wallet_connect": "ton_connect_with_server_verified_ton_proof",
+        "supported_network": "ton-mainnet",
+        "stores": ["public_wallet_address_only_after_verified_wallet_proof"],
+        "requests_seed_phrase": False,
+        "requests_private_key": False,
+        "signing_enabled": False,
+        "transfers_enabled": False,
+        "crypto_payments_enabled": any(crypto_enabled.values()),
+        "crypto_assets": crypto_enabled,
+        "telegram_stars_payments_enabled": _stars_payment_enabled(),
+        "withdrawal_requests_enabled": withdrawal_requests_enabled,
+        "withdrawals_enabled": withdrawal_requests_enabled,
+        "payment_note": (
+            "TON deposits are available only when all independent-provider and Kazakhstan release gates pass."
+            if any(crypto_enabled.values())
+            else "Crypto deposits remain disabled pending operational and compliance release gates."
+        ),
+    }
+
+
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "nft-gift-scanner"}
+    return {"status": "ok"}
 
 
 @app.get("/api/status")
 async def status():
+    # Keep public status intentionally coarse; internal security posture and
+    # infrastructure details belong in private operator monitoring.
     return {
-        "mode": "catalogue_read_only_with_shared_demo_marketplace",
-        "sources": source_status(),
-        "available_data": {
-            "portals": ["collection_list", "collection_floor", "reported_24h_volume", "reported_supply", "listed_gift_catalog", "gift_price", "gift_attributes"],
-            "gift_changes": ["public_gift_metadata_changes_beta"],
-            "tg_gifts_daily": ["daily_collection_floor_history_cc_by_4_0"],
-        },
+        "status": "ok",
+        "product": "GIFT RADAR",
+        "mode": "independent_native_marketplace",
+        "external_marketplaces": False,
         "marketplace_visibility": _marketplace_visibility(),
-        "cross_market_comparison": False,
-        "data_pipeline": {
-            "delivery": "server_to_app_api",
-            "cache": "server_memory_cache",
-            "refresh_interval_seconds": _refresh_interval_seconds(),
-            "persistent_history": True,
-            "history_kind": "portals_metadata_snapshots",
-            "history_limit_per_gift": 50,
-            "history_requires_persistent_volume_for_deploys": True,
-        },
-        "demo_marketplace": {
-            "enabled": True,
-            "storage": "sqlite_server_database",
-            "payments": False,
-            "telegram_stars": "disabled_not_configured",
-            "wallet_operations": False,
-            "blockchain_transactions": False,
-        },
-        "security": {
-            "telegram_initdata_exchange": "signed_freshness_and_replay_protected",
-            "api_sessions": "opaque_hashed_revocable_12h",
-            "webhook": "secret_header_verified_idempotent_update_inbox",
-            "user_wallet_access": False,
-            "user_api_key_storage": False,
-        },
-        "note": "Portals is the sole marketplace catalogue. Independent public reference feeds provide beta gift-metadata changes and daily historical collection floors; these are not live listings.",
+        "sources": {"external_marketplaces": "disabled_by_product_policy"},
     }
 
 
 @app.get("/api/collections")
 async def collections():
-    if not _marketplace_enabled("portals"):
-        return {"items": [], "sources": source_status(), "updated_at": None, "note": "Portals collection feed is disabled by the administrator."}
-    if not os.getenv("PORTALS_API_KEY", "").strip():
-        return {
-            "items": [],
-            "sources": source_status(),
-            "updated_at": None,
-            "note": "Portals data is not connected. No market values are fabricated.",
-        }
-
-    try:
-        preview, floors = await asyncio.gather(
-            cached_portals("/collections/preview?sort_by=name&sort_order=asc"),
-            cached_portals("/collections/floors"),
-        )
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=502, detail="Could not load Portals market data")
-
-    floor_map = floors.get("floorPrices", {})
-    if not isinstance(floor_map, dict):
-        floor_map = {}
-    collections_data = preview.get("collections", [])
-    if not isinstance(collections_data, list):
-        raise HTTPException(status_code=502, detail="Portals collections response is invalid")
-
-    items = []
-    for item in collections_data:
-        if not isinstance(item, dict):
-            continue
-        short_name = item.get("short_name")
-        floor = floor_map.get(short_name, item.get("floor_price"))
-        items.append({
-            "id": item.get("id"),
-            "name": item.get("name"),
-            "short_name": short_name,
-            "image": item.get("photo_url"),
-            "floor_price": floor,
-            "day_volume": item.get("day_volume"),
-            "supply": item.get("supply"),
-            "source": "Portals",
-        })
-
-    return {
-        "items": items,
-        "sources": {
-            **source_status(),
-            "portals": "online_read_only",
-        },
-        "updated_at": int(time.time()),
-        "note": "These are Portals collection-level figures, not item-level listings or cross-market price matches.",
-    }
+    return {"items": [], "connected": False}
 
 
 @app.get("/api/gifts")
@@ -508,289 +1291,89 @@ async def gifts(
     offset: int = Query(default=0, ge=0, le=10000),
     search: str | None = Query(default=None, max_length=80),
     collection_id: str | None = Query(default=None, max_length=64),
-    min_price: str | None = Query(default=None, max_length=32),
-    max_price: str | None = Query(default=None, max_length=32),
-    external_collection_number: str | None = Query(default=None, max_length=16),
-    filter_by_backdrops: str | None = Query(default=None, max_length=100),
-    filter_by_models: str | None = Query(default=None, max_length=100),
-    filter_by_symbols: str | None = Query(default=None, max_length=100),
-    mint_status: str | None = Query(default=None, max_length=16),
-    statuses: str | None = Query(default=None, max_length=100),
-    sort_by: str | None = Query(default=None, max_length=40),
-    status: str | None = Query(default=None, max_length=16),
 ):
-    """Read-only page of currently listed gifts from the documented Portals search endpoint."""
-    if not _marketplace_enabled("portals"):
-        raise HTTPException(status_code=503, detail="Portals catalogue is temporarily disabled by the administrator")
-    if not os.getenv("PORTALS_API_KEY", "").strip():
-        return {"items": [], "total_count": 0, "connected": False, "sources": source_status(), "updated_at": None}
-
-    params: dict[str, Any] = {"limit": limit, "offset": offset}
-    if search and search.strip():
-        params["search"] = search.strip()
-    if collection_id and collection_id.strip():
-        params["collection_id"] = collection_id.strip()
-    for key, value in (("min_price", min_price), ("max_price", max_price)):
-        if value and value.strip():
-            try:
-                amount = Decimal(value.strip())
-                if not amount.is_finite() or amount < 0:
-                    raise InvalidOperation
-            except (InvalidOperation, ValueError):
-                raise HTTPException(status_code=422, detail=f"{key} must be a non-negative decimal")
-            params[key] = value.strip()
-    if min_price and min_price.strip() and max_price and max_price.strip() and Decimal(min_price.strip()) > Decimal(max_price.strip()):
-        raise HTTPException(status_code=422, detail="min_price cannot exceed max_price")
-    if external_collection_number and external_collection_number.strip():
-        if not external_collection_number.strip().isdigit():
-            raise HTTPException(status_code=422, detail="external_collection_number must contain digits only")
-        params["external_collection_number"] = external_collection_number.strip()
-    if filter_by_backdrops and filter_by_backdrops.strip():
-        params["filter_by_backdrops"] = filter_by_backdrops.strip()
-    if filter_by_models and filter_by_models.strip():
-        params["filter_by_models"] = filter_by_models.strip()
-    if filter_by_symbols and filter_by_symbols.strip():
-        params["filter_by_symbols"] = filter_by_symbols.strip()
-    if mint_status:
-        if mint_status not in {"all", "minted", "not_minted"}:
-            raise HTTPException(status_code=422, detail="mint_status must be all, minted or not_minted")
-        params["mint_status"] = mint_status
-    if statuses and statuses.strip():
-        allowed_statuses = {"listed", "unlisted", "withdrawn", "auction", "deleted"}
-        requested_statuses = [value.strip() for value in statuses.split(",") if value.strip()]
-        if not requested_statuses or any(value not in allowed_statuses for value in requested_statuses):
-            raise HTTPException(status_code=422, detail="statuses contains an unsupported value")
-        params["statuses"] = ",".join(requested_statuses)
-    allowed_sorts = {
-        "listed_at desc", "price asc", "price desc",
-        "external_collection_number asc", "external_collection_number desc",
-        "model_rarity asc", "model_rarity desc", "name asc", "name desc",
-    }
-    if sort_by:
-        if sort_by not in allowed_sorts:
-            raise HTTPException(status_code=422, detail="Unsupported sort_by value")
-        params["sort_by"] = sort_by
-    if status:
-        if status not in {"listed", "unlisted"}:
-            raise HTTPException(status_code=422, detail="status must be listed or unlisted")
-        params["status"] = status
-
-    # Reuse the last server-side result for identical filters.
-    cache_key = json.dumps(params, sort_keys=True, separators=(",", ":"))
-    cached = _gifts_cache.get(cache_key)
-    if cached and time.monotonic() - cached[0] < GIFTS_CACHE_SECONDS:
-        return cached[1]
-
-    try:
-        payload = await _portals_get_json("/nfts/search", params)
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=502, detail="Could not load Portals gift listings")
-
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=502, detail="Portals gift search response is invalid")
-    results = payload.get("results", [])
-    if not isinstance(results, list):
-        raise HTTPException(status_code=502, detail="Portals gift search response is invalid")
-
-    items = []
-    for gift in results:
-        if not isinstance(gift, dict):
-            continue
-        items.append({
-            "id": gift.get("id"),
-            "name": gift.get("name"),
-            "number": gift.get("external_collection_number"),
-            "collection_id": gift.get("collection_id"),
-            "image": gift.get("photo_url"),
-            "animation_url": gift.get("animation_url") or gift.get("animationUrl"),
-            "has_animation": bool(gift.get("has_animation") or gift.get("hasAnimation") or gift.get("animation_url") or gift.get("animationUrl")),
-            "price": gift.get("price"),
-            "floor_price": gift.get("floor_price"),
-            "attributes": _safe_gift_attributes(gift.get("attributes")),
-            "status": gift.get("status"),
-            "listed_at": gift.get("listed_at"),
-            "source": "Portals",
-            "currency": "GRAM",
-        })
-
-    result = {
-        "items": items,
-        "total_count": _safe_total_count(payload.get("total_count"), len(items)),
-        "connected": True,
-        "sources": {**source_status(), "portals": "online_read_only"},
-        "updated_at": int(time.time()),
-    }
-    # Persist only authoritative Portals catalogue metadata. This is a metadata index,
-    # not custody, ownership proof, or a transfer of the underlying NFT.
-    upsert_catalogue_items(items)
-    _gifts_cache[cache_key] = (time.monotonic(), result)
-    if len(_gifts_cache) > 200:
-        oldest = sorted(_gifts_cache, key=lambda key: _gifts_cache[key][0])[:-150]
-        for old_key in oldest:
-            _gifts_cache.pop(old_key, None)
-    return result
-
-
-
-@app.get("/api/catalog/items/{gift_id}")
-async def catalogue_item(gift_id: str):
-    """Return the latest Portals metadata snapshot previously indexed by GIFT RADAR."""
-    item = get_catalogue_item(gift_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Gift is not present in the indexed Portals catalogue")
-    return {"item": item, "source": "Portals", "metadata_only": True}
-
-
-@app.get("/api/catalog/items")
-async def catalogue_items(
-    limit: int = Query(default=24, ge=1, le=50),
-    offset: int = Query(default=0, ge=0, le=100000),
-    search: str | None = Query(default=None, max_length=80),
-    collection_id: str | None = Query(default=None, max_length=160),
-):
-    """Search the persistent Portals metadata index; results are not ownership claims."""
-    return {**search_catalogue_items(search or "", collection_id or "", limit, offset), "source": "Portals", "metadata_only": True}
-
-
-@app.get("/api/catalog/items/{gift_id}/history")
-async def catalogue_item_history(
-    gift_id: str,
-    limit: int = Query(default=20, ge=1, le=50),
-):
-    """Return previous Portals metadata snapshots for an indexed item."""
-    if get_catalogue_item(gift_id) is None:
-        raise HTTPException(status_code=404, detail="Gift is not present in the indexed Portals catalogue")
-    return {"gift_id": gift_id, "history": get_catalogue_history(gift_id, limit), "metadata_only": True}
-
-
-_REFERENCE_CACHE: dict[str, tuple[float, Any]] = {}
-_REFERENCE_CACHE_SECONDS = 3600
-CHANGES_API_BASE = "https://api.changes.tg"
-TG_GIFTS_DAILY_URL = "https://tggifts.com/data/floors-daily.json"
-
-
-async def _fetch_reference_json(cache_key: str, url: str, params: dict[str, Any] | None = None,
-                                cache_seconds: int = _REFERENCE_CACHE_SECONDS) -> Any:
-    cached = _REFERENCE_CACHE.get(cache_key)
-    if cached and time.monotonic() - cached[0] < cache_seconds:
-        return cached[1]
-    try:
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-            response = await client.get(url, params=params, headers={
-                "Accept": "application/json",
-                "User-Agent": "GIFT-RADAR/1.0 (public read-only data)",
-            })
-    except httpx.HTTPError:
-        raise HTTPException(status_code=503, detail="Public reference data source is unreachable")
-    if response.status_code == 429:
-        raise HTTPException(status_code=503, detail="Public reference data rate limit reached; retry later")
-    if response.is_error:
-        raise HTTPException(status_code=502, detail=f"Public reference source returned HTTP {response.status_code}")
-    try:
-        payload = response.json()
-    except ValueError:
-        raise HTTPException(status_code=502, detail="Public reference source returned invalid JSON")
-    _REFERENCE_CACHE[cache_key] = (time.monotonic(), payload)
-    if len(_REFERENCE_CACHE) > 100:
-        for old_key in sorted(_REFERENCE_CACHE, key=lambda key: _REFERENCE_CACHE[key][0])[:-60]:
-            _REFERENCE_CACHE.pop(old_key, None)
-    return payload
-
-
-@app.get("/api/reference/gift-changes")
-async def gift_reference_changes(limit: int = Query(default=25, ge=1, le=100),
-                                 since: str | None = Query(default=None, max_length=80)):
-    """Recent public gift metadata changes (beta feed; not marketplace listings)."""
-    params: dict[str, Any] = {"limit": limit}
-    if since and since.strip():
-        params["since"] = since.strip()
-    cache_key = "gift_changes:" + json.dumps(params, sort_keys=True)
-    payload = await _fetch_reference_json(cache_key, f"{CHANGES_API_BASE}/changes",
-                                          params=params, cache_seconds=120)
-    return {
-        "data": payload, "source": "Gift Changes API", "source_url": "https://api.changes.tg/",
-        "updated_at": int(time.time()),
-        "note": "Beta metadata-change feed. It does not contain marketplace listing availability or prices.",
-    }
-
-
-@app.get("/api/reference/daily-floors")
-async def reference_daily_floors(full: bool = Query(default=False)):
-    """Daily historical floors; summary by default, full upstream dataset on explicit request."""
-    payload = await _fetch_reference_json("tg_gifts_daily_floors", TG_GIFTS_DAILY_URL,
-                                          cache_seconds=3600)
-    collections_data = payload.get("collections", {}) if isinstance(payload, dict) else {}
-    if not isinstance(collections_data, dict):
-        collections_data = {}
-    latest_dates: list[str] = []
-    observation_count = 0
-    for collection in collections_data.values():
-        if not isinstance(collection, dict):
-            continue
-        for field in ("days", "timed_sale_days"):
-            points = collection.get(field, [])
-            if isinstance(points, list):
-                observation_count += len(points)
-                latest_dates.extend(str(point[0]) for point in points
-                                    if isinstance(point, (list, tuple)) and point)
-    timed = payload.get("timed_sale_collections", {}) if isinstance(payload, dict) else {}
-    timed_items = timed.get("items", []) if isinstance(timed, dict) else []
-    summary = {
-        "generated": payload.get("generated") if isinstance(payload, dict) else None,
-        "collection_count": len(collections_data),
-        "observation_count": observation_count,
-        "latest_snapshot_date": max(latest_dates) if latest_dates else None,
-        "timed_sale_collection_count": len(timed_items) if isinstance(timed_items, list) else 0,
-    }
-    return {
-        "data": payload if full else summary,
-        "full_dataset_available": True,
-        "source": "TG Gifts", "source_url": "https://tggifts.com/data",
-        "attribution": "Data: TG Gifts (tggifts.com)", "license": "CC BY 4.0",
-        "updated_at": int(time.time()),
-        "note": "Daily historical snapshots, not live marketplace listings or a real-time floor.",
-    }
+    return {"items": [], "total_count": 0, "connected": False}
 
 
 async def _refresh_public_catalogues():
-    """Warm backend caches from upstream public APIs independently of browser visits."""
-    interval = _refresh_interval_seconds()
+    """No external marketplace polling. Native inventory is event-driven."""
     while True:
-        if _marketplace_enabled("portals") and os.getenv("PORTALS_API_KEY", "").strip():
+        await asyncio.sleep(_refresh_interval_seconds())
+
+
+def _native_nft_escrow_monitor_enabled() -> bool:
+    """Fail closed until native NFT escrow has explicit legal and infrastructure approval."""
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    required = (
+        "GIFT_RADAR_ESCROW_ADDRESS",
+        "GIFT_RADAR_ESCROW_CODE_HASH",
+        "TONAPI_KEY",
+        "TONCENTER_API_KEY",
+    )
+    return bool(
+        os.getenv("NATIVE_NFT_ESCROW_MONITOR_ENABLED", "false").strip().lower() == "true"
+        and os.getenv("GIFT_RADAR_STORAGE_BACKEND", "").strip().lower() == "postgres"
+        and database_url.startswith(("postgres://", "postgresql://", "postgresql+psycopg://"))
+        and os.getenv("TON_NFT_PROVIDER_IDS", "").replace(" ", "").lower() == "tonapi,toncenter"
+        and all(os.getenv(name, "").strip() for name in required)
+        and os.getenv("KZ_LEGAL_REVIEW_APPROVED", "false").strip().lower() == "true"
+        and os.getenv("KZ_DATA_RESIDENCY_VERIFIED", "false").strip().lower() == "true"
+        and os.getenv("KZ_TAX_REVIEW_APPROVED", "false").strip().lower() == "true"
+        and os.getenv("KZ_SECURITY_REVIEW_APPROVED", "false").strip().lower() == "true"
+    )
+
+
+async def _run_nft_inventory_monitor():
+    """Poll pending seller deposits only after explicit escrow release gates pass."""
+    while True:
+        ready = _native_nft_escrow_monitor_enabled()
+        if ready:
             try:
-                await collections()
-            except Exception:
-                pass
-            try:
-                await gifts(
-                    limit=24,
-                    offset=0,
-                    search=None,
-                    collection_id=None,
-                    min_price=None,
-                    max_price=None,
-                    external_collection_number=None,
-                    filter_by_backdrops=None,
-                    filter_by_models=None,
-                    filter_by_symbols=None,
-                    mint_status=None,
-                    statuses=None,
-                    sort_by=None,
-                    status=None,
+                result = await scan_pending_nft_listings(engine=get_engine())
+                if result["activated"] or result["errors"]:
+                    logging.info(
+                        "NFT escrow monitor cycle completed; activated=%d; errors=%d",
+                        int(result["activated"]), int(result["errors"]),
+                    )
+            except Exception as exc:
+                logging.warning("NFT escrow monitor cycle failed (%s)", type(exc).__name__)
+        await asyncio.sleep(20)
+
+
+async def _run_marketplace_deal_expiry():
+    """Release only unpaid, expired reservations; never touch paid or disputed deals."""
+    import logging
+    from marketplace_settlement import expire_unpaid_marketplace_deals
+
+    while True:
+        try:
+            result = await asyncio.to_thread(
+                expire_unpaid_marketplace_deals, limit=100,
+            )
+            if result["expired"]:
+                logging.info(
+                    "Marketplace unpaid deal expiry: expired=%s relisted=%s reverify=%s",
+                    result["expired"], result["relisted"], result["reverification_required"],
                 )
-            except Exception:
-                pass
-        await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logging.warning(
+                "Marketplace deal expiry cycle failed (%s)", type(exc).__name__,
+            )
+        await asyncio.sleep(20)
 
 
 @app.on_event("startup")
 async def start_catalogue_refresh():
-    global _refresh_task, _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret
+    global _refresh_task, _inventory_task, _deposit_task, _deal_expiry_task, _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret
     init_marketplace_db()
     init_demo_offers_db()
     _refresh_task = asyncio.create_task(_refresh_public_catalogues())
+    _inventory_task = asyncio.create_task(_run_nft_inventory_monitor())
+    from ton_deposit_monitor import run_ton_deposit_monitor
+    _deposit_task = asyncio.create_task(run_ton_deposit_monitor())
+    _deal_expiry_task = asyncio.create_task(_run_marketplace_deal_expiry())
 
     token = os.getenv("BOT_TOKEN", "").strip()
     if token:
@@ -808,18 +1391,36 @@ async def start_catalogue_refresh():
                 secret_token=_telegram_webhook_secret,
                 allowed_updates=_telegram_dispatcher.resolve_used_update_types(),
             )
-        except Exception:
+        except Exception as exc:
             import logging
-            logging.exception("Could not configure Telegram webhook")
+            logging.warning("Telegram webhook configuration failed (%s)", type(exc).__name__)
 
 
 @app.on_event("shutdown")
 async def stop_catalogue_refresh():
-    global _refresh_task, _telegram_bot
+    global _refresh_task, _inventory_task, _deposit_task, _deal_expiry_task, _telegram_bot
     if _refresh_task and not _refresh_task.done():
         _refresh_task.cancel()
         try:
             await _refresh_task
+        except asyncio.CancelledError:
+            pass
+    if _inventory_task and not _inventory_task.done():
+        _inventory_task.cancel()
+        try:
+            await _inventory_task
+        except asyncio.CancelledError:
+            pass
+    if _deal_expiry_task and not _deal_expiry_task.done():
+        _deal_expiry_task.cancel()
+        try:
+            await _deal_expiry_task
+        except asyncio.CancelledError:
+            pass
+    if _deposit_task and not _deposit_task.done():
+        _deposit_task.cancel()
+        try:
+            await _deposit_task
         except asyncio.CancelledError:
             pass
     if _telegram_bot is not None:

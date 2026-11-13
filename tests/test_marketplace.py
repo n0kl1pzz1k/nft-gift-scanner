@@ -158,28 +158,31 @@ class SharedMarketplaceTests(unittest.TestCase):
             [],
         )
 
-    def test_admin_marketplace_visibility_persists_across_database_reinitialization(self):
+    def test_external_marketplace_integrations_are_disabled(self):
+        status = self.client.get("/api/status")
+        self.assertEqual(status.status_code, 200)
+        payload = status.json()
+        self.assertEqual(payload["mode"], "independent_native_marketplace")
+        self.assertFalse(payload["external_marketplaces"])
+        self.assertFalse(payload["marketplace_visibility"]["external_marketplaces"])
+        self.assertEqual(payload["sources"]["external_marketplaces"], "disabled_by_product_policy")
+
+        collections = self.client.get("/api/collections")
+        gifts = self.client.get("/api/gifts")
+        self.assertEqual(collections.status_code, 200)
+        self.assertEqual(gifts.status_code, 200)
+        self.assertEqual(collections.json()["items"], [])
+        self.assertEqual(gifts.json()["items"], [])
+        self.assertFalse(gifts.json()["connected"])
+
+    def test_admin_cannot_reenable_external_marketplace(self):
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
-            headers = {"X-Telegram-Init-Data": "user-a"}
-            changed = self.client.post(
+            response = self.client.post(
                 "/api/admin/marketplaces/portals",
-                headers=headers,
-                json={"enabled": False},
-            )
-            self.assertEqual(changed.status_code, 200)
-            self.assertFalse(changed.json()["enabled"])
-            marketplace.init_marketplace_db()
-            overview = self.client.get("/api/admin/overview", headers=headers)
-            self.assertEqual(overview.status_code, 200)
-            self.assertFalse(overview.json()["marketplace_visibility"]["portals"])
-            self.assertEqual(overview.json()["settings_persistence"], "persistent_sqlite")
-            enabled = self.client.post(
-                "/api/admin/marketplaces/portals",
-                headers=headers,
+                headers={"X-Telegram-Init-Data": "user-a"},
                 json={"enabled": True},
             )
-            self.assertEqual(enabled.status_code, 200)
-            self.assertTrue(enabled.json()["enabled"])
+        self.assertEqual(response.status_code, 410)
 
     def test_admin_marketplace_settings_reject_non_admin(self):
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "999"}):
@@ -188,7 +191,7 @@ class SharedMarketplaceTests(unittest.TestCase):
                 headers={"X-Telegram-Init-Data": "user-a"},
                 json={"enabled": False},
             )
-            self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 403)
 
     def test_admin_overview_requires_admin_authentication(self):
         missing = self.client.get("/api/admin/overview")
@@ -200,101 +203,9 @@ class SharedMarketplaceTests(unittest.TestCase):
             )
         self.assertEqual(regular.status_code, 403)
 
-    def test_admin_rejects_unknown_marketplace(self):
-        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
-            response = self.client.post(
-                "/api/admin/marketplaces/unknown",
-                headers={"X-Telegram-Init-Data": "user-a"},
-                json={"enabled": False},
-            )
-        self.assertEqual(response.status_code, 404)
-
-    def test_status_reports_persistent_metadata_history_capability(self):
-        status = self.client.get("/api/status")
-        self.assertEqual(status.status_code, 200)
-        pipeline = status.json()["data_pipeline"]
-        self.assertTrue(pipeline["persistent_history"])
-        self.assertEqual(pipeline["history_kind"], "portals_metadata_snapshots")
-        self.assertEqual(pipeline["history_limit_per_gift"], 50)
-        self.assertTrue(pipeline["history_requires_persistent_volume_for_deploys"])
-
-    def test_portals_attributes_are_normalized_and_bounded(self):
-        attributes = [{"type": "model", "value": "x" * 300}, "invalid", {"name": {"nested": "value"}}] + [
-            {"type": "symbol", "value": str(index)} for index in range(50)
-        ]
-        normalized = api._safe_gift_attributes(attributes)
-        self.assertEqual(len(normalized), 38)
-        self.assertLessEqual(len(normalized), 40)
-        self.assertEqual(normalized[0]["value"], "x" * 160)
-        self.assertEqual(normalized[1]["name"], "")
-        self.assertTrue(all(set(item) == {"type", "name", "value"} for item in normalized))
-
-    def test_portals_catalogue_is_persisted_and_searchable_by_exact_item(self):
-        payload = {
-            "results": [{
-                "id": "portals-item-9001",
-                "name": "Plush Pepe",
-                "external_collection_number": 9001,
-                "collection_id": "plush-pepe",
-                "photo_url": "https://example.invalid/gift.webp",
-                "animation_url": None,
-                "price": "4.2",
-                "floor_price": "3.9",
-                "attributes": [{"type": "model", "value": "Pepe"}],
-                "status": "listed",
-                "listed_at": "2026-11-11T00:00:00Z",
-            }],
-            "total_count": 1,
-        }
-        with patch.dict(os.environ, {"PORTALS_API_KEY": "test-partner-key"}), patch.object(
-            api, "_portals_get_json", new_callable=AsyncMock, return_value=payload
-        ):
-            loaded = self.client.get("/api/gifts?limit=1")
-        self.assertEqual(loaded.status_code, 200)
-        self.assertEqual(loaded.json()["items"][0]["id"], "portals-item-9001")
-
-        exact = self.client.get("/api/catalog/items/portals-item-9001")
-        self.assertEqual(exact.status_code, 200)
-        self.assertTrue(exact.json()["metadata_only"])
-        self.assertEqual(exact.json()["item"]["number"], 9001)
-        self.assertEqual(exact.json()["item"]["catalogue_source"], "Portals")
-
-        searched = self.client.get("/api/catalog/items?search=Pepe&collection_id=plush-pepe")
-        self.assertEqual(searched.status_code, 200)
-        self.assertEqual(searched.json()["total_count"], 1)
-        self.assertEqual(searched.json()["items"][0]["id"], "portals-item-9001")
-
-    def test_catalogue_history_endpoint_returns_distinct_metadata_versions(self):
-        payloads = [
-            {"results": [{"id": "history-item-1", "name": "Gift", "price": "1.0"}], "total_count": 1},
-            {"results": [{"id": "history-item-1", "name": "Gift", "price": "1.5"}], "total_count": 1},
-        ]
-        with patch.dict(os.environ, {"PORTALS_API_KEY": "test-partner-key"}), patch.object(
-            api, "_portals_get_json", new_callable=AsyncMock, side_effect=payloads
-        ):
-            first = self.client.get("/api/gifts?limit=1&sort_by=price%20asc")
-            second = self.client.get("/api/gifts?limit=1&sort_by=price%20desc")
-        self.assertEqual(first.status_code, 200)
-        self.assertEqual(second.status_code, 200)
-        history = self.client.get("/api/catalog/items/history-item-1/history")
-        self.assertEqual(history.status_code, 200)
-        self.assertTrue(history.json()["metadata_only"])
-        self.assertEqual(len(history.json()["history"]), 2)
-        self.assertEqual(
-            {entry["item"]["price"] for entry in history.json()["history"]},
-            {"1.0", "1.5"},
-        )
-
-    def test_catalogue_item_endpoint_does_not_invent_missing_items(self):
-        missing = self.client.get("/api/catalog/items/not-indexed")
-        self.assertEqual(missing.status_code, 404)
-
-    def test_price_filter_rejects_minimum_above_maximum(self):
-        with patch.dict(os.environ, {"PORTALS_API_KEY": "test-partner-key"}), patch.object(api, "_portals_get_json", new_callable=AsyncMock) as upstream:
-            response = self.client.get("/api/gifts?min_price=5&max_price=2")
-        self.assertEqual(response.status_code, 422)
-        self.assertIn("min_price cannot exceed max_price", response.json()["detail"])
-        upstream.assert_not_awaited()
+    def test_legacy_catalogue_routes_are_not_exposed(self):
+        self.assertEqual(self.client.get("/api/catalog/items").status_code, 404)
+        self.assertEqual(self.client.get("/api/catalog/items/not-indexed").status_code, 404)
 
     def test_favorites_require_telegram_auth_and_limit_payload_size(self):
         unauthenticated = self.client.get("/api/marketplace/favorites")
@@ -1191,63 +1102,6 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
 
 
-class PortalsReadOnlyClientTests(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
-        self.token_patch = patch.dict(os.environ, {"PORTALS_API_KEY": "test-partner-key"})
-        self.token_patch.start()
-        self.lock_patch = patch.object(api, "_request_lock", asyncio.Lock())
-        self.lock_patch.start()
-        self.time_patch = patch.object(api, "_last_request_at", 0.0)
-        self.time_patch.start()
-
-    async def asyncTearDown(self):
-        self.time_patch.stop()
-        self.lock_patch.stop()
-        self.token_patch.stop()
-
-    async def test_portals_search_retries_rate_limit_and_keeps_auth_server_side(self):
-        class Response:
-            def __init__(self, status_code, payload, headers=None):
-                self.status_code = status_code
-                self._payload = payload
-                self.headers = headers or {}
-                self.is_error = status_code >= 400
-
-            def json(self):
-                return self._payload
-
-        class Client:
-            def __init__(self):
-                self.calls = []
-                self.responses = [
-                    Response(429, {}, {"Retry-After": "0"}),
-                    Response(200, {"results": []}),
-                ]
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                return False
-
-            async def get(self, url, headers, params):
-                self.calls.append((url, headers, params))
-                return self.responses.pop(0)
-
-        client = Client()
-        with patch.object(api.httpx, "AsyncClient", return_value=client), patch.object(api.asyncio, "sleep", new=AsyncMock()):
-            result = await api._portals_get_json("/nfts/search", {"limit": 10})
-
-        self.assertEqual(result, {"results": []})
-        self.assertEqual(len(client.calls), 2)
-        self.assertEqual(client.calls[0][1]["Authorization"], "partners test-partner-key")
-        self.assertEqual(client.calls[0][2], {"limit": 10})
-
-    async def test_portals_client_rejects_non_allowlisted_routes(self):
-        with self.assertRaises(api.HTTPException) as raised:
-            await api._portals_get_json("/partners/market/buy", {})
-        self.assertEqual(raised.exception.status_code, 400)
-
 
 
 class TelegramInitDataValidationTests(unittest.TestCase):
@@ -1366,63 +1220,6 @@ class TelegramSessionSecurityTests(unittest.TestCase):
 
 
 
-
-class PortalsReadOnlyClientTests(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
-        self.token_patch = patch.dict(os.environ, {"PORTALS_API_KEY": "test-partner-key"})
-        self.token_patch.start()
-        self.lock_patch = patch.object(api, "_request_lock", asyncio.Lock())
-        self.lock_patch.start()
-        self.time_patch = patch.object(api, "_last_request_at", 0.0)
-        self.time_patch.start()
-
-    async def asyncTearDown(self):
-        self.time_patch.stop()
-        self.lock_patch.stop()
-        self.token_patch.stop()
-
-    async def test_portals_search_retries_rate_limit_and_keeps_auth_server_side(self):
-        class Response:
-            def __init__(self, status_code, payload, headers=None):
-                self.status_code = status_code
-                self._payload = payload
-                self.headers = headers or {}
-                self.is_error = status_code >= 400
-
-            def json(self):
-                return self._payload
-
-        class Client:
-            def __init__(self):
-                self.calls = []
-                self.responses = [
-                    Response(429, {}, {"Retry-After": "0"}),
-                    Response(200, {"results": []}),
-                ]
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                return False
-
-            async def get(self, url, headers, params):
-                self.calls.append((url, headers, params))
-                return self.responses.pop(0)
-
-        client = Client()
-        with patch.object(api.httpx, "AsyncClient", return_value=client), patch.object(api.asyncio, "sleep", new=AsyncMock()):
-            result = await api._portals_get_json("/nfts/search", {"limit": 10})
-
-        self.assertEqual(result, {"results": []})
-        self.assertEqual(len(client.calls), 2)
-        self.assertEqual(client.calls[0][1]["Authorization"], "partners test-partner-key")
-        self.assertEqual(client.calls[0][2], {"limit": 10})
-
-    async def test_portals_client_rejects_non_allowlisted_routes(self):
-        with self.assertRaises(api.HTTPException) as raised:
-            await api._portals_get_json("/partners/market/buy", {})
-        self.assertEqual(raised.exception.status_code, 400)
 
 
 

@@ -1,0 +1,23 @@
+{
+  "name": "gift-radar-ton-proof",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@ton/crypto": "3.3.0",
+    "@ton/ton": "15.3.1",
+    "fastify": "^5.2.1",
+    "pg": "^8.13.1",
+    "tweetnacl": "^1.0.3",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/pg": "^8.11.11",
+    "typescript": "^5.7.3"
+  }
+}

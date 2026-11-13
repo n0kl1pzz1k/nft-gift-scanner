@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import GiftMedia from './GiftMedia.svelte';
+  import { TonConnectUI } from '@tonconnect/ui';
 
   type Gift = {
     id?: string | number; name?: string; number?: string | number;
@@ -32,9 +33,25 @@
     data_pipeline?: { refresh_interval_seconds?: number };
     note?: string;
   };
-  type View = 'market' | 'orders' | 'create' | 'favorites' | 'profile' | 'seller';
+  type View = 'market' | 'orders' | 'create' | 'favorites' | 'profile' | 'seller' | 'inventory';
 
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://nft-gift-scanner-production.up.railway.app').replace(/\/$/, '');
+  let tonConnectUI = $state<TonConnectUI | null>(null);
+  let connectedWallet = $state('');
+  let walletAppName = $state('');
+  let walletBusy = $state(false);
+  let walletVerified = $state(false);
+  let inventoryItems = $state<any[]>([]);
+  let inventoryBusy = $state(false);
+  let nftImportBusy = $state(false);
+  let inventoryListingBusy = $state('');
+  let inventoryCancelBusy = $state('');
+  let nftAssetType = $state<'ton_nft'|'collectible_username'|'collectible_phone_number'>('ton_nft');
+  let nftCollectionAddress = $state('');
+  let nftTokenId = $state('');
+  let nftItemAddress = $state('');
+  let inventoryPrices = $state<Record<string,string>>({});
+  let inventoryCurrencies = $state<Record<string,'GRAM'|'USDT'|'XTR'>>({});
   let lang = $state<'ru' | 'en'>('ru');
   let view = $state<View>('market');
   let gifts = $state<Gift[]>([]);
@@ -92,8 +109,6 @@
   let signedIn = $state(false);
   let authToken = $state('');
   let isAdmin = $state(false);
-  let adminMarketplaceEnabled = $state(true);
-  let adminBusy = $state(false);
   let notice = $state('');
   let createKind = $state<'listing' | 'buy-order'>('listing');
   let createTitle = $state('');
@@ -120,10 +135,10 @@
   let orderKindFilter = $state<'all' | 'listing' | 'buy-order'>('all');
 
   const ru = {
-    market: 'Маркет', orders: 'Активность', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'ТОЛЬКО ПРОСМОТР', catalogOnly: 'Актуальные объявления Portals. Просмотр и поиск доступны; управление сделками в GIFT RADAR пока не включено.',
-    headline: 'Подарки, которые находят своих владельцев', subtitle: 'Единое пространство Telegram-подарков на базе каталога Portals.',
-    brandEyebrow: 'ОТКРЫВАЙ РЕДКОЕ · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Открой редкие подарки.', heroDescription: 'Исследуй коллекции Telegram-подарков, объявления и историю характеристик в одном месте.', openCatalogue: 'Открыть каталог', connectedLabel: 'КАТАЛОГ PORTALS · ТОЛЬКО ПРОСМОТР', exploreMarket: 'ИССЛЕДУЙ МАРКЕТ', collectionsTitle: 'Коллекции', collectionsCount: 'коллекций в каталоге', discoverLabel: 'ОТКРЫВАЙ', portals: 'Единственный источник каталога · Portals', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
-    listings: 'Предложения Portals', results: 'найдено', loading: 'Загружаем каталог…', loadMore: 'Показать ещё',
+    market: 'Маркет', orders: 'Активность', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'ТОЛЬКО ПРОСМОТР', catalogOnly: 'Самостоятельный маркетплейс GIFT RADAR. Здесь публикуются собственные объявления и оформляются сделки.',
+    headline: 'Подарки, которые находят своих владельцев', subtitle: 'Самостоятельный рынок Telegram-подарков. Объявления, ордера и сделки живут внутри GIFT RADAR.',
+    brandEyebrow: 'ОТКРЫВАЙ РЕДКОЕ · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Открой редкие подарки.', heroDescription: 'Исследуй коллекции Telegram-подарков, объявления и историю характеристик в одном месте.', openCatalogue: 'Открыть каталог', connectedLabel: 'СОБСТВЕННЫЙ МАРКЕТПЛЕЙС · GIFT RADAR', exploreMarket: 'ИССЛЕДУЙ МАРКЕТ', collectionsTitle: 'Коллекции', collectionsCount: 'коллекций в каталоге', discoverLabel: 'ОТКРЫВАЙ', nativeCatalog: 'Собственный каталог GIFT RADAR', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
+    listings: 'Объявления GIFT RADAR', results: 'найдено', loading: 'Загружаем каталог…', loadMore: 'Показать ещё',
     empty: 'По этому запросу ничего не найдено.', failed: 'Не удалось загрузить каталог.',
     details: 'О подарке', floor: 'Флор', price: 'Цена', traits: 'Характеристики',
     createTitle: 'Создать объявление', sell: 'Предложение', buy: 'Заявка на поиск', titleLabel: 'Название подарка',
@@ -134,19 +149,19 @@
     offersTitle: 'Офферы', dealsTitle: 'Демо-сделки', sendOffer: 'Отправить оффер', offerAmount: 'Сумма оффера', acceptOffer: 'Принять', declineOffer: 'Отклонить', withdrawOffer: 'Отозвать', noOffers: 'Офферов пока нет.', noDeals: 'Демо-сделок пока нет.', incoming: 'Входящий', outgoing: 'Исходящий', offerStatusFilter: 'Статус оффера', offerPending: 'Ожидает ответа', offerAccepted: 'Принят', offerDeclined: 'Отклонён', offerWithdrawn: 'Отозван',
     accountStatsTitle: 'Статистика аккаунта', activeOrdersStat: 'Активные заявки', completedOrdersStat: 'Завершённые', sentOffersStat: 'Мои офферы', receivedOffersStat: 'Входящие офферы', notificationsTitle: 'Уведомления', markAllRead: 'Прочитать все', noNotifications: 'Новых уведомлений нет.', offerReceivedNotice: 'отправил(а) оффер', offerAcceptedNotice: 'принят оффер по', offerDeclinedNotice: 'отклонил(а) оффер по', offerWithdrawnNotice: 'отозвал(а) оффер по', activityTitle: 'История активности', noActivity: 'Активность пока не появилась.', loadMoreActivity: 'Показать ещё', orderCreatedActivity: 'Создана заявка', orderUpdatedActivity: 'Заявка изменена', orderFilledActivity: 'Заявка отмечена как исполненная (демо)', orderCancelledActivity: 'Заявка снята', offerReceivedActivity: 'Получен оффер', offerAcceptedActivity: 'Оффер принят', offerDeclinedActivity: 'Оффер отклонён', offerWithdrawnActivity: 'Оффер отозван', dealCreatedActivity: 'Создана демо-сделка',
     active: 'Активен', matched: 'Смоделирован', cancelled: 'Отменён', cancel: 'Снять', match: 'Симулировать исполнение', editOrder: 'Изменить', saveOrder: 'Сохранить', cancelEdit: 'Отмена', editTitle: 'Название', editPrice: 'Демо-цена', editNote: 'Комментарий', orderUpdated: 'Объявление обновлено.',
-    demo: 'PORTALS LIVE · READ ONLY', demoWallet: 'Кошелёк не подключён', demoWalletText: 'Подключение кошельков и операции с активами пока не поддерживаются.',
+    demo: 'GIFT RADAR · NATIVE MARKET', demoWallet: 'Кошелёк не подключён', demoWalletText: 'Подключение кошельков и операции с активами пока не поддерживаются.',
     signIn: 'Подтвердить Telegram', guest: 'Гость', authHint: 'Открой Mini App через Telegram, чтобы подтвердить профиль.',
     signed: 'Telegram подтверждён', profileText: 'Профиль Telegram и управление публичной карточкой продавца.', sellerCardTitle: 'Публичная карточка продавца', sellerDisplayName: 'Отображаемое имя', sellerBio: 'О себе', sellerSave: 'Сохранить профиль', sellerSaved: 'Профиль продавца обновлён.', sellerProfileId: 'Публичный ID',
     favoritesTitle: 'Избранные подарки', noFavorites: 'Добавьте подарки в избранное из каталога.',
     save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Демо-запись добавлена.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Демо-оборот', statsVolumeHint: 'Только смоделированные записи', statsCatalog: 'Подарков в каталоге', stars: 'Stars', ton: 'TON',
-    noImage: 'GIFT', online: 'Каталог Portals', refresh: 'Обновить', all: 'Все', orderStatus: 'Статус', orderKind: 'Тип заявки', activeOrders: 'Активные', matchedOrders: 'Смоделированные', cancelledOrders: 'Снятые', listingsOnly: 'Предложения', buyRequestsOnly: 'Заявки на поиск', invalidPrice: 'Проверь диапазон цены: значения должны быть неотрицательными, а минимальная цена — не выше максимальной.',
-    sourceStatusTitle: 'СОСТОЯНИЕ ИСТОЧНИКОВ', sourceStatusSubtitle: 'Что подключено к приложению', sourcePortals: 'Каталог объявлений', sourceChanges: 'Изменения подарков', sourceDailyFloors: 'История floor-цен', sourceStatusChecked: 'Проверено', sourceStatusChecking: 'Проверяем статус…', sourceStatusUnavailable: 'Не удалось получить статус API.', sourceRefreshInterval: 'Интервал фонового обновления', sourceConfigured: 'Настроен · только чтение', sourceNeedsKey: 'Требуется API-ключ', sourcePublic: 'Публичный источник', sourceDaily: 'Публичная ежедневная история', sourceUnknown: 'Нет данных',
+    noImage: 'GIFT', online: 'Каталог GIFT RADAR', refresh: 'Обновить', all: 'Все', orderStatus: 'Статус', orderKind: 'Тип заявки', activeOrders: 'Активные', matchedOrders: 'Смоделированные', cancelledOrders: 'Снятые', listingsOnly: 'Предложения', buyRequestsOnly: 'Заявки на поиск', invalidPrice: 'Проверь диапазон цены: значения должны быть неотрицательными, а минимальная цена — не выше максимальной.',
+    sourceStatusTitle: 'СТАТУС ПЛАТФОРМЫ', sourceStatusSubtitle: 'Собственная инфраструктура GIFT RADAR', sourceNative: 'Внутренний каталог', sourceChanges: 'Индексация подарков', sourceDailyFloors: 'История платформы', sourceStatusChecked: 'Проверено', sourceStatusChecking: 'Проверяем статус…', sourceStatusUnavailable: 'Не удалось получить статус API.', sourceRefreshInterval: 'Интервал обновления', sourceConfigured: 'Активен', sourceNeedsKey: 'Ожидает настройки', sourcePublic: 'Внутренний источник', sourceDaily: 'Внутренняя история', sourceUnknown: 'Нет данных',
   };
   const en = {
-    market: 'Market', orders: 'Activity', create: 'Create', favorites: 'Favorites', profile: 'Profile', readonly: 'READ ONLY', catalogOnly: 'Live Portals listings. Browse and search are available; trade execution is not enabled in GIFT RADAR.',
-    headline: 'Discover gifts worth keeping', subtitle: 'A unified Telegram gifts experience powered by the Portals catalogue.',
-    brandEyebrow: 'DISCOVER THE RARE · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Discover rare finds.', heroDescription: 'Explore Telegram gift collections, marketplace listings and item history in one place.', openCatalogue: 'Explore catalogue', connectedLabel: 'PORTALS CATALOGUE · READ ONLY', exploreMarket: 'EXPLORE THE MARKET', collectionsTitle: 'Collections', collectionsCount: 'collections in catalogue', discoverLabel: 'DISCOVER', portals: 'Single catalogue source · Portals', search: 'Gift name or number', min: 'Min price', max: 'Max price',
-    listings: 'Portals listings', results: 'found', loading: 'Loading catalogue…', loadMore: 'Load more',
+    market: 'Market', orders: 'Activity', create: 'Create', favorites: 'Favorites', profile: 'Profile', readonly: 'READ ONLY', catalogOnly: 'Live GIFT RADAR listings. Browse and search are available; trade execution is not enabled in GIFT RADAR.',
+    headline: 'Discover gifts worth keeping', subtitle: 'A unified Telegram gifts experience powered by the GIFT RADAR catalogue.',
+    brandEyebrow: 'DISCOVER THE RARE · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Discover rare finds.', heroDescription: 'Explore Telegram gift collections, marketplace listings and item history in one place.', openCatalogue: 'Explore catalogue', connectedLabel: 'GIFT RADAR · INDEPENDENT MARKET', exploreMarket: 'EXPLORE THE MARKET', collectionsTitle: 'Collections', collectionsCount: 'collections in catalogue', discoverLabel: 'DISCOVER', nativeCatalog: 'GIFT RADAR native catalogue', search: 'Gift name or number', min: 'Min price', max: 'Max price',
+    listings: 'GIFT RADAR listings', results: 'found', loading: 'Loading catalogue…', loadMore: 'Load more',
     empty: 'No gifts match this search.', failed: 'Could not load the catalogue.',
     details: 'Gift details', floor: 'Floor', price: 'Price', traits: 'Attributes',
     createTitle: 'Create an order', sell: 'Sell listing', buy: 'Buy request', titleLabel: 'Gift name',
@@ -157,13 +172,13 @@
     offersTitle: 'Offers', dealsTitle: 'Demo deals', sendOffer: 'Send offer', offerAmount: 'Offer amount', acceptOffer: 'Accept', declineOffer: 'Decline', withdrawOffer: 'Withdraw', noOffers: 'No offers yet.', noDeals: 'No demo deals yet.', incoming: 'Incoming', outgoing: 'Outgoing', offerStatusFilter: 'Offer status', offerPending: 'Awaiting response', offerAccepted: 'Accepted', offerDeclined: 'Declined', offerWithdrawn: 'Withdrawn',
     accountStatsTitle: 'Account stats', activeOrdersStat: 'Active orders', completedOrdersStat: 'Completed', sentOffersStat: 'Offers sent', receivedOffersStat: 'Offers received', notificationsTitle: 'Notifications', markAllRead: 'Mark all read', noNotifications: 'No notifications yet.', offerReceivedNotice: 'sent you an offer for', offerAcceptedNotice: 'accepted your offer for', offerDeclinedNotice: 'declined your offer for', offerWithdrawnNotice: 'withdrew an offer for', activityTitle: 'Activity history', noActivity: 'No activity yet.', loadMoreActivity: 'Load more', orderCreatedActivity: 'Order created', orderUpdatedActivity: 'Order updated', orderFilledActivity: 'Order marked as filled (demo)', orderCancelledActivity: 'Order cancelled', offerReceivedActivity: 'Offer received', offerAcceptedActivity: 'Offer accepted', offerDeclinedActivity: 'Offer declined', offerWithdrawnActivity: 'Offer withdrawn', dealCreatedActivity: 'Demo deal created',
     active: 'Active', matched: 'Simulated', cancelled: 'Cancelled', cancel: 'Cancel', match: 'Simulate fill', editOrder: 'Edit', saveOrder: 'Save changes', cancelEdit: 'Discard', editTitle: 'Title', editPrice: 'Demo price', editNote: 'Note', orderUpdated: 'Order updated.',
-    demo: 'PORTALS LIVE · READ ONLY', demoWallet: 'Wallet not connected', demoWalletText: 'Wallet connections and asset operations are not supported yet.',
+    demo: 'GIFT RADAR · NATIVE MARKET', demoWallet: 'Wallet not connected', demoWalletText: 'Wallet connections and asset operations are not supported yet.',
     signIn: 'Verify Telegram', guest: 'Guest', authHint: 'Open the Mini App in Telegram to verify your profile.',
     signed: 'Telegram verified', profileText: 'Your Telegram account and public seller card.', sellerCardTitle: 'Public seller card', sellerDisplayName: 'Display name', sellerBio: 'About', sellerSave: 'Save profile', sellerSaved: 'Seller profile updated.', sellerProfileId: 'Public ID',
     favoritesTitle: 'Saved gifts', noFavorites: 'Save gifts from the catalogue to see them here.',
     save: 'Save', saved: 'Saved', currency: 'TON', success: 'Demo entry created.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Demo volume', statsVolumeHint: 'Simulated entries only', statsCatalog: 'Catalogue gifts', stars: 'Stars', ton: 'TON',
-    noImage: 'GIFT', online: 'Portals catalogue', refresh: 'Refresh', all: 'All', orderStatus: 'Status', orderKind: 'Order type', activeOrders: 'Active', matchedOrders: 'Simulated', cancelledOrders: 'Cancelled', listingsOnly: 'Listings', buyRequestsOnly: 'Buy requests', invalidPrice: 'Check the price range: values must be non-negative and the minimum cannot exceed the maximum.',
-    sourceStatusTitle: 'SOURCE STATUS', sourceStatusSubtitle: 'Connected data sources', sourcePortals: 'Marketplace catalogue', sourceChanges: 'Gift metadata changes', sourceDailyFloors: 'Floor price history', sourceStatusChecked: 'Checked', sourceStatusChecking: 'Checking status…', sourceStatusUnavailable: 'Could not load API status.', sourceRefreshInterval: 'Background refresh interval', sourceConfigured: 'Configured · read-only', sourceNeedsKey: 'API key required', sourcePublic: 'Public source', sourceDaily: 'Public daily history', sourceUnknown: 'No data',
+    noImage: 'GIFT', online: 'GIFT RADAR catalogue', refresh: 'Refresh', all: 'All', orderStatus: 'Status', orderKind: 'Order type', activeOrders: 'Active', matchedOrders: 'Simulated', cancelledOrders: 'Cancelled', listingsOnly: 'Listings', buyRequestsOnly: 'Buy requests', invalidPrice: 'Check the price range: values must be non-negative and the minimum cannot exceed the maximum.',
+    sourceStatusTitle: 'PLATFORM STATUS', sourceStatusSubtitle: 'GIFT RADAR native infrastructure', sourceNative: 'Native catalogue', sourceChanges: 'Gift indexing', sourceDailyFloors: 'Platform history', sourceStatusChecked: 'Checked', sourceStatusChecking: 'Checking status…', sourceStatusUnavailable: 'Could not load API status.', sourceRefreshInterval: 'Refresh interval', sourceConfigured: 'Active', sourceNeedsKey: 'Setup pending', sourcePublic: 'Native source', sourceDaily: 'Internal history', sourceUnknown: 'No data',
   };
   const t = $derived(lang === 'ru' ? ru : en);
   const keyOf = (g: Gift) => String(g.id ?? g.number ?? g.name ?? 'gift');
@@ -654,7 +669,6 @@
     if (!isAdmin) return;
     try {
       const data = await request('/api/admin/overview');
-      adminMarketplaceEnabled = data.marketplace_visibility?.portals !== false;
       await loadAdminReports();
     } catch (e) {
       // Do not render privileged controls if the protected overview cannot be loaded.
@@ -716,23 +730,167 @@
     }
   }
 
-  async function toggleAdminMarketplace() {
-    if (!isAdmin || adminBusy) return;
-    adminBusy = true;
+  async function loadMyInventory() {
+    if (!signedIn) return;
+    inventoryBusy = true;
     try {
-      const data = await request('/api/admin/marketplaces/portals', undefined, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !adminMarketplaceEnabled }),
-      });
-      adminMarketplaceEnabled = data.enabled === true;
-      notice = lang === 'ru'
-        ? (adminMarketplaceEnabled ? 'Каталог Portals включён.' : 'Каталог Portals выключен.')
-        : (adminMarketplaceEnabled ? 'Portals catalogue enabled.' : 'Portals catalogue disabled.');
+      const data = await request('/api/inventory/mine');
+      inventoryItems = Array.isArray(data.items) ? data.items : [];
     } catch (e) {
       notice = e instanceof Error ? e.message : String(e);
     } finally {
-      adminBusy = false;
+      inventoryBusy = false;
+    }
+  }
+
+  async function importOwnedNft() {
+    if (!signedIn || !walletVerified || nftImportBusy) {
+      notice = lang==='ru' ? 'Сначала подключи и подтверди TON-кошелёк.' : 'Connect and verify your TON wallet first.';
+      return;
+    }
+    nftImportBusy = true;
+    try {
+      await request('/api/inventory/nft/import', undefined, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          asset_type:nftAssetType, collection_address:nftCollectionAddress.trim(),
+          token_id:nftTokenId.trim(), item_address:nftItemAddress.trim(),
+        }),
+      });
+      notice = lang==='ru'
+        ? 'NFT подтверждён двумя источниками и добавлен в твой инвентарь. Теперь создай лот.'
+        : 'NFT verified by two providers and added to your inventory. Create a listing next.';
+      nftCollectionAddress = '';
+      nftTokenId = '';
+      nftItemAddress = '';
+      await loadMyInventory();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      nftImportBusy = false;
+    }
+  }
+
+  function toRawListingPrice(value: string, currency: 'GRAM'|'USDT'|'XTR') {
+    const decimals = currency === 'GRAM' ? 9 : currency === 'USDT' ? 6 : 0;
+    const normalized = value.trim().replace(',', '.');
+    if (!/^\d+(\.\d+)?$/.test(normalized)) throw new Error('Invalid listing price');
+    const [whole, fraction=''] = normalized.split('.');
+    if (fraction.length > decimals) throw new Error('Too many decimal places for selected currency');
+    const raw = BigInt(whole) * (10n ** BigInt(decimals)) + BigInt((fraction + '0'.repeat(decimals)).slice(0, decimals) || '0');
+    if (raw <= 0n || raw > 9000000000000000n) throw new Error('Listing price is outside the allowed range');
+    return Number(raw);
+  }
+
+  async function createInventoryListing(assetId: string) {
+    if (inventoryListingBusy) return;
+    inventoryListingBusy = assetId;
+    try {
+      const currency = inventoryCurrencies[assetId] || 'GRAM';
+      const priceRaw = toRawListingPrice(inventoryPrices[assetId] || '', currency);
+      await request('/api/inventory/listings', undefined, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          asset_id:assetId, price_raw:priceRaw, currency,
+          idempotency_key:crypto.randomUUID(),
+        }),
+      });
+      notice = lang==='ru'
+        ? 'Лот создан как ожидающий передачи в эскроу. Публичным он станет только после проверки блокчейна.'
+        : 'Listing created as pending escrow. It becomes public only after on-chain verification.';
+      await loadMyInventory();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      inventoryListingBusy = '';
+    }
+  }
+
+
+  async function cancelInventoryListing(listingId: string) {
+    if (!signedIn || inventoryCancelBusy || !listingId) return;
+    const confirmed = window.confirm(lang==='ru'
+      ? 'Снять объявление? NFT останется на адресе эскроу, перевод обратно здесь не выполняется.'
+      : 'Cancel this listing? The NFT remains in escrow; this action does not transfer it back.');
+    if (!confirmed) return;
+    inventoryCancelBusy = listingId;
+    try {
+      await request('/api/inventory/listings/' + encodeURIComponent(listingId) + '/cancel', undefined, {method:'POST'});
+      notice = lang==='ru'
+        ? 'Объявление снято. NFT остаётся в эскроу до отдельной безопасной процедуры возврата.'
+        : 'Listing cancelled. The NFT remains in escrow pending a separate safe return process.';
+      await loadMyInventory();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      inventoryCancelBusy = '';
+    }
+  }
+
+  async function connectTonWallet() {
+    if (!tonConnectUI || walletBusy) return;
+    if (!signedIn) {
+      notice = lang === 'ru' ? 'Сначала открой GIFT RADAR через Telegram.' : 'Sign in through Telegram first.';
+      return;
+    }
+    walletBusy = true;
+    walletVerified = false;
+    try {
+      const challenge = await request('/api/wallet/ton-proof/payload', undefined, { method: 'POST' });
+      if (typeof challenge.payload !== 'string' || !challenge.payload) throw new Error('TON Proof challenge was not issued');
+      tonConnectUI.setConnectRequestParameters({
+        state: 'ready',
+        value: { tonProof: challenge.payload },
+      });
+      const wallet = await tonConnectUI.connectWallet();
+      if (!wallet) throw new Error('Wallet connection was cancelled');
+      const proofItem = wallet.connectItems?.tonProof;
+      if (!proofItem || !('proof' in proofItem)) {
+        throw new Error('This wallet does not support TON Proof. Try a compatible TON wallet.');
+      }
+      const verified = await request('/api/wallet/ton-proof/verify', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address: wallet.account.address,
+          network: wallet.account.chain,
+          public_key: wallet.account.publicKey,
+          state_init: wallet.account.walletStateInit,
+          proof: proofItem.proof,
+        }),
+      });
+      if (verified.verified !== true) throw new Error('Server did not verify wallet ownership');
+      connectedWallet = verified.address || wallet.account.address;
+      walletAppName = wallet.device.appName || 'TON Connect';
+      walletVerified = true;
+      notice = lang === 'ru'
+        ? 'Кошелёк подключён и подтверждён криптографической подписью.'
+        : 'Wallet connected and verified with a cryptographic proof.';
+    } catch (e) {
+      walletVerified = false;
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      tonConnectUI.setConnectRequestParameters(null);
+      walletBusy = false;
+    }
+  }
+
+  async function disconnectTonWallet() {
+    if (!tonConnectUI || walletBusy) return;
+    walletBusy = true;
+    try {
+      if (signedIn && walletVerified) {
+        await request('/api/wallet/ton-proof/revoke', undefined, { method:'POST' });
+      }
+      await tonConnectUI.disconnect();
+      connectedWallet = '';
+      walletAppName = '';
+      walletVerified = false;
+      notice = lang==='ru' ? 'Кошелёк отключён, подтверждённая привязка отозвана.' : 'Wallet disconnected and verified binding revoked.';
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      walletBusy = false;
     }
   }
 
@@ -780,6 +938,19 @@
   }
 
   onMount(() => {
+    try {
+      tonConnectUI = new TonConnectUI({
+        manifestUrl: `${window.location.origin}/tonconnect-manifest.json`,
+      });
+      tonConnectUI.onStatusChange((wallet) => {
+        const nextAddress = wallet?.account.address || '';
+        if (nextAddress !== connectedWallet) walletVerified = false;
+        connectedWallet = nextAddress;
+        walletAppName = wallet?.device.appName || '';
+      });
+    } catch (e) {
+      notice = e instanceof Error ? e.message : 'TON Connect unavailable';
+    }
     window.Telegram?.WebApp?.ready?.();
     window.Telegram?.WebApp?.expand?.();
     try {
@@ -812,11 +983,11 @@
     <a class="brand" href="#market"><span class="brand-symbol">✳</span><span>GIFT RADAR<small>THE GIFT MARKET</small></span></a>
     <div class="nav-caption">WORKSPACE</div>
     <nav class="side-nav">
-      {#each [{id:'market',label:t.market,icon:'▦'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
-        <button class:active={view===item.id} class="nav-item" onclick={()=>{view=item.id as View;notice='';}}><span>{item.icon}</span>{item.label}</button>
+      {#each [{id:'market',label:t.market,icon:'▦'},{id:'inventory',label:lang==='ru'?'Мои NFT':'My NFTs',icon:'◈'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
+        <button class:active={view===item.id} class="nav-item" onclick={()=>{view=item.id as View;notice='';if(item.id==='inventory')void loadMyInventory();}}><span>{item.icon}</span>{item.label}</button>
       {/each}
     </nav>
-    <div class="sidebar-bottom"><div class="demo-card"><span class="demo-dot"></span>{t.demo}<p>{t.demoWalletText}</p></div><div class="sidebar-version">PORTALS DATA · GIFT RADAR</div></div>
+    <div class="sidebar-bottom"><div class="demo-card"><span class="demo-dot"></span>{t.demo}<p>{t.demoWalletText}</p></div><div class="sidebar-version">INDEPENDENT MARKET · GIFT RADAR</div></div>
   </aside>
 
   <main class="main-content">
@@ -837,7 +1008,7 @@
           {#each collections.slice(0,3) as collection, index}
             <div class={'collection-orb orb-'+index}>{#if collection.image}<img src={collection.image} alt=""/>{:else}<span>✳</span>{/if}</div>
           {/each}
-          <span class="float-chip chip-a">TELEGRAM GIFTS</span><span class="float-chip chip-b">PORTALS DATA</span><span class="float-chip chip-c">COLLECT · DISCOVER</span>
+          <span class="float-chip chip-a">TELEGRAM GIFTS</span><span class="float-chip chip-b">NATIVE MARKET</span><span class="float-chip chip-c">COLLECT · DISCOVER</span>
         </div>
       </section>
       {#if collections.length}
@@ -847,7 +1018,7 @@
             {#each collections.slice(0,8) as collection (String(collection.id ?? collection.short_name ?? collection.name))}
               <button class:chosen={collectionFilter===String(collection.id ?? collection.short_name ?? '')} class="collection-tile" onclick={()=>{collectionFilter=String(collection.id ?? collection.short_name ?? 'all');loadCatalogue();}}>
                 <span class="collection-image">{#if collection.image}<img src={collection.image} alt="" loading="lazy"/>{:else}<span>✳</span>{/if}</span>
-                <span class="collection-info"><strong>{collection.name || collection.short_name || 'Telegram Gifts'}</strong><small>{collection.short_name || 'PORTALS COLLECTION'}</small></span>
+                <span class="collection-info"><strong>{collection.name || collection.short_name || 'Telegram Gifts'}</strong><small>{collection.short_name || 'GIFT RADAR COLLECTION'}</small></span>
                 <span class="collection-arrow">↗</span>
               </button>
             {/each}
@@ -855,27 +1026,18 @@
         </section>
       {/if}
       <section class="market-stats" aria-label="Catalogue overview"><article><span>▦</span><div><strong>{total.toLocaleString()}</strong><small>{t.statsCatalog}</small></div></article><p>{t.catalogOnly}</p></section>
-      <section class="source-status-panel" aria-label={t.sourceStatusTitle}>
+      <section class="source-status-panel native-market-panel" aria-label="GIFT RADAR platform status">
         <div class="source-status-heading">
-          <div><div class="eyebrow">{t.sourceStatusTitle}</div><h2>{t.sourceStatusSubtitle}</h2></div>
-          <div class="source-status-actions">
-            {#if statusCheckedAt}<span>{t.sourceStatusChecked} {new Date(statusCheckedAt).toLocaleTimeString(lang==='ru'?'ru-RU':'en-US')}</span>{/if}
-            <button class="refresh-button" onclick={loadApiStatus} disabled={statusBusy}>{statusBusy?'…':t.refresh}</button>
-          </div>
+          <div><div class="eyebrow">{lang==='ru'?'СВОЯ ИНФРАСТРУКТУРА':'OUR INFRASTRUCTURE'}</div><h2>{lang==='ru'?'Независимый маркетплейс':'Independent marketplace'}</h2></div>
+          <span class="native-status-pill"><i></i>{lang==='ru'?'ВНУТРЕННЯЯ ПЛАТФОРМА':'NATIVE PLATFORM'}</span>
         </div>
-        {#if apiStatus?.sources}
-          <div class="source-status-grid">
-            <article class="source-status-item"><div><strong>{t.sourcePortals}</strong><span class={'source-status-dot '+sourceStatusClass(apiStatus.sources.portals)}></span></div><small>Portals</small><b>{sourceStatusText(apiStatus.sources.portals)}</b></article>
-            <article class="source-status-item"><div><strong>{t.sourceChanges}</strong><span class={'source-status-dot '+sourceStatusClass(apiStatus.sources.gift_changes)}></span></div><small>Gift Changes API</small><b>{sourceStatusText(apiStatus.sources.gift_changes)}</b></article>
-            <article class="source-status-item"><div><strong>{t.sourceDailyFloors}</strong><span class={'source-status-dot '+sourceStatusClass(apiStatus.sources.tg_gifts_daily)}></span></div><small>TG Gifts</small><b>{sourceStatusText(apiStatus.sources.tg_gifts_daily)}</b></article>
-          </div>
-          {#if apiStatus.data_pipeline?.refresh_interval_seconds}<p class="source-status-footnote">{t.sourceRefreshInterval}: {apiStatus.data_pipeline.refresh_interval_seconds}s</p>{/if}
-        {:else if statusError}
-          <p class="source-status-message">{t.sourceStatusUnavailable}</p>
-        {:else}
-          <p class="source-status-message">{t.sourceStatusChecking}</p>
-        {/if}
+        <div class="native-principles">
+          <div><b>01</b><strong>{lang==='ru'?'Свои объявления':'Native listings'}</strong><span>{lang==='ru'?'Публикации создаются пользователями GIFT RADAR':'Listings are created by GIFT RADAR users'}</span></div>
+          <div><b>02</b><strong>{lang==='ru'?'Свои ордера':'Native orders'}</strong><span>{lang==='ru'?'Офферы и сделки обрабатываются внутри платформы':'Offers and deals are handled inside the platform'}</span></div>
+          <div><b>03</b><strong>{lang==='ru'?'Без чужих маркетов':'No external markets'}</strong><span>{lang==='ru'?'Чужие каталоги и агрегаторы отключены':'Third-party catalogues and aggregators are disabled'}</span></div>
+        </div>
       </section>
+
       <section class="market-section" id="catalogue">
         <div class="section-title"><div><div class="eyebrow">{t.discoverLabel}</div><h2>{t.listings}</h2><p>{total.toLocaleString()} {t.results}</p></div><button class="refresh-button" onclick={()=>loadCatalogue()} disabled={busy}>↻ {t.refresh}</button></div>
         <div class="filter-bar">
@@ -906,7 +1068,7 @@
               <article class="gift-card">
                 <button class="gift-visual" onclick={()=>void openGift(gift)} aria-label={t.details}>
                   <GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/>
-                  <span class="source-tag">PORTALS</span>
+                  <span class="source-tag">GIFT RADAR</span>
                 </button>
                 <div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'} <span>{gift.number?'#'+gift.number:''}</span></div><div class="gift-card-meta">Telegram collectible · {gift.status||'Listed'}</div><div class="gift-card-bottom"><div><small>{t.price}</small><strong>{fmt(gift.price,gift.currency||'TON')}</strong></div><button class:hearted={favorites.includes(keyOf(gift))} class="heart-button" onclick={()=>toggleFavorite(gift)}>{favorites.includes(keyOf(gift))?'♥':'♡'}</button></div><button class="card-details" onclick={()=>void openGift(gift)}>{t.details} <span>↗</span></button></div>
               </article>
@@ -956,7 +1118,7 @@
           {/each}</div>{/if}
         {#if offers.length < offersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOffers} disabled={offersLoadingMore}>{offersLoadingMore?'…':t.loadMore}</button></div>{/if}
          <div class="section-title"><div><div class="eyebrow">HISTORY</div><h2>{t.dealsTitle}</h2></div></div>
-        {#if deals.length===0}<div class="state-panel">{t.noDeals}</div>{:else}<div class="orders-list">{#each deals as deal (deal.id)}<article class="order-card"><div class="order-icon">✓</div><div class="order-main"><div class="order-kind">{deal.title}</div><h3>{deal.amount} {deal.currency==='XTR'?'⭐ Stars':'TON'}</h3><p>{deal.listing_owner} · {deal.offer_sender} · {new Date(deal.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p></div><div class="order-price"><span class="status-payment-disabled">{lang==='ru'?'Платежи не подключены':'Payments not enabled'}</span></div></article>{/each}</div>{/if}
+        {#if deals.length===0}<div class="state-panel">{t.noDeals}</div>{:else}<div class="orders-list">{#each deals as deal (deal.id)}<article class="order-card"><div class="order-icon">✓</div><div class="order-main"><div class="order-kind">{deal.title}</div><h3>{deal.amount} {deal.currency==='XTR'?'⭐ Stars':'TON · DEMO'}</h3><p>{deal.listing_owner} · {deal.offer_sender} · {new Date(deal.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p></div><div class="order-price"><span class="status-payment-disabled">{lang==='ru'?'Оплата: Telegram Stars (XTR), пока отключена':'Telegram Stars (XTR) · not live yet'}</span></div></article>{/each}</div>{/if}
                {#if deals.length < dealsTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreDeals} disabled={dealsLoadingMore}>{dealsLoadingMore?'…':t.loadMore}</button></div>{/if}
        </section>
     
@@ -970,12 +1132,72 @@
         <button class="publish-button" onclick={createOrder}>{t.publish} <span>→</span></button>
         <p class="safety-note">ⓘ {t.createHint}</p>
       </div><div class="create-aside"><div class="aside-icon">✳</div><div class="eyebrow">GIFT RADAR</div><h2>Make your next move visible.</h2><p>Заявки хранятся на сервере и видны другим пользователям. TON и Stars — только обозначения тестовых цен.</p><div class="aside-stats"><div><strong>{orders.length}</strong><span>DEMO ORDERS</span></div><div><strong>{favorites.length}</strong><span>SAVED GIFTS</span></div></div></div></section>
+    {:else if view==='inventory'}
+      <section class="page-heading"><div class="eyebrow">SELLER INVENTORY</div><h1>{lang==='ru'?'Мои NFT':'My NFTs'}</h1><p>{lang==='ru'?'Только твои реальные коллекционные активы. Сначала докажи владение, затем отправь NFT в эскроу.':'Only collectibles you actually own. Prove ownership first, then transfer the NFT to escrow.'}</p></section>
+      <section class="profile-card wallet-connect-card">
+        <div class="eyebrow">TON CONNECT · TON PROOF</div>
+        {#if walletVerified}
+          <div class="wallet-address"><strong>{walletAppName || 'TON wallet'}</strong><code>{connectedWallet}</code></div>
+          <span class="activity-demo-tag">{lang==='ru'?'ВЛАДЕНИЕ КОШЕЛЬКОМ ПОДТВЕРЖДЕНО':'WALLET OWNERSHIP VERIFIED'}</span>
+        {:else}
+          <p>{lang==='ru'?'Чтобы импортировать NFT, сначала подтверди свой TON-кошелёк в профиле.':'Verify your TON wallet in Profile before importing an NFT.'}</p>
+          <button class="publish-button" onclick={()=>view='profile'}>{lang==='ru'?'Открыть профиль':'Open profile'}</button>
+        {/if}
+      </section>
+      <section class="profile-card seller-profile-editor">
+        <div class="eyebrow">{lang==='ru'?'ИМПОРТ NFT':'IMPORT NFT'}</div>
+        <label>{lang==='ru'?'Тип актива':'Asset type'}
+          <select class="form-input" bind:value={nftAssetType}>
+            <option value="ton_nft">TON NFT</option>
+            <option value="collectible_username">{lang==='ru'?'Коллекционный username':'Collectible username'}</option>
+            <option value="collectible_phone_number">{lang==='ru'?'Коллекционный номер +888':'Collectible +888 number'}</option>
+          </select>
+        </label>
+        <label>{lang==='ru'?'Адрес коллекции':'Collection address'}<input class="form-input" bind:value={nftCollectionAddress} placeholder="EQ…"/></label>
+        <label>{lang==='ru'?'Индекс / token ID':'Index / token ID'}<input class="form-input" bind:value={nftTokenId} placeholder="12345"/></label>
+        <label>{lang==='ru'?'Адрес NFT item':'NFT item address'}<input class="form-input" bind:value={nftItemAddress} placeholder="EQ…"/></label>
+        <button class="publish-button" onclick={importOwnedNft} disabled={!signedIn || !walletVerified || nftImportBusy || !nftCollectionAddress.trim() || !nftTokenId.trim() || !nftItemAddress.trim()}>{nftImportBusy?'…':lang==='ru'?'Проверить владение и импортировать':'Verify ownership and import'} →</button>
+        <small>{lang==='ru'?'Проверка идёт по двум независимым TON-провайдерам. Скриншоты и введённые вручную данные не считаются доказательством.':'Ownership is checked against two independent TON providers. Screenshots and manual claims are not proof.'}</small>
+      </section>
+      <section class="market-section">
+        <div class="section-title"><div><div class="eyebrow">ON-CHAIN INVENTORY</div><h2>{lang==='ru'?'Твои активы':'Your assets'}</h2></div><button class="refresh-button" onclick={loadMyInventory} disabled={inventoryBusy}>{inventoryBusy?'…':t.refresh}</button></div>
+        {#if inventoryBusy}<div class="state-panel">{t.loading}</div>
+        {:else if inventoryItems.length===0}<div class="state-panel">{lang==='ru'?'Пока нет импортированных NFT. Добавь свой актив выше.':'No imported NFTs yet. Import an asset above.'}</div>
+        {:else}<div class="orders-list">{#each inventoryItems as item (item.asset_id)}
+          <article class="order-card"><div class="order-icon">◈</div><div class="order-main"><div class="order-kind">{item.asset_type}</div><h3>{item.collection_address} · #{item.token_id}</h3><p>{item.custody_state} · {item.ownership_state}</p>
+            {#if item.status==='active'}<span class="status-active">{lang==='ru'?'Опубликован':'Active listing'}</span>
+              {#if item.listing_id}<button class="cancel-button" onclick={()=>cancelInventoryListing(item.listing_id)} disabled={inventoryCancelBusy===item.listing_id}>{inventoryCancelBusy===item.listing_id?'…':lang==='ru'?'Снять объявление':'Cancel listing'}</button>{/if}
+            {:else if item.status==='pending_verification'}<span class="status-payment-disabled">{lang==='ru'?'Ожидает эскроу':'Awaiting escrow'}</span>
+            {:else if !item.listing_id}
+              <div class="order-edit-form">
+                <label>{lang==='ru'?'Цена':'Price'}<input class="form-input" type="number" min="0.000000001" step="0.000000001" bind:value={inventoryPrices[item.asset_id]} placeholder="1"/></label>
+                <label>{lang==='ru'?'Валюта':'Currency'}<select class="form-input" bind:value={inventoryCurrencies[item.asset_id]}><option value="GRAM">GRAM</option><option value="USDT">USDT</option><option value="XTR">⭐ Stars</option></select></label>
+                <button class="match-button" onclick={()=>createInventoryListing(item.asset_id)} disabled={inventoryListingBusy===item.asset_id || !inventoryPrices[item.asset_id]}>{inventoryListingBusy===item.asset_id?'…':lang==='ru'?'Создать лот':'Create listing'}</button>
+              </div>
+            {/if}
+          </div></article>
+        {/each}</div>{/if}
+      </section>
     {:else if view==='favorites'}
       <section class="page-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{t.favoritesTitle}</h1><p>{favorites.length} saved items</p></section>
       {#if shownGifts.length}<div class="gift-grid">{#each shownGifts as gift (keyOf(gift))}<article class="gift-card"><button class="gift-visual" onclick={()=>void openGift(gift)}><GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/></button><div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'}</div><div class="gift-card-bottom"><strong>{fmt(gift.price,gift.currency||'TON')}</strong><button class="heart-button hearted" onclick={()=>toggleFavorite(gift)}>♥</button></div></div></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='market'}>{t.market}</button></div>{/if}
     {:else}
       <section class="page-heading"><div class="eyebrow">ACCOUNT CENTER</div><h1>{t.profile}</h1><p>{t.profileText}</p></section>
       <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div><button class="publish-button" onclick={()=>telegramLogin()}>{t.signIn} →</button></article>
+      <article class="profile-card wallet-connect-card">
+        <div class="eyebrow">TON CONNECT · NON-CUSTODIAL</div>
+        <h2>{lang==='ru'?'Подключение TON-кошелька':'Connect TON wallet'}</h2>
+        <p>{lang==='ru'?'Показывается только публичный адрес. Seed phrase, приватный ключ и подпись транзакции не запрашиваются.':'Only the public address is shown. No seed phrase, private key or transaction signature is requested.'}</p>
+        {#if connectedWallet}
+          <div class="wallet-address"><strong>{walletAppName || 'TON wallet'}</strong><code>{connectedWallet}</code></div>
+          <span class="activity-demo-tag">{walletVerified?(lang==='ru'?'КОШЕЛЁК ПОДТВЕРЖДЁН':'WALLET VERIFIED'):(lang==='ru'?'НЕ ПОДТВЕРЖДЁН':'NOT VERIFIED')}</span>
+          <button class="cancel-button" onclick={disconnectTonWallet} disabled={walletBusy}>{lang==='ru'?'Отключить кошелёк':'Disconnect wallet'}</button>
+        {:else}
+          <span class="activity-demo-tag">{lang==='ru'?'КОШЕЛЁК НЕ ПОДКЛЮЧЁН':'WALLET NOT CONNECTED'}</span>
+          <button class="publish-button" onclick={connectTonWallet} disabled={walletBusy || !tonConnectUI || !signedIn}>{walletBusy?'…':lang==='ru'?'Подключить через TON Connect':'Connect with TON Connect'}</button>
+        {/if}
+        <small>{lang==='ru'?'Подключение не означает оплату. Платежи и подпись отключены.':'Connection does not authorize payment. Payments and signing remain disabled.'}</small>
+      </article>
       {#if signedIn}
          <article class="profile-card seller-profile-editor">
            <div class="eyebrow">{t.sellerCardTitle}</div>
@@ -1027,16 +1249,16 @@
           {#if notifications.length < notificationTotal}<button class="refresh-button activity-more" onclick={loadMoreNotifications} disabled={notificationsLoadingMore}>{notificationsLoadingMore?'…':t.loadMoreActivity}</button>{/if}
         {:else}<div class="state-panel">{t.noNotifications}</div>{/if}
       </article>
-      <article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>Wallet connection disabled</strong><small>Demo profile · no assets stored</small></div><b>DEMO</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>Portals catalogue · TON / Stars demo labels · RU / EN</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article>{#if isAdmin}<article class="profile-card"><div class="eyebrow">ADMINISTRATION</div><h2>{lang==='ru'?'Управление каталогом':'Catalogue controls'}</h2><p>{lang==='ru'?'Доступ подтверждён сервером Telegram. Здесь можно только включать или отключать отображение каталога Portals.':'Access verified by the server through Telegram. You can only enable or disable the Portals catalogue visibility here.'}</p><div class="wallet-placeholder"><span>◈</span><div><strong>{lang==='ru'?'Каталог Portals':'Portals catalogue'}</strong><small>{adminMarketplaceEnabled?(lang==='ru'?'Включён':'Enabled'):(lang==='ru'?'Отключён':'Disabled')}</small></div><b>ADMIN</b></div><button class="publish-button" onclick={toggleAdminMarketplace} disabled={adminBusy}>{adminBusy?'…':(adminMarketplaceEnabled?(lang==='ru'?'Отключить каталог':'Disable catalogue'):(lang==='ru'?'Включить каталог':'Enable catalogue'))}</button></article><article class="profile-card"><div class="notification-heading"><div><div class="eyebrow">MODERATION</div><h2>{t.adminReports}</h2></div><button class="refresh-button" onclick={loadAdminReports} disabled={adminReportsBusy}>{adminReportsBusy?'…':t.refresh}</button></div>{#if adminReportsBusy}<div class="state-panel">{t.loading}</div>{:else if adminReports.length===0}<div class="state-panel">{t.noAdminReports}</div>{:else}<div class="orders-list">{#each adminReports as report (report.id)}<article class="order-card"><div class="order-main"><div class="order-kind">{report.order_title} · {report.order_owner}</div><h3>{reportReasonLabel(report.reason)}</h3><p>{report.reporter_name} · {new Date(report.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p>{#if report.details}<p>{report.details}</p>{/if}</div><div class="order-actions"><button class="match-button" onclick={()=>moderateOrderReport(report.id,'dismiss')} disabled={adminReportActionBusy===report.id}>{t.dismissReport}</button><button class="cancel-button" onclick={()=>moderateOrderReport(report.id,'remove_order')} disabled={adminReportActionBusy===report.id}>{t.removeReportedOrder}</button></div></article>{/each}</div>{/if}</article>{/if}</section>
+      <article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>Wallet connection disabled</strong><small>Demo profile · no assets stored</small></div><b>DEMO</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>Native marketplace · TON / Stars labels · RU / EN</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article>{#if isAdmin}<article class="profile-card"><div class="notification-heading"><div><div class="eyebrow">MODERATION</div><h2>{t.adminReports}</h2></div><button class="refresh-button" onclick={loadAdminReports} disabled={adminReportsBusy}>{adminReportsBusy?'…':t.refresh}</button></div>{#if adminReportsBusy}<div class="state-panel">{t.loading}</div>{:else if adminReports.length===0}<div class="state-panel">{t.noAdminReports}</div>{:else}<div class="orders-list">{#each adminReports as report (report.id)}<article class="order-card"><div class="order-main"><div class="order-kind">{report.order_title} · {report.order_owner}</div><h3>{reportReasonLabel(report.reason)}</h3><p>{report.reporter_name} · {new Date(report.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p>{#if report.details}<p>{report.details}</p>{/if}</div><div class="order-actions"><button class="match-button" onclick={()=>moderateOrderReport(report.id,'dismiss')} disabled={adminReportActionBusy===report.id}>{t.dismissReport}</button><button class="cancel-button" onclick={()=>moderateOrderReport(report.id,'remove_order')} disabled={adminReportActionBusy===report.id}>{t.removeReportedOrder}</button></div></article>{/each}</div>{/if}</article>{/if}</section>
     {/if}
 
     {#if notice}<div class="toast" role="status">{notice}<button onclick={()=>notice=''}>×</button></div>{/if}
-    <footer class="footer"><span>✳ GIFT RADAR</span><span>PORTALS LIVE · READ ONLY</span><span>© 2026</span></footer>
+    <footer class="footer"><span>✳ GIFT RADAR</span><span>GIFT RADAR · NATIVE MARKET</span><span>© 2026</span></footer>
   </main>
 </div>
 
 <nav class="mobile-nav">
-  {#each [{id:'market',label:t.market,icon:'▦'},{id:'orders',label:t.orders,icon:'⇄'},{id:'create',label:t.create,icon:'＋'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
+  {#each [{id:'market',label:t.market,icon:'▦'},{id:'inventory',label:'NFT',icon:'◈'},{id:'orders',label:t.orders,icon:'⇄'},{id:'create',label:t.create,icon:'＋'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
     <button class:active={view===item.id} onclick={()=>{view=item.id as View;notice='';}}><span>{item.icon}</span><small>{item.label}</small></button>
   {/each}
 </nav>
@@ -1046,7 +1268,7 @@
     <div class="gift-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label={selected.name||'Gift details'} onclick={e=>e.stopPropagation()} onkeydown={e=>e.stopPropagation()}>
       <button class="modal-close" onclick={()=>selected=null}>×</button>
       <div class="modal-media"><GiftMedia image={selected.image} animationUrl={selected.animation_url} hasAnimation={selected.has_animation} alt={selected.name||'Gift'} className="gift-media"/></div>
-      <div class="modal-content"><div class="eyebrow">PORTALS COLLECTIBLE</div><h2>{selected.name||'Telegram Gift'} {selected.number?'#'+selected.number:''}</h2><div class="modal-price"><span>{t.price}</span><strong>{fmt(selected.price,selected.currency||'TON')}</strong></div><div class="modal-price"><span>{t.floor}</span><strong>{fmt(selected.floor_price,selected.currency||'TON')}</strong></div><h3>{t.traits}</h3>{#each selected.attributes||[] as trait}<div class="trait-row"><span>{trait.type||trait.name}</span><strong>{trait.value||'—'}</strong></div>{/each}<h3>{lang==='ru'?'История данных':'Metadata history'}</h3>{#if historyLoading}<div class="trait-row"><span>{lang==='ru'?'Загружаем снимки…':'Loading snapshots…'}</span></div>{:else if selectedHistory.length}{#each selectedHistory as snapshot}<div class="trait-row"><span>{new Date(snapshot.observed_at * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</span><strong>{fmt(snapshot.item.price, String(snapshot.item.currency||'GRAM'))}</strong></div>{/each}{:else}<div class="trait-row"><span>{lang==='ru'?'История пока не накоплена':'No history snapshots yet'}</span></div>{/if}<button class="publish-button" onclick={()=>toggleFavorite(selected!)}>{favorites.includes(keyOf(selected))?t.saved:t.save} <span>♡</span></button></div>
+      <div class="modal-content"><div class="eyebrow">GIFT RADAR COLLECTIBLE</div><h2>{selected.name||'Telegram Gift'} {selected.number?'#'+selected.number:''}</h2><div class="modal-price"><span>{t.price}</span><strong>{fmt(selected.price,selected.currency||'TON')}</strong></div><div class="modal-price"><span>{t.floor}</span><strong>{fmt(selected.floor_price,selected.currency||'TON')}</strong></div><h3>{t.traits}</h3>{#each selected.attributes||[] as trait}<div class="trait-row"><span>{trait.type||trait.name}</span><strong>{trait.value||'—'}</strong></div>{/each}<h3>{lang==='ru'?'История данных':'Metadata history'}</h3>{#if historyLoading}<div class="trait-row"><span>{lang==='ru'?'Загружаем снимки…':'Loading snapshots…'}</span></div>{:else if selectedHistory.length}{#each selectedHistory as snapshot}<div class="trait-row"><span>{new Date(snapshot.observed_at * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</span><strong>{fmt(snapshot.item.price, String(snapshot.item.currency||'GRAM'))}</strong></div>{/each}{:else}<div class="trait-row"><span>{lang==='ru'?'История пока не накоплена':'No history snapshots yet'}</span></div>{/if}<button class="publish-button" onclick={()=>toggleFavorite(selected!)}>{favorites.includes(keyOf(selected))?t.saved:t.save} <span>♡</span></button></div>
     </div>
   </div>
 {/if}
