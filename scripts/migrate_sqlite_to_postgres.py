@@ -161,7 +161,6 @@ def migrate(source_path: Path, apply: bool, source_quiesced: bool = False, batch
             for name in TABLES:
                 if not column_maps[name]:
                     continue
-                table = metadata.tables[name]
                 columns = column_maps[name]
                 count = connection.execute(text('SELECT COUNT(*) FROM "' + name + '"')).scalar_one()
                 if count != source_counts[name]:
