@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - feat/ton-testnet-escrow
+      - feat/testnet-ton-usdt-escrow-e2e
   pull_request:
     branches:
       - main
       - payments/stars-ton-proof-phase-2026-11-13
+      - feat/escrow-configurable-authorities
 
 permissions:
   contents: read
