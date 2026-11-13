@@ -593,7 +593,7 @@ def create_marketplace_router(
             conn.execute(
                 """INSERT INTO user_profiles
                    (profile_id, telegram_id, display_name, bio, created_at, updated_at)
-                   VALUES (?, ?, ?, '', ?, ?)""",
+                   VALUES (?, ?, ?, '', ?, ?) ON CONFLICT(telegram_id) DO NOTHING""",
                 ("usr_" + secrets.token_urlsafe(12), telegram_id, fallback_name, now, now),
             )
             row = conn.execute(
@@ -620,7 +620,7 @@ def create_marketplace_router(
             conn.execute(
                 """INSERT INTO user_profiles
                    (profile_id, telegram_id, display_name, bio, created_at, updated_at)
-                   VALUES (?, ?, ?, '', ?, ?)""",
+                   VALUES (?, ?, ?, '', ?, ?) ON CONFLICT(telegram_id) DO NOTHING""",
                 ("usr_" + secrets.token_urlsafe(12), telegram_id, fallback_name, now, now),
             )
             conn.execute(
