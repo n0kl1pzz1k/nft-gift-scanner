@@ -18,7 +18,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, get_app_setting, init_marketplace_db, set_app_setting, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update
 from demo_offers import create_demo_offers_router, init_demo_offers_db
 from security_controls import SecurityControlsMiddleware, rate_limit_status
-from financial_ledger import create_telegram_stars_invoice, record_telegram_stars_terms_acceptance
+from financial_ledger import (
+    create_telegram_stars_invoice, record_telegram_stars_terms_acceptance,
+    request_telegram_stars_refund, prepare_telegram_stars_refund,
+    complete_telegram_stars_refund, fail_telegram_stars_refund,
+)
 
 app = FastAPI(title="GIFT RADAR API", version="0.4.0")
 app.include_router(create_marketplace_router(
@@ -95,6 +99,11 @@ class MarketplaceSettingRequest(BaseModel):
 
 class StarsTermsAcceptanceRequest(BaseModel):
     accepted: bool
+
+
+class StarsRefundRequestBody(BaseModel):
+    invoice_id: str
+    reason: str = ""
 
 
 class TonProofVerifyRequest(BaseModel):
@@ -460,6 +469,68 @@ async def create_stars_invoice_endpoint(
     except Exception:
         logging.exception("Could not create Telegram Stars invoice")
         raise HTTPException(status_code=503, detail="Telegram Stars invoice service is unavailable")
+
+
+@app.post("/api/payments/stars/refunds")
+async def request_stars_refund(
+    payload: StarsRefundRequestBody,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    try:
+        result = request_telegram_stars_refund(
+            invoice_id=payload.invoice_id,
+            buyer_user_id=str(user["id"]),
+            reason=payload.reason,
+        )
+        return result
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception:
+        logging.exception("Could not create Telegram Stars refund request")
+        raise HTTPException(status_code=503, detail="Refund request could not be stored")
+
+
+@app.post("/api/admin/payments/stars/refunds/{request_id}/execute")
+async def execute_stars_refund(
+    request_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    admin = _require_admin(x_telegram_init_data)
+    if _telegram_bot is None:
+        raise HTTPException(status_code=503, detail="Telegram payment bot is unavailable")
+    try:
+        refund = prepare_telegram_stars_refund(request_id=request_id, admin_user_id=str(admin["id"]))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    try:
+        confirmed = await _telegram_bot.refund_star_payment(
+            user_id=int(refund["buyer_user_id"]),
+            telegram_payment_charge_id=refund["telegram_payment_charge_id"],
+        )
+    except Exception:
+        # Telegram may have processed the refund before a timeout. Never retry automatically.
+        logging.exception("Telegram Stars refund outcome is ambiguous; manual reconciliation required")
+        raise HTTPException(status_code=503, detail="Refund outcome is ambiguous; reconcile Telegram transactions before retrying")
+    if not confirmed:
+        fail_telegram_stars_refund(
+            request_id=request_id,
+            reason="Telegram explicitly rejected refundStarPayment",
+        )
+        raise HTTPException(status_code=409, detail="Telegram did not confirm the refund")
+    try:
+        result = complete_telegram_stars_refund(
+            request_id=request_id,
+            telegram_response_ref=refund["telegram_payment_charge_id"],
+        )
+        return result
+    except Exception:
+        logging.exception("Telegram confirmed refund but ledger finalization failed; reconciliation required")
+        raise HTTPException(status_code=503, detail="Telegram confirmed refund; ledger reconciliation is required")
 
 
 @app.get("/api/wallet/policy")
