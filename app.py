@@ -37,6 +37,10 @@ from financial_ledger import (
     require_telegram_stars_refund_reconciliation,
 )
 
+class DealDisputeRequest(BaseModel):
+    reason: str = Field(min_length=8, max_length=500)
+
+
 class TonNftImportRequest(BaseModel):
     asset_type: str
     collection_address: str = Field(min_length=3, max_length=128)
@@ -665,6 +669,28 @@ async def get_native_marketplace_deal(
     if str(user["id"]) not in {row["buyer_user_id"], row["seller_user_id"]}:
         raise HTTPException(status_code=404, detail="Deal not found")
     return dict(row)
+
+
+
+@app.post("/api/inventory/deals/{deal_id}/dispute")
+async def open_native_marketplace_deal_dispute(
+    deal_id: str,
+    payload: DealDisputeRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    from marketplace_settlement import open_deal_dispute
+    try:
+        return open_deal_dispute(
+            deal_id=deal_id, actor_user_id=str(user["id"]),
+            reason=payload.reason, engine=get_engine(),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
 
 
 @app.post("/api/admin/withdrawals/{request_id}/approve")
