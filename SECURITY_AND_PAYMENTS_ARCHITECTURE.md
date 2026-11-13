@@ -71,7 +71,7 @@ Official reference: https://core.telegram.org/bots/payments-stars
 
 ### Crypto rails: USDT-TRC20, USDT-TON, GRAM on TON
 
-These are NOT to be exposed as payment options inside the Telegram Mini App for digital goods/services unless Telegram's current rules expressly permit the exact use case. The default design is a separate external web checkout only after legal/platform review confirms that this is permitted; do not use a web link to circumvent Telegram policy.
+These are NOT to be exposed as payment options inside the Telegram Mini App for digital goods/services unless Telegram's current rules expressly permit the exact use case. No external web checkout is presumed permissible for this marketplace flow. Keep crypto checkout disabled unless qualified counsel and Telegram/platform review confirm in writing that the exact transaction model is allowed. Do not use an external link, webview, or alternate interface to circumvent Telegram policy.
 
 - TON wallet connection: use TON Connect. Wallet keys remain in the user's wallet; backend verifies signed messages and on-chain transactions independently.
 - TRON deposits: watch only the exact allowlisted USDT TRC-20 contract and merchant destination. Confirm the solidified transaction receipt and successful contract execution; validate the canonical Transfer event emitted by the allowlisted token contract, sender, recipient and raw amount.
