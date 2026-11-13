@@ -182,7 +182,6 @@ def create_dispatcher() -> Dispatcher:
         if not is_admin(message):
             await message.answer("Доступ запрещён.")
             return
-        portals = "настроен" if os.getenv("PORTALS_API_KEY", "").strip() else "не настроен"
         app_ready = "настроен" if APP_URL.startswith("https://") else "не настроен"
         await message.answer(
             "🔐 <b>GIFT RADAR — админ-панель</b>\n\n"
@@ -191,7 +190,8 @@ def create_dispatcher() -> Dispatcher:
             "<b>Команды:</b>\n"
             "/admin_status — проверить backend и источники\n"
             "/admin — открыть эту панель\n\n"
-            "Панель управляет мониторингом. Все заявки остаются демонстрационными."
+            "Платежи: Telegram Stars (XTR), пока отключены до прохождения release gates.\\n"
+            "Внешние маркетплейсы отключены. Реальные сделки и выплаты не активированы."
         )
 
     @dp.message(Command("admin_status"))
@@ -208,14 +208,14 @@ def create_dispatcher() -> Dispatcher:
                 raise RuntimeError("Backend returned an error")
             status_data = status_response.json()
             sources = status_data.get("sources", {})
-            portals = sources.get("portals", "unknown")
+            native = sources.get("native_inventory", "unknown")
             stats = marketplace_response.json()
             await message.answer(
                 "📊 <b>Статус GIFT RADAR</b>\n\n"
                 "Backend: 🟢 онлайн\n"
                 f"Portals: <code>{portals}</code>\n"
                 f"Демо-ордера: <code>{stats.get('total_orders', 0)}</code>\n"
-                "Режим: <code>shared_demo</code>"
+                "Режим: <code>independent_native_marketplace</code>"
             )
         except Exception:
             await message.answer(
