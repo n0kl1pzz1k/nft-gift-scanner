@@ -19,7 +19,7 @@ from sqlalchemy import BigInteger, Column, ForeignKey, String, Table, Text, Uniq
 from sqlalchemy.engine import Engine
 
 from financial_ledger import (
-    metadata, get_engine, init_financial_schema, withdrawal_requests,
+    metadata, get_engine, init_financial_schema, migration_revision_number, withdrawal_requests,
     advance_withdrawal_to_processing, mark_withdrawal_submitted,
     confirm_ton_withdrawal, quarantine_ton_withdrawal,
 )
@@ -54,8 +54,8 @@ def init_withdrawal_signer_schema(engine: Engine | None = None) -> None:
             version = conn.execute(__import__("sqlalchemy").text(
                 "SELECT version_num FROM alembic_version"
             )).scalar_one_or_none()
-        if version != "0011_withdrawal_approvals":
-            raise RuntimeError("Withdrawal approvals migration 0011 is required")
+        if migration_revision_number(version) < 14:
+            raise RuntimeError("Withdrawal signer schema migrations through 0014 are required")
         return
     metadata.create_all(db)
 
