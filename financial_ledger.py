@@ -440,7 +440,7 @@ def create_telegram_stars_invoice(*, deal_id: str, buyer_user_id: str,
         lock_native = " FOR UPDATE OF d, r, l" if db.dialect.name == "postgresql" else ""
         with db.begin() as conn:
             native = conn.execute(text(
-                "SELECT d.deal_id, d.listing_id, d.buyer_user_id, d.seller_user_id, "
+                "SELECT d.deal_id, d.listing_id, d.reservation_id, d.buyer_user_id, d.seller_user_id, "
                 "d.price_raw, d.currency, d.status, r.status AS reservation_status, "
                 "r.expires_at, l.status AS listing_status "
                 "FROM marketplace_deals d "
@@ -473,6 +473,14 @@ def create_telegram_stars_invoice(*, deal_id: str, buyer_user_id: str,
             invoice_id = "gri_" + secrets.token_urlsafe(18)
             payload = "grstars:" + secrets.token_urlsafe(24)
             expires_at = current + ttl_seconds
+            # Keep the reservation alive through the invoice window and webhook delivery
+            # grace period so the expiry worker cannot relist a gift during checkout.
+            conn.execute(text(
+                "UPDATE marketplace_reservations SET expires_at=CASE "
+                "WHEN expires_at < :hold_until THEN :hold_until ELSE expires_at END "
+                "WHERE reservation_id=:reservation_id AND status='active'"
+            ), {"hold_until": expires_at + 120,
+                 "reservation_id": native["reservation_id"]})
             conn.execute(insert(stars_invoices).values(
                 invoice_id=invoice_id, payload=payload, deal_id=str(deal_id),
                 order_id=str(native["listing_id"]), buyer_user_id=str(native["buyer_user_id"]),
@@ -594,6 +602,15 @@ def approve_telegram_stars_pre_checkout(*, payload: str, buyer_user_id: str,
                     or native["listing_status"] != "reserved"
                     or int(native["expires_at"]) <= current):
                 return False
+            # Pre-checkout is the final authorization boundary. Extend the lease
+            # beyond the invoice expiry to cover Telegram's successful_payment webhook.
+            conn.execute(text(
+                "UPDATE marketplace_reservations SET expires_at=CASE "
+                "WHEN expires_at < :hold_until THEN :hold_until ELSE expires_at END "
+                "WHERE reservation_id=(SELECT reservation_id FROM marketplace_deals WHERE deal_id=:deal_id) "
+                "AND status='active'"
+            ), {"hold_until": int(invoice["expires_at"]) + 120,
+                 "deal_id": invoice["deal_id"]})
         else:
             deal = conn.execute(text(
                 "SELECT d.status AS deal_status, d.is_real, o.status AS order_status "
