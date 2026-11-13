@@ -337,6 +337,101 @@ def confirm_nft_escrow_deposit(*, listing_id: str, tx_hash: str, event_index: in
     return {"listing_id": listing_id, "status": "active", "public": True}
 
 
+async def verify_and_activate_escrow_listing(*, listing_id: str,
+                                          engine: Engine | None = None) -> dict[str, Any]:
+    """Poll two independent provider histories and live NFT state before publication."""
+    from ton_nft_providers import configured_nft_providers, canonical_ton_address
+
+    db = engine or get_engine()
+    init_inventory_schema(db)
+    escrow_address = os.getenv("GIFT_RADAR_ESCROW_ADDRESS", "").strip()
+    if not escrow_address:
+        raise RuntimeError("GIFT_RADAR_ESCROW_ADDRESS is not configured")
+    escrow_address = canonical_ton_address(escrow_address)
+    providers = configured_nft_providers()
+    with db.connect() as conn:
+        listing = conn.execute(select(marketplace_listings).where(
+            marketplace_listings.c.listing_id == listing_id
+        )).mappings().first()
+        if not listing or listing["status"] != "pending_verification":
+            return {"activated": False, "reason": "not_pending"}
+        asset = conn.execute(select(marketplace_assets).where(
+            marketplace_assets.c.asset_id == listing["asset_id"]
+        )).mappings().one()
+        proof = conn.execute(select(marketplace_ownership_proofs).where(
+            marketplace_ownership_proofs.c.asset_id == asset["asset_id"],
+            marketplace_ownership_proofs.c.verification_status == "verified",
+        ).order_by(marketplace_ownership_proofs.c.recorded_at.desc())).mappings().first()
+    if not proof:
+        raise PermissionError("Original seller NFT ownership proof is missing")
+    item_address = proof["evidence_reference"]
+    seller_wallet = canonical_ton_address(asset["owner_wallet_address"] or "")
+    results = []
+    for provider in providers:
+        state = await provider.get_nft_state(item_address)
+        transfer = await provider.get_nft_transfer(
+            item_address=item_address, old_owner=seller_wallet, new_owner=escrow_address,
+        )
+        if state is None or transfer is None:
+            return {"activated": False, "reason": "transfer_not_observed"}
+        normalized_state = {
+            "item_address": canonical_ton_address(state.get("item_address", "")),
+            "collection_address": canonical_ton_address(state.get("collection_address", "")),
+            "token_id": str(state.get("token_id", "")),
+            "owner_address": canonical_ton_address(state.get("owner_address", "")),
+            "initialized": state.get("initialized") is True,
+        }
+        if (
+            normalized_state["item_address"] != canonical_ton_address(item_address)
+            or normalized_state["collection_address"] != canonical_ton_address(asset["collection_address"])
+            or normalized_state["token_id"] != str(asset["token_id"])
+            or normalized_state["owner_address"] != escrow_address
+            or normalized_state["initialized"] is not True
+        ):
+            raise PermissionError("Provider state does not prove this NFT is owned by GIFT RADAR escrow")
+        results.append({
+            "provider_id": provider.provider_id,
+            "state": normalized_state,
+            "transfer": {
+                "tx_hash": str(transfer["tx_hash"]).removeprefix("0x").lower(),
+                "event_index": int(transfer.get("event_index", 0)),
+            },
+        })
+    if {item["provider_id"] for item in results} != {"tonapi", "toncenter"}:
+        raise PermissionError("Two independent TON providers are required")
+    transfer_hashes = {item["transfer"]["tx_hash"] for item in results}
+    state_hashes = {_hash(item["state"]) for item in results}
+    if len(transfer_hashes) != 1 or len(state_hashes) != 1:
+        raise PermissionError("TON providers disagree about NFT escrow transfer or ownership")
+    transfer_hash = next(iter(transfer_hashes))
+    evidence_hash = _hash({"state": results[0]["state"], "transfer_hash": transfer_hash})
+    result = confirm_nft_escrow_deposit(
+        listing_id=listing_id, tx_hash=transfer_hash, event_index=0,
+        verified_escrow_owner=results[0]["state"]["owner_address"],
+        expected_escrow_owner=escrow_address, evidence_hash=evidence_hash,
+        provider_ids=[item["provider_id"] for item in results], engine=db,
+    )
+    return {"activated": True, **result}
+
+
+async def scan_pending_nft_listings(*, engine: Engine | None = None) -> dict[str, int]:
+    db = engine or get_engine()
+    init_inventory_schema(db)
+    with db.connect() as conn:
+        ids = conn.execute(select(marketplace_listings.c.listing_id).where(
+            marketplace_listings.c.status == "pending_verification"
+        ).limit(100)).scalars().all()
+    activated = 0
+    errors = 0
+    for listing_id in ids:
+        try:
+            result = await verify_and_activate_escrow_listing(listing_id=listing_id, engine=db)
+            activated += int(bool(result.get("activated")))
+        except Exception:
+            errors += 1
+    return {"checked": len(ids), "activated": activated, "errors": errors}
+
+
 def reserve_verified_listing(*, listing_id: str, buyer_user_id: str,
                              ttl_seconds: int = 300, engine: Engine | None = None,
                              now: int | None = None) -> dict[str, Any]:
