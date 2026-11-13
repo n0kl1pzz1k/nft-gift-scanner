@@ -43,7 +43,7 @@ struct PaymentEscrowArbitratorSet {
 
 struct PaymentEscrowAssetConfig {
     usdtJettonMaster: address
-    escrowUsdtJettonWallet: address
+    escrowUsdtJettonWallet: address?
 }
 
 struct PaymentEscrowAuthorityConfig {
@@ -82,6 +82,7 @@ struct (0x5fcc3d14) AskToChangeOwnership {
 
 struct (0x47525601) InitializePaymentEscrow {
     queryId: uint64
+    escrowUsdtJettonWallet: address?
 }
 
 struct (0x05138d91) PaymentEscrowNftDeposit {
