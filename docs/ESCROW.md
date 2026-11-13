@@ -65,7 +65,7 @@ Internal states may include `transfer_pending`, `refund_pending`, and `reconcili
 8. No admin can unilaterally change a terminal deal. Dispute resolution requires the configured multi-approver policy.
 9. Contract and backend Ledger are reconciled; disagreement moves the deal to `reconciliation_required`.
 10. No key material is stored by the app. Any contract deployment or admin transaction is signed by a user wallet or external HSM; never by a seed phrase stored in the repository or Railway.
-9. All tests, scripts, endpoints and configuration default to testnet. Mainnet execution must be blocked by code, not only by documentation.
+11. This branch contains local-emulator tests only. No escrow contract has been deployed to testnet or mainnet. No mainnet deployment is authorized.
 
 ## Testnet implementation plan
 
