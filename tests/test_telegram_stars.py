@@ -4,6 +4,15 @@ from unittest.mock import patch
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 
+from marketplace_inventory import (
+    confirm_nft_escrow_deposit, create_escrow_pending_listing,
+    record_wallet_owned_nft, reserve_verified_listing, save_verified_wallet,
+)
+from marketplace_settlement import (
+    create_deal_from_reservation, init_marketplace_settlement_schema,
+    marketplace_deals, marketplace_listings,
+)
+
 from financial_ledger import (
     approve_telegram_stars_pre_checkout,
     create_telegram_stars_invoice,
@@ -20,6 +29,101 @@ from financial_ledger import (
 
 
 class TelegramStarsLedgerTests(unittest.TestCase):
+    def _create_native_xtr_deal(self):
+        init_marketplace_settlement_schema(self.engine)
+        seller_wallet = "0:" + "11" * 32
+        buyer_wallet = "0:" + "55" * 32
+        collection = "0:" + "22" * 32
+        item = "0:" + "33" * 32
+        escrow = "0:" + "44" * 32
+        evidence = {
+            "verified": True, "owner_wallet_address": seller_wallet,
+            "collection_address": collection, "token_id": "7",
+            "item_address": item, "evidence_hash": "a" * 64,
+            "provider_ids": ["tonapi", "toncenter"],
+        }
+        asset = record_wallet_owned_nft(
+            user_id="10010", wallet_address=seller_wallet, asset_type="ton_nft",
+            collection_address=collection, token_id="7", item_address=item,
+            evidence=evidence, engine=self.engine, now=1000,
+        )
+        listing = create_escrow_pending_listing(
+            user_id="10010", asset_id=asset["asset_id"], price_raw=75,
+            currency="XTR", idempotency_key="native-stars-listing-0001",
+            engine=self.engine, now=1010,
+        )
+        confirm_nft_escrow_deposit(
+            listing_id=listing["listing_id"], tx_hash="ab" * 32, event_index=0,
+            verified_escrow_owner=escrow, expected_escrow_owner=escrow,
+            evidence_hash="b" * 64, provider_ids=["tonapi", "toncenter"],
+            engine=self.engine, now=1015,
+        )
+        save_verified_wallet(user_id="10020", address=buyer_wallet,
+                             network="ton-mainnet", engine=self.engine, now=1020)
+        reservation = reserve_verified_listing(
+            listing_id=listing["listing_id"], buyer_user_id="10020",
+            engine=self.engine, now=1025,
+        )
+        deal = create_deal_from_reservation(
+            reservation_id=reservation["reservation_id"], buyer_user_id="10020",
+            buyer_wallet_address=buyer_wallet, idempotency_key="native-stars-deal-0001",
+            engine=self.engine, now=1030,
+        )
+        return deal["deal_id"], listing["listing_id"]
+
+    def test_native_marketplace_deal_can_be_paid_and_refunded_with_stars(self):
+        deal_id, listing_id = self._create_native_xtr_deal()
+        record_telegram_stars_terms_acceptance(user_id="10020", engine=self.engine, now=900)
+        invoice = create_telegram_stars_invoice(
+            deal_id=deal_id, buyer_user_id="10020", engine=self.engine, now=1035,
+        )
+        self.assertEqual(invoice["deal_id"], deal_id)
+        self.assertEqual(invoice["amount_stars"], 75)
+        self.assertTrue(approve_telegram_stars_pre_checkout(
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
+            amount_stars=75, query_id="native-stars-precheckout", engine=self.engine, now=1040,
+        ))
+        paid = settle_telegram_stars_payment(
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
+            amount_stars=75, telegram_payment_charge_id="native-stars-charge",
+            engine=self.engine, now=1050,
+        )
+        self.assertTrue(paid["credited"])
+        self.assertEqual(get_account_balance(
+            f"liability:deal_hold:{deal_id}:XTR", "XTR", self.engine
+        ), -75)
+        with self.engine.connect() as connection:
+            status = connection.execute(text(
+                "SELECT status FROM marketplace_deals WHERE deal_id=:id"
+            ), {"id": deal_id}).scalar_one()
+        self.assertEqual(status, "payment_confirmed")
+        request = request_telegram_stars_refund(
+            invoice_id=invoice["invoice_id"], buyer_user_id="10020",
+            reason="NFT delivery was not started", engine=self.engine, now=1060,
+        )
+        claimed = prepare_telegram_stars_refund(
+            request_id=request["request_id"], admin_user_id="90001",
+            engine=self.engine, now=1070,
+        )
+        self.assertEqual(claimed["amount_stars"], 75)
+        refunded = complete_telegram_stars_refund(
+            request_id=request["request_id"], telegram_response_ref="native-stars-charge",
+            engine=self.engine, now=1080,
+        )
+        self.assertTrue(refunded["refunded"])
+        self.assertEqual(get_account_balance(
+            f"liability:deal_hold:{deal_id}:XTR", "XTR", self.engine
+        ), 0)
+        with self.engine.connect() as connection:
+            deal_status = connection.execute(text(
+                "SELECT status FROM marketplace_deals WHERE deal_id=:id"
+            ), {"id": deal_id}).scalar_one()
+            listing_status = connection.execute(text(
+                "SELECT status FROM marketplace_listings WHERE listing_id=:id"
+            ), {"id": listing_id}).scalar_one()
+        self.assertEqual(deal_status, "refunded")
+        self.assertEqual(listing_status, "pending_verification")
+
     def setUp(self):
         self.env = patch.dict('os.environ', {'MARKETPLACE_REAL_DEALS_ENABLED': 'true', 'TELEGRAM_STARS_TERMS_VERSION': 'terms-v1', 'TERMS_URL': 'https://example.invalid/terms'})
         self.env.start()
