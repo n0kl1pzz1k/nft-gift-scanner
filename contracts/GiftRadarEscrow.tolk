@@ -161,14 +161,10 @@ fun onInternalMessage(in: InMessage) {
             assert (storage.initialized) throw Errors.BadState;
             assert (in.senderAddress == authorities.paymentAuthority) throw Errors.Unauthorized;
             assert (storage.state == STATE_PAID) throw Errors.BadState;
-            if (storage.state == STATE_DEPOSITED) {
-                assert (blockchain.now() >= storage.deadline) throw Errors.Expired;
-            } else {
-                // Hash is recorded only after Telegram refundStarPayment succeeds.
-                assert (msg.telegramRefundHash != 0) throw Errors.BadProof;
-                evidence.resolutionEvidenceHash = msg.telegramRefundHash;
-                storage.paymentEvidence = evidence.toCell();
-            }
+            // Hash is recorded only after Telegram refundStarPayment succeeds.
+            assert (msg.telegramRefundHash != 0) throw Errors.BadProof;
+            evidence.resolutionEvidenceHash = msg.telegramRefundHash;
+            storage.paymentEvidence = evidence.toCell();
             assert (contract.getOriginalBalance() >= grams("0.15")) throw Errors.NotEnoughGas;
             storage.transferQueryId = msg.queryId;
             storage.state = STATE_REFUND_PENDING;
@@ -236,6 +232,7 @@ fun onInternalMessage(in: InMessage) {
             assert (in.senderAddress == authorities.paymentAuthority) throw Errors.Unauthorized;
             assert (storage.state == STATE_DISPUTED) throw Errors.BadState;
             assert (storage.preDisputeState == STATE_DEPOSITED) throw Errors.BadState;
+            assert (blockchain.now() >= storage.deadline) throw Errors.Expired;
             assert (msg.reconciliationProofHash != 0) throw Errors.BadProof;
             if (evidence.resolutionEvidenceHash != 0) {
                 assert (evidence.resolutionEvidenceHash == msg.reconciliationProofHash) throw Errors.BadProof;
@@ -280,9 +277,9 @@ fun onInternalMessage(in: InMessage) {
             assert (deliveryEvidence.resolutionHash == msg.resolutionHash) throw Errors.BadDispute;
 
             if (msg.decision == 1) {
-                if (storage.preDisputeState == STATE_PAID) {
-                    assert (payment.resolutionEvidenceHash != 0) throw Errors.BadProof;
-                }
+                assert ((storage.preDisputeState == STATE_PAID) |
+                        (storage.preDisputeState == STATE_DEPOSITED)) throw Errors.BadState;
+                assert (payment.resolutionEvidenceHash != 0) throw Errors.BadProof;
                 assert (contract.getOriginalBalance() >= grams("0.15")) throw Errors.NotEnoughGas;
                 storage.transferQueryId = msg.queryId;
                 storage.state = STATE_REFUND_PENDING;
