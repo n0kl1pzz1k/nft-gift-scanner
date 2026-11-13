@@ -5,7 +5,7 @@ Addresses are raw TON addresses so the selected network is explicit and unambigu
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 import hashlib
 import json
 import os
