@@ -67,6 +67,15 @@ class NativeListingRequest(BaseModel):
     idempotency_key: str = Field(min_length=16, max_length=128)
 
 
+class TestnetEscrowConfigRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    seller_address: str = Field(min_length=66, max_length=66)
+    buyer_address: str = Field(min_length=66, max_length=66)
+    nft_item_address: str = Field(min_length=66, max_length=66)
+    asset_kind: str = Field(pattern="^(TON|TEST_USDT_JETTON)$")
+    amount_raw: int = Field(gt=0, strict=True)
+
+
 app = FastAPI(title="GIFT RADAR API", version="0.4.0", docs_url=None, redoc_url=None, openapi_url=None)
 
 
@@ -397,6 +406,27 @@ def _require_admin(credential: str | None) -> dict:
     if str(user["id"]) not in _admin_ids():
         raise HTTPException(status_code=403, detail="Administrator access only")
     return user
+
+
+@app.post("/api/admin/testnet/escrow/config", status_code=201)
+async def create_testnet_escrow_config(
+    payload: TestnetEscrowConfigRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    _require_admin(x_telegram_init_data)
+    if os.getenv("GIFT_RADAR_TESTNET_ESCROW_ENABLED", "false").strip().lower() != "true":
+        raise HTTPException(status_code=404, detail="Testnet escrow configuration is disabled")
+    try:
+        from escrow_authority_config import build_testnet_escrow_snapshot
+        return build_testnet_escrow_snapshot(
+            seller_address=payload.seller_address,
+            buyer_address=payload.buyer_address,
+            nft_item_address=payload.nft_item_address,
+            asset_kind=payload.asset_kind,
+            amount_raw=payload.amount_raw,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
 @app.post("/api/auth/telegram")
