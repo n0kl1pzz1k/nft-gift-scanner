@@ -230,8 +230,8 @@ async def confirm_deal_payment_via_route(*, deal_id: str, intent: Any, route: An
         deal = conn.execute(query).mappings().first()
         if deal is None:
             raise ValueError("Unknown marketplace deal")
-        if str(deal["buyer_user_id"]) != str(actor_user_id):
-            raise PermissionError("Only the deal buyer can confirm payment")
+        if str(actor_user_id) in {str(deal["buyer_user_id"]), str(deal["seller_user_id"])}:
+            raise PermissionError("Deal participants cannot independently confirm their own payment")
         if deal["status"] == "payment_confirmed":
             if (deal["payment_invoice_id"] == intent.reference
                     and deal["payment_event_id"] == evidence.transaction_id):
@@ -258,7 +258,7 @@ async def confirm_deal_payment_via_route(*, deal_id: str, intent: Any, route: An
         ))
         _event(
             conn, deal_id=deal_id, event_type="payment_route_confirmed",
-            actor_type="buyer", actor_id=str(actor_user_id),
+            actor_type="admin", actor_id=str(actor_user_id),
             data={
                 "route_id": route.route_id, "network": "testnet",
                 "currency": "tUSDT", "transaction_id": evidence.transaction_id,

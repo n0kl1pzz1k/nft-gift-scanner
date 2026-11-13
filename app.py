@@ -1173,20 +1173,31 @@ async def confirm_testnet_deal_payment(
     deal_id: str,
     x_telegram_init_data: str | None = Header(default=None),
 ):
-    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    # Confirmation is an independent administrative observation, never a
+    # buyer/seller action. The caller must be authenticated as a platform admin.
+    admin = _require_admin(x_telegram_init_data)
     from marketplace_settlement import (
         create_deal_payment_intent_via_route, confirm_deal_payment_via_route,
+        marketplace_deals,
     )
     from payment_routes import configured_payment_route
     try:
         route = configured_payment_route()
+        with get_engine().connect() as conn:
+            deal = conn.execute(select(marketplace_deals).where(
+                marketplace_deals.c.deal_id == deal_id
+            )).mappings().first()
+        if deal is None:
+            raise ValueError("Unknown marketplace deal")
+        # Build the read-only payment reference for this deal; this does not
+        # authorize the admin as a buyer and does not sign or broadcast.
         intent = await create_deal_payment_intent_via_route(
-            deal_id=deal_id, route=route, actor_user_id=str(user["id"]),
+            deal_id=deal_id, route=route, actor_user_id=str(deal["buyer_user_id"]),
             engine=get_engine(),
         )
         return await confirm_deal_payment_via_route(
             deal_id=deal_id, intent=intent, route=route,
-            actor_user_id=str(user["id"]), engine=get_engine(),
+            actor_user_id=str(admin["id"]), engine=get_engine(),
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))

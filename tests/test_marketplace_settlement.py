@@ -143,9 +143,19 @@ class MarketplaceSettlementTests(unittest.TestCase):
             deal_id=self.deal_id, route=route, actor_user_id="202",
             engine=self.engine,
         ))
+        with self.assertRaises(PermissionError):
+            asyncio.run(confirm_deal_payment_via_route(
+                deal_id=self.deal_id, intent=intent, route=route,
+                actor_user_id="202", engine=self.engine, now=150,
+            ))
+        with self.assertRaises(PermissionError):
+            asyncio.run(confirm_deal_payment_via_route(
+                deal_id=self.deal_id, intent=intent, route=route,
+                actor_user_id="101", engine=self.engine, now=150,
+            ))
         result = asyncio.run(confirm_deal_payment_via_route(
             deal_id=self.deal_id, intent=intent, route=route,
-            actor_user_id="202", engine=self.engine, now=150,
+            actor_user_id="9001", engine=self.engine, now=150,
         ))
         self.assertTrue(result["confirmed"])
         self.assertEqual(result["status"], "payment_confirmed")
@@ -167,7 +177,7 @@ class MarketplaceSettlementTests(unittest.TestCase):
             ), {"id": self.deal_id}).scalar_one(), 1)
         duplicate = asyncio.run(confirm_deal_payment_via_route(
             deal_id=self.deal_id, intent=intent, route=route,
-            actor_user_id="202", engine=self.engine, now=151,
+            actor_user_id="9001", engine=self.engine, now=151,
         ))
         self.assertTrue(duplicate["duplicate"])
 
