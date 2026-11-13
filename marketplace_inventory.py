@@ -554,6 +554,8 @@ def cancel_seller_listing(*, listing_id: str, seller_user_id: str,
             raise PermissionError("Only the listing seller can cancel it")
         if listing["status"] == "cancelled":
             return {"cancelled": False, "duplicate": True, "status": "cancelled"}
+        if listing["status"] == "reserved":
+            raise PermissionError("Listing cannot be cancelled after a buyer reservation")
         if listing["status"] != "active":
             raise ValueError("Only an active, unreserved listing can be cancelled")
         active_reservation = conn.execute(select(marketplace_reservations.c.reservation_id).where(
