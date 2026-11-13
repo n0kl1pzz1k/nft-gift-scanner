@@ -7,7 +7,7 @@ import hashlib
 import secrets
 import logging
 from urllib.parse import parse_qsl
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -18,12 +18,36 @@ from fastapi.middleware.cors import CORSMiddleware
 from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, get_app_setting, init_marketplace_db, set_app_setting, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update
 from demo_offers import create_demo_offers_router, init_demo_offers_db
 from security_controls import SecurityControlsMiddleware, rate_limit_status
+from financial_ledger import get_engine
+from marketplace_inventory import (
+    save_verified_wallet, get_active_verified_wallet, record_wallet_owned_nft,
+    create_escrow_pending_listing, marketplace_assets, marketplace_listings,
+    init_inventory_schema,
+)
+from ton_nft_verifier import verify_seller_nft_ownership_async
+from ton_nft_providers import configured_nft_providers, canonical_ton_address
+from sqlalchemy import select
+
 from financial_ledger import (
     create_telegram_stars_invoice, record_telegram_stars_terms_acceptance,
     request_telegram_stars_refund, prepare_telegram_stars_refund,
     complete_telegram_stars_refund, fail_telegram_stars_refund,
     require_telegram_stars_refund_reconciliation,
 )
+
+class TonNftImportRequest(BaseModel):
+    asset_type: str
+    collection_address: str = Field(min_length=3, max_length=128)
+    token_id: str = Field(min_length=1, max_length=40)
+    item_address: str = Field(min_length=3, max_length=128)
+
+
+class NativeListingRequest(BaseModel):
+    asset_id: str = Field(min_length=4, max_length=64)
+    price_raw: int = Field(gt=0, le=9_000_000_000_000_000)
+    currency: str
+    idempotency_key: str = Field(min_length=16, max_length=128)
+
 
 app = FastAPI(title="GIFT RADAR API", version="0.4.0")
 app.include_router(create_marketplace_router(
@@ -375,10 +399,96 @@ async def ton_proof_verify(
         result = response.json()
         if not isinstance(result, dict) or result.get("verified") is not True:
             raise HTTPException(status_code=401, detail="TON wallet proof was not verified")
+        if result.get("network") == "-239":
+            save_verified_wallet(user_id=str(user["id"]), address=result.get("address", ""),
+                                 network="ton-mainnet", engine=get_engine())
         return {"verified": True, "address": result.get("address"), "network": result.get("network")}
     except httpx.HTTPError:
         raise HTTPException(status_code=503, detail="TON Proof service is unreachable")
 
+
+
+@app.post("/api/inventory/nft/import")
+async def import_owned_nft(
+    payload: TonNftImportRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    if payload.asset_type not in {"ton_nft", "collectible_username", "collectible_phone_number"}:
+        raise HTTPException(status_code=422, detail="Unsupported collectible asset type")
+    try:
+        wallet = get_active_verified_wallet(user_id=str(user["id"]), engine=get_engine())
+        registry = json.loads(os.getenv("GIFT_RADAR_NFT_COLLECTIONS", "{}"))
+        allowed = {
+            key: {canonical_ton_address(value) for value in values}
+            for key, values in registry.items() if isinstance(values, list)
+        }
+        providers = configured_nft_providers()
+        evidence = await verify_seller_nft_ownership_async(
+            seller_user_id=str(user["id"]), wallet_user_id=str(user["id"]),
+            verified_wallet_address=wallet, asset_type=payload.asset_type,
+            network="ton-mainnet", collection_address=payload.collection_address,
+            token_id=payload.token_id, item_address=payload.item_address,
+            allowed_collections=allowed, providers=providers,
+        )
+        result = record_wallet_owned_nft(
+            user_id=str(user["id"]), wallet_address=wallet,
+            asset_type=payload.asset_type,
+            collection_address=evidence["collection_address"],
+            token_id=evidence["token_id"], item_address=evidence["item_address"],
+            evidence=evidence, engine=get_engine(),
+        )
+        return {"item": result, "next_step": "Create a listing, then transfer the NFT to the official escrow address"}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="TON NFT verification providers are not configured") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        logging.warning("TON NFT provider unavailable: %s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="TON NFT verification providers are temporarily unavailable") from exc
+
+
+@app.post("/api/inventory/listings", status_code=201)
+async def create_native_inventory_listing(
+    payload: NativeListingRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    if payload.currency not in {"XTR", "GRAM", "USDT"}:
+        raise HTTPException(status_code=422, detail="Unsupported listing currency")
+    try:
+        result = create_escrow_pending_listing(
+            user_id=str(user["id"]), asset_id=payload.asset_id,
+            price_raw=payload.price_raw, currency=payload.currency,
+            idempotency_key=payload.idempotency_key, engine=get_engine(),
+        )
+        return {"listing": result, "public": False}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/inventory/mine")
+async def get_my_native_inventory(x_telegram_init_data: str | None = Header(default=None)):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    db = get_engine()
+    init_inventory_schema(db)
+    with db.connect() as conn:
+        rows = conn.execute(select(
+            marketplace_assets.c.asset_id, marketplace_assets.c.asset_type,
+            marketplace_assets.c.collection_address, marketplace_assets.c.token_id,
+            marketplace_assets.c.custody_state, marketplace_assets.c.ownership_state,
+            marketplace_listings.c.listing_id, marketplace_listings.c.price_raw,
+            marketplace_listings.c.currency, marketplace_listings.c.status,
+        ).select_from(
+            marketplace_assets.outerjoin(
+                marketplace_listings, marketplace_listings.c.asset_id == marketplace_assets.c.asset_id
+            )
+        ).where(marketplace_assets.c.owner_user_id == str(user["id"]))).mappings().all()
+    return {"items": [dict(row) for row in rows]}
 
 
 @app.post("/api/payments/stars/terms/accept")
