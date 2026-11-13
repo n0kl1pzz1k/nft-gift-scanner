@@ -184,8 +184,13 @@ class MarketplaceSettlementTests(unittest.TestCase):
         item = queue["items"][0]
         self.assertEqual(item["deal_id"], self.deal_id)
         self.assertEqual(item["custody_state"], "escrowed")
-        self.assertEqual(item["latest_ownership_proof"]["proof_source"], "ton_dual_provider")
-        self.assertEqual(item["latest_ownership_proof"]["evidence_hash"], "a" * 64)
+        proof_sources = {
+            proof["proof_source"]: proof for proof in item["ownership_proofs"]
+        }
+        self.assertIn("ton_dual_provider", proof_sources)
+        self.assertIn("ton_escrow_dual_provider", proof_sources)
+        self.assertEqual(proof_sources["ton_dual_provider"]["evidence_hash"], "a" * 64)
+        self.assertEqual(proof_sources["ton_escrow_dual_provider"]["evidence_hash"], "b" * 64)
         self.assertTrue(any(
             event["event_type"] == "dispute_requires_reconciliation"
             for event in item["events"]
