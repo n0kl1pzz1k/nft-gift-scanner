@@ -30,6 +30,9 @@ class PostgresMigrationSmokeTests(unittest.TestCase):
         with self.engine.connect() as connection:
             revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
             self.assertEqual(revision, "0007_stars_refund_reconciliation")
+            connection.execute(text(
+                "SELECT reconciliation_note FROM telegram_stars_refund_requests LIMIT 0"
+            ))
             tables = set(inspect(connection).get_table_names())
         expected = {
             "telegram_users", "telegram_sessions", "demo_orders", "demo_offers",
