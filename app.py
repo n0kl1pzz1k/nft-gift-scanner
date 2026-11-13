@@ -17,7 +17,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, get_app_setting, init_marketplace_db, set_app_setting, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update
 from demo_offers import create_demo_offers_router, init_demo_offers_db
-from catalog_store import get_catalogue_history, get_catalogue_item, search_catalogue_items, upsert_catalogue_items
 from security_controls import SecurityControlsMiddleware, rate_limit_status
 from financial_ledger import create_telegram_stars_invoice, record_telegram_stars_terms_acceptance
 
@@ -68,46 +67,6 @@ app.add_middleware(
 )
 app.add_middleware(SecurityControlsMiddleware)
 
-PORTALS_BASE = "https://portal-market.com/partners"
-ALLOWED_PORTALS_PATHS = {
-    "/collections/preview?sort_by=name&sort_order=asc",
-    "/collections/floors",
-}
-_cache: dict[str, tuple[float, Any]] = {}
-CACHE_SECONDS = 60
-# Per-query cache for item listings. The browser always reads from this backend;
-# upstream marketplaces are queried at a controlled cadence, not on every tap.
-_gifts_cache: dict[str, tuple[float, Any]] = {}
-GIFTS_CACHE_SECONDS = 60
-
-
-def _safe_gift_attributes(raw_attributes: Any) -> list[dict[str, str]]:
-    """Keep upstream attribute payloads small and aligned with the Mini App schema."""
-    if not isinstance(raw_attributes, list):
-        return []
-    safe: list[dict[str, str]] = []
-    for attribute in raw_attributes[:40]:
-        if not isinstance(attribute, dict):
-            continue
-        normalized: dict[str, str] = {}
-        for field in ("type", "name", "value"):
-            value = attribute.get(field)
-            if value is None or isinstance(value, (dict, list)):
-                normalized[field] = ""
-            else:
-                normalized[field] = str(value).strip()[:160]
-        if any(normalized.values()):
-            safe.append(normalized)
-    return safe
-
-
-def _safe_total_count(reported_total: Any, item_count: int) -> int:
-    try:
-        return max(item_count, int(reported_total or 0))
-    except (TypeError, ValueError):
-        return item_count
-_request_lock = asyncio.Lock()
-_last_request_at = 0.0
 _refresh_task: asyncio.Task | None = None
 
 
@@ -286,95 +245,6 @@ def source_status() -> dict[str, str]:
         "native_inventory": "awaiting_native_inventory_index",
         "external_marketplaces": "disabled_by_product_policy",
     }
-
-
-async def _portals_get_json(route: str, params: dict[str, Any] | None = None) -> dict:
-    """Retired legacy adapter. External marketplace feeds are never queried."""
-    raise HTTPException(status_code=410, detail="External marketplace integrations are disabled by GIFT RADAR policy")
-    if route not in {"/collections/preview", "/collections/floors", "/nfts/search"}:
-        raise HTTPException(status_code=400, detail="Portals route is not enabled")
-    token = os.getenv("PORTALS_API_KEY", "").strip()
-    if not token:
-        raise HTTPException(status_code=503, detail="PORTALS_API_KEY is not configured")
-
-    headers = {"Authorization": f"partners {token}", "Accept": "application/json"}
-    global _last_request_at
-    last_status: int | None = None
-
-    for attempt in range(3):
-        try:
-            async with _request_lock:
-                wait = 1.05 - (time.monotonic() - _last_request_at)
-                if wait > 0:
-                    await asyncio.sleep(wait)
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    response = await client.get(
-                        f"{PORTALS_BASE}{route}",
-                        headers=headers,
-                        params=params,
-                    )
-                _last_request_at = time.monotonic()
-        except httpx.HTTPError:
-            if attempt < 2:
-                await asyncio.sleep(1.05 * (attempt + 1))
-                continue
-            raise HTTPException(status_code=503, detail="Portals API is temporarily unreachable")
-
-        last_status = response.status_code
-        if response.status_code == 429:
-            retry_after_raw = response.headers.get("Retry-After", "1.05")
-            try:
-                retry_after = max(1.05, float(retry_after_raw))
-            except (TypeError, ValueError):
-                retry_after = 1.05
-            if attempt < 2 and retry_after <= 15:
-                await asyncio.sleep(retry_after)
-                continue
-            raise HTTPException(
-                status_code=503,
-                detail="Portals rate limit reached; retry shortly",
-                headers={"Retry-After": str(max(1, int(retry_after)))},
-            )
-        if response.status_code in {500, 502, 503, 504} and attempt < 2:
-            await asyncio.sleep(1.05 * (attempt + 1))
-            continue
-        if response.status_code == 401:
-            raise HTTPException(status_code=502, detail="Portals rejected the API key")
-        if response.status_code == 403:
-            raise HTTPException(status_code=502, detail="Portals API subscription or access is not active")
-        if response.is_error:
-            raise HTTPException(status_code=502, detail=f"Portals API error: HTTP {response.status_code}")
-        try:
-            payload = response.json()
-        except ValueError:
-            raise HTTPException(status_code=502, detail="Portals returned invalid JSON")
-        if not isinstance(payload, dict):
-            raise HTTPException(status_code=502, detail="Portals returned an unexpected response")
-        return payload
-
-    raise HTTPException(
-        status_code=503,
-        detail=f"Portals API temporarily unavailable (HTTP {last_status or 'network error'})",
-    )
-
-
-async def portals_get(path: str) -> dict:
-    # Keep the legacy internal path contract while enforcing an explicit read-only route allowlist.
-    if path not in ALLOWED_PORTALS_PATHS:
-        raise HTTPException(status_code=400, detail="Portals route is not enabled")
-    route, _, query = path.partition("?")
-    params = dict(parse_qsl(query, keep_blank_values=True))
-    return await _portals_get_json(route, params or None)
-
-
-async def cached_portals(path: str) -> dict:
-    now = time.monotonic()
-    cached = _cache.get(path)
-    if cached and now - cached[0] < CACHE_SECONDS:
-        return cached[1]
-    data = await portals_get(path)
-    _cache[path] = (time.monotonic(), data)
-    return data
 
 
 @app.post("/api/telegram/webhook")
@@ -730,126 +600,6 @@ async def gifts(
         "updated_at": None,
         "note": "Native GIFT RADAR inventory is not yet published.",
     }
-
-@app.get("/api/catalog/items/{gift_id}")
-async def catalogue_item(gift_id: str):
-    """Return the latest Portals metadata snapshot previously indexed by GIFT RADAR."""
-    item = get_catalogue_item(gift_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Gift is not present in the indexed Portals catalogue")
-    return {"item": item, "source": "Portals", "metadata_only": True}
-
-
-@app.get("/api/catalog/items")
-async def catalogue_items(
-    limit: int = Query(default=24, ge=1, le=50),
-    offset: int = Query(default=0, ge=0, le=100000),
-    search: str | None = Query(default=None, max_length=80),
-    collection_id: str | None = Query(default=None, max_length=160),
-):
-    """Search the persistent Portals metadata index; results are not ownership claims."""
-    return {**search_catalogue_items(search or "", collection_id or "", limit, offset), "source": "Portals", "metadata_only": True}
-
-
-@app.get("/api/catalog/items/{gift_id}/history")
-async def catalogue_item_history(
-    gift_id: str,
-    limit: int = Query(default=20, ge=1, le=50),
-):
-    """Return previous Portals metadata snapshots for an indexed item."""
-    if get_catalogue_item(gift_id) is None:
-        raise HTTPException(status_code=404, detail="Gift is not present in the indexed Portals catalogue")
-    return {"gift_id": gift_id, "history": get_catalogue_history(gift_id, limit), "metadata_only": True}
-
-
-_REFERENCE_CACHE: dict[str, tuple[float, Any]] = {}
-_REFERENCE_CACHE_SECONDS = 3600
-CHANGES_API_BASE = "https://api.changes.tg"
-TG_GIFTS_DAILY_URL = "https://tggifts.com/data/floors-daily.json"
-
-
-async def _fetch_reference_json(cache_key: str, url: str, params: dict[str, Any] | None = None,
-                                cache_seconds: int = _REFERENCE_CACHE_SECONDS) -> Any:
-    cached = _REFERENCE_CACHE.get(cache_key)
-    if cached and time.monotonic() - cached[0] < cache_seconds:
-        return cached[1]
-    try:
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-            response = await client.get(url, params=params, headers={
-                "Accept": "application/json",
-                "User-Agent": "GIFT-RADAR/1.0 (public read-only data)",
-            })
-    except httpx.HTTPError:
-        raise HTTPException(status_code=503, detail="Public reference data source is unreachable")
-    if response.status_code == 429:
-        raise HTTPException(status_code=503, detail="Public reference data rate limit reached; retry later")
-    if response.is_error:
-        raise HTTPException(status_code=502, detail=f"Public reference source returned HTTP {response.status_code}")
-    try:
-        payload = response.json()
-    except ValueError:
-        raise HTTPException(status_code=502, detail="Public reference source returned invalid JSON")
-    _REFERENCE_CACHE[cache_key] = (time.monotonic(), payload)
-    if len(_REFERENCE_CACHE) > 100:
-        for old_key in sorted(_REFERENCE_CACHE, key=lambda key: _REFERENCE_CACHE[key][0])[:-60]:
-            _REFERENCE_CACHE.pop(old_key, None)
-    return payload
-
-
-@app.get("/api/reference/gift-changes")
-async def gift_reference_changes(limit: int = Query(default=25, ge=1, le=100),
-                                 since: str | None = Query(default=None, max_length=80)):
-    """Recent public gift metadata changes (beta feed; not marketplace listings)."""
-    params: dict[str, Any] = {"limit": limit}
-    if since and since.strip():
-        params["since"] = since.strip()
-    cache_key = "gift_changes:" + json.dumps(params, sort_keys=True)
-    payload = await _fetch_reference_json(cache_key, f"{CHANGES_API_BASE}/changes",
-                                          params=params, cache_seconds=120)
-    return {
-        "data": payload, "source": "Gift Changes API", "source_url": "https://api.changes.tg/",
-        "updated_at": int(time.time()),
-        "note": "Beta metadata-change feed. It does not contain marketplace listing availability or prices.",
-    }
-
-
-@app.get("/api/reference/daily-floors")
-async def reference_daily_floors(full: bool = Query(default=False)):
-    """Daily historical floors; summary by default, full upstream dataset on explicit request."""
-    payload = await _fetch_reference_json("tg_gifts_daily_floors", TG_GIFTS_DAILY_URL,
-                                          cache_seconds=3600)
-    collections_data = payload.get("collections", {}) if isinstance(payload, dict) else {}
-    if not isinstance(collections_data, dict):
-        collections_data = {}
-    latest_dates: list[str] = []
-    observation_count = 0
-    for collection in collections_data.values():
-        if not isinstance(collection, dict):
-            continue
-        for field in ("days", "timed_sale_days"):
-            points = collection.get(field, [])
-            if isinstance(points, list):
-                observation_count += len(points)
-                latest_dates.extend(str(point[0]) for point in points
-                                    if isinstance(point, (list, tuple)) and point)
-    timed = payload.get("timed_sale_collections", {}) if isinstance(payload, dict) else {}
-    timed_items = timed.get("items", []) if isinstance(timed, dict) else []
-    summary = {
-        "generated": payload.get("generated") if isinstance(payload, dict) else None,
-        "collection_count": len(collections_data),
-        "observation_count": observation_count,
-        "latest_snapshot_date": max(latest_dates) if latest_dates else None,
-        "timed_sale_collection_count": len(timed_items) if isinstance(timed_items, list) else 0,
-    }
-    return {
-        "data": payload if full else summary,
-        "full_dataset_available": True,
-        "source": "TG Gifts", "source_url": "https://tggifts.com/data",
-        "attribution": "Data: TG Gifts (tggifts.com)", "license": "CC BY 4.0",
-        "updated_at": int(time.time()),
-        "note": "Daily historical snapshots, not live marketplace listings or a real-time floor.",
-    }
-
 
 async def _refresh_public_catalogues():
     """No external marketplace polling. Native inventory is event-driven."""
