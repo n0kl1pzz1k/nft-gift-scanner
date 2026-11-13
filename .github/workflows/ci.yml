@@ -23,8 +23,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
+      - name: Install Python dependencies and lint tool
+        run: pip install -r requirements.txt ruff
+      - name: Lint newly added security and test modules
+        run: ruff check asset_policy.py tests/test_asset_policy.py tests/test_telegram_update_idempotency.py
       - name: Compile all backend modules
         run: python -m compileall -q app.py bot.py marketplace.py demo_offers.py catalog_store.py tests
       - name: Run API and security regression tests
@@ -58,3 +60,15 @@ jobs:
         uses: actions/checkout@v4
       - name: Validate deployment configuration
         run: python -m json.tool railway.json > /dev/null
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan repository history for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
