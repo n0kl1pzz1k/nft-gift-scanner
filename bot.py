@@ -1,6 +1,9 @@
 import asyncio
 import html
+import logging
 import os
+
+from release_policy import TELEGRAM_STARS_TEST_ENV_READY
 
 import httpx
 from aiogram import Bot, Dispatcher, F
@@ -37,7 +40,8 @@ CHANNEL_URL = "https://t.me/nopzw"
 TERMS_URL = os.getenv("TERMS_URL", "").strip()
 PAYMENT_SUPPORT_URL = os.getenv("PAYMENT_SUPPORT_URL", "").strip()
 STARS_PAYMENTS_ENABLED = (
-    os.getenv("TELEGRAM_STARS_PAYMENTS_ENABLED", "false").strip().lower() == "true"
+    TELEGRAM_STARS_TEST_ENV_READY
+    and os.getenv("TELEGRAM_STARS_PAYMENTS_ENABLED", "false").strip().lower() == "true"
     and os.getenv("MARKETPLACE_REAL_DEALS_ENABLED", "false").strip().lower() == "true"
     and bool(os.getenv("TELEGRAM_STARS_TERMS_VERSION", "").strip())
     and os.getenv("GIFT_RADAR_STORAGE_BACKEND", "sqlite").strip().lower() == "postgres"
@@ -164,6 +168,15 @@ def create_dispatcher() -> Dispatcher:
         payment = message.successful_payment
         if payment is None or message.from_user is None:
             raise RuntimeError("Telegram successful_payment update is incomplete")
+        if not STARS_PAYMENTS_ENABLED:
+            # Do not post a real Telegram Stars payment into the testnet-only ledger.
+            # Any unexpected update must be handled as a manual provider reconciliation.
+            logging.error("Received Telegram Stars payment while the test payment environment is disabled")
+            await message.answer(
+                "Платёжный контур сейчас работает только в тестовом режиме. "
+                "Обратитесь в поддержку для ручной проверки платежа."
+            )
+            return
         result = settle_telegram_stars_payment(
             payload=payment.invoice_payload,
             buyer_user_id=str(message.from_user.id),
