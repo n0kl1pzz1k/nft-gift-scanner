@@ -17,7 +17,7 @@ from marketplace_inventory import (
 from marketplace_settlement import (
     create_deal_from_reservation, init_marketplace_settlement_schema,
     mark_deal_nft_transfer_pending, reserve_verified_deal_payment,
-    confirm_deal_nft_transfer, refund_unfulfilled_deal, expire_unpaid_marketplace_deals, open_deal_dispute, resolve_deal_dispute,
+    confirm_deal_nft_transfer, refund_unfulfilled_deal, expire_unpaid_marketplace_deals, open_deal_dispute, resolve_deal_dispute, list_reconciliation_required_deals, add_deal_reconciliation_note,
 )
 
 
@@ -153,6 +153,68 @@ class MarketplaceSettlementTests(unittest.TestCase):
                 admin_user_id="999", engine=self.engine, now=170,
             )
 
+
+    def test_manual_reconciliation_queue_and_admin_notes_are_read_only_and_idempotent(self):
+        reserve_verified_deal_payment(
+            deal_id=self.deal_id, invoice_id=self.invoice_id,
+            engine=self.engine, now=150,
+        )
+        mark_deal_nft_transfer_pending(
+            deal_id=self.deal_id, engine=self.engine, now=155,
+        )
+        open_deal_dispute(
+            deal_id=self.deal_id, actor_user_id="202",
+            reason="Buyer cannot confirm the NFT transfer result",
+            engine=self.engine, now=160,
+        )
+        queue = list_reconciliation_required_deals(
+            engine=self.engine, limit=10, offset=0,
+        )
+        self.assertEqual(len(queue["items"]), 1)
+        item = queue["items"][0]
+        self.assertEqual(item["deal_id"], self.deal_id)
+        self.assertEqual(item["custody_state"], "escrowed")
+        self.assertTrue(any(
+            event["event_type"] == "dispute_requires_reconciliation"
+            for event in item["events"]
+        ))
+        result = add_deal_reconciliation_note(
+            deal_id=self.deal_id, admin_user_id="999",
+            note="Provider A and provider B evidence need comparison",
+            idempotency_key="reconcile-note-0001",
+            engine=self.engine, now=170,
+        )
+        self.assertTrue(result["recorded"])
+        duplicate = add_deal_reconciliation_note(
+            deal_id=self.deal_id, admin_user_id="999",
+            note="Provider A and provider B evidence need comparison",
+            idempotency_key="reconcile-note-0001",
+            engine=self.engine, now=171,
+        )
+        self.assertTrue(duplicate["duplicate"])
+        updated = list_reconciliation_required_deals(
+            engine=self.engine, limit=10, offset=0,
+        )
+        self.assertTrue(any(
+            event["event_type"] == "reconciliation_note_added"
+            for event in updated["items"][0]["events"]
+        ))
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.execute(text(
+                "SELECT status FROM marketplace_deals WHERE deal_id=:id"
+            ), {"id": self.deal_id}).scalar_one(), "reconciliation_required")
+        self.assertEqual(get_account_balance(
+            f"liability:deal_hold:{self.deal_id}:GRAM", "GRAM", self.engine
+        ), -250)
+
+    def test_reconciliation_notes_rejected_for_non_reconciliation_deals(self):
+        with self.assertRaises(PermissionError):
+            add_deal_reconciliation_note(
+                deal_id=self.deal_id, admin_user_id="999",
+                note="This deal is not awaiting reconciliation",
+                idempotency_key="reconcile-note-0002",
+                engine=self.engine, now=170,
+            )
 
     def test_admin_can_dismiss_pre_transfer_dispute_without_releasing_hold(self):
         reserve_verified_deal_payment(
