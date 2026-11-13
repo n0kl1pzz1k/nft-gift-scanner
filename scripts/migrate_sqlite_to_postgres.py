@@ -23,6 +23,7 @@ TABLES = (
     "demo_notifications", "catalogue_gifts", "catalogue_gift_snapshots",
 )
 OPTIONAL_SOURCE_TABLES = {"catalogue_gifts", "catalogue_gift_snapshots"}
+TARGET_GUARD_TABLES = TABLES + ("telegram_stars_invoices", "telegram_stars_payments", "telegram_stars_refund_events")
 SEQUENCE_COLUMNS = {
     "demo_order_events": "id",
     "demo_order_revisions": "id",
@@ -70,11 +71,11 @@ def migrate(source_path: Path, apply: bool, source_quiesced: bool = False, batch
     try:
         with engine.connect() as connection:
             revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-            if revision != "0002_marketplace_core":
-                raise RuntimeError("Target must be migrated to Alembic revision 0002_marketplace_core")
+            if revision != "0003_telegram_stars_payments":
+                raise RuntimeError("Target must be migrated to Alembic revision 0003_telegram_stars_payments")
             metadata = MetaData()
-            metadata.reflect(bind=connection, only=list(TABLES))
-            missing_targets = sorted(set(TABLES) - set(metadata.tables))
+            metadata.reflect(bind=connection, only=list(TARGET_GUARD_TABLES))
+            missing_targets = sorted(set(TARGET_GUARD_TABLES) - set(metadata.tables))
             if missing_targets:
                 raise RuntimeError("Target schema missing tables: " + ", ".join(missing_targets))
 
@@ -83,13 +84,18 @@ def migrate(source_path: Path, apply: bool, source_quiesced: bool = False, batch
                     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
                 ).fetchall()
             }
+            if "telegram_stars_payments" in source_tables:
+                paid_rows = source.execute("SELECT COUNT(*) FROM telegram_stars_payments").fetchone()[0]
+                if paid_rows:
+                    raise RuntimeError("SQLite contains Telegram Stars payments; reconcile them separately before cutover")
+
             missing_required = sorted((set(TABLES) - OPTIONAL_SOURCE_TABLES) - source_tables)
             if missing_required:
                 raise RuntimeError("SQLite source missing required tables: " + ", ".join(missing_required))
 
             target_counts = {
                 name: connection.execute(text('SELECT COUNT(*) FROM "' + name + '"')).scalar_one()
-                for name in TABLES
+                for name in TARGET_GUARD_TABLES
             }
             occupied = {name: count for name, count in target_counts.items() if count}
             if occupied:
