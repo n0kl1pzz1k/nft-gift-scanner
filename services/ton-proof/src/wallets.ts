@@ -14,9 +14,7 @@ import {
 import { Buffer } from "node:buffer";
 
 type Loader = (slice: Slice) => Buffer;
-type WalletContractFactory = {
-  create(args: Record<string, unknown>): { init: { code: { hash(): Buffer } } };
-};
+type WalletContractFactory = any;
 
 function loadV1(slice: Slice): Buffer {
   slice.loadUint(32);
