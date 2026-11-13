@@ -4,10 +4,10 @@ import unittest
 from unittest import mock
 from pathlib import Path
 
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, text
 
 from financial_ledger import (
-    get_account_balance, init_financial_schema, invoices, payment_events,
+    get_account_balance, invoices, payment_events,
     post_journal_entry,
 )
 from marketplace_inventory import (
