@@ -19,6 +19,11 @@ src = "contracts/test-support/MockNftItem.tolk"
 depends = []
 output = "artifacts/MockNftItem.boc"
 
+[contracts.MockJettonWallet]
+src = "contracts/test-support/MockJettonWallet.tolk"
+depends = []
+output = "artifacts/MockJettonWallet.boc"
+
 [wrappers.tolk]
 output-dir = "wrappers"
 
