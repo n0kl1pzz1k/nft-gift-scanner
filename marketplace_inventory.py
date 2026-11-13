@@ -167,6 +167,23 @@ def save_verified_wallet(*, user_id: str, address: str, network: str,
             ))
 
 
+def revoke_verified_wallet(*, user_id: str, address: str | None = None,
+                         engine: Engine | None = None, now: int | None = None) -> int:
+    db = engine or get_engine()
+    init_inventory_schema(db)
+    current = int(now or time.time())
+    statement = update(verified_wallets).where(
+        verified_wallets.c.user_id == str(user_id),
+        verified_wallets.c.network == "ton-mainnet",
+        verified_wallets.c.revoked_at.is_(None),
+    )
+    if address:
+        statement = statement.where(verified_wallets.c.address == address)
+    with db.begin() as conn:
+        result = conn.execute(statement.values(revoked_at=current))
+        return int(result.rowcount or 0)
+
+
 def get_active_verified_wallet(*, user_id: str, engine: Engine | None = None) -> str:
     db = engine or get_engine()
     init_inventory_schema(db)
