@@ -1,0 +1,424 @@
+"""Atomic settlement lifecycle for escrow-backed native NFT listings.
+
+This module only moves internal ledger liabilities. It never signs, broadcasts,
+or claims that an NFT transfer happened. The transfer confirmation boundary
+requires two independent provider proofs and the live item owner to match.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import time
+import uuid
+from typing import Any
+
+from sqlalchemy import (
+    BigInteger, CheckConstraint, Column, ForeignKey, String, Table, Text,
+    UniqueConstraint, insert, select, update,
+)
+from sqlalchemy.engine import Engine
+
+from financial_ledger import (
+    _post, _account_balance_in_connection, get_engine, init_financial_schema,
+    invoices, payment_events, metadata,
+)
+from marketplace_inventory import (
+    init_inventory_schema, marketplace_assets, marketplace_listings,
+    marketplace_listing_events, marketplace_reservations, verified_wallets,
+)
+from ton_nft_providers import canonical_ton_address
+
+
+marketplace_deals = Table(
+    "marketplace_deals", metadata,
+    Column("deal_id", String(64), primary_key=True),
+    Column("listing_id", String(64), ForeignKey("marketplace_listings.listing_id"), nullable=False),
+    Column("reservation_id", String(64), ForeignKey("marketplace_reservations.reservation_id"), nullable=False, unique=True),
+    Column("asset_id", String(64), ForeignKey("marketplace_assets.asset_id"), nullable=False),
+    Column("buyer_user_id", String(64), nullable=False),
+    Column("seller_user_id", String(64), nullable=False),
+    Column("buyer_wallet_address", String(128), nullable=False),
+    Column("currency", String(8), nullable=False),
+    Column("price_raw", BigInteger, nullable=False),
+    Column("status", String(32), nullable=False),
+    Column("payment_invoice_id", String(64), unique=True),
+    Column("payment_event_id", String(64), unique=True),
+    Column("nft_transfer_tx_hash", String(128), unique=True),
+    Column("idempotency_key", String(128), nullable=False, unique=True),
+    Column("created_at", BigInteger, nullable=False),
+    Column("updated_at", BigInteger, nullable=False),
+    CheckConstraint("price_raw > 0", name="ck_marketplace_deals_positive_price"),
+    CheckConstraint("currency IN ('GRAM','USDT','XTR')", name="ck_marketplace_deals_currency"),
+    CheckConstraint(
+        "status IN ('reserved','payment_confirmed','nft_transfer_pending','settled','disputed','refunded','reconciliation_required')",
+        name="ck_marketplace_deals_status",
+    ),
+)
+marketplace_deal_events = Table(
+    "marketplace_deal_events", metadata,
+    Column("event_id", String(64), primary_key=True),
+    Column("deal_id", String(64), ForeignKey("marketplace_deals.deal_id"), nullable=False),
+    Column("actor_type", String(16), nullable=False),
+    Column("actor_id", String(64), nullable=False, default=""),
+    Column("event_type", String(40), nullable=False),
+    Column("event_data", Text, nullable=False, default="{}"),
+    Column("created_at", BigInteger, nullable=False),
+    CheckConstraint("actor_type IN ('buyer','seller','system','admin')", name="ck_marketplace_deal_event_actor"),
+)
+
+
+def init_marketplace_settlement_schema(engine: Engine | None = None) -> None:
+    db = engine or get_engine()
+    init_financial_schema(db)
+    init_inventory_schema(db)
+    if db.dialect.name == "postgresql":
+        with db.connect() as conn:
+            version = conn.execute(__import__("sqlalchemy").text(
+                "SELECT version_num FROM alembic_version"
+            )).scalar_one_or_none()
+        if version != "0010_marketplace_deal_settlement":
+            raise RuntimeError("Marketplace deal settlement migration 0010 is required")
+        return
+    metadata.create_all(db)
+    if db.dialect.name == "sqlite":
+        from sqlalchemy import text
+        with db.begin() as conn:
+            for table_name in ("marketplace_deal_events",):
+                conn.execute(text(
+                    f"CREATE TRIGGER IF NOT EXISTS {table_name}_no_update BEFORE UPDATE ON {table_name} "
+                    "BEGIN SELECT RAISE(ABORT, 'marketplace deal events are append-only'); END"
+                ))
+                conn.execute(text(
+                    f"CREATE TRIGGER IF NOT EXISTS {table_name}_no_delete BEFORE DELETE ON {table_name} "
+                    "BEGIN SELECT RAISE(ABORT, 'marketplace deal events are append-only'); END"
+                ))
+
+
+def _event(conn, *, deal_id: str, event_type: str, actor_type: str = "system",
+           actor_id: str = "", data: dict[str, Any] | None = None, now: int) -> None:
+    conn.execute(insert(marketplace_deal_events).values(
+        event_id=uuid.uuid4().hex, deal_id=deal_id, actor_type=actor_type,
+        actor_id=str(actor_id)[:64], event_type=event_type,
+        event_data=json.dumps(data or {}, sort_keys=True, separators=(",", ":"))[:2000],
+        created_at=now,
+    ))
+
+
+def create_deal_from_reservation(*, reservation_id: str, buyer_user_id: str,
+                                 buyer_wallet_address: str, idempotency_key: str,
+                                 engine: Engine | None = None,
+                                 now: int | None = None) -> dict[str, Any]:
+    """Create a deal only from a live reservation and a server-verified buyer wallet."""
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    current = int(now or time.time())
+    uid = str(buyer_user_id)
+    if not uid.isdigit() or int(uid) <= 0 or not idempotency_key or len(idempotency_key) > 128:
+        raise ValueError("Invalid buyer or idempotency key")
+    wallet = canonical_ton_address(buyer_wallet_address)
+    if not wallet.startswith("0:"):
+        raise ValueError("Only TON mainnet basechain wallets are supported")
+    lock = db.dialect.name == "postgresql"
+    with db.begin() as conn:
+        existing = conn.execute(select(marketplace_deals).where(
+            marketplace_deals.c.idempotency_key == idempotency_key
+        )).mappings().first()
+        if existing:
+            if existing["reservation_id"] != reservation_id or existing["buyer_user_id"] != uid:
+                raise ValueError("Deal idempotency key was reused with different details")
+            return {**dict(existing), "duplicate": True}
+        wallet_row = conn.execute(select(verified_wallets).where(
+            verified_wallets.c.user_id == uid,
+            verified_wallets.c.network == "ton-mainnet",
+            verified_wallets.c.address == wallet,
+            verified_wallets.c.revoked_at.is_(None),
+        )).mappings().first()
+        if wallet_row is None:
+            raise PermissionError("Buyer wallet must be verified by the server before a deal")
+        reservation_q = select(marketplace_reservations).where(
+            marketplace_reservations.c.reservation_id == reservation_id
+        )
+        if lock:
+            reservation_q = reservation_q.with_for_update()
+        reservation = conn.execute(reservation_q).mappings().first()
+        if (reservation is None or reservation["status"] != "active"
+                or reservation["buyer_user_id"] != uid or int(reservation["expires_at"]) <= current):
+            raise ValueError("Reservation is missing, expired or belongs to another buyer")
+        listing_q = select(marketplace_listings).where(
+            marketplace_listings.c.listing_id == reservation["listing_id"]
+        )
+        if lock:
+            listing_q = listing_q.with_for_update()
+        listing = conn.execute(listing_q).mappings().first()
+        if listing is None or listing["status"] != "reserved":
+            raise ValueError("Listing is no longer reserved")
+        if listing["seller_user_id"] == uid:
+            raise PermissionError("Seller cannot buy their own listing")
+        asset = conn.execute(select(marketplace_assets).where(
+            marketplace_assets.c.asset_id == listing["asset_id"]
+        )).mappings().one()
+        if asset["custody_state"] != "escrowed" or int(asset["ownership_expires_at"] or 0) <= current:
+            raise PermissionError("NFT escrow ownership proof is stale")
+        deal_id = "grd_" + uuid.uuid4().hex
+        conn.execute(insert(marketplace_deals).values(
+            deal_id=deal_id, listing_id=listing["listing_id"],
+            reservation_id=reservation_id, asset_id=listing["asset_id"],
+            buyer_user_id=uid, seller_user_id=listing["seller_user_id"],
+            buyer_wallet_address=wallet, currency=listing["currency"],
+            price_raw=int(listing["price_raw"]), status="reserved",
+            idempotency_key=idempotency_key, created_at=current, updated_at=current,
+        ))
+        _event(conn, deal_id=deal_id, event_type="deal_reserved", actor_type="buyer",
+               actor_id=uid, data={"listing_id": listing["listing_id"]}, now=current)
+        return {"deal_id": deal_id, "status": "reserved", "currency": listing["currency"],
+                "price_raw": int(listing["price_raw"]), "duplicate": False}
+
+
+def reserve_verified_deal_payment(*, deal_id: str, invoice_id: str,
+                                  engine: Engine | None = None,
+                                  now: int | None = None) -> dict[str, Any]:
+    """Move an already-confirmed invoice credit into an immutable deal hold atomically."""
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    current = int(now or time.time())
+    lock = db.dialect.name == "postgresql"
+    with db.begin() as conn:
+        q = select(marketplace_deals).where(marketplace_deals.c.deal_id == deal_id)
+        if lock:
+            q = q.with_for_update()
+        deal = conn.execute(q).mappings().first()
+        if deal is None:
+            raise ValueError("Unknown marketplace deal")
+        if deal["status"] == "payment_confirmed":
+            if deal["payment_invoice_id"] != invoice_id:
+                raise ValueError("Deal already has a different payment invoice")
+            return {"reserved": False, "duplicate": True, "status": deal["status"]}
+        if deal["status"] != "reserved":
+            raise ValueError("Deal is not accepting payment")
+        invoice = conn.execute(select(invoices).where(
+            invoices.c.invoice_id == invoice_id
+        )).mappings().first()
+        if invoice is None or invoice["status"] != "paid":
+            raise PermissionError("Only a finalized, paid invoice can fund a deal")
+        if (invoice["user_id"] != deal["buyer_user_id"]
+                or invoice["asset_id"] != deal["currency"]
+                or int(invoice["amount_raw"]) != int(deal["price_raw"])):
+            raise ValueError("Paid invoice does not match deal buyer, asset and exact amount")
+        payment = conn.execute(select(payment_events).where(
+            payment_events.c.invoice_id == invoice_id
+        )).mappings().first()
+        if payment is None:
+            raise PermissionError("Invoice has no unique settled chain payment event")
+        if (payment["asset_id"] != deal["currency"]
+                or int(payment["amount_raw"]) != int(deal["price_raw"])):
+            raise ValueError("Payment event does not match the agreed deal amount")
+        user_account = f"liability:user:{deal['buyer_user_id']}:{deal['currency']}"
+        available = -_account_balance_in_connection(conn, user_account, deal["currency"])
+        if available < int(deal["price_raw"]):
+            raise RuntimeError("Buyer ledger balance is not backed by the paid invoice")
+        journal = _post(conn,
+            idempotency_key="marketplace-deal-reserve:" + deal_id,
+            source_type="marketplace_deal_reserve", source_reference=deal_id,
+            postings=[
+                {"account_id": user_account, "account_type": "liability",
+                 "currency": deal["currency"], "amount_raw": int(deal["price_raw"])},
+                {"account_id": f"liability:deal_hold:{deal_id}:{deal['currency']}",
+                 "account_type": "liability", "currency": deal["currency"],
+                 "amount_raw": -int(deal["price_raw"])},
+            ], now=current)
+        conn.execute(update(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id
+        ).values(status="payment_confirmed", payment_invoice_id=invoice_id,
+                 payment_event_id=payment["payment_event_id"], updated_at=current))
+        _event(conn, deal_id=deal_id, event_type="payment_confirmed",
+               data={"invoice_id": invoice_id, "payment_event_id": payment["payment_event_id"],
+                     "journal_id": journal["entry_id"]}, now=current)
+        return {"reserved": True, "duplicate": False, "status": "payment_confirmed",
+                "journal_id": journal["entry_id"]}
+
+
+def mark_deal_nft_transfer_pending(*, deal_id: str, engine: Engine | None = None,
+                                   now: int | None = None) -> None:
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    current = int(now or time.time())
+    with db.begin() as conn:
+        changed = conn.execute(update(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id,
+            marketplace_deals.c.status == "payment_confirmed",
+        ).values(status="nft_transfer_pending", updated_at=current))
+        if changed.rowcount != 1:
+            raise ValueError("Only a paid deal can enter NFT transfer")
+        _event(conn, deal_id=deal_id, event_type="nft_transfer_pending", now=current)
+
+
+def confirm_deal_nft_transfer(*, deal_id: str, transfer_proofs: list[dict[str, Any]],
+                              current_owner_addresses: list[str],
+                              engine: Engine | None = None,
+                              now: int | None = None) -> dict[str, Any]:
+    """Pay seller only after two independent providers agree NFT reached buyer."""
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    current = int(now or time.time())
+    lock = db.dialect.name == "postgresql"
+    with db.begin() as conn:
+        q = select(marketplace_deals).where(marketplace_deals.c.deal_id == deal_id)
+        if lock:
+            q = q.with_for_update()
+        deal = conn.execute(q).mappings().first()
+        if deal is None:
+            raise ValueError("Unknown marketplace deal")
+        if deal["status"] == "settled":
+            return {"settled": False, "duplicate": True}
+        if deal["status"] != "nft_transfer_pending":
+            raise ValueError("Deal is not awaiting NFT transfer confirmation")
+        if len(transfer_proofs) < 2:
+            raise PermissionError("Two independent NFT transfer proofs are required")
+        normalized = []
+        for proof in transfer_proofs:
+            if proof.get("provider_id") not in {"tonapi", "toncenter"}:
+                raise PermissionError("Untrusted NFT transfer provider")
+            if proof.get("successful") is not True or proof.get("finalized") is not True:
+                raise ValueError("NFT transfer is not successful and finalized")
+            normalized.append({
+                "provider_id": proof["provider_id"],
+                "tx_hash": str(proof.get("tx_hash") or "").lower().removeprefix("0x"),
+                "item_address": canonical_ton_address(proof.get("item_address") or ""),
+                "old_owner": canonical_ton_address(proof.get("old_owner") or ""),
+                "new_owner": canonical_ton_address(proof.get("new_owner") or ""),
+                "evidence_hash": str(proof.get("evidence_hash") or ""),
+            })
+        if len({item["provider_id"] for item in normalized}) != 2:
+            raise PermissionError("Two distinct providers are required")
+        if len({item["tx_hash"] for item in normalized}) != 1 or not normalized[0]["tx_hash"]:
+            raise ValueError("Providers disagree on NFT transfer transaction")
+        if len({item["item_address"] for item in normalized}) != 1:
+            raise ValueError("Providers disagree on NFT item")
+        if len({item["old_owner"] for item in normalized}) != 1 or len({item["new_owner"] for item in normalized}) != 1:
+            raise ValueError("Providers disagree on NFT transfer parties")
+        if len({item["evidence_hash"] for item in normalized}) != 1 or not normalized[0]["evidence_hash"]:
+            raise ValueError("Providers disagree on NFT transfer evidence")
+        expected_buyer = deal["buyer_wallet_address"]
+        asset = conn.execute(select(marketplace_assets).where(
+            marketplace_assets.c.asset_id == deal["asset_id"]
+        )).mappings().one()
+        escrow = canonical_ton_address(os.getenv("GIFT_RADAR_ESCROW_ADDRESS", ""))
+        if not escrow or normalized[0]["old_owner"] != escrow:
+            raise PermissionError("NFT transfer did not originate from the configured escrow")
+        if normalized[0]["new_owner"] != expected_buyer:
+            raise PermissionError("NFT was not delivered to the buyer's verified wallet")
+        if normalized[0]["item_address"] != canonical_ton_address(asset["canonical_asset_id"].split(":")[-1] if ":" in asset["canonical_asset_id"] else asset["canonical_asset_id"]):
+            # canonical_asset_id format is an internal composite key; use the item address
+            # recorded in the asset's ownership proof below when available.
+            proof_row = conn.execute(__import__("sqlalchemy").text(
+                "SELECT item_address FROM marketplace_ownership_proofs "
+                "WHERE asset_id=:asset_id ORDER BY recorded_at DESC LIMIT 1"
+            ), {"asset_id": deal["asset_id"]}).mappings().first()
+            if proof_row is None or normalized[0]["item_address"] != canonical_ton_address(proof_row["item_address"]):
+                raise ValueError("NFT item does not match the reserved listing")
+        owner_addresses = {canonical_ton_address(value) for value in current_owner_addresses}
+        if owner_addresses != {expected_buyer}:
+            raise PermissionError("Live NFT state does not show the buyer as current owner")
+        total = int(deal["price_raw"])
+        journal = _post(conn,
+            idempotency_key="marketplace-deal-payout:" + deal_id,
+            source_type="marketplace_deal_payout", source_reference=deal_id,
+            postings=[
+                {"account_id": f"liability:deal_hold:{deal_id}:{deal['currency']}",
+                 "account_type": "liability", "currency": deal["currency"], "amount_raw": total},
+                {"account_id": f"liability:seller:{deal['seller_user_id']}:{deal['currency']}",
+                 "account_type": "liability", "currency": deal["currency"], "amount_raw": -total},
+            ], now=current)
+        conn.execute(update(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id
+        ).values(status="settled", nft_transfer_tx_hash=normalized[0]["tx_hash"],
+                 updated_at=current))
+        conn.execute(update(marketplace_reservations).where(
+            marketplace_reservations.c.reservation_id == deal["reservation_id"]
+        ).values(status="consumed"))
+        conn.execute(update(marketplace_listings).where(
+            marketplace_listings.c.listing_id == deal["listing_id"],
+            marketplace_listings.c.status == "reserved",
+        ).values(status="sold", updated_at=current))
+        conn.execute(update(marketplace_assets).where(
+            marketplace_assets.c.asset_id == deal["asset_id"]
+        ).values(owner_user_id=deal["buyer_user_id"], owner_wallet_address=expected_buyer,
+                 custody_state="transferred", ownership_state="verified",
+                 ownership_checked_at=current, ownership_expires_at=current + 300,
+                 updated_at=current))
+        conn.execute(insert(marketplace_listing_events).values(
+            event_id=uuid.uuid4().hex, listing_id=deal["listing_id"],
+            actor_user_id=deal["buyer_user_id"], event_type="sold",
+            event_data=json.dumps({"deal_id": deal_id, "tx_hash": normalized[0]["tx_hash"]}),
+            created_at=current,
+        ))
+        _event(conn, deal_id=deal_id, event_type="deal_settled",
+               data={"tx_hash": normalized[0]["tx_hash"], "journal_id": journal["entry_id"]},
+               now=current)
+        return {"settled": True, "duplicate": False, "journal_id": journal["entry_id"],
+                "tx_hash": normalized[0]["tx_hash"]}
+
+
+def refund_unfulfilled_deal(*, deal_id: str, reason: str, admin_user_id: str,
+                            engine: Engine | None = None,
+                            now: int | None = None) -> dict[str, Any]:
+    """Refund an unfulfilled deal from its hold; never auto-refund after NFT broadcast."""
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    current = int(now or time.time())
+    lock = db.dialect.name == "postgresql"
+    with db.begin() as conn:
+        q = select(marketplace_deals).where(marketplace_deals.c.deal_id == deal_id)
+        if lock:
+            q = q.with_for_update()
+        deal = conn.execute(q).mappings().first()
+        if deal is None:
+            raise ValueError("Unknown marketplace deal")
+        if deal["status"] == "refunded":
+            return {"refunded": False, "duplicate": True}
+        if deal["status"] not in {"payment_confirmed", "nft_transfer_pending", "disputed"}:
+            raise ValueError("Deal is not eligible for refund")
+        if deal["status"] == "nft_transfer_pending":
+            raise PermissionError("NFT transfer may have been broadcast; manual chain reconciliation is required")
+        amount = int(deal["price_raw"])
+        journal = _post(conn,
+            idempotency_key="marketplace-deal-refund:" + deal_id,
+            source_type="marketplace_deal_refund", source_reference=deal_id,
+            postings=[
+                {"account_id": f"liability:deal_hold:{deal_id}:{deal['currency']}",
+                 "account_type": "liability", "currency": deal["currency"], "amount_raw": amount},
+                {"account_id": f"liability:user:{deal['buyer_user_id']}:{deal['currency']}",
+                 "account_type": "liability", "currency": deal["currency"], "amount_raw": -amount},
+            ], now=current)
+        conn.execute(update(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id
+        ).values(status="refunded", updated_at=current))
+        conn.execute(update(marketplace_reservations).where(
+            marketplace_reservations.c.reservation_id == deal["reservation_id"]
+        ).values(status="cancelled"))
+        conn.execute(update(marketplace_listings).where(
+            marketplace_listings.c.listing_id == deal["listing_id"],
+            marketplace_listings.c.status == "reserved",
+        ).values(status="active", updated_at=current))
+        _event(conn, deal_id=deal_id, event_type="deal_refunded", actor_type="admin",
+               actor_id=admin_user_id, data={"reason": " ".join(reason.split())[:500],
+                                             "journal_id": journal["entry_id"]}, now=current)
+        return {"refunded": True, "duplicate": False, "journal_id": journal["entry_id"]}
+
+
+def flag_deal_for_reconciliation(*, deal_id: str, reason: str,
+                                 engine: Engine | None = None,
+                                 now: int | None = None) -> None:
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    current = int(now or time.time())
+    clean = " ".join(str(reason or "").split())[:500] or "Deal requires manual reconciliation"
+    with db.begin() as conn:
+        changed = conn.execute(update(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id,
+            marketplace_deals.c.status.in_(("payment_confirmed", "nft_transfer_pending", "disputed")),
+        ).values(status="reconciliation_required", updated_at=current))
+        if changed.rowcount != 1:
+            raise ValueError("Deal cannot enter reconciliation from its current state")
+        _event(conn, deal_id=deal_id, event_type="reconciliation_required",
+               data={"reason": clean}, now=current)
