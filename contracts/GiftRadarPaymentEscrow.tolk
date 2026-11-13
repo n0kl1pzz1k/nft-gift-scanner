@@ -44,6 +44,19 @@ fun signerBit(sender: address, auth: PaymentEscrowAuthorityConfig): uint8 {
     return 0;
 }
 
+fun onBouncedMessage(in: InMessageBounced) {
+    in.bouncedBody.skipBouncedPrefix();
+    val bounced = lazy AskToChangeOwnership.fromSlice(in.bouncedBody);
+    var storage = lazy PaymentEscrowStorage.load();
+    val parties = storage.parties.load();
+    assert (in.senderAddress == parties.nftItem) throw PaymentEscrowErrors.BadAsset;
+    if (storage.state == V2_TRANSFER_PENDING) {
+        storage.state = V2_RECONCILIATION_REQUIRED;
+        storage.save();
+    }
+    assert (bounced.queryId != 0) throw PaymentEscrowErrors.BadProof;
+}
+
 fun onInternalMessage(in: InMessage) {
     if (in.body.isEmpty()) {
         return;
@@ -231,9 +244,8 @@ fun onInternalMessage(in: InMessage) {
         }
 
         ApprovePaymentEscrowDispute => {
-            var storage = lazy PaymentEscrowStorage.load();
+            val storage = lazy PaymentEscrowStorage.load();
             val auth = storage.authorities.load();
-            val parties = storage.parties.load();
             assert (storage.initialized) throw PaymentEscrowErrors.BadState;
             assert (storage.state == V2_DISPUTED) throw PaymentEscrowErrors.BadState;
             assert ((in.senderAddress == auth.arbitrator1) | (in.senderAddress == auth.arbitrator2) | (in.senderAddress == auth.arbitrator3)) throw PaymentEscrowErrors.Unauthorized;
