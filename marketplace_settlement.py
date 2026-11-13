@@ -7,6 +7,7 @@ requires two independent provider proofs and the live item owner to match.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import time
 import uuid
@@ -65,6 +66,8 @@ marketplace_deal_events = Table(
     Column("created_at", BigInteger, nullable=False),
     CheckConstraint("actor_type IN ('buyer','seller','system','admin')", name="ck_marketplace_deal_event_actor"),
 )
+Index("idx_marketplace_deals_status_updated", marketplace_deals.c.status, marketplace_deals.c.updated_at)
+Index("idx_marketplace_deal_events_deal_created", marketplace_deal_events.c.deal_id, marketplace_deal_events.c.created_at)
 
 
 def init_marketplace_settlement_schema(engine: Engine | None = None) -> None:
@@ -666,6 +669,122 @@ def refund_unfulfilled_deal(*, deal_id: str, reason: str, admin_user_id: str,
                                              "listing_status": next_listing_status}, now=current)
         return {"refunded": True, "duplicate": False, "journal_id": journal["entry_id"]}
 
+
+
+def list_reconciliation_required_deals(*, engine: Engine | None = None,
+                                           limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    """Read-only admin queue for deals that must be reconciled by a human."""
+    if not 1 <= int(limit) <= 100 or int(offset) < 0:
+        raise ValueError("Invalid reconciliation queue pagination")
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    query = select(
+        marketplace_deals.c.deal_id, marketplace_deals.c.listing_id,
+        marketplace_deals.c.reservation_id, marketplace_deals.c.asset_id,
+        marketplace_deals.c.buyer_user_id, marketplace_deals.c.seller_user_id,
+        marketplace_deals.c.buyer_wallet_address, marketplace_deals.c.currency,
+        marketplace_deals.c.price_raw, marketplace_deals.c.nft_transfer_tx_hash,
+        marketplace_deals.c.created_at, marketplace_deals.c.updated_at,
+        marketplace_listings.c.status.label("listing_status"),
+        marketplace_assets.c.custody_state, marketplace_assets.c.ownership_state,
+    ).select_from(
+        marketplace_deals.join(
+            marketplace_listings,
+            marketplace_listings.c.listing_id == marketplace_deals.c.listing_id,
+        ).join(
+            marketplace_assets,
+            marketplace_assets.c.asset_id == marketplace_deals.c.asset_id,
+        )
+    ).where(
+        marketplace_deals.c.status == "reconciliation_required"
+    ).order_by(
+        marketplace_deals.c.updated_at.asc(), marketplace_deals.c.deal_id.asc()
+    ).limit(int(limit)).offset(int(offset))
+    with db.connect() as conn:
+        rows = [dict(row) for row in conn.execute(query).mappings().all()]
+        if not rows:
+            return {"items": [], "limit": int(limit), "offset": int(offset)}
+        ids = [row["deal_id"] for row in rows]
+        events = conn.execute(select(
+            marketplace_deal_events.c.deal_id,
+            marketplace_deal_events.c.actor_type,
+            marketplace_deal_events.c.event_type,
+            marketplace_deal_events.c.event_data,
+            marketplace_deal_events.c.created_at,
+        ).where(
+            marketplace_deal_events.c.deal_id.in_(ids)
+        ).order_by(
+            marketplace_deal_events.c.created_at.asc(),
+            marketplace_deal_events.c.event_id.asc(),
+        )).mappings().all()
+    by_deal: dict[str, list[dict[str, Any]]] = {deal_id: [] for deal_id in ids}
+    for event in events:
+        try:
+            data = json.loads(event["event_data"] or "{}")
+            if not isinstance(data, dict):
+                data = {}
+        except (TypeError, ValueError):
+            data = {"unavailable": True}
+        by_deal[event["deal_id"]].append({
+            "actor_type": event["actor_type"],
+            "event_type": event["event_type"],
+            "data": data,
+            "created_at": int(event["created_at"]),
+        })
+    for row in rows:
+        row["events"] = by_deal[row["deal_id"]][-25:]
+    return {"items": rows, "limit": int(limit), "offset": int(offset)}
+
+
+def add_deal_reconciliation_note(*, deal_id: str, admin_user_id: str,
+                                 note: str, idempotency_key: str,
+                                 engine: Engine | None = None,
+                                 now: int | None = None) -> dict[str, Any]:
+    """Append an idempotent admin note without changing deal or money state."""
+    admin = str(admin_user_id or "")
+    clean_note = " ".join(str(note or "").split())
+    key = str(idempotency_key or "").strip()
+    if not admin.isdigit() or int(admin) <= 0:
+        raise ValueError("A valid admin identity is required")
+    if not 8 <= len(clean_note) <= 1000:
+        raise ValueError("Reconciliation note must contain 8-1000 characters")
+    if not 16 <= len(key) <= 128:
+        raise ValueError("A 16-128 character idempotency key is required")
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    current = int(now or time.time())
+    lock = db.dialect.name == "postgresql"
+    event_id = hashlib.sha256(
+        ("reconciliation-note:" + deal_id + ":" + key).encode("utf-8")
+    ).hexdigest()
+    with db.begin() as conn:
+        query = select(marketplace_deals.c.status).where(
+            marketplace_deals.c.deal_id == deal_id
+        )
+        if lock:
+            query = query.with_for_update()
+        status = conn.execute(query).scalar_one_or_none()
+        if status is None:
+            raise ValueError("Unknown marketplace deal")
+        prior = conn.execute(select(marketplace_deal_events.c.event_id).where(
+            marketplace_deal_events.c.event_id == event_id
+        )).first()
+        if prior:
+            return {"recorded": False, "duplicate": True,
+                    "status": "reconciliation_required"}
+        if status != "reconciliation_required":
+            raise PermissionError("Admin notes are restricted to deals awaiting reconciliation")
+        conn.execute(insert(marketplace_deal_events).values(
+            event_id=event_id, deal_id=deal_id, actor_type="admin",
+            actor_id=admin, event_type="reconciliation_note_added",
+            event_data=json.dumps({
+                "note": clean_note, "idempotency_key": key,
+                "changes_financial_state": False,
+            }, separators=(",", ":"), sort_keys=True),
+            created_at=current,
+        ))
+    return {"recorded": True, "duplicate": False,
+            "status": "reconciliation_required"}
 
 
 def expire_unpaid_marketplace_deals(*, engine: Engine | None = None,
