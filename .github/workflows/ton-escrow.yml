@@ -42,11 +42,14 @@ jobs:
         run: acton build GiftRadarPaymentEscrow
       - name: Build TEP-62 test NFT contract
         run: acton build MockNftItem
+      - name: Build TEP-74 test Jetton wallet
+        run: acton build MockJettonWallet
       - name: Generate typed test wrappers
         run: |
           acton wrapper GiftRadarEscrow
           acton wrapper GiftRadarPaymentEscrow
           acton wrapper MockNftItem
+          acton wrapper MockJettonWallet
       - name: Lint Tolk contracts and tests
         run: acton check
       - name: Run local emulator tests
