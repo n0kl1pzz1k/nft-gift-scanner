@@ -1,0 +1,20 @@
+[package]
+name = "gift-radar-ton-escrow"
+description = "GIFT RADAR per-deal NFT custody escrow for TON testnet"
+version = "0.1.0"
+license = "UNLICENSED"
+
+[contracts.GiftRadarEscrow]
+src = "contracts/GiftRadarEscrow.tolk"
+depends = []
+output = "artifacts/GiftRadarEscrow.boc"
+
+[wrappers.tolk]
+output-dir = "wrappers"
+
+[import-mappings]
+acton = ".acton"
+contracts = "contracts"
+tests = "tests"
+wrappers = "wrappers"
+gen = "gen"
