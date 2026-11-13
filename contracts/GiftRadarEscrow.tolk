@@ -437,6 +437,7 @@ struct EscrowStateReply {
     preDisputeState: uint8
     disputeApprovals: uint8
     resolutionDecision: uint8
+    disputeReasonHash: uint256
     transferQueryId: uint64
 }
 
