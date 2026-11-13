@@ -17,7 +17,6 @@ from typing import Any, Protocol
 import httpx
 from sqlalchemy import BigInteger, Column, ForeignKey, String, Table, Text, UniqueConstraint, insert, select
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError
 
 from financial_ledger import (
     metadata, get_engine, init_financial_schema, withdrawal_requests,
@@ -241,7 +240,6 @@ async def execute_approved_withdrawal(*, request_id: str,
     db = engine or get_engine()
     init_withdrawal_signer_schema(db)
     current = int(now or time.time())
-    lock = db.dialect.name == "postgresql"
     with db.connect() as conn:
         request = conn.execute(select(withdrawal_requests).where(
             withdrawal_requests.c.request_id == request_id
