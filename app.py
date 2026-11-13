@@ -801,7 +801,7 @@ async def _run_nft_inventory_monitor():
     """Poll only pending seller deposits; no wallet signing or asset movement occurs."""
     while True:
         ready = all(os.getenv(name, "").strip() for name in (
-            "GIFT_RADAR_ESCROW_ADDRESS", "TON_NFT_PROVIDER_IDS",
+            "GIFT_RADAR_ESCROW_ADDRESS", "GIFT_RADAR_ESCROW_CODE_HASH", "TON_NFT_PROVIDER_IDS",
             "TONAPI_KEY", "TONCENTER_API_KEY",
         ))
         if ready:
