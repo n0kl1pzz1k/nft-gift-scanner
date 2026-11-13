@@ -70,7 +70,7 @@ Catalogue and provider integrations are read-only. The separate order-book inter
 The financial ledger and marketplace stores are separate logical subsystems. A guarded PostgreSQL adapter and a one-way migration path now cover the marketplace, offers, notifications and Portals catalogue tables; SQLite remains the default until a controlled data cutover is completed.
 
 - financial_ledger.py implements balanced signed integer-unit postings, immutable journal rows, idempotency keys, account balance projections, server-owned payment invoices and strict normalized TON Jetton trace checks.
-- migrations/ and alembic.ini provide an Alembic migration for PostgreSQL and SQLite CI. The PostgreSQL application stores require Alembic revision 0002_marketplace_core (which includes the financial ledger base revision).
+- migrations/ and alembic.ini provide an Alembic migration for PostgreSQL and SQLite CI. The PostgreSQL application stores require Alembic revision 0003_telegram_stars_payments (which includes the financial ledger base revision).
 - payment_events has unique chain/transaction/event/asset identity and unique invoice binding. Ledger entries, lines and payment events are append-only at the database layer.
 - TON Connect UI is a connect/disconnect-only client integration. It displays the public wallet address. It does not request seed phrases/private keys, sign transactions, store a verified wallet binding, or make payments.
 - /api/wallet/policy advertises the current disabled capabilities.
@@ -89,12 +89,12 @@ The financial ledger and marketplace stores are separate logical subsystems. A g
 8. Obtain written platform/legal approval for the exact digital-goods payment model. Crypto payment policy remains disabled; GRAM is not allowlisted; TRON remains excluded from Mini App.
 9. Run migration, backup/restore, load, concurrency, and security testing against staging before any production activation.
 
-The SQLite-to-PostgreSQL cutover is prepared but has not been executed. `postgres_compat.py` provides the deliberately narrow SQL compatibility layer, and `migrations/versions/0002_marketplace_core.py` creates the PostgreSQL marketplace, offer/deal, notification and catalogue schema. Catalogue JSON search uses PostgreSQL JSONB casts while preserving the stored JSON text.
+The SQLite-to-PostgreSQL cutover is prepared but has not been executed. Telegram Stars invoice and settlement tables are now part of revision 0003; the bot and Mini App checkout integration remains feature-gated and is not enabled. `postgres_compat.py` provides the deliberately narrow SQL compatibility layer, and `migrations/versions/0003_telegram_stars_payments.py` creates the PostgreSQL marketplace, offer/deal, notification and catalogue schema. Catalogue JSON search uses PostgreSQL JSONB casts while preserving the stored JSON text.
 
 #### Controlled SQLite-to-PostgreSQL cutover
 
 1. Take a verified backup of the SQLite database and record its file size and checksum. Keep the backup immutable.
-2. Provision PostgreSQL and apply `alembic upgrade head`. Confirm the Alembic revision is exactly `0002_marketplace_core`.
+2. Provision PostgreSQL and apply `alembic upgrade head`. Confirm the Alembic revision is exactly `0003_telegram_stars_payments`.
 3. Copy the SQLite source to a controlled migration runner or securely mount its Railway volume. Do not print or paste database credentials.
 4. Run a dry-run first: `python scripts/migrate_sqlite_to_postgres.py --source /path/to/gift-radar.sqlite3`. It checks target emptiness, required source tables, row counts and deterministic SHA-256 checksums.
 5. Schedule a maintenance window, stop every SQLite writer, and take a final consistent backup. Only then run `python scripts/migrate_sqlite_to_postgres.py --source /path/to/gift-radar.sqlite3 --apply --source-quiesced`.
@@ -102,4 +102,4 @@ The SQLite-to-PostgreSQL cutover is prepared but has not been executed. `postgre
 7. In a separate reviewed release, set `GIFT_RADAR_STORAGE_BACKEND=postgres` and the Railway `DATABASE_URL` reference together. Run smoke, concurrency, backup/restore and API ownership tests before reopening writes.
 8. Do not remove the SQLite backup or switch off rollback capability until production reconciliation is signed off.
 
-The migration tool refuses to write unless `--apply` and `--source-quiesced` are both present, and refuses to import into non-empty target tables. It runs all imports and checksum checks in one PostgreSQL transaction. The current live Railway app has not been switched to PostgreSQL, no SQLite records have been copied, and no production cutover has been performed.
+The migration tool refuses to write unless `--apply` and `--source-quiesced` are both present, refuses to import into non-empty target tables, and refuses cutover if any Stars invoice/payment/refund records exist in SQLite because those require separate reconciliation. It runs all imports and checksum checks in one PostgreSQL transaction. The current live Railway app has not been switched to PostgreSQL, no SQLite records have been copied, and no production cutover has been performed.
