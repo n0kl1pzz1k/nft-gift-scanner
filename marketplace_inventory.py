@@ -206,6 +206,8 @@ def record_wallet_owned_nft(*, user_id: str, wallet_address: str, asset_type: st
         )).mappings().first()
         if existing and existing["owner_user_id"] != str(user_id):
             raise PermissionError("NFT is already registered to another seller")
+        if existing and existing["asset_type"] != asset_type:
+            raise ValueError("NFT asset type cannot change for an existing canonical identity")
         if existing and existing["custody_state"] in ("escrow_pending", "escrowed", "transferred"):
             raise ValueError("NFT already has an active custody lifecycle")
         if existing:
@@ -296,8 +298,8 @@ def confirm_nft_escrow_deposit(*, listing_id: str, tx_hash: str, event_index: in
     """Activate only after independent providers prove the NFT's current escrow owner."""
     if verified_escrow_owner != expected_escrow_owner or not tx_hash or event_index < 0:
         raise PermissionError("NFT escrow ownership proof failed")
-    if len(set(provider_ids)) < 2 or len(evidence_hash) != 64:
-        raise PermissionError("Two independent provider proofs are required")
+    if set(provider_ids) != {"tonapi", "toncenter"} or len(evidence_hash) != 64:
+        raise PermissionError("The named independent TON providers are required")
     db = engine or get_engine()
     init_inventory_schema(db)
     current = int(now or time.time())
