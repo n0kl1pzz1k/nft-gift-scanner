@@ -253,7 +253,7 @@ fun onInternalMessage(in: InMessage) {
         RequestRefund => {
             var storage = lazy EscrowStorage.load();
             assert (in.senderAddress == storage.paymentAuthority) throw ERR_UNAUTHORIZED;
-            assert (storage.state == STATE_DEPOSITED | storage.state == STATE_PAID) throw ERR_BAD_STATE;
+            assert ((storage.state == STATE_DEPOSITED) | (storage.state == STATE_PAID)) throw ERR_BAD_STATE;
             if (storage.state == STATE_DEPOSITED) {
                 assert (blockchain.now() >= storage.deadline) throw ERR_EXPIRED;
             } else {
@@ -279,12 +279,12 @@ fun onInternalMessage(in: InMessage) {
 
         RaiseDispute => {
             var storage = lazy EscrowStorage.load();
-            assert (in.senderAddress == storage.buyer | in.senderAddress == storage.seller) throw ERR_UNAUTHORIZED;
+            assert ((in.senderAddress == storage.buyer) | (in.senderAddress == storage.seller)) throw ERR_UNAUTHORIZED;
             assert (msg.reasonHash != 0) throw ERR_BAD_DISPUTE;
             storage.disputeReasonHash = msg.reasonHash;
-            assert (storage.state == STATE_DEPOSITED |
-                    storage.state == STATE_PAID |
-                    storage.state == STATE_TRANSFER_PENDING) throw ERR_BAD_STATE;
+            assert ((storage.state == STATE_DEPOSITED) |
+                    (storage.state == STATE_PAID) |
+                    (storage.state == STATE_TRANSFER_PENDING)) throw ERR_BAD_STATE;
             if (storage.state == STATE_TRANSFER_PENDING) {
                 // A transfer may already have executed on the NFT item. Never guess ownership.
                 storage.state = STATE_RECONCILIATION_REQUIRED;
@@ -313,8 +313,8 @@ fun onInternalMessage(in: InMessage) {
         ApproveDisputeResolution => {
             var storage = lazy EscrowStorage.load();
             assert (storage.state == STATE_DISPUTED) throw ERR_BAD_STATE;
-            assert (in.senderAddress == storage.arbitrator1 | in.senderAddress == storage.arbitrator2) throw ERR_UNAUTHORIZED;
-            assert (msg.decision == 1 | msg.decision == 2) throw ERR_BAD_DISPUTE;
+            assert ((in.senderAddress == storage.arbitrator1) | (in.senderAddress == storage.arbitrator2)) throw ERR_UNAUTHORIZED;
+            assert ((msg.decision == 1) | (msg.decision == 2)) throw ERR_BAD_DISPUTE;
             assert (msg.resolutionHash != 0) throw ERR_BAD_DISPUTE;
 
             val approval = in.senderAddress == storage.arbitrator1 ? 1 : 2;
@@ -333,7 +333,7 @@ fun onInternalMessage(in: InMessage) {
                 return;
             }
 
-            assert (storage.disputeApprovals == 1 | storage.disputeApprovals == 2) throw ERR_BAD_DISPUTE;
+            assert ((storage.disputeApprovals == 1) | (storage.disputeApprovals == 2)) throw ERR_BAD_DISPUTE;
             assert (storage.resolutionDecision == msg.decision) throw ERR_BAD_DISPUTE;
             assert (storage.resolutionHash == msg.resolutionHash) throw ERR_BAD_DISPUTE;
 
