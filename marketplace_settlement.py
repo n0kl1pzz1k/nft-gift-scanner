@@ -458,6 +458,35 @@ def refund_unfulfilled_deal(*, deal_id: str, reason: str, admin_user_id: str,
             raise ValueError("Unknown marketplace deal")
         if deal["status"] == "refunded":
             return {"refunded": False, "duplicate": True}
+        if deal["currency"] == "XTR":
+            if deal["status"] not in {"payment_confirmed", "disputed"}:
+                raise PermissionError("A Stars deal can only be refunded before NFT transfer starts")
+            invoice = conn.execute(select(stars_invoices).where(
+                stars_invoices.c.invoice_id == deal["payment_invoice_id"]
+            )).mappings().first()
+            if invoice is None or invoice["status"] != "paid":
+                raise ValueError("Paid Telegram Stars invoice is required for this refund")
+            source_hold = "liability:deal_hold:" + deal_id + ":XTR"
+            original_hold = "liability:deal_hold:" + str(invoice["deal_id"]) + ":XTR"
+            source_available = -_account_balance_in_connection(conn, source_hold, "XTR")
+            original_available = -_account_balance_in_connection(conn, original_hold, "XTR")
+            if source_available == 0 and original_available == int(deal["price_raw"]):
+                return {"refunded": False, "duplicate": True, "telegram_refund_required": True}
+            if source_available != int(deal["price_raw"]):
+                raise PermissionError("Stars deal hold is not fully available for refund restoration")
+            _post(conn,
+                idempotency_key="marketplace-deal-stars-refund-restore:" + deal_id,
+                source_type="marketplace_deal_stars_refund_restore", source_reference=deal_id,
+                postings=[
+                    {"account_id": source_hold, "account_type": "liability",
+                     "currency": "XTR", "amount_raw": int(deal["price_raw"])},
+                    {"account_id": original_hold, "account_type": "liability",
+                     "currency": "XTR", "amount_raw": -int(deal["price_raw"])},
+                ], now=current)
+            _event(conn, deal_id=deal_id, event_type="stars_refund_hold_restored",
+                   actor_type="admin", actor_id=admin_user_id,
+                   data={"reason": " ".join(reason.split())[:500]}, now=current)
+            return {"refunded": False, "duplicate": False, "telegram_refund_required": True}
         if deal["status"] not in {"payment_confirmed", "nft_transfer_pending", "disputed"}:
             raise ValueError("Deal is not eligible for refund")
         if deal["status"] == "nft_transfer_pending":
