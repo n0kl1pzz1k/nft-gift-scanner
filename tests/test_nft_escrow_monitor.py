@@ -58,7 +58,7 @@ class NftEscrowMonitorTests(unittest.IsolatedAsyncioTestCase):
             "item_address": self.item, "collection_address": self.collection,
             "token_id": "7", "owner_address": self.escrow, "initialized": True,
         }
-        self.transfer = {"tx_hash": "abc123", "event_index": 0}
+        self.transfer = {"tx_hash": "ab" * 32, "event_index": 0}
         self.providers = [
             FakeEscrowProvider("tonapi", self.state, self.transfer),
             FakeEscrowProvider("toncenter", self.state, self.transfer),
