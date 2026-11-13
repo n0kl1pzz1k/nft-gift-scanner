@@ -22,7 +22,7 @@ from financial_ledger import get_engine
 from marketplace_inventory import (
     save_verified_wallet, get_active_verified_wallet, record_wallet_owned_nft,
     create_escrow_pending_listing, marketplace_assets, marketplace_listings,
-    init_inventory_schema,
+    init_inventory_schema, scan_pending_nft_listings,
 )
 from ton_nft_verifier import verify_seller_nft_ownership_async
 from ton_nft_providers import configured_nft_providers, canonical_ton_address
@@ -105,6 +105,7 @@ app.add_middleware(
 app.add_middleware(SecurityControlsMiddleware)
 
 _refresh_task: asyncio.Task | None = None
+_inventory_task: asyncio.Task | None = None
 
 
 def _safe_total_count(reported_total: Any, item_count: int) -> int:
@@ -789,12 +790,30 @@ async def _refresh_public_catalogues():
         await asyncio.sleep(_refresh_interval_seconds())
 
 
+async def _run_nft_inventory_monitor():
+    """Poll only pending seller deposits; no wallet signing or asset movement occurs."""
+    while True:
+        ready = all(os.getenv(name, "").strip() for name in (
+            "GIFT_RADAR_ESCROW_ADDRESS", "TON_NFT_PROVIDER_IDS",
+            "TONAPI_KEY", "TONCENTER_API_KEY",
+        ))
+        if ready:
+            try:
+                result = await scan_pending_nft_listings(engine=get_engine())
+                if result["activated"] or result["errors"]:
+                    logging.info("NFT escrow monitor: %s", result)
+            except Exception:
+                logging.exception("NFT escrow monitor cycle failed")
+        await asyncio.sleep(20)
+
+
 @app.on_event("startup")
 async def start_catalogue_refresh():
-    global _refresh_task, _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret
+    global _refresh_task, _inventory_task, _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret
     init_marketplace_db()
     init_demo_offers_db()
     _refresh_task = asyncio.create_task(_refresh_public_catalogues())
+    _inventory_task = asyncio.create_task(_run_nft_inventory_monitor())
 
     token = os.getenv("BOT_TOKEN", "").strip()
     if token:
@@ -819,11 +838,17 @@ async def start_catalogue_refresh():
 
 @app.on_event("shutdown")
 async def stop_catalogue_refresh():
-    global _refresh_task, _telegram_bot
+    global _refresh_task, _inventory_task, _telegram_bot
     if _refresh_task and not _refresh_task.done():
         _refresh_task.cancel()
         try:
             await _refresh_task
+        except asyncio.CancelledError:
+            pass
+    if _inventory_task and not _inventory_task.done():
+        _inventory_task.cancel()
+        try:
+            await _inventory_task
         except asyncio.CancelledError:
             pass
     if _telegram_bot is not None:
