@@ -5,6 +5,7 @@ import json
 import hmac
 import hashlib
 import secrets
+import logging
 from urllib.parse import parse_qsl
 from pydantic import BaseModel
 from decimal import Decimal, InvalidOperation
