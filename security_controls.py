@@ -41,7 +41,7 @@ def _apply_security_headers(response):
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
     if response.headers.get("content-type", "").lower().startswith("application/json"):
-        response.headers.setdefault("Cache-Control", "no-store")
+        response.headers["Cache-Control"] = "no-store"
     return response
 
 
