@@ -101,6 +101,16 @@ stars_refund_events = Table("telegram_stars_refund_events", metadata,
     Column("created_at", BigInteger, nullable=False),
     CheckConstraint("event_type IN ('refund_requested', 'refund_succeeded', 'refund_failed')", name="ck_telegram_stars_refund_event_type"))
 
+telegram_stars_terms_acceptances = Table("telegram_stars_terms_acceptances", metadata,
+    Column("acceptance_id", String(36), primary_key=True),
+    Column("user_id", String(64), nullable=False),
+    Column("terms_version", String(64), nullable=False),
+    Column("terms_url", String(2048), nullable=False),
+    Column("accepted_at", BigInteger, nullable=False),
+    UniqueConstraint("user_id", "terms_version", name="uq_telegram_stars_terms_user_version"),
+    CheckConstraint("length(terms_version) BETWEEN 1 AND 64", name="ck_telegram_stars_terms_version"),
+    CheckConstraint("terms_url LIKE 'https://%'", name="ck_telegram_stars_terms_https"))
+
 _engine: Engine | None = None
 
 def _database_url() -> str:
@@ -138,13 +148,13 @@ def init_financial_schema(engine: Engine | None = None) -> None:
             if not db.dialect.has_table(conn, "alembic_version"):
                 raise RuntimeError("PostgreSQL schema must be initialized through Alembic migrations")
             version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-            if version not in {"0001_financial_ledger", "0002_marketplace_core", "0003_telegram_stars_payments"}:
+            if version not in {"0001_financial_ledger", "0002_marketplace_core", "0003_telegram_stars_payments", "0004_telegram_stars_terms"}:
                 raise RuntimeError("Financial database migration is missing or not at the expected revision")
         return
     metadata.create_all(db)
     if db.dialect.name == "sqlite":
         with db.begin() as conn:
-            for table in ("ledger_entries", "ledger_lines", "payment_events", "telegram_stars_payments", "telegram_stars_refund_events"):
+            for table in ("ledger_entries", "ledger_lines", "payment_events", "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances"):
                 for action in ("UPDATE", "DELETE"):
                     conn.execute(text(f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_{action.lower()} BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT, 'append-only financial record'); END"))
 
@@ -246,6 +256,61 @@ def create_payment_invoice(*, user_id: str, asset_id: str, chain: str, master_ad
             expires_at=expires_at, status="pending", created_at=int(time.time())))
     return invoice_id
 
+def current_telegram_stars_terms_version() -> str:
+    version = os.getenv("TELEGRAM_STARS_TERMS_VERSION", "").strip()
+    if not version or len(version) > 64:
+        raise RuntimeError("A bounded TELEGRAM_STARS_TERMS_VERSION is required")
+    return version
+
+
+def record_telegram_stars_terms_acceptance(*, user_id: str, terms_version: str | None = None,
+                                          terms_url: str | None = None,
+                                          engine: Engine | None = None,
+                                          now: int | None = None) -> dict[str, Any]:
+    """Record explicit acceptance of the server-configured current terms version."""
+    db = engine or get_engine()
+    init_financial_schema(db)
+    version = current_telegram_stars_terms_version()
+    if terms_version is not None and terms_version != version:
+        raise ValueError("Terms version is not current")
+    url = (terms_url or os.getenv("TERMS_URL", "")).strip()
+    if not url.startswith("https://") or len(url) > 2048:
+        raise RuntimeError("A published HTTPS TERMS_URL is required")
+    uid = str(user_id).strip()
+    if not uid.isdigit() or int(uid) <= 0:
+        raise ValueError("Invalid Telegram user ID")
+    current = int(now or time.time())
+    with db.begin() as conn:
+        existing = conn.execute(select(telegram_stars_terms_acceptances).where(
+            telegram_stars_terms_acceptances.c.user_id == uid,
+            telegram_stars_terms_acceptances.c.terms_version == version,
+        )).mappings().first()
+        if existing:
+            if existing["terms_url"] != url:
+                raise RuntimeError("The current terms URL changed without a version change")
+            return {**dict(existing), "duplicate": True}
+        acceptance_id = str(uuid.uuid4())
+        conn.execute(insert(telegram_stars_terms_acceptances).values(
+            acceptance_id=acceptance_id, user_id=uid, terms_version=version,
+            terms_url=url, accepted_at=current,
+        ))
+        return {"acceptance_id": acceptance_id, "user_id": uid,
+                "terms_version": version, "terms_url": url,
+                "accepted_at": current, "duplicate": False}
+
+
+def has_current_telegram_stars_terms_acceptance(*, user_id: str,
+                                                engine: Engine | None = None) -> bool:
+    db = engine or get_engine()
+    init_financial_schema(db)
+    version = current_telegram_stars_terms_version()
+    with db.connect() as conn:
+        return conn.execute(select(telegram_stars_terms_acceptances.c.acceptance_id).where(
+            telegram_stars_terms_acceptances.c.user_id == str(user_id),
+            telegram_stars_terms_acceptances.c.terms_version == version,
+        )).first() is not None
+
+
 def create_telegram_stars_invoice(*, deal_id: str, buyer_user_id: str,
                                   engine: Engine | None = None, now: int | None = None,
                                   ttl_seconds: int = 900) -> dict[str, Any]:
@@ -268,6 +333,8 @@ def create_telegram_stars_invoice(*, deal_id: str, buyer_user_id: str,
         deal = conn.execute(text(query), {"deal_id": str(deal_id)}).mappings().first()
         if deal is None:
             raise ValueError("Unknown deal")
+        if not has_current_telegram_stars_terms_acceptance(user_id=str(buyer_user_id), engine=db):
+            raise PermissionError("Buyer must explicitly accept the current Telegram Stars terms")
         if int(deal["is_real"] or 0) != 1:
             raise PermissionError("Demo deals cannot be charged")
         if deal["order_status"] != "matched":
