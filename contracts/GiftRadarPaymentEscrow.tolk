@@ -225,7 +225,7 @@ fun onInternalMessage(in: InMessage) {
             assert (storage.initialized) throw PaymentEscrowErrors.BadState;
             assert (storage.state == V2_TRANSFER_PENDING) throw PaymentEscrowErrors.BadState;
             assert (msg.buyerOwnershipProofHash != 0) throw PaymentEscrowErrors.BadProof;
-            val bit = signerBit(in.senderAddress, auth);
+            val bit = signerBit(in.senderAddress, signers);
             assert (bit != 0) throw PaymentEscrowErrors.Unauthorized;
             if (storage.deliveryApprovals == 0) {
                 storage.deliveryProofHash = msg.buyerOwnershipProofHash;
