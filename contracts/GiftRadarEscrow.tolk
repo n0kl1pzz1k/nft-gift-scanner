@@ -160,13 +160,13 @@ fun onInternalMessage(in: InMessage) {
             var evidence = storage.paymentEvidence.load();
             assert (storage.initialized) throw Errors.BadState;
             assert (in.senderAddress == authorities.paymentAuthority) throw Errors.Unauthorized;
-            assert ((storage.state == STATE_DEPOSITED) | (storage.state == STATE_PAID)) throw Errors.BadState;
+            assert (storage.state == STATE_PAID) throw Errors.BadState;
             if (storage.state == STATE_DEPOSITED) {
                 assert (blockchain.now() >= storage.deadline) throw Errors.Expired;
             } else {
                 // Hash is recorded only after Telegram refundStarPayment succeeds.
                 assert (msg.telegramRefundHash != 0) throw Errors.BadProof;
-                evidence.refundReferenceHash = msg.telegramRefundHash;
+                evidence.resolutionEvidenceHash = msg.telegramRefundHash;
                 storage.paymentEvidence = evidence.toCell();
             }
             assert (contract.getOriginalBalance() >= grams("0.15")) throw Errors.NotEnoughGas;
@@ -219,11 +219,29 @@ fun onInternalMessage(in: InMessage) {
             assert (storage.state == STATE_DISPUTED) throw Errors.BadState;
             assert (storage.preDisputeState == STATE_PAID) throw Errors.BadState;
             assert (msg.telegramRefundHash != 0) throw Errors.BadProof;
-            if (evidence.refundReferenceHash != 0) {
-                assert (evidence.refundReferenceHash == msg.telegramRefundHash) throw Errors.BadProof;
+            if (evidence.resolutionEvidenceHash != 0) {
+                assert (evidence.resolutionEvidenceHash == msg.telegramRefundHash) throw Errors.BadProof;
                 return;
             }
-            evidence.refundReferenceHash = msg.telegramRefundHash;
+            evidence.resolutionEvidenceHash = msg.telegramRefundHash;
+            storage.paymentEvidence = evidence.toCell();
+            storage.save();
+        }
+
+        RecordNoPaymentEvidence => {
+            var storage = lazy EscrowStorage.load();
+            val authorities = storage.authorities.load();
+            var evidence = storage.paymentEvidence.load();
+            assert (storage.initialized) throw Errors.BadState;
+            assert (in.senderAddress == authorities.paymentAuthority) throw Errors.Unauthorized;
+            assert (storage.state == STATE_DISPUTED) throw Errors.BadState;
+            assert (storage.preDisputeState == STATE_DEPOSITED) throw Errors.BadState;
+            assert (msg.reconciliationProofHash != 0) throw Errors.BadProof;
+            if (evidence.resolutionEvidenceHash != 0) {
+                assert (evidence.resolutionEvidenceHash == msg.reconciliationProofHash) throw Errors.BadProof;
+                return;
+            }
+            evidence.resolutionEvidenceHash = msg.reconciliationProofHash;
             storage.paymentEvidence = evidence.toCell();
             storage.save();
         }
@@ -263,7 +281,7 @@ fun onInternalMessage(in: InMessage) {
 
             if (msg.decision == 1) {
                 if (storage.preDisputeState == STATE_PAID) {
-                    assert (payment.refundReferenceHash != 0) throw Errors.BadProof;
+                    assert (payment.resolutionEvidenceHash != 0) throw Errors.BadProof;
                 }
                 assert (contract.getOriginalBalance() >= grams("0.15")) throw Errors.NotEnoughGas;
                 storage.transferQueryId = msg.queryId;
