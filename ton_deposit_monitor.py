@@ -228,7 +228,12 @@ async def run_ton_deposit_monitor(*, poll_seconds: int = 8) -> None:
     real_deals = os.getenv("MARKETPLACE_REAL_DEALS_ENABLED", "false").strip().lower() == "true"
     postgres = os.getenv("GIFT_RADAR_STORAGE_BACKEND", "").strip().lower() == "postgres"
     database_url = os.getenv("DATABASE_URL", "").strip().startswith(("postgres://", "postgresql://", "postgresql+psycopg://"))
-    if not all((enabled, crypto_enabled, real_deals, postgres, database_url)):
+    legal_approved = os.getenv("KZ_LEGAL_REVIEW_APPROVED", "false").strip().lower() == "true"
+    residency_verified = os.getenv("KZ_DATA_RESIDENCY_VERIFIED", "false").strip().lower() == "true"
+    tax_approved = os.getenv("KZ_TAX_REVIEW_APPROVED", "false").strip().lower() == "true"
+    security_approved = os.getenv("KZ_SECURITY_REVIEW_APPROVED", "false").strip().lower() == "true"
+    if not all((enabled, crypto_enabled, real_deals, postgres, database_url,
+                legal_approved, residency_verified, tax_approved, security_approved)):
         return
     delay = max(3, min(int(poll_seconds), 60))
     while True:
