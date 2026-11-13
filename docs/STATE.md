@@ -17,6 +17,8 @@ The default branch `main` is at commit `c8a9f34a` and is behind the current paym
 
 The old `SECURITY/PHASE0_SECURITY_AUDIT.md` must therefore not be treated as a current audit of the payment branch. In particular, its statements that no ledger, wallet proof or chain monitor exists were true only for its earlier review scope.
 
+During this audit, a separate unmerged branch `feat/ton-testnet-escrow` appeared at head `6bd11997`. Its tree includes `contracts/GiftRadarEscrow.tolk`, contract tests and `docs/ESCROW.md`. It is not part of PR #51 or this audit branch, and it has not been reviewed or approved as the selected custody architecture. Per the Phase 1 approval gate, this audit does not incorporate, merge or rely on that contract work. Its own CI attempts were failing at the time it was observed; it must be reviewed independently before anyone treats it as a candidate implementation.
+
 This branch is stacked on PR #51 so the audit and safety fixes can be reviewed separately without changing `main`. No branch was merged and no production deployment was made as part of this audit.
 
 ## 2. What currently exists
@@ -85,7 +87,7 @@ Enforcement added:
 ### API rate limiting and response hardening
 
 - Changed the edge limiter to cover every `/api/*` route, including public GET routes and `/api/admin/*`, rather than only selected mutation prefixes.
-- Per-IP budgets are separated by API route group and HTTP method: 120/minute for reads, 60/minute for mutations and 300/minute for the authenticated Telegram webhook.
+- Per-IP budgets are separated by API route group and HTTP method: 120/minute for reads, 60/minute for most mutations, 300/minute for marketplace mutations (which also have domain-level per-account quotas) and 300/minute for the authenticated Telegram webhook.
 - Production requests fail closed when Redis is unavailable or not configured. Development may use the process-local limiter.
 - Origin rejection and rate-limit rejection responses now receive the same security headers and `Cache-Control: no-store` treatment as normal JSON responses.
 - Existing selected per-user action limits remain in the marketplace domain layer.
@@ -124,7 +126,7 @@ These changes provide per-IP route-group protection. They do not yet constitute 
 ### P0 — launch blockers
 
 **P0-01 — Physical NFT transfer/escrow is not implemented.**  
-There is no TON escrow smart-contract source, reproducible contract build/deployment artifact, audited contract address/code hash, or complete testnet delivery/settlement lifecycle in the repository. The current monitor is an ownership/custody observer, not a transfer contract. A wallet proof or owner observation does not transfer an NFT.  
+There is no TON escrow smart-contract source in the reviewed `main`, PR #51 release-candidate tree or this audit branch, and no approved/reviewed contract build/deployment artifact or complete testnet delivery/settlement lifecycle is part of the release candidate. A separate unreviewed branch with a Tolk contract exists as noted above; it is not evidence of an approved or operational escrow. The current payment-branch monitor is an ownership/custody observer, not a transfer contract. A wallet proof or owner observation does not transfer an NFT.  
 **Status:** Open. Phase 1 must compare contract, intermediary-account and hybrid architectures, recommend one, and wait for owner approval before implementation.
 
 **P0-02 — Existing TON payment and payout adapters target mainnet.**  
