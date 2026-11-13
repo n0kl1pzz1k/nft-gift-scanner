@@ -320,7 +320,7 @@ def confirm_nft_escrow_deposit(*, listing_id: str, tx_hash: str, event_index: in
         asset = conn.execute(asset_stmt).mappings().one()
         conn.execute(update(marketplace_assets).where(
             marketplace_assets.c.asset_id == asset["asset_id"]
-        ).values(custody_state="escrowed", deposit_tx_hash=tx_hash,
+        ).values(custody_state="escrowed", owner_wallet_address=verified_escrow_owner, deposit_tx_hash=tx_hash,
                  deposit_event_index=event_index, custody_verified_at=current,
                  ownership_state="verified", ownership_checked_at=current,
                  ownership_expires_at=current + 86400, updated_at=current))
@@ -328,6 +328,13 @@ def confirm_nft_escrow_deposit(*, listing_id: str, tx_hash: str, event_index: in
             marketplace_listings.c.listing_id == listing_id,
             marketplace_listings.c.status == "pending_verification"
         ).values(status="active", updated_at=current))
+        conn.execute(insert(marketplace_ownership_proofs).values(
+            proof_id=uuid.uuid4().hex, asset_id=asset["asset_id"],
+            owner_user_id=listing["seller_user_id"], proof_source="ton_escrow_dual_provider",
+            evidence_reference=tx_hash, evidence_hash=evidence_hash,
+            verification_status="verified", verified_at=current,
+            expires_at=current + 86400, recorded_at=current,
+        ))
         conn.execute(insert(marketplace_listing_events).values(
             event_id=uuid.uuid4().hex, listing_id=listing_id,
             actor_user_id="system", event_type="verified",
