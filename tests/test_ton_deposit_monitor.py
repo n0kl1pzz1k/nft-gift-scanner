@@ -115,6 +115,11 @@ class TonDepositMonitorTests(unittest.TestCase):
             self.assertFalse(second["settled"])
             self.assertTrue(second["review_required"])
             self.assertEqual(second["reason"], "late_payment_after_invoice_expiry")
+            replay = record_ton_provider_observation(
+                invoice_id="gri_late_payment", provider_id="tonapi",
+                trace=trace, engine=engine, now=1001,
+            )
+            self.assertTrue(replay["review_required"])
             self.assertEqual(get_account_balance(
                 "liability:user:42:usdt-ton", "usdt-ton", engine
             ), 0)
