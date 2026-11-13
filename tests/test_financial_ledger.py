@@ -1,7 +1,15 @@
-import tempfile, unittest
+import tempfile
+import time
+import unittest
 from pathlib import Path
-from sqlalchemy import create_engine, text
-from financial_ledger import (get_account_balance, init_financial_schema, post_journal_entry, verify_ton_payment_trace, settle_verified_ton_payment, invoices)
+
+from sqlalchemy import create_engine, insert, text
+from sqlalchemy.exc import DBAPIError
+
+from financial_ledger import (
+    get_account_balance, init_financial_schema, invoices, post_journal_entry,
+    settle_verified_ton_payment, verify_ton_payment_trace,
+)
 
 class FinancialLedgerTests(unittest.TestCase):
     def setUp(self):
@@ -33,12 +41,10 @@ class FinancialLedgerTests(unittest.TestCase):
             post_journal_entry(idempotency_key="same",source_type="test",source_reference="ref",postings=self.postings(200),engine=self.engine)
     def test_ledger_is_append_only(self):
         post_journal_entry(idempotency_key="append",source_type="test",source_reference="ref",postings=self.postings(),engine=self.engine)
-        with self.assertRaises(Exception):
-            with self.engine.begin() as conn: conn.execute(text("UPDATE ledger_entries SET source_type='changed'"))
+        with self.assertRaises(DBAPIError), self.engine.begin() as conn:
+            conn.execute(text("UPDATE ledger_entries SET source_type='changed'"))
 
     def test_verified_ton_payment_posts_once_and_replay_is_harmless(self):
-        from sqlalchemy import insert
-        import time
         invoice = {"invoice_id":"gri_test","user_id":"42","asset_id":"usdt-ton","chain":"ton-mainnet",
             "master_address":"master","recipient_address":"wallet","amount_raw":"100",
             "payload":"invoice-payload","expires_at":int(time.time())+600,"status":"pending","created_at":int(time.time())}
