@@ -17,6 +17,7 @@ fun setupEscrow(): (GiftRadarEscrow, Treasury, Treasury, Treasury, Treasury, Tre
         arbitrator1: arb1.address,
         arbitrator2: arb2.address,
         expectedAmount: 250,
+        initialized: false,
         deadline: testing.getNow() + 86400,
         state: 0,
         preDisputeState: 0,
@@ -25,6 +26,7 @@ fun setupEscrow(): (GiftRadarEscrow, Treasury, Treasury, Treasury, Treasury, Tre
         paymentReferenceHash: 0,
         refundReferenceHash: 0,
         deliveryProofHash: 0,
+        returnProofHash: 0,
         settlementReferenceHash: 0,
         disputeReasonHash: 0,
         resolutionHash: 0,
@@ -32,6 +34,16 @@ fun setupEscrow(): (GiftRadarEscrow, Treasury, Treasury, Treasury, Treasury, Tre
     });
     val deployed = escrow.deploy(authority.address, { value: grams("1") });
     expect(deployed).toHaveSuccessfulDeploy({ to: escrow.address });
+    val initialized = net.send(authority.address, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: DeployEscrow { queryId: 0 },
+    }));
+    expect(initialized).toHaveSuccessfulTx<DeployEscrow>({
+        from: authority.address,
+        to: escrow.address,
+    });
     return (escrow, seller, buyer, nftItem, authority, arb1, arb2);
 }
 
