@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update
 from demo_offers import create_demo_offers_router, init_demo_offers_db
 from security_controls import SecurityControlsMiddleware
-from financial_ledger import get_engine, create_payment_invoice, invoices, payment_events
+from financial_ledger import get_engine, get_account_balance, create_payment_invoice, invoices, payment_events
 from marketplace_inventory import (
     save_verified_wallet, get_active_verified_wallet, revoke_verified_wallet, record_wallet_owned_nft,
     create_escrow_pending_listing, cancel_seller_listing, marketplace_assets, marketplace_listings,
@@ -1075,9 +1075,29 @@ async def execute_stars_refund(
         raise HTTPException(status_code=503, detail="Telegram confirmed refund; ledger reconciliation is required")
 
 
+@app.get("/api/wallet/balances")
+async def wallet_balances(x_telegram_init_data: str | None = Header(default=None)):
+    """Return computed ledger liabilities; there is no balance setter or client credit path."""
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    assets = ("GRAM", "usdt-ton", "XTR")
+    balances = {}
+    for asset_id in assets:
+        ledger_balance = get_account_balance(
+            f"liability:user:{user['id']}:{asset_id}", asset_id, engine=get_engine()
+        )
+        balances[asset_id] = {"available_raw": max(0, -int(ledger_balance))}
+    return {"balances": balances, "source": "append_only_double_entry_ledger"}
+
+
 @app.get("/api/wallet/policy")
 async def wallet_policy():
-    """Public capability disclosure: TON Connect only; no signatures or payments."""
+    """Disclose TON wallet proof and gated payment capabilities without enabling signing."""
+    from asset_policy import is_crypto_payment_enabled
+
+    crypto_enabled = {
+        asset_id: is_crypto_payment_enabled(asset_id)
+        for asset_id in ("GRAM", "usdt-ton", "usdt-tron")
+    }
     return {
         "wallet_connect": "ton_connect_with_server_verified_ton_proof",
         "supported_network": "ton-mainnet",
@@ -1086,9 +1106,15 @@ async def wallet_policy():
         "requests_private_key": False,
         "signing_enabled": False,
         "transfers_enabled": False,
-        "crypto_payments_enabled": False,
+        "crypto_payments_enabled": any(crypto_enabled.values()),
+        "crypto_assets": crypto_enabled,
         "telegram_stars_payments_enabled": _stars_payment_enabled(),
-        "payment_note": "Crypto checkout remains disabled pending platform/compliance approval.",
+        "withdrawals_enabled": False,
+        "payment_note": (
+            "TON deposits are available only when all independent-provider and Kazakhstan release gates pass."
+            if any(crypto_enabled.values())
+            else "Crypto deposits remain disabled pending operational and compliance release gates."
+        ),
     }
 
 
