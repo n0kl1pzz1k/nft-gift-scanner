@@ -98,3 +98,21 @@ Internal states may include `transfer_pending`, `refund_pending`, and `reconcili
 - Telegram confirms the Stars checkout and seller settlement model is compatible with its current terms.
 - Backups, restore drill, alerting, operational runbooks and incident ownership are verified.
 - Mainnet is enabled only through a separate reviewed change after all gates are signed off.
+
+
+## Current implementation and validation evidence
+
+- Tolk contract source: `contracts/GiftRadarEscrow.tolk`.
+- Typed opcodes and state definitions: `contracts/escrow-types.tolk`.
+- Local Acton emulator suite: 12 scenarios.
+- Pinned Acton 1.2.1 CI: build, wrapper generation, lint and emulator tests passed on commit `3ae3487864ebfeee98ff1b9441eecad6e89b3b7c` (workflow run [43505636320](https://github.com/n0kl1pzz1k/nft-gift-scanner/actions/runs/43505636320)).
+- A regression found during CI review was corrected: after a dispute is dismissed, a later dispute now starts with a fresh two-arbitrator approval cycle. The timeout test now deploys and deposits before advancing emulated chain time past the deadline.
+- This evidence is local-emulator evidence only. It is not a testnet deployment, live NFT transfer, audit, or production readiness proof.
+
+## Remaining integration blockers
+
+1. Backend deal creation must persist the escrow contract address, immutable deal configuration hash, deployment transaction and observed custody proof.
+2. Backend must send payment attestations only from the authenticated Telegram successful-payment path, with charge-ID idempotency and Ledger transaction in the same database transaction/outbox boundary.
+3. NFT release confirmation must require matching finalized ownership observations from both TON providers, bound to the exact item, buyer, contract, transaction and deal.
+4. Seller settlement must not be marked complete from an arbitrary non-empty hash. Backend must validate the actual payout evidence and preserve a durable reconciliation record. Telegram Stars seller payout remains a separate legal/platform-policy blocker.
+5. Testnet deployment and full end-to-end exercise remain outstanding. No deployer key or seed phrase may be introduced; use a user wallet or external HSM interface with explicit testnet chain verification.
