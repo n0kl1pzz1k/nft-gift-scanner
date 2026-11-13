@@ -43,5 +43,18 @@ class NativeNftEscrowReleaseGateTests(unittest.TestCase):
             self.assertTrue(_native_nft_escrow_monitor_enabled())
 
 
+class PaymentCapabilitiesTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unapproved_crypto_methods_are_reported_disabled(self):
+        from app import payment_capabilities
+
+        with patch.dict(os.environ, {}, clear=True):
+            result = await payment_capabilities()
+
+        self.assertFalse(result["stars"]["enabled"])
+        for asset_id in ("GRAM", "usdt-ton", "usdt-tron"):
+            self.assertFalse(result["crypto"][asset_id]["enabled"])
+            self.assertTrue(result["crypto"][asset_id]["message"])
+
+
 if __name__ == "__main__":
     unittest.main()
