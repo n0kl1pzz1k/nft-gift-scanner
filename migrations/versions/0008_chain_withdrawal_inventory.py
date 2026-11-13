@@ -143,6 +143,40 @@ def upgrade():
         ["user_id", "status", "created_at"]
     )
 
+    op.create_table(
+        "withdrawal_events",
+        sa.Column("event_id", sa.String(36), primary_key=True),
+        sa.Column("request_id", sa.String(36), sa.ForeignKey("withdrawal_requests.request_id"), nullable=False),
+        sa.Column("actor_type", sa.String(16), nullable=False),
+        sa.Column("actor_id", sa.String(64), nullable=False, server_default=""),
+        sa.Column("event_type", sa.String(32), nullable=False),
+        sa.Column("event_data", sa.String(1000), nullable=False, server_default="{}"),
+        sa.Column("created_at", sa.BigInteger(), nullable=False),
+        sa.CheckConstraint("actor_type IN ('user','system','admin')", name="ck_withdrawal_event_actor"),
+        sa.CheckConstraint(
+            "event_type IN ('requested','processing','submitted','confirmed','failed','cancelled','reconciliation_required')",
+            name="ck_withdrawal_event_type"
+        ),
+    )
+    op.create_index(
+        "idx_withdrawal_events_request", "withdrawal_events",
+        ["request_id", "created_at"]
+    )
+    if bind.dialect.name == "postgresql":
+        op.execute(
+            "CREATE TRIGGER withdrawal_events_append_only BEFORE UPDATE OR DELETE ON withdrawal_events "
+            "FOR EACH ROW EXECUTE FUNCTION gift_radar_reject_financial_mutation()"
+        )
+    elif bind.dialect.name == "sqlite":
+        op.execute(
+            "CREATE TRIGGER withdrawal_events_no_update BEFORE UPDATE ON withdrawal_events "
+            "BEGIN SELECT RAISE(ABORT, 'withdrawal events are append-only'); END"
+        )
+        op.execute(
+            "CREATE TRIGGER withdrawal_events_no_delete BEFORE DELETE ON withdrawal_events "
+            "BEGIN SELECT RAISE(ABORT, 'withdrawal events are append-only'); END"
+        )
+
     _replace_asset_checks(bind)
     if bind.dialect.name == "sqlite":
         with op.batch_alter_table("marketplace_listings", recreate="always") as batch:
@@ -203,6 +237,13 @@ def downgrade():
         )
 
     _replace_asset_checks(bind, downgrade=True)
+    if bind.dialect.name == "postgresql":
+        op.execute("DROP TRIGGER IF EXISTS withdrawal_events_append_only ON withdrawal_events")
+    elif bind.dialect.name == "sqlite":
+        op.execute("DROP TRIGGER IF EXISTS withdrawal_events_no_update")
+        op.execute("DROP TRIGGER IF EXISTS withdrawal_events_no_delete")
+    op.drop_index("idx_withdrawal_events_request", table_name="withdrawal_events")
+    op.drop_table("withdrawal_events")
     op.drop_index("idx_withdrawal_user_status", table_name="withdrawal_requests")
     op.drop_table("withdrawal_requests")
     if bind.dialect.name == "postgresql":
