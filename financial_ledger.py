@@ -11,7 +11,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger, CheckConstraint, Column, ForeignKey, Integer, MetaData, String,
-    Table, UniqueConstraint, create_engine, insert, select, text,
+    Index, Table, UniqueConstraint, create_engine, insert, select, text,
 )
 from sqlalchemy.engine import Connection, Engine
 
@@ -79,6 +79,9 @@ stars_invoices = Table("telegram_stars_invoices", metadata,
     CheckConstraint("amount_stars > 0", name="ck_telegram_stars_invoice_amount"),
     CheckConstraint("currency = 'XTR'", name="ck_telegram_stars_invoice_currency"),
     CheckConstraint("status IN ('pending', 'pre_checkout_approved', 'paid', 'expired', 'refunded')", name="ck_telegram_stars_invoice_status"))
+Index("uq_telegram_stars_open_invoice_per_deal", stars_invoices.c.deal_id, unique=True,
+      sqlite_where=text("status IN ('pending', 'pre_checkout_approved')"),
+      postgresql_where=text("status IN ('pending', 'pre_checkout_approved')"))
 stars_payments = Table("telegram_stars_payments", metadata,
     Column("payment_event_id", String(36), primary_key=True),
     Column("invoice_id", String(64), ForeignKey("telegram_stars_invoices.invoice_id"), nullable=False, unique=True),
@@ -102,11 +105,18 @@ _engine: Engine | None = None
 
 def _database_url() -> str:
     url = os.getenv("DATABASE_URL", "").strip()
+    storage_backend = os.getenv("GIFT_RADAR_STORAGE_BACKEND", "sqlite").strip().lower()
     if not url:
-        if os.getenv("ENVIRONMENT", "development").lower() == "production":
-            raise RuntimeError("DATABASE_URL is required in production; financial storage unavailable")
-        os.makedirs("./data", exist_ok=True)
-        url = "sqlite:///./data/gift-radar-finance.sqlite3"
+        if os.getenv("ENVIRONMENT", "development").lower() == "production" or storage_backend == "postgres":
+            raise RuntimeError("DATABASE_URL is required for production/shared financial storage")
+        database_path = os.getenv("GIFT_RADAR_DB_PATH", "./data/gift-radar.sqlite3").strip()
+        os.makedirs(os.path.dirname(database_path) or ".", exist_ok=True)
+        url = "sqlite:///" + database_path
+    is_postgres_url = url.startswith(("postgres://", "postgresql://", "postgresql+psycopg://"))
+    if storage_backend == "postgres" and not is_postgres_url:
+        raise RuntimeError("PostgreSQL storage was selected but DATABASE_URL is not PostgreSQL")
+    if storage_backend != "postgres" and is_postgres_url:
+        raise RuntimeError("Financial and marketplace stores must use the same configured database backend")
     if url.startswith("postgres://"):
         url = "postgresql+psycopg://" + url[len("postgres://"):]
     elif url.startswith("postgresql://"):
