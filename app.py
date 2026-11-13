@@ -745,39 +745,19 @@ async def wallet_policy():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "nft-gift-scanner"}
+    return {"status": "ok"}
 
 
 @app.get("/api/status")
 async def status():
-    return {
-        "mode": "independent_native_marketplace",
-        "product": "GIFT RADAR",
-        "sources": source_status(),
-        "available_data": {"native_inventory": ["internally_created_listings", "verified_asset_records", "native_orders"]},
-        "marketplace_visibility": _marketplace_visibility(),
-        "external_marketplaces": False,
-        "cross_market_comparison": False,
-        "data_pipeline": {
-            "delivery": "native_database_to_app_api",
-            "external_marketplace_ingestion": False,
-            "refresh_interval_seconds": _refresh_interval_seconds(),
-        },
-        "security": {
-            "telegram_initdata_exchange": "signed_freshness_and_replay_protected",
-            "api_sessions": "opaque_hashed_revocable_12h",
-            "webhook": "secret_header_verified_idempotent_update_inbox",
-            "user_wallet_access": False,
-            "user_api_key_storage": False,
-        },
-        "note": "GIFT RADAR listings and orders are native platform records. External marketplace feeds are disabled. Native inventory indexing and verified listing publication remain release-gated.",
-    }
+    # Keep public status intentionally coarse; internal security posture and
+    # infrastructure details belong in private operator monitoring.
+    return {"status": "ok", "product": "GIFT RADAR", "mode": "independent_marketplace"}
 
 
 @app.get("/api/collections")
 async def collections():
-    return {"items": [], "sources": source_status(), "updated_at": None, "connected": False,
-            "note": "Native collection index is being built; external marketplace feeds are disabled."}
+    return {"items": [], "connected": False}
 
 
 @app.get("/api/gifts")
@@ -787,8 +767,7 @@ async def gifts(
     search: str | None = Query(default=None, max_length=80),
     collection_id: str | None = Query(default=None, max_length=64),
 ):
-    return {"items": [], "total_count": 0, "connected": False, "sources": source_status(),
-            "updated_at": None, "note": "Native GIFT RADAR inventory is not yet published."}
+    return {"items": [], "total_count": 0, "connected": False}
 
 
 async def _refresh_public_catalogues():
