@@ -27,7 +27,7 @@ from marketplace_inventory import (
 )
 from ton_nft_verifier import verify_seller_nft_ownership_async
 from ton_nft_providers import configured_nft_providers, canonical_ton_address
-from sqlalchemy import select
+from sqlalchemy import select, func, or_
 
 from financial_ledger import (
     create_telegram_stars_invoice, record_telegram_stars_terms_acceptance,
@@ -534,24 +534,45 @@ async def cancel_native_inventory_listing(
 
 
 @app.get("/api/inventory/listings")
-async def list_verified_inventory_listings(limit: int = Query(default=50, ge=1, le=100), offset: int = Query(default=0, ge=0)):
+async def list_verified_inventory_listings(
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    search: str | None = Query(default=None, min_length=1, max_length=80),
+    currency: str | None = Query(default=None, pattern="^(XTR|GRAM|USDT)$"),
+    asset_type: str | None = Query(default=None, max_length=40),
+):
     db = get_engine()
     init_inventory_schema(db)
+    filters = [
+        marketplace_listings.c.status == "active",
+        marketplace_assets.c.custody_state == "escrowed",
+    ]
+    if currency:
+        filters.append(marketplace_listings.c.currency == currency)
+    if asset_type:
+        filters.append(marketplace_assets.c.asset_type == asset_type)
+    if search:
+        term = "%" + search.strip().replace("%", "\\%").replace("_", "\\_") + "%"
+        filters.append(or_(
+            marketplace_assets.c.token_id.ilike(term),
+            marketplace_assets.c.collection_address.ilike(term),
+            marketplace_listings.c.listing_id.ilike(term),
+        ))
+    join_from = marketplace_listings.join(
+        marketplace_assets, marketplace_assets.c.asset_id == marketplace_listings.c.asset_id
+    )
     with db.connect() as conn:
+        total = conn.execute(select(func.count()).select_from(join_from).where(*filters)).scalar_one()
         rows = conn.execute(select(
             marketplace_listings.c.listing_id, marketplace_listings.c.price_raw,
             marketplace_listings.c.currency, marketplace_listings.c.created_at,
             marketplace_assets.c.asset_type, marketplace_assets.c.collection_address,
             marketplace_assets.c.token_id,
-        ).select_from(
-            marketplace_listings.join(
-                marketplace_assets, marketplace_assets.c.asset_id == marketplace_listings.c.asset_id
-            )
-        ).where(
-            marketplace_listings.c.status == "active",
-            marketplace_assets.c.custody_state == "escrowed",
-        ).order_by(marketplace_listings.c.created_at.desc()).limit(limit).offset(offset)).mappings().all()
-    return {"items": [dict(row) for row in rows], "total": len(rows)}
+        ).select_from(join_from).where(*filters)
+          .order_by(marketplace_listings.c.created_at.desc(), marketplace_listings.c.listing_id)
+          .limit(limit).offset(offset)).mappings().all()
+    return {"items": [dict(row) for row in rows], "total": int(total),
+            "limit": limit, "offset": offset}
 
 
 @app.post("/api/wallet/withdrawals", status_code=503)
