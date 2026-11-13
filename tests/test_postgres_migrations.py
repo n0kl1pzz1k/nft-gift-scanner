@@ -43,6 +43,13 @@ class PostgresMigrationSmokeTests(unittest.TestCase):
             "telegram_stars_payments", "telegram_stars_refund_events", "telegram_stars_terms_acceptances", "telegram_stars_refund_requests", "marketplace_assets", "marketplace_ownership_proofs", "marketplace_listings", "marketplace_reservations", "marketplace_listing_events", "marketplace_deals", "marketplace_deal_events", "ton_chain_observations", "withdrawal_requests", "withdrawal_events", "verified_wallets",
         }
         self.assertTrue(expected.issubset(tables), f"Missing tables: {sorted(expected - tables)}")
+        indexes = {
+            index["name"]
+            for table in ("marketplace_deals", "marketplace_deal_events")
+            for index in inspect(self.engine).get_indexes(table)
+        }
+        self.assertIn("idx_marketplace_deals_status_updated", indexes)
+        self.assertIn("idx_marketplace_deal_events_deal_created", indexes)
 
     def test_financial_journal_is_append_only_in_postgres(self):
         suffix = uuid.uuid4().hex
