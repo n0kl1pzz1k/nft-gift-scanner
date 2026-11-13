@@ -27,7 +27,7 @@ from release_policy import (
     TON_TESTNET_NFT_VERIFIER_READY,
 )
 from marketplace_inventory import (
-    save_verified_wallet, get_active_verified_wallet, revoke_verified_wallet, record_wallet_owned_nft,
+    get_active_verified_wallet, revoke_verified_wallet, record_wallet_owned_nft,
     create_escrow_pending_listing, cancel_seller_listing, marketplace_assets, marketplace_listings,
     init_inventory_schema, scan_pending_nft_listings,
 )
