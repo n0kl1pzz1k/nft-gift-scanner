@@ -1,4 +1,4 @@
-name: TON testnet escrow
+name: TON testnet escrow and payment v2
 
 on:
   push:
