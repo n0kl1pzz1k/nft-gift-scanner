@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from sqlalchemy import create_engine, insert
 
-from financial_ledger import init_financial_schema, withdrawal_requests
+from financial_ledger import withdrawal_requests
 from withdrawal_signer import approve_withdrawal, init_withdrawal_signer_schema, RemoteHsmSigner
 
 
