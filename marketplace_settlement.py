@@ -14,7 +14,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger, CheckConstraint, Column, ForeignKey, String, Table, Text,
-    UniqueConstraint, insert, select, update,
+    insert, select, update,
 )
 from sqlalchemy.engine import Engine
 
@@ -382,6 +382,8 @@ def confirm_deal_nft_transfer(*, deal_id: str, transfer_proofs: list[dict[str, A
         asset = conn.execute(select(marketplace_assets).where(
             marketplace_assets.c.asset_id == deal["asset_id"]
         )).mappings().one()
+        if asset["custody_state"] != "escrowed" or int(asset["ownership_expires_at"] or 0) <= current:
+            raise PermissionError("NFT is no longer verified in marketplace escrow")
         escrow = canonical_ton_address(os.getenv("GIFT_RADAR_ESCROW_ADDRESS", ""))
         if not escrow or normalized[0]["old_owner"] != escrow:
             raise PermissionError("NFT transfer did not originate from the configured escrow")
