@@ -14,7 +14,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import (
-    BigInteger, CheckConstraint, Column, ForeignKey, String, Table, Text,
+    BigInteger, CheckConstraint, Column, ForeignKey, Index, String, Table, Text,
     insert, select, update,
 )
 from sqlalchemy.engine import Engine
