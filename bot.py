@@ -65,16 +65,21 @@ def create_dispatcher() -> Dispatcher:
     async def start(message: Message):
         raw_name = message.from_user.first_name if message.from_user else "друг"
         first_name = html.escape(raw_name)
+        payment_notice = (
+            "Оплата цифровых подарков доступна только в Telegram Stars (XTR). "
+            if STARS_PAYMENTS_ENABLED and TERMS_URL.startswith("https://") and PAYMENT_SUPPORT_URL.startswith("https://")
+            else "Платежи пока отключены. Заявки и суммы не списываются. "
+        )
         text = (
             f"✨ <b>GIFT RADAR</b> — добро пожаловать, {first_name}!\n\n"
             "Твой навигатор по Telegram-подаркам.\n\n"
             "🎁 <b>Маркет</b> — каталог Portals, карточки подарков и поиск.\n"
             "⭐ <b>Избранное</b> — сохраняй интересные экземпляры в своём профиле.\n"
-            "🧾 <b>Ордера</b> — общая лента демонстрационных заявок.\n"
+            "🧾 <b>Ордера</b> — лента заявок и сделок.\n"
             "👤 <b>Профиль</b> — Telegram-аккаунт и настройки.\n\n"
             "Каталог получает данные из Portals в режиме просмотра. "
-            "Ордера и суммы в текущей версии — демонстрационные; "
-            "платежи, вывод средств и операции с кошельками не выполняются.\n\n"
+            + payment_notice
+            + "Вывод средств и операции с кошельками не выполняются.\n\n"
             "<b>Открывай Mini App кнопкой ниже.</b>"
         )
         buttons = []
