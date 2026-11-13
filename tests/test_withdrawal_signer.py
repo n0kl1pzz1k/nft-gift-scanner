@@ -7,7 +7,7 @@ from unittest.mock import patch
 from sqlalchemy import create_engine, insert
 
 from financial_ledger import withdrawal_requests
-from withdrawal_signer import approve_withdrawal, init_withdrawal_signer_schema, RemoteHsmSigner
+from withdrawal_signer import (approve_withdrawal, init_withdrawal_signer_schema, RemoteHsmSigner,\n                                _require_matching_message_hash)
 
 
 class WithdrawalApprovalTests(unittest.TestCase):
@@ -59,6 +59,19 @@ class WithdrawalApprovalTests(unittest.TestCase):
     def test_signer_never_accepts_insecure_endpoint(self):
         with self.assertRaises(RuntimeError):
             RemoteHsmSigner(base_url="http://signer.internal", token="not-a-real-token")
+
+    def test_broadcast_hash_must_match_exact_hsm_signed_message(self):
+        message_hash = "a" * 64
+        self.assertEqual(
+            _require_matching_message_hash("0x" + message_hash.upper(), message_hash),
+            message_hash,
+        )
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            _require_matching_message_hash(message_hash, "b" * 64)
+
+    def test_malformed_broadcast_hash_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "not canonical"):
+            _require_matching_message_hash("a" * 64, "not-a-hash")
 
 
 if __name__ == "__main__":
