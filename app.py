@@ -43,13 +43,6 @@ class TonNftImportRequest(BaseModel):
     item_address: str = Field(min_length=3, max_length=128)
 
 
-class TonWithdrawalRequest(BaseModel):
-    asset_id: str = Field(min_length=2, max_length=32)
-    destination_address: str = Field(min_length=3, max_length=128)
-    amount_raw: int = Field(gt=0, le=9_000_000_000_000_000)
-    idempotency_key: str = Field(min_length=16, max_length=200)
-
-
 class NativeListingRequest(BaseModel):
     asset_id: str = Field(min_length=4, max_length=64)
     price_raw: int = Field(gt=0, le=9_000_000_000_000_000)
@@ -510,7 +503,6 @@ async def list_verified_inventory_listings(limit: int = Query(default=50, ge=1, 
 
 @app.post("/api/wallet/withdrawals", status_code=503)
 async def create_wallet_withdrawal(
-    payload: TonWithdrawalRequest,
     x_telegram_init_data: str | None = Header(default=None),
 ):
     _authenticate_telegram_credential(x_telegram_init_data or "")
