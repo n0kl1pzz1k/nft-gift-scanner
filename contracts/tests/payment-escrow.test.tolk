@@ -39,7 +39,7 @@ fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscr
         nextAdminAddress: null,
         metadata: buildTestJettonMetadata(),
     });
-    val minterDeploy = minter.deploy(platformAdmin.address, { value: grams("1") });
+    val minterDeploy = minter.sendDeploy(platformAdmin.address, { value: grams("1") });
     expect(minterDeploy).toHaveSuccessfulDeploy({ to: minter.address });
 
     val escrow = GiftRadarPaymentEscrow.fromStorage({
