@@ -994,8 +994,8 @@ async def _run_marketplace_deal_expiry():
             )
             if result["expired"]:
                 logging.info(
-                    "Marketplace unpaid deal expiry: expired=%s relisted=%s",
-                    result["expired"], result["relisted"],
+                    "Marketplace unpaid deal expiry: expired=%s relisted=%s reverify=%s",
+                    result["expired"], result["relisted"], result["reverification_required"],
                 )
         except asyncio.CancelledError:
             raise
