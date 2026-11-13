@@ -8,7 +8,7 @@ This file records externally observable API and on-chain interfaces. Update it i
 
 ### Contract identity
 - One escrow instance per marketplace deal.
-- Immutable deal ID, seller address, buyer address, NFT item address, payment asset, expected amount, platform fee, expiry and dispute authorities.
+- Immutable deal ID, seller address, buyer address, NFT item address, payment authority, two dispute authorities, expected XTR amount and expiry.
 - Network is testnet only for this implementation.
 
 ### Implemented message surface
@@ -23,11 +23,11 @@ The contract source is `contracts/GiftRadarEscrow.tolk`. The following 32-bit op
 | `RequestNftRelease` | `0x47524403` | Buyer only; state must be paid |
 | `ConfirmNftDelivery` | `0x47524404` | Payment authority after independent buyer-ownership proof |
 | `MarkSellerSettled` | `0x47524405` | Payment authority after payout reference exists |
-| `RequestRefund` | `0x47524406` | Payment authority; expired unpaid deal or confirmed Telegram refund |
+| `RequestRefund` | `0x47524406` | Payment authority; only after Telegram `refundStarPayment` succeeds for a paid deal |
 | `ConfirmNftReturned` | `0x47524407` | Payment authority after independent seller-ownership proof |
 | `RaiseDispute` | `0x47524408` | Buyer or seller; transfer-pending disputes go to reconciliation |
 | `RecordStarsRefund` | `0x47524409` | Payment authority after Telegram refund succeeds |
-| `RecordNoPaymentEvidence` | `0x4752440b` | Payment authority after Telegram Stars transaction-history reconciliation for an unpaid deal |
+| `RecordNoPaymentEvidence` | `0x4752440b` | Payment authority after deadline and Telegram Stars transaction-history reconciliation for an unpaid deal |
 | `ApproveDisputeResolution` | `0x4752440a` | Two distinct configured arbitrators must approve the same decision and hash; refund needs payment-refund or no-payment evidence |
 
 Outbound NFT transfers use the TEP-62 `transfer` opcode `0x5fcc3d14`. A bounced NFT transfer moves the escrow to `reconciliation_required`; it is never retried or settled automatically.
@@ -54,7 +54,7 @@ Outbound NFT transfers use the TEP-62 `transfer` opcode `0x5fcc3d14`. A bounced 
 - `get_payment_evidence`
 - `get_delivery_evidence`
 
-The contract records a Telegram Stars payment attestation but does not custody Stars or provide a Telegram seller payout primitive. Backend Ledger settlement remains a separate system and must be reconciled. This testnet v1 has no TON/Jetton payment receiver.
+An unpaid deposited NFT cannot be returned by timeout alone: seller dispute, payment-history reconciliation attestation, and two arbitrator approvals are required. A paid NFT can be returned only after a successful Telegram refund and proof of seller ownership. The contract records a Telegram Stars payment attestation but does not custody Stars or provide a Telegram seller payout primitive. Backend Ledger settlement remains a separate system and must be reconciled. This testnet v1 has no TON/Jetton payment receiver.
 
 ### API policy
 - No new public API route is considered stable until its request/response schema is documented here.
