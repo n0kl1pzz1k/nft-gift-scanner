@@ -110,6 +110,13 @@ Until then, `TELEGRAM_STARS_PAYMENTS_ENABLED` and `MARKETPLACE_REAL_DEALS_ENABLE
 - This workflow records a decision and reason, not uploaded evidence or a full appeals/arbitration system.
 
 
+## TON withdrawal request and execution gates
+
+- An authenticated user can request a withdrawal only after the withdrawal request flag, payout executor flag, remote HTTPS HSM endpoint, HSM token, wallet identity, TON broadcaster, PostgreSQL and all Kazakhstan legal/data/tax/security approvals are configured.
+- The request reserves the exact amount plus the server-configured asset fee from the user's available deposit and settled-seller liabilities into an immutable withdrawal hold. The user cannot set the fee, reserve another user's funds, or reuse an idempotency key with different details.
+- Two distinct allowlisted administrators must approve the exact request hash. The executor then delegates signing to the remote HSM, verifies that the broadcaster accepted the exact signed message hash, and quarantines any ambiguous broadcast or confirmation result.
+- Creating a request is not a payout confirmation. Funds remain held until the on-chain transaction is independently resolved and the withdrawal state is confirmed.
+
 ## Late TON deposit handling
 
 - Invoices remain monitored for a bounded 24-hour grace window after their displayed expiry. This catches transfers that were sent before or around expiry but indexed late.
