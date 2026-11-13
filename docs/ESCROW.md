@@ -16,21 +16,32 @@ Recommend **hybrid escrow**:
 
 This is a hybrid custody design, not a claim that off-chain Telegram Stars are held by a TON contract. The distinction must remain visible in the UI, terms and audit material.
 
+## Юридический статус
+
+**Платёжный маршрут для сделок внутри Telegram Mini App не определён.** Текущий кодовый выбор TON/USDT на тестнете является исключительно техническим экспериментом и не означает, что такой маршрут разрешён правилами Telegram или применимым законодательством. Stars вынесен в отдельный адаптер и остаётся выключенным.
+
+Вопросы классификации P2P-сделки, роли escrow-оператора, внешнего сайта, seller settlement, AML/KYC, лицензирования, налогов, возвратов и применимого права вынесены в [docs/TELEGRAM_COMPLIANCE.md](TELEGRAM_COMPLIANCE.md). Выводы документа требуют проверки профильным юристом; документ не является юридическим заключением.
+
+До письменной юридической оценки и отдельного решения владельца:
+- не включать платёжный маршрут в Mini App для реальных сделок;
+- не принимать mainnet-платежи и реальные средства;
+- не трактовать тестовый `tUSDT` как официальный USDT;
+- Stars остаётся выключенным и не реализуется в рамках этой технической ветки.
+
+## PaymentRoute boundary
+
+Deal core depends on the `PaymentRoute` interface. Route selection is configuration-driven:
+- `ton_usdt_testnet`: enabled only for TON testnet and the platform-issued `tUSDT` test Jetton;
+- `stars`: separate fail-closed adapter, disabled;
+- unsupported routes and any mainnet selection fail closed.
+
+The route adapter does not hold private keys. Chain observation and transaction signing remain separate injected capabilities; signing requires explicit user-wallet approval or an external HSM/threshold signer. Route selection does not bypass legal, custody, security or release gates.
+
 ## Telegram payment-policy gate
 
-NFTs and virtual gifts are digital goods. Telegram's Bot Platform Developer Terms require digital goods and services sold inside Telegram bots and Mini Apps to be paid exclusively in Telegram Stars. The official Stars FAQ explicitly says cryptocurrency cannot be used as payment for digital goods inside Telegram apps.
+Telegram's published terms contain a Stars-only rule for digital goods sold inside bots and Mini Apps, while the precise classification of a neutral user-to-user P2P escrow flow and a wholly external sale requires specialist review. The project does not treat either TON/USDT in Mini App or an external checkout as approved by inference. The current Mini App payment route therefore remains **undetermined pending legal review**.
 
-Therefore:
-- **Inside the Telegram Mini App:** XTR / Telegram Stars is the only checkout method for NFT digital goods, subject to the platform's current terms.
-- **TON / Jetton checkout:** must not be exposed as an alternative payment method inside the Telegram Mini App for digital NFTs. A separate non-Telegram web product would require a distinct legal, distribution and policy review; do not use the Mini App to route around this rule.
-- TON Connect may be used for wallet connection, wallet proof and permitted blockchain interactions. Wallet interactions must use TON Connect.
-- Telegram Stars balance is not a user-to-user escrow wallet. Telegram states Stars balances are owned by Telegram and may be used by the developer for the purposes described in its terms. The seller payout model for a peer-to-peer NFT marketplace must be reviewed separately. Do not represent that the bot can transfer Stars to arbitrary sellers or that a ledger entry alone creates a transferable Stars liability.
-
-References:
-- https://telegram.org/tos/bot-developers (sections 6.2 and 7)
-- https://core.telegram.org/bots/payments-stars
-- https://core.telegram.org/bots/blockchain-guidelines
-- https://docs.ton.org/applications/ton-connect/overview
+TON Connect remains the required wallet interaction protocol for permitted Mini App blockchain interactions. The Stars adapter is not an escrow wallet and no arbitrary seller payout capability is assumed. See the primary-source analysis and unresolved questions in [docs/TELEGRAM_COMPLIANCE.md](TELEGRAM_COMPLIANCE.md).
 
 ## Platform-controlled authority configuration
 
