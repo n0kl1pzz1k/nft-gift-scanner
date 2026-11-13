@@ -79,7 +79,8 @@ class FinancialLedgerTests(unittest.TestCase):
             verify_ton_payment_trace(trace, invoice)
         trace["recipient_address"] = "wallet"
         trace["finalized"] = False
-        with self.assertRaises(ValueError): verify_ton_payment_trace(trace,invoice)
+        with self.assertRaises(ValueError):
+            verify_ton_payment_trace(trace, invoice)
 
 if __name__ == "__main__":
     unittest.main()
