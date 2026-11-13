@@ -15,7 +15,7 @@ fun setupEscrowWithDeadline(deadline: uint64): (GiftRadarEscrow, address, addres
     val escrow = GiftRadarEscrow.fromStorage({
         dealId: 77,
         expectedAmount: 250,
-        deadline: deadline,
+        deadline,
         initialized: false,
         state: 0,
         preDisputeState: 0,
@@ -592,7 +592,7 @@ get fun `test disputed paid deal needs refund attestation and two arbitrators`()
 
 get fun `test unpaid NFT cannot be returned on timeout without reconciliation and two approvals`() {
     val (escrow, seller, _, nftItem, authority, arb1, arb2) =
-        setupEscrowWithDeadline(testing.getNow() - 1);
+        setupEscrowWithDeadline(testing.getNow() + 1);
     depositNft(escrow, seller, nftItem);
 
     val unsafeReturn = net.send(authority, createMessage({
@@ -652,6 +652,10 @@ get fun `test unpaid NFT cannot be returned on timeout without reconciliation an
         to: escrow.address,
         exitCode: 1006,
     });
+
+    // Deployment and NFT deposit must happen before expiry. Advance emulated
+    // chain time only when the test reaches the no-payment timeout branch.
+    testing.setNow(testing.getNow() + 2);
 
     val noPaymentEvidence = net.send(authority, createMessage({
         bounce: true,
