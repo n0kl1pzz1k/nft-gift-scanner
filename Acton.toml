@@ -11,8 +11,6 @@ output = "artifacts/GiftRadarEscrow.boc"
 
 [wrappers.tolk]
 output-dir = "wrappers"
-generate-test = true
-test-output-dir = "tests"
 
 [import-mappings]
 acton = ".acton"
