@@ -734,7 +734,10 @@ def list_reconciliation_required_deals(*, engine: Engine | None = None,
             marketplace_ownership_proofs.c.expires_at,
             marketplace_ownership_proofs.c.recorded_at,
             func.row_number().over(
-                partition_by=marketplace_ownership_proofs.c.asset_id,
+                partition_by=(
+                    marketplace_ownership_proofs.c.asset_id,
+                    marketplace_ownership_proofs.c.proof_source,
+                ),
                 order_by=(
                     marketplace_ownership_proofs.c.recorded_at.desc(),
                     marketplace_ownership_proofs.c.proof_id.desc(),
@@ -756,9 +759,9 @@ def list_reconciliation_required_deals(*, engine: Engine | None = None,
         ).where(
             proof_ranked.c.proof_rank == 1
         )).mappings().all()
-        latest_proof: dict[str, dict[str, Any]] = {}
+        proofs_by_asset: dict[str, list[dict[str, Any]]] = {asset_id: [] for asset_id in asset_ids}
         for proof in proofs:
-            latest_proof.setdefault(proof["asset_id"], {
+            proofs_by_asset[proof["asset_id"]].append({
                 "owner_user_id": proof["owner_user_id"],
                 "proof_source": proof["proof_source"],
                 "evidence_reference": proof["evidence_reference"],
@@ -811,7 +814,11 @@ def list_reconciliation_required_deals(*, engine: Engine | None = None,
             "created_at": int(event["created_at"]),
         })
     for row in rows:
-        row["latest_ownership_proof"] = latest_proof.get(row["asset_id"])
+        asset_proofs = proofs_by_asset.get(row["asset_id"], [])
+        row["ownership_proofs"] = asset_proofs
+        row["latest_ownership_proof"] = max(
+            asset_proofs, key=lambda proof: int(proof["recorded_at"]), default=None
+        )
         row["events"] = by_deal[row["deal_id"]][-25:]
     return {"items": rows, "total": total, "limit": int(limit), "offset": int(offset)}
 
