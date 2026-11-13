@@ -39,7 +39,7 @@ ASSETS: dict[str, Asset] = {
     "GRAM": Asset(
         asset_id="GRAM", chain=Chain.TON, master_address="", decimals=9,
         display_symbol="GRAM", wallet_connect_allowed_in_mini_app=True,
-        payment_enabled=False, asset_kind="native",
+        payment_enabled=True, asset_kind="native",
     ),
     "usdt-ton": Asset(
         asset_id="usdt-ton",
@@ -48,7 +48,7 @@ ASSETS: dict[str, Asset] = {
         decimals=6,
         display_symbol="USDT",
         wallet_connect_allowed_in_mini_app=True,
-        payment_enabled=False,
+        payment_enabled=True,
     ),
     "usdt-tron": Asset(
         asset_id="usdt-tron",
@@ -127,6 +127,36 @@ def validate_payment_amount(asset_id: str, amount_raw: int) -> int:
 
 
 def is_crypto_payment_enabled(asset_id: str) -> bool:
-    """Crypto checkout stays disabled until separate compliance/security approval."""
+    """Enable only reviewed TON assets after every operational and Kazakhstan release gate."""
     asset = ASSETS.get(asset_id)
-    return bool(asset and asset.payment_enabled)
+    if asset is None or not asset.payment_enabled or asset.chain is not Chain.TON:
+        return False
+    if asset_id not in {"GRAM", "usdt-ton"}:
+        return False
+
+    import os
+
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    postgres_url = database_url.startswith((
+        "postgres://", "postgresql://", "postgresql+psycopg://"
+    ))
+    provider_ids = {
+        part.strip() for part in os.getenv("TON_DEPOSIT_PROVIDER_IDS", "").split(",")
+        if part.strip()
+    }
+    gates = (
+        os.getenv("TON_CRYPTO_DEPOSITS_ENABLED", "false").strip().lower() == "true",
+        os.getenv("TON_DEPOSIT_MONITOR_ENABLED", "false").strip().lower() == "true",
+        os.getenv("MARKETPLACE_REAL_DEALS_ENABLED", "false").strip().lower() == "true",
+        os.getenv("GIFT_RADAR_STORAGE_BACKEND", "").strip().lower() == "postgres",
+        postgres_url,
+        provider_ids == {"tonapi", "toncenter"},
+        bool(os.getenv("TONCENTER_API_KEY", "").strip()),
+        os.getenv("TONAPI_EMBED_URL", "").strip().startswith("https://"),
+        bool(os.getenv("TON_DEPOSIT_ADDRESS", "").strip()),
+        os.getenv("KZ_LEGAL_REVIEW_APPROVED", "false").strip().lower() == "true",
+        os.getenv("KZ_DATA_RESIDENCY_VERIFIED", "false").strip().lower() == "true",
+        os.getenv("KZ_TAX_REVIEW_APPROVED", "false").strip().lower() == "true",
+        os.getenv("KZ_SECURITY_REVIEW_APPROVED", "false").strip().lower() == "true",
+    )
+    return all(gates)
