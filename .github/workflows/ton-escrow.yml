@@ -38,8 +38,12 @@ jobs:
         run: acton init --stdlib-only
       - name: Build escrow contract
         run: acton build GiftRadarEscrow
-      - name: Generate typed test wrapper
-        run: acton wrapper GiftRadarEscrow
+      - name: Build payment escrow contract
+        run: acton build GiftRadarPaymentEscrow
+      - name: Generate typed test wrappers
+        run: |
+          acton wrapper GiftRadarEscrow
+          acton wrapper GiftRadarPaymentEscrow
       - name: Lint Tolk contracts and tests
         run: acton check
       - name: Run local emulator tests
