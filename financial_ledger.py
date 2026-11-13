@@ -1,12 +1,10 @@
 """Append-only double-entry ledger and fail-closed TON trace verification."""
 from __future__ import annotations
 import hashlib, json, os, time, uuid
-from decimal import Decimal
 from typing import Any
 from sqlalchemy import (BigInteger, CheckConstraint, Column, ForeignKey, Integer, MetaData,
     String, Table, UniqueConstraint, create_engine, insert, select, func, text)
 from sqlalchemy.engine import Engine, Connection
-from sqlalchemy.exc import IntegrityError
 
 metadata = MetaData()
 accounts = Table("ledger_accounts", metadata,
@@ -137,15 +135,29 @@ def post_journal_entry(*, idempotency_key: str, source_type: str, source_referen
     """Post balanced integer-unit lines. There is deliberately no balance setter."""
     db = engine or get_engine()
     init_financial_schema(db)
-    with db.begin() as conn:
-        try:
+    try:
+        with db.begin() as conn:
             return _post(conn, idempotency_key=idempotency_key, source_type=source_type,
                          source_reference=source_reference, postings=postings, now=int(time.time()))
-        except IntegrityError:
-            existing = conn.execute(select(entries.c.entry_id).where(entries.c.idempotency_key == idempotency_key)).first()
-            if existing:
-                return {"entry_id": existing.entry_id, "duplicate": True}
+    except Exception as exc:
+        # A concurrent unique-key race is resolved only after the failed transaction rolls back.
+        from sqlalchemy.exc import IntegrityError
+        if not isinstance(exc, IntegrityError):
             raise
+        candidate = _hash({"source_type": source_type, "source_reference": source_reference,
+            "postings": sorted(
+                [{"account_id": str(p["account_id"]).strip(), "account_type": str(p["account_type"]).strip(),
+                  "currency": str(p["currency"]).upper().strip(), "amount_raw": int(p["amount_raw"])}
+                 for p in postings],
+                key=lambda x: (x["account_id"], x["currency"], x["amount_raw"]))})
+        with db.connect() as conn:
+            existing = conn.execute(select(entries.c.entry_id, entries.c.payload_hash)
+                .where(entries.c.idempotency_key == idempotency_key)).first()
+        if existing and existing.payload_hash == candidate:
+            return {"entry_id": existing.entry_id, "duplicate": True}
+        if existing:
+            raise ValueError("Idempotency key reused with different financial payload") from exc
+        raise
 
 def get_account_balance(account_id: str, currency: str, engine: Engine | None = None) -> int:
     db = engine or get_engine()
