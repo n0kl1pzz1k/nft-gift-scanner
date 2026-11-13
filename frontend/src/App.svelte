@@ -45,6 +45,7 @@
   let inventoryBusy = $state(false);
   let nftImportBusy = $state(false);
   let inventoryListingBusy = $state('');
+  let inventoryCancelBusy = $state('');
   let nftAssetType = $state<'ton_nft'|'collectible_username'|'collectible_phone_number'>('ton_nft');
   let nftCollectionAddress = $state('');
   let nftTokenId = $state('');
@@ -805,6 +806,27 @@
     }
   }
 
+
+  async function cancelInventoryListing(listingId: string) {
+    if (!signedIn || inventoryCancelBusy || !listingId) return;
+    const confirmed = window.confirm(lang==='ru'
+      ? 'Снять объявление? NFT останется на адресе эскроу, перевод обратно здесь не выполняется.'
+      : 'Cancel this listing? The NFT remains in escrow; this action does not transfer it back.');
+    if (!confirmed) return;
+    inventoryCancelBusy = listingId;
+    try {
+      await request('/api/inventory/listings/' + encodeURIComponent(listingId) + '/cancel', undefined, {method:'POST'});
+      notice = lang==='ru'
+        ? 'Объявление снято. NFT остаётся в эскроу до отдельной безопасной процедуры возврата.'
+        : 'Listing cancelled. The NFT remains in escrow pending a separate safe return process.';
+      await loadMyInventory();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      inventoryCancelBusy = '';
+    }
+  }
+
   async function connectTonWallet() {
     if (!tonConnectUI || walletBusy) return;
     if (!signedIn) {
@@ -1144,6 +1166,7 @@
         {:else}<div class="orders-list">{#each inventoryItems as item (item.asset_id)}
           <article class="order-card"><div class="order-icon">◈</div><div class="order-main"><div class="order-kind">{item.asset_type}</div><h3>{item.collection_address} · #{item.token_id}</h3><p>{item.custody_state} · {item.ownership_state}</p>
             {#if item.status==='active'}<span class="status-active">{lang==='ru'?'Опубликован':'Active listing'}</span>
+              {#if item.listing_id}<button class="cancel-button" onclick={()=>cancelInventoryListing(item.listing_id)} disabled={inventoryCancelBusy===item.listing_id}>{inventoryCancelBusy===item.listing_id?'…':lang==='ru'?'Снять объявление':'Cancel listing'}</button>{/if}
             {:else if item.status==='pending_verification'}<span class="status-payment-disabled">{lang==='ru'?'Ожидает эскроу':'Awaiting escrow'}</span>
             {:else if !item.listing_id}
               <div class="order-edit-form">
