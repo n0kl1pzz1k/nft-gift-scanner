@@ -86,7 +86,7 @@ Until then, `TELEGRAM_STARS_PAYMENTS_ENABLED` and `MARKETPLACE_REAL_DEALS_ENABLE
 - Only deals still in `reserved` state are eligible. `payment_confirmed`, `nft_transfer_pending`, disputed, settled, and reconciliation-required deals are never expired by this worker.
 - A listing is reactivated only when the NFT remains in escrow and its ownership proof is still fresh. Otherwise the listing returns to `pending_verification` and must pass the independent escrow monitor again before publication.
 - Buyer cancellation and administrator refund use the same escrow-proof freshness rule. A buyer cannot cancel after deal creation, and payment reservation independently rejects a cancelled or expired reservation.
-- PostgreSQL deployments must apply Alembic revision `0012_expire_unpaid_marketplace_deals` or a later revision before settlement endpoints run.
+- PostgreSQL deployments must apply Alembic revision `0012_expire_unpaid_deals` or a later revision before settlement endpoints run.
 - Railway's pre-deploy command applies `alembic upgrade head`; deployment must still be reviewed and verified separately before production use.
 
 
@@ -108,3 +108,13 @@ Until then, `TELEGRAM_STARS_PAYMENTS_ENABLED` and `MARKETPLACE_REAL_DEALS_ENABLE
 - Telegram Stars dispute refunds restore the accounting hold and explicitly return `manual_telegram_refund`; an admin must still complete the official Telegram refund flow and wait for its confirmed result before recording the final refund.
 - Deals in `reconciliation_required` cannot be dismissed or refunded by this workflow. They require independent chain evidence and a separately reviewed manual reconciliation process.
 - This workflow records a decision and reason, not uploaded evidence or a full appeals/arbitration system.
+
+
+## Manual chain reconciliation queue
+
+- Admins can inspect the bounded, oldest-first queue at `GET /api/admin/inventory/reconciliation`; access requires the normal Telegram admin session and configured admin allowlist.
+- Queue entries include deal/listing/asset state, buyer and seller account references, payment amount/currency, transfer transaction reference when present, and the chronological deal event journal (capped at the latest 25 events per deal).
+- Admins may append a bounded operational note with `POST /api/admin/inventory/deals/{deal_id}/reconciliation-notes`. The note is stored as an append-only deal event; the idempotency key prevents duplicate notes on retries.
+- Adding a note does not change deal status, ledger balances, listing status, custody state, or wallet state. The endpoint deliberately provides no "mark resolved", refund, payout, or release action.
+- Queue pagination is bounded to 100 rows. The status/update and deal-event indexes are introduced by Alembic revision `0013_reconciliation_queue`.
+- This is an auditable work queue, not a chain adjudication engine. Resolution still requires independent provider evidence and a separately reviewed, explicitly authorized operation. No ambiguous transfer is auto-settled.
