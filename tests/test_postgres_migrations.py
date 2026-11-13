@@ -68,6 +68,45 @@ class PostgresMigrationSmokeTests(unittest.TestCase):
                     "WHERE acceptance_id=:id"
                 ), {"id": acceptance_id})
 
+    def test_marketplace_inventory_requires_canonical_verified_identity(self):
+        asset_id = "ci-asset-" + uuid.uuid4().hex
+        proof_id = "ci-proof-" + uuid.uuid4().hex
+        listing_id = "ci-listing-" + uuid.uuid4().hex
+        user_id = str(900000000 + uuid.uuid4().int % 900000000)
+        with self.engine.begin() as connection:
+            connection.execute(text(
+                "INSERT INTO marketplace_assets "
+                "(asset_id,asset_type,network,canonical_asset_id,collection_address,token_id,"
+                "telegram_gift_id,owner_user_id,ownership_state,ownership_checked_at,"
+                "ownership_expires_at,created_at,updated_at) "
+                "VALUES (:id,'ton_nft','ton-mainnet',:canonical,'EQcollection','42','',:user,"
+                "'verified',100,200,100,100)"
+            ), {"id": asset_id, "canonical": "ton-mainnet:EQcollection:42", "user": user_id})
+            connection.execute(text(
+                "INSERT INTO marketplace_ownership_proofs "
+                "(proof_id,asset_id,owner_user_id,proof_source,evidence_reference,evidence_hash,"
+                "verification_status,verified_at,expires_at,recorded_at) "
+                "VALUES (:proof,:asset,:user,'ci-authority','ci-reference',:hash,'verified',100,200,100)"
+            ), {"proof": proof_id, "asset": asset_id, "user": user_id, "hash": "a" * 64})
+            connection.execute(text(
+                "INSERT INTO marketplace_listings "
+                "(listing_id,asset_id,seller_user_id,price_raw,currency,status,idempotency_key,created_at,updated_at) "
+                "VALUES (:listing,:asset,:user,10,'XTR','active',:idem,100,100)"
+            ), {"listing": listing_id, "asset": asset_id, "user": user_id, "idem": "ci-" + uuid.uuid4().hex})
+        with self.assertRaises(Exception):
+            with self.engine.begin() as connection:
+                connection.execute(text(
+                    "UPDATE marketplace_ownership_proofs SET evidence_reference='tampered' WHERE proof_id=:id"
+                ), {"id": proof_id})
+        with self.assertRaises(Exception):
+            with self.engine.begin() as connection:
+                connection.execute(text(
+                    "INSERT INTO marketplace_listings "
+                    "(listing_id,asset_id,seller_user_id,price_raw,currency,status,idempotency_key,created_at,updated_at) "
+                    "VALUES (:listing,:asset,:user,11,'XTR','active',:idem,101,101)"
+                ), {"listing": "ci-listing-" + uuid.uuid4().hex, "asset": asset_id,
+                     "user": user_id, "idem": "ci-" + uuid.uuid4().hex})
+
     def test_postgres_compat_adapter_uses_real_driver_and_row_shapes(self):
         url = os.getenv("DATABASE_URL", "").strip()
         connection = connect_postgres(url)
