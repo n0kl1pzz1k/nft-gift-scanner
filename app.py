@@ -110,6 +110,14 @@ class MarketplaceSettingRequest(BaseModel):
     enabled: bool
 
 
+class TonProofVerifyRequest(BaseModel):
+    address: str
+    network: str
+    public_key: str | None = None
+    state_init: str
+    proof: dict[str, Any]
+
+
 # Admin controls are limited to catalogue visibility; the setting is persisted in SQLite.
 # Administrator identities are verified server-side from Telegram initData and env configuration.
 def _marketplace_visibility() -> dict[str, bool]:
@@ -402,11 +410,76 @@ async def telegram_webhook(
     finish_telegram_update(update_id)
     return {"ok": True, "duplicate": False}
 
+@app.post("/api/wallet/ton-proof/payload")
+async def ton_proof_payload(x_telegram_init_data: str | None = Header(default=None)):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    service_url = os.getenv("TON_PROOF_SERVICE_URL", "").strip().rstrip("/")
+    internal_token = os.getenv("TON_PROOF_INTERNAL_TOKEN", "").strip()
+    if not service_url or not internal_token:
+        raise HTTPException(status_code=503, detail="TON Proof service is not configured")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{service_url}/v1/challenges",
+                headers={"X-Gift-Radar-Internal": internal_token},
+                json={"userId": str(user["id"])},
+            )
+        if response.status_code != 200:
+            raise HTTPException(status_code=503, detail="TON Proof challenge service is unavailable")
+        result = response.json()
+        if not isinstance(result, dict) or not isinstance(result.get("payload"), str):
+            raise HTTPException(status_code=502, detail="TON Proof service returned an invalid challenge")
+        return {"payload": result["payload"], "expires_at": result.get("expiresAt")}
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="TON Proof service is unreachable")
+
+
+@app.post("/api/wallet/ton-proof/verify")
+async def ton_proof_verify(
+    payload: TonProofVerifyRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    service_url = os.getenv("TON_PROOF_SERVICE_URL", "").strip().rstrip("/")
+    internal_token = os.getenv("TON_PROOF_INTERNAL_TOKEN", "").strip()
+    if not service_url or not internal_token:
+        raise HTTPException(status_code=503, detail="TON Proof service is not configured")
+    if payload.network not in {"-239", "-3"}:
+        raise HTTPException(status_code=422, detail="Unsupported TON network")
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(
+                f"{service_url}/v1/verify",
+                headers={"X-Gift-Radar-Internal": internal_token},
+                json={
+                    "userId": str(user["id"]),
+                    "address": payload.address,
+                    "network": payload.network,
+                    "public_key": payload.public_key,
+                    "state_init": payload.state_init,
+                    "proof": payload.proof,
+                },
+            )
+        if response.status_code == 401:
+            raise HTTPException(status_code=401, detail="TON wallet proof was rejected")
+        if response.status_code == 409:
+            raise HTTPException(status_code=409, detail="TON wallet proof challenge expired or was already used")
+        if response.status_code != 200:
+            raise HTTPException(status_code=503, detail="TON Proof verification service is unavailable")
+        result = response.json()
+        if not isinstance(result, dict) or result.get("verified") is not True:
+            raise HTTPException(status_code=401, detail="TON wallet proof was not verified")
+        return {"verified": True, "address": result.get("address"), "network": result.get("network")}
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="TON Proof service is unreachable")
+
+
 @app.get("/api/wallet/policy")
 async def wallet_policy():
     """Public capability disclosure: TON Connect only; no signatures or payments."""
     return {
-        "wallet_connect": "ton_connect_only",
+        "wallet_connect": "ton_connect_with_server_verified_ton_proof",
+        "ton_proof_verification_configured": bool(os.getenv("TON_PROOF_SERVICE_URL", "").strip() and os.getenv("TON_PROOF_INTERNAL_TOKEN", "").strip()),
         "supported_network": "ton-mainnet",
         "stores": ["public_wallet_address_only_after_verified_wallet_proof"],
         "requests_seed_phrase": False,
