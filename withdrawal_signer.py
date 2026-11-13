@@ -68,6 +68,20 @@ def _approved_admin_ids() -> set[str]:
     return {part.strip() for part in os.getenv("WITHDRAWAL_APPROVER_IDS", "").split(",")
             if part.strip().isdigit()}
 
+def _require_matching_message_hash(signed_hash: str, broadcast_hash: str) -> str:
+    """Bind the broadcaster acknowledgement to the exact HSM-signed message."""
+    def canonical(value: str) -> str:
+        result = str(value or "").strip().lower().removeprefix("0x")
+        if len(result) != 64 or any(ch not in "0123456789abcdef" for ch in result):
+            raise ValueError("TON message hash is not canonical")
+        return result
+
+    signed = canonical(signed_hash)
+    broadcast = canonical(broadcast_hash)
+    if signed != broadcast:
+        raise ValueError("Broadcaster acknowledgement does not match the HSM-signed message")
+    return broadcast
+
 
 def _event(conn, *, request_id: str, event_type: str, actor_id: str = "",
            data: dict[str, Any] | None = None, now: int) -> None:
@@ -281,6 +295,8 @@ async def execute_approved_withdrawal(*, request_id: str,
             _event(conn, request_id=request_id, event_type="signed",
                    data={"message_hash": signed["message_hash"]}, now=int(time.time()))
         message_hash = await selected_broadcaster.broadcast(signed["signed_boc"])
+        # Do not resolve or confirm a different message than the HSM approved.
+        message_hash = _require_matching_message_hash(signed["message_hash"], message_hash)
         with db.begin() as conn:
             _event(conn, request_id=request_id, event_type="broadcast_accepted",
                    data={"message_hash": message_hash}, now=int(time.time()))
