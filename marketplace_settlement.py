@@ -179,6 +179,7 @@ def create_deal_from_reservation(*, reservation_id: str, buyer_user_id: str,
 
 
 def reserve_verified_deal_payment(*, deal_id: str, invoice_id: str,
+                                  actor_user_id: str | None = None,
                                   engine: Engine | None = None,
                                   now: int | None = None) -> dict[str, Any]:
     """Move an already-confirmed invoice credit into an immutable deal hold atomically."""
@@ -193,6 +194,8 @@ def reserve_verified_deal_payment(*, deal_id: str, invoice_id: str,
         deal = conn.execute(q).mappings().first()
         if deal is None:
             raise ValueError("Unknown marketplace deal")
+        if actor_user_id is not None and str(actor_user_id) != str(deal["buyer_user_id"]):
+            raise PermissionError("Only the authenticated buyer can fund this marketplace deal")
         if deal["status"] == "payment_confirmed":
             if deal["payment_invoice_id"] != invoice_id:
                 raise ValueError("Deal already has a different payment invoice")
