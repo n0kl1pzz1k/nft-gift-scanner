@@ -20,10 +20,12 @@ from sqlalchemy.engine import Engine
 
 from financial_ledger import (
     metadata, get_engine, init_financial_schema, migration_revision_number, withdrawal_requests,
+    withdrawal_events, accounts, _post, _account_balance_in_connection,
     advance_withdrawal_to_processing, mark_withdrawal_submitted,
     confirm_ton_withdrawal, quarantine_ton_withdrawal,
 )
-from asset_policy import ASSETS
+from asset_policy import ASSETS, validate_payment_amount, is_crypto_payment_enabled
+from ton_nft_providers import canonical_ton_address
 
 
 withdrawal_approvals = Table(
@@ -67,6 +69,133 @@ def _hash(value: Any) -> str:
 def _approved_admin_ids() -> set[str]:
     return {part.strip() for part in os.getenv("WITHDRAWAL_APPROVER_IDS", "").split(",")
             if part.strip().isdigit()}
+
+
+def create_withdrawal_request(*, user_id: str, asset_id: str,
+                              destination_address: str, amount_raw: int,
+                              idempotency_key: str, engine: Engine | None = None,
+                              now: int | None = None) -> dict[str, Any]:
+    """Reserve a user's available ledger funds for a two-admin TON withdrawal."""
+    if os.getenv("TON_WITHDRAWAL_REQUESTS_ENABLED", "false").strip().lower() != "true":
+        raise PermissionError("TON withdrawal requests are disabled by policy")
+    if os.getenv("TON_WITHDRAWALS_ENABLED", "false").strip().lower() != "true":
+        raise PermissionError("TON withdrawals are not approved for release")
+    release_gates = (
+        "KZ_LEGAL_REVIEW_APPROVED", "KZ_DATA_RESIDENCY_VERIFIED",
+        "KZ_TAX_REVIEW_APPROVED", "KZ_SECURITY_REVIEW_APPROVED",
+    )
+    if not all(os.getenv(name, "false").strip().lower() == "true" for name in release_gates):
+        raise PermissionError("Kazakhstan legal, data, tax and security sign-offs are required")
+    uid = str(user_id).strip()
+    if not uid.isdigit() or int(uid) <= 0:
+        raise ValueError("Invalid Telegram user ID")
+    if not idempotency_key or len(idempotency_key) < 16 or len(idempotency_key) > 200:
+        raise ValueError("A bounded withdrawal idempotency key is required")
+    asset = ASSETS.get(asset_id)
+    if asset is None or asset_id not in {"GRAM", "usdt-ton"}:
+        raise ValueError("Unsupported TON withdrawal asset")
+    if not is_crypto_payment_enabled(asset_id):
+        raise PermissionError("The TON payment rail has not passed its operational release gates")
+    try:
+        amount = validate_payment_amount(asset_id, amount_raw)
+        destination = canonical_ton_address(destination_address)
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
+    if not destination.startswith("0:"):
+        raise ValueError("Only TON mainnet basechain withdrawal addresses are supported")
+    fee_name = "TON_WITHDRAWAL_FEE_GRAM_RAW" if asset_id == "GRAM" else "TON_WITHDRAWAL_FEE_USDT_RAW"
+    try:
+        fee = int(os.getenv(fee_name, "0"))
+    except ValueError:
+        raise RuntimeError("Configured withdrawal fee is invalid") from None
+    if fee < 0 or fee > 9_000_000_000_000_000:
+        raise RuntimeError("Configured withdrawal fee is outside the supported range")
+
+    current = int(now or time.time())
+    request_payload = {
+        "user_id": uid, "asset_id": asset_id, "network": "ton-mainnet",
+        "destination_address": destination, "amount_raw": str(amount),
+        "fee_raw": str(fee),
+    }
+    request_hash = _hash(request_payload)
+    db = engine or get_engine()
+    init_withdrawal_signer_schema(db)
+    request_id = str(uuid.uuid4())
+    user_account = f"liability:user:{uid}:{asset_id}"
+    seller_account = f"liability:seller:{uid}:{asset_id}"
+    hold_account = f"liability:withdrawal_hold:{request_id}:{asset_id}"
+    with db.begin() as conn:
+        existing = conn.execute(select(withdrawal_requests).where(
+            withdrawal_requests.c.idempotency_key == idempotency_key
+        )).mappings().first()
+        if existing:
+            if existing["request_hash"] != request_hash or existing["user_id"] != uid:
+                raise ValueError("Withdrawal idempotency key was reused with different details")
+            return {**dict(existing), "duplicate": True}
+
+        if db.dialect.name == "postgresql":
+            conn.execute(select(accounts.c.account_id).where(
+                accounts.c.account_id.in_((user_account, seller_account))
+            ).order_by(accounts.c.account_id).with_for_update()).all()
+        user_available = max(0, -_account_balance_in_connection(conn, user_account, asset_id))
+        seller_available = max(0, -_account_balance_in_connection(conn, seller_account, asset_id))
+        required = amount + fee
+        if user_available + seller_available < required:
+            raise PermissionError("Insufficient available ledger balance for withdrawal and fee")
+        user_debit = min(user_available, required)
+        seller_debit = required - user_debit
+        conn.execute(insert(withdrawal_requests).values(
+            request_id=request_id, user_id=uid, asset_id=asset_id,
+            network="ton-mainnet", destination_address=destination,
+            amount_raw=str(amount), fee_raw=str(fee), status="requested",
+            idempotency_key=idempotency_key, request_hash=request_hash,
+            tx_hash=None, failure_reason=None, created_at=current, updated_at=current,
+        ))
+        postings = []
+        if user_debit:
+            postings.append({
+                "account_id": user_account, "account_type": "liability",
+                "currency": asset_id, "amount_raw": user_debit,
+            })
+        if seller_debit:
+            postings.append({
+                "account_id": seller_account, "account_type": "liability",
+                "currency": asset_id, "amount_raw": seller_debit,
+            })
+        postings.append({
+            "account_id": hold_account, "account_type": "liability",
+            "currency": asset_id, "amount_raw": -amount,
+        })
+        if fee:
+            postings.append({
+                "account_id": f"revenue:withdrawal_fee:{asset_id}",
+                "account_type": "revenue", "currency": asset_id,
+                "amount_raw": -fee,
+            })
+        journal = _post(
+            conn, idempotency_key="withdrawal-reserve:" + request_id,
+            source_type="withdrawal_reserve", source_reference=request_id,
+            postings=postings, now=current,
+        )
+        event_data = json.dumps({
+            "asset_id": asset_id, "amount_raw": amount, "fee_raw": fee,
+            "request_hash": request_hash, "journal_id": journal["entry_id"],
+        }, sort_keys=True, separators=(",", ":"))
+        conn.execute(insert(withdrawal_events).values(
+            event_id=str(uuid.uuid4()), request_id=request_id, actor_type="user",
+            actor_id=uid, event_type="requested", event_data=event_data[:1000],
+            created_at=current,
+        ))
+        _event(conn, request_id=request_id, event_type="requested", actor_id=uid,
+               data={"request_hash": request_hash, "journal_id": journal["entry_id"]},
+               now=current)
+    return {
+        "request_id": request_id, "user_id": uid, "asset_id": asset_id,
+        "network": "ton-mainnet", "destination_address": destination,
+        "amount_raw": amount, "fee_raw": fee, "status": "requested",
+        "request_hash": request_hash, "duplicate": False,
+    }
+
 
 def _require_matching_message_hash(signed_hash: str, broadcast_hash: str) -> str:
     """Bind the broadcaster acknowledgement to the exact HSM-signed message."""
