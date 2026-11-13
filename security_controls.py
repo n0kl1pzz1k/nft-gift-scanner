@@ -24,7 +24,22 @@ _local: dict[str, deque[float]] = defaultdict(deque)
 _redis = None
 
 
-def _requires_edge_limit(path: str) -> bool:\n    return path.startswith(_MUTATING_PREFIXES)\n\n\ndef _apply_security_headers(response):\n    response.headers.setdefault("X-Content-Type-Options", "nosniff")\n    response.headers.setdefault("X-Frame-Options", "DENY")\n    response.headers.setdefault("Referrer-Policy", "no-referrer")\n    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")\n    response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains")\n    if response.headers.get("content-type", "").lower().startswith("application/json"):\n        response.headers.setdefault("Cache-Control", "no-store")\n    return response\n\n\ndef _origins() -> set[str]:
+def _requires_edge_limit(path: str) -> bool:
+    return path.startswith(_MUTATING_PREFIXES)
+
+
+def _apply_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+    if response.headers.get("content-type", "").lower().startswith("application/json"):
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
+def _origins() -> set[str]:
     raw = os.getenv(
         "CORS_ALLOWED_ORIGINS",
         "https://nft-gift-scanner.fj7kmzkhn9.workers.dev,https://nft-gift-scanner.pages.dev",
@@ -67,7 +82,8 @@ class SecurityControlsMiddleware(BaseHTTPMiddleware):
         needs_edge_limit = is_mutation and _requires_edge_limit(path)
         if path not in _EXEMPT and needs_edge_limit:
             ip = request.client.host if request.client else "unknown"
-            bucket = next(prefix for prefix in _MUTATING_PREFIXES if path.startswith(prefix))\n            key = f"{method}:{bucket}:{ip}"
+            bucket = next(prefix for prefix in _MUTATING_PREFIXES if path.startswith(prefix))
+            key = f"{method}:{bucket}:{ip}"
             limit, window = 60, 60
             redis_url = os.getenv("REDIS_URL", "").strip()
             if redis_url and Redis is not None:
@@ -106,7 +122,8 @@ class SecurityControlsMiddleware(BaseHTTPMiddleware):
                         headers={"Retry-After": str(window)},
                     )
                 hits.append(now)
-        response = await call_next(request)\n        return _apply_security_headers(response)
+        response = await call_next(request)
+        return _apply_security_headers(response)
 
 
 def _is_production() -> bool:
