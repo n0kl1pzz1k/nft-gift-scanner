@@ -1,12 +1,17 @@
 import unittest
 
-from asset_policy import AssetRejected, get_asset, is_crypto_payment_enabled
+from asset_policy import ASSETS, AssetRejected, get_asset, is_crypto_payment_enabled
 
 TON_USDT = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"
 TRON_USDT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
 
 
 class AssetPolicyTests(unittest.TestCase):
+    def test_every_allowlisted_crypto_asset_is_nonpayable_by_default(self):
+        self.assertTrue(ASSETS)
+        self.assertTrue(all(asset.payment_enabled is False for asset in ASSETS.values()))
+        self.assertTrue(all(not is_crypto_payment_enabled(asset_id) for asset_id in ASSETS))
+
     def test_official_ton_usdt_identifier_is_recognized_but_not_payable(self):
         asset = get_asset("usdt-ton", "ton-mainnet", TON_USDT, "telegram-mini-app")
         self.assertEqual(asset.decimals, 6)
