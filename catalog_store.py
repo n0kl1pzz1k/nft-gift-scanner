@@ -69,7 +69,7 @@ def upsert_catalogue_items(items: list[dict[str, Any]]) -> int:
             fingerprint = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
             conn.execute(
                 """INSERT INTO catalogue_gift_snapshots(gift_id, fingerprint, gift_json, observed_at)
-                   VALUES (?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?) ON CONFLICT(gift_id, fingerprint) DO NOTHING""",
                 (gift_id, fingerprint, encoded, observed_at),
             )
             conn.execute(
