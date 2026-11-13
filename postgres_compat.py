@@ -41,9 +41,10 @@ class PostgresConnection:
         cursor = self.raw.execute(sql, tuple(parameters or ()))
         if cursor.description:
             names = [column.name for column in cursor.description]
+            rowcount = cursor.rowcount
             rows = cursor.fetchall()
             cursor.close()
-            return _BufferedCursor(rows, names, cursor.rowcount)
+            return _BufferedCursor(rows, names, rowcount)
         rowcount = cursor.rowcount
         cursor.close()
         return _BufferedCursor([], [], rowcount)
