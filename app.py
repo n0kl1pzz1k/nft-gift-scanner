@@ -57,7 +57,7 @@ class NativeListingRequest(BaseModel):
     idempotency_key: str = Field(min_length=16, max_length=128)
 
 
-app = FastAPI(title="GIFT RADAR API", version="0.4.0")
+app = FastAPI(title="GIFT RADAR API", version="0.4.0", docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(create_marketplace_router(
     lambda value: _authenticate_telegram_credential(value),
     lambda value: _require_admin(value),
@@ -494,7 +494,7 @@ async def list_verified_inventory_listings(limit: int = Query(default=50, ge=1, 
     with db.connect() as conn:
         rows = conn.execute(select(
             marketplace_listings.c.listing_id, marketplace_listings.c.asset_id,
-            marketplace_listings.c.seller_user_id, marketplace_listings.c.price_raw,
+            marketplace_listings.c.price_raw,
             marketplace_listings.c.currency, marketplace_listings.c.created_at,
             marketplace_assets.c.asset_type, marketplace_assets.c.collection_address,
             marketplace_assets.c.token_id,
