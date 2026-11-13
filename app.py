@@ -86,6 +86,30 @@ def _stars_payment_enabled() -> bool:
     )
 
 
+@app.get("/api/payments/capabilities")
+async def payment_capabilities():
+    """Expose only payment methods that have passed their server-side release gates."""
+    from asset_policy import ASSETS, is_crypto_payment_enabled
+
+    crypto = {}
+    for asset_id in ("GRAM", "usdt-ton", "usdt-tron"):
+        asset = ASSETS[asset_id]
+        enabled = is_crypto_payment_enabled(asset_id)
+        crypto[asset_id] = {
+            "enabled": enabled,
+            "symbol": asset.display_symbol,
+            "message": None if enabled else "Временно недоступно: проверка платёжного контура и разрешение на запуск не завершены.",
+        }
+    stars_enabled = _stars_payment_enabled()
+    return {
+        "stars": {
+            "enabled": stars_enabled,
+            "message": None if stars_enabled else "Оплата Telegram Stars временно недоступна.",
+        },
+        "crypto": crypto,
+    }
+
+
 # Browser access is restricted to the production Mini App origins.
 # Extra origins may be supplied explicitly for a controlled preview environment.
 _CORS_DEFAULT_ORIGINS = [
