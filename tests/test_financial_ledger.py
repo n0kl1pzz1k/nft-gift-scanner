@@ -1,6 +1,7 @@
 import tempfile
 import time
 import unittest
+import uuid
 from pathlib import Path
 
 from sqlalchemy import create_engine, insert, text
@@ -8,6 +9,7 @@ from sqlalchemy.exc import DBAPIError
 
 from financial_ledger import (
     get_account_balance, init_financial_schema, invoices, post_journal_entry,
+    ton_chain_observations, ton_trace_evidence_hash,
     settle_verified_ton_payment, verify_ton_payment_trace,
     request_ton_withdrawal, advance_withdrawal_to_processing,
     mark_withdrawal_submitted, confirm_ton_withdrawal,
@@ -24,6 +26,17 @@ class FinancialLedgerTests(unittest.TestCase):
     def tearDown(self):
         self.engine.dispose()
         self.temp.cleanup()
+
+    def record_quorum(self, invoice, trace):
+        digest = ton_trace_evidence_hash(trace)
+        with self.engine.begin() as conn:
+            for provider_id in ("toncenter", "tonapi"):
+                conn.execute(insert(ton_chain_observations).values(
+                    observation_id=str(uuid.uuid4()), network="ton-mainnet",
+                    tx_hash=trace["tx_hash"], event_index=int(trace["event_index"]),
+                    asset_id=invoice["asset_id"], provider_id=provider_id,
+                    evidence_hash=digest, finalized=True, observed_at=int(time.time()),
+                ))
 
     def postings(self, amount=100):
         return [
@@ -81,6 +94,7 @@ class FinancialLedgerTests(unittest.TestCase):
             "successful": True, "bounced": False, "finalized": True,
             "tx_hash": "transaction-hash", "event_index": 0,
         }
+        self.record_quorum(invoice, trace)
         first = settle_verified_ton_payment(invoice_id="gri_test", trace=trace, engine=self.engine)
         second = settle_verified_ton_payment(invoice_id="gri_test", trace=trace, engine=self.engine)
         self.assertTrue(first["credited"])
@@ -129,6 +143,7 @@ class FinancialLedgerTests(unittest.TestCase):
             "successful": True, "bounced": False, "finalized": True,
             "tx_hash": "native-transaction", "event_index": 0,
         }
+        self.record_quorum(invoice, trace)
         first = settle_verified_ton_payment(invoice_id="gri_native", trace=trace, engine=self.engine)
         second = settle_verified_ton_payment(invoice_id="gri_native", trace=trace, engine=self.engine)
         self.assertTrue(first["credited"])
