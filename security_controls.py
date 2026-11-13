@@ -1,16 +1,20 @@
 """Origin checks and API rate limits. Redis is the shared production limiter."""
 from __future__ import annotations
-import os, time
+import os
+import time
 from collections import defaultdict, deque
 from urllib.parse import urlsplit
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 try:
     from redis.asyncio import Redis
+    from redis.exceptions import RedisError
 except ImportError:
     Redis = None
+    RedisError = ConnectionError
 
 _MUTATING_PREFIXES = ("/api/auth/", "/api/marketplace/", "/api/demo-offers/", "/api/wallet/", "/api/payments/")
 _EXEMPT = {"/api/telegram/webhook", "/health"}
@@ -52,7 +56,7 @@ class SecurityControlsMiddleware(BaseHTTPMiddleware):
                         await _redis.expire(f"gift-radar:rl:{key}", window)
                     if count > limit:
                         return JSONResponse({"detail":"Rate limit exceeded"}, status_code=429, headers={"Retry-After":str(window)})
-                except Exception:
+                except RedisError:
                     return JSONResponse({"detail":"Rate limiter unavailable; request rejected"}, status_code=503)
             else:
                 if _is_production():
