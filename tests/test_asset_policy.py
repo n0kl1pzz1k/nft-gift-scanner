@@ -1,6 +1,6 @@
 import unittest
 
-from asset_policy import ASSETS, AssetRejected, get_asset, is_crypto_payment_enabled
+from asset_policy import ASSETS, AssetRejected, get_asset, is_crypto_payment_enabled, validate_payment_amount
 
 TON_USDT = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"
 TRON_USDT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
@@ -39,6 +39,20 @@ class AssetPolicyTests(unittest.TestCase):
         self.assertEqual(asset.asset_kind, "native")
         self.assertEqual(asset.decimals, 9)
         self.assertFalse(asset.payment_enabled)
+
+
+    def test_anti_dust_minimums_reject_tiny_native_and_usdt_payments(self):
+        with self.assertRaises(AssetRejected):
+            validate_payment_amount("GRAM", 9_999_999)
+        with self.assertRaises(AssetRejected):
+            validate_payment_amount("usdt-ton", 99_999)
+        self.assertEqual(validate_payment_amount("GRAM", 10_000_000), 10_000_000)
+        self.assertEqual(validate_payment_amount("usdt-ton", 100_000), 100_000)
+
+    def test_payment_amount_rejects_invalid_and_excessive_values(self):
+        for value in (0, -1, "not-a-number", 9_000_000_000_000_001):
+            with self.subTest(value=value), self.assertRaises(AssetRejected):
+                validate_payment_amount("GRAM", value)
 
     def test_native_gram_rejects_lookalike_jetton_contract(self):
         with self.assertRaises(AssetRejected):
