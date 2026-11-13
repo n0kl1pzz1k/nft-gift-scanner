@@ -19,10 +19,15 @@ const allowedDomains = new Set(
 );
 const mainnetEndpoint = process.env.TON_MAINNET_ENDPOINT ?? "https://mainnet-v4.tonhubapi.com";
 const testnetEndpoint = process.env.TON_TESTNET_ENDPOINT ?? "https://testnet-v4.tonhubapi.com";
-const pool = databaseUrl ? new Pool({ connectionString: databaseUrl, max: 5, ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false } }) : null;
+const postgresCa = process.env.PGSSLROOTCERT_PEM;
+const pool = databaseUrl ? new Pool({
+  connectionString: databaseUrl,
+  max: 5,
+  ssl: { rejectUnauthorized: true, ...(postgresCa ? { ca: postgresCa } : {}) }
+}) : null;
 
 const proofSchema = z.object({
-  timestamp: z.union([z.number().int(), z.string().regex(/^\d+$/)]).transform(Number),
+  timestamp: z.union([z.number().int(), z.string().regex(/^\\d+$/)]).transform(Number),
   domain: z.object({
     lengthBytes: z.number().int().nonnegative().max(128),
     value: z.string().min(1).max(128)
@@ -31,7 +36,7 @@ const proofSchema = z.object({
   payload: z.string().min(1).max(128)
 });
 const verifySchema = z.object({
-  userId: z.string().regex(/^\d{1,24}$/),
+  userId: z.string().regex(/^\\d{1,24}$/),
   address: z.string().min(3).max(128),
   network: z.enum(["-239", "-3"]),
   public_key: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(),
@@ -61,7 +66,8 @@ async function getWalletTgPublicKey(address: Address, network: "-239" | "-3", st
   if (account.state.type !== "active" || !account.state.code) {
     throw new Error("WalletTg account is not active");
   }
-  const liveCode = Cell.fromBoc(Buffer.from(account.state.code, "base64"));
+  // TonClient4 already returns the account code as a BOC buffer.
+  const liveCode = Cell.fromBoc(account.state.code);
   if (liveCode.length !== 1 || liveCode[0].hash().toString("hex") !== WALLET_TG_CODE_HASH) {
     throw new Error("WalletTg live code hash mismatch");
   }
@@ -71,32 +77,32 @@ async function getWalletTgPublicKey(address: Address, network: "-239" | "-3", st
   return Buffer.from(key.toString(16).padStart(64, "0"), "hex");
 }
 
-async function verifyProof(input: z.infer<typeof verifySchema>): Promise<boolean> {
+async function verifyProof(input: z.infer<typeof verifySchema>): Promise<Buffer | null> {
   const now = Math.floor(Date.now() / 1000);
   const proof = input.proof;
-  if (Math.abs(now - proof.timestamp) > 600) return false;
+  if (Math.abs(now - proof.timestamp) > 600) return null;
   const domain = proof.domain.value.toLowerCase();
-  if (!allowedDomains.has(domain) || !domain.includes(".")) return false;
+  if (!allowedDomains.has(domain) || !domain.includes(".")) return null;
   const domainBytes = Buffer.from(proof.domain.value, "utf8");
-  if (domainBytes.length !== proof.domain.lengthBytes) return false;
+  if (domainBytes.length !== proof.domain.lengthBytes) return null;
 
   const payloadBytes = Buffer.from(proof.payload, "utf8");
-  if (payloadBytes.length > 128) return false;
+  if (payloadBytes.length > 128) return null;
   const stateInit = loadStateInit(Cell.fromBase64(input.state_init).beginParse());
   const address = Address.parse(input.address);
   const derivedAddress = contractAddress(address.workChain, stateInit);
-  if (!derivedAddress.equals(address)) return false;
+  if (!derivedAddress.equals(address)) return null;
 
   let publicKey = extractKnownWalletPublicKey(stateInit);
   if (!publicKey) {
     const codeHash = stateInit.code?.hash().toString("hex") ?? "";
-    if (codeHash !== WALLET_TG_CODE_HASH) return false;
+    if (codeHash !== WALLET_TG_CODE_HASH) return null;
     publicKey = await getWalletTgPublicKey(address, input.network, codeHash);
   }
-  if (input.public_key && !publicKey.equals(Buffer.from(input.public_key, "hex"))) return false;
+  if (input.public_key && !publicKey.equals(Buffer.from(input.public_key, "hex"))) return null;
 
   const signature = Buffer.from(proof.signature, "base64");
-  if (signature.length !== 64) return false;
+  if (signature.length !== 64) return null;
   const workchain = Buffer.alloc(4);
   workchain.writeInt32BE(address.workChain, 0);
   const timestamp = Buffer.alloc(8);
@@ -119,14 +125,15 @@ async function verifyProof(input: z.infer<typeof verifySchema>): Promise<boolean
     messageHash
   ]);
   const digest = Buffer.from(await sha256(fullMessage));
-  return nacl.sign.detached.verify(new Uint8Array(digest), new Uint8Array(signature), new Uint8Array(publicKey));
+  const valid = nacl.sign.detached.verify(new Uint8Array(digest), new Uint8Array(signature), new Uint8Array(publicKey));
+  return valid ? publicKey : null;
 }
 
 app.get("/health", async () => ({ status: "ok", service: "gift-radar-ton-proof" }));
 
 app.post("/v1/challenges", async (request, reply) => {
   if (!pool) return reply.code(503).send({ error: "database_not_configured" });
-  const body = z.object({ userId: z.string().regex(/^\d{1,24}$/) }).safeParse(request.body);
+  const body = z.object({ userId: z.string().regex(/^\\d{1,24}$/) }).safeParse(request.body);
   if (!body.success) return reply.code(400).send({ error: "invalid_request" });
   const payload = Buffer.from(await getSecureRandomBytes(32)).toString("hex");
   const expiresAt = Math.floor(Date.now() / 1000) + 600;
@@ -141,11 +148,11 @@ app.post("/v1/verify", async (request, reply) => {
   if (!pool) return reply.code(503).send({ error: "database_not_configured" });
   const parsed = verifySchema.safeParse(request.body);
   if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
-  let valid = false;
-  try { valid = await verifyProof(parsed.data); } catch (error) {
+  let publicKey: Buffer | null = null;
+  try { publicKey = await verifyProof(parsed.data); } catch (error) {
     request.log.warn({ error }, "TON proof validation failed");
   }
-  if (!valid) return reply.code(401).send({ error: "invalid_proof" });
+  if (!publicKey) return reply.code(401).send({ error: "invalid_proof" });
 
   const client = await pool.connect();
   try {
@@ -164,7 +171,7 @@ app.post("/v1/verify", async (request, reply) => {
        ON CONFLICT(user_id,address) DO UPDATE SET network=EXCLUDED.network,
        public_key=EXCLUDED.public_key, verified_at=EXCLUDED.verified_at`,
       [parsed.data.userId, Address.parse(parsed.data.address).toRawString(), parsed.data.network,
-       parsed.data.public_key ?? null, Math.floor(Date.now() / 1000)]
+       publicKey.toString("hex"), Math.floor(Date.now() / 1000)]
     );
     await client.query("COMMIT");
     return { verified: true, address: Address.parse(parsed.data.address).toRawString(), network: parsed.data.network };
