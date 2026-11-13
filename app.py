@@ -540,7 +540,8 @@ async def telegram_stars_policy():
         "provider": "Telegram Stars",
         "terms_url": os.getenv("TERMS_URL", "").strip() if enabled else None,
         "support_url": os.getenv("PAYMENT_SUPPORT_URL", "").strip() if enabled else None,
-        "terms_version": os.getenv("TELEGRAM_STARS_TERMS_VERSION", "").strip() if enabled else None,\n        "note": "Digital goods inside Telegram are payable only in Telegram Stars; explicit current terms acceptance is required before invoice creation.",
+        "terms_version": os.getenv("TELEGRAM_STARS_TERMS_VERSION", "").strip() if enabled else None,
+        "note": "Digital goods inside Telegram are payable only in Telegram Stars; explicit current terms acceptance is required before invoice creation.",
     }
 
 
