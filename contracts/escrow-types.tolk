@@ -35,7 +35,7 @@ struct EscrowAuthorities {
 
 struct PaymentEvidence {
     paymentReferenceHash: uint256
-    refundReferenceHash: uint256
+    resolutionEvidenceHash: uint256
     settlementReferenceHash: uint256
 }
 
@@ -121,6 +121,11 @@ struct (0x47524409) RecordStarsRefund {
     telegramRefundHash: uint256
 }
 
+struct (0x4752440b) RecordNoPaymentEvidence {
+    queryId: uint64
+    reconciliationProofHash: uint256
+}
+
 struct (0x4752440a) ApproveDisputeResolution {
     queryId: uint64
     decision: uint8
@@ -138,6 +143,7 @@ type AllowedMessage =
     | ConfirmNftReturned
     | RaiseDispute
     | RecordStarsRefund
+    | RecordNoPaymentEvidence
     | ApproveDisputeResolution
 
 struct EscrowStateReply {
