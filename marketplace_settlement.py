@@ -76,8 +76,8 @@ def init_marketplace_settlement_schema(engine: Engine | None = None) -> None:
             version = conn.execute(__import__("sqlalchemy").text(
                 "SELECT version_num FROM alembic_version"
             )).scalar_one_or_none()
-        if version != "0010_marketplace_deal_settlement":
-            raise RuntimeError("Marketplace deal settlement migration 0010 is required")
+        if version != "0011_withdrawal_approvals":
+            raise RuntimeError("Marketplace settlement and inventory migrations through 0011 are required")
         return
     metadata.create_all(db)
     if db.dialect.name == "sqlite":
