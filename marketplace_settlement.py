@@ -76,7 +76,11 @@ def init_marketplace_settlement_schema(engine: Engine | None = None) -> None:
             version = conn.execute(__import__("sqlalchemy").text(
                 "SELECT version_num FROM alembic_version"
             )).scalar_one_or_none()
-        if version != "0012_expire_unpaid_marketplace_deals":
+        try:
+            migration_number = int(str(version).split("_", 1)[0])
+        except (TypeError, ValueError):
+            migration_number = 0
+        if migration_number < 12:
             raise RuntimeError("Marketplace settlement and inventory migrations through 0012 are required")
         return
     metadata.create_all(db)
