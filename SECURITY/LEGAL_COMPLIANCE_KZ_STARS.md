@@ -139,3 +139,71 @@ Official sources:
 - Keep all crypto payment adapters disabled in production until the legal/product-surface gate is signed off. Keep Stars checkout disabled until the existing Stars release gates are passed.
 
 This clarification supersedes any earlier design note suggesting that TON Connect could be used to accept GRAM or USDT directly inside the Telegram Mini App for the sale of digital gifts. TON Connect's technical support for a token transfer does not override Telegram's Stars-only rule for in-Telegram digital goods.
+
+
+## 9. Competitive balance model and multi-asset account design (product decision, not launch authorization)
+
+The product objective is to match the convenience users expect from specialist Telegram-gift marketplaces: deposit once, maintain an immediately visible account balance, buy/list/offer without signing a new wallet transaction for every internal trade, and withdraw through a clearly disclosed process. Public Portals documentation describes an internal GRAM balance with on-chain deposits/withdrawals and off-chain internal settlement; MRKT publicly describes gift deposits into platform storage and sale proceeds credited to an internal balance. These are competitor product patterns, not evidence that the same flow is approved for GIFT RADAR under Telegram terms or Kazakhstan law.
+
+References reviewed:
+- Portals custody and internal GRAM balance: https://docs.portals.tg/security/custody
+- Portals top-up and purchase flow: https://docs.portals.tg/getting-started/quickstart
+- MRKT marketplace balance flow: https://www.mrktxyz.com/en/faq/
+- MRKT how-it-works: https://mrkt.info/en/how-it-works/
+
+### 9.1 User experience target
+
+Design one account/wallet screen with:
+- A clear primary marketplace price unit: GRAM, where the asset/token and its value semantics have been verified.
+- Visible asset-specific available, reserved, pending and withdrawable amounts. Do not silently merge unlike assets into one spendable number.
+- A single transaction history showing deposits, purchases, sales, offers, fees, refunds, reversals and withdrawals with the original asset, network, amount, exchange quote (if any), timestamp and status.
+- Deposit once and perform internal marketplace operations from the platform ledger, avoiding an on-chain wallet signature for every internal trade.
+- Explicit, user-confirmed withdrawal destinations and network; no seed phrase/private key collection and no wallet signing authority held by GIFT RADAR.
+
+### 9.2 Separate rails and accounting buckets
+
+Implement the domain model so the product can support multiple payment methods without treating them as interchangeable money:
+
+1. `GRAM` bucket: only credit after a confirmed deposit of the verified canonical GRAM asset on TON, or after another separately approved and fully accounted settlement event.
+2. `USDT_TON` bucket: only credit after a confirmed deposit of the verified canonical USDT Jetton on TON. Keep the original liability denominated in USDT unless a legally approved conversion is explicitly executed and recorded.
+3. `TELEGRAM_STARS_XTR` route: a direct Telegram Stars checkout for an eligible in-Telegram digital-goods purchase. A Stars payment must not be credited to a withdrawable GRAM/USDT balance, exchanged into crypto, or used as a disguised crypto-balance top-up.
+4. Display GRAM as the marketplace reference/pricing unit where appropriate, but show any USDT equivalent as a live quote with expiry, rate source, spread/fee and rounding disclosed before confirmation. Do not silently convert a user's deposited USDT into GRAM.
+5. Every bucket is a separate double-entry ledger liability with raw integer amounts, explicit asset/network/contract/decimals, idempotent event IDs and immutable audit events. Reservations for offers/orders are ledger holds, not transfers. A cancellation releases the exact hold; settlement debits and credits atomically.
+
+A later product decision may choose a true GRAM-denominated internal balance backed by GRAM only. If USDT is converted into GRAM at deposit time, that is an exchange/conversion service and must be separately assessed, priced, authorized and reconciled; it must not be implemented as a mere UI display conversion.
+
+### 9.3 Surface-specific checkout policy
+
+The backend must distinguish the actual transaction surface and item classification, not merely the frontend hostname:
+
+- Telegram bot or Mini App sale of a digital gift/digital good: Stars/XTR only, under the current Telegram Developer Terms and Stars FAQ. No crypto deposit button or alternative payment route may be used in that in-Telegram purchase journey.
+- Standalone web marketplace: GRAM/USDT checkout or deposits may be evaluated only after written Kazakhstan legal review, provider/chain review, and a separate platform-policy review of the actual acquisition and navigation journey. The existence of a website alone is not sufficient. Do not use Telegram messages, buttons, deep links, QR codes or Mini App redirects to route a Telegram digital-goods buyer into a crypto checkout.
+- A shared account or backend does not erase the surface distinction. Enforce server-side policy using authenticated surface, order origin, item type, session provenance and immutable order metadata. Reject ambiguous or missing provenance (fail closed).
+- TON Connect is the wallet-connection/signing protocol for TON functionality in the Mini App. It does not itself authorize a crypto payment for an in-Telegram digital-goods sale.
+
+### 9.4 Custody and settlement decision gate
+
+A deposit into an address controlled by GIFT RADAR, followed by an internal balance credit, is a custodial or custody-like platform flow even if the user originally connected a self-custody wallet and GIFT RADAR never sees the user's seed phrase. The product must not describe this as non-custodial merely because wallet connection uses TON Connect.
+
+Before implementing platform-controlled deposits, internal balances, gift vaults, escrow or withdrawals, obtain a written Kazakhstan opinion that specifically covers:
+- custody/control of user crypto and deposited gifts;
+- exchange/conversion between USDT and GRAM;
+- operation of an internal transferable or withdrawable balance;
+- marketplace order matching, escrow and settlement;
+- licensing/authorization, AML/CFT, sanctions screening and customer due diligence;
+- safeguarding/segregation of client assets, insolvency treatment, reconciliation and withdrawal obligations;
+- data localization and processor/hosting requirements.
+
+If the approved legal model does not permit platform custody, evaluate a non-custodial or third-party licensed custody/settlement design. Do not simulate a custodial balance in the UI while leaving the legal/technical custody model undefined.
+
+### 9.5 Implementation order
+
+- [ ] Build the multi-asset ledger abstraction and account UI in test/staging only; no live deposits.
+- [ ] Add asset registry with independently verified GRAM and USDT TON master contracts, decimals and network identifiers. Until verified, asset status remains disabled.
+- [ ] Implement deposit intent/address assignment, chain observer, finality policy, exact-amount checks, replay protection, reconciliation and withdrawal state machine behind default-off feature flags.
+- [ ] Implement GRAM and USDT as separate asset buckets first. Add GRAM-denominated quote/display only; do not auto-convert deposits.
+- [ ] Keep Stars as a separate direct XTR checkout adapter for eligible Telegram purchases. Never credit Stars to a withdrawable crypto balance.
+- [ ] Add surface provenance and backend policy tests proving Telegram digital-goods purchases reject GRAM/USDT while eligible standalone web flows remain disabled until approval.
+- [ ] Complete legal sign-off and independent security review before enabling any deposit, conversion, custody, escrow, withdrawal or real order.
+
+This section records the intended competitive UX and accounting architecture. It does not authorize crypto acceptance, custody, conversion, live deposits, seller payouts, deployment or production feature-flag changes.
