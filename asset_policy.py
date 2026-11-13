@@ -101,6 +101,31 @@ def get_asset(asset_id: str, chain: str, master_address: str, surface: str) -> A
     return asset
 
 
+
+# Conservative anti-dust floors in the smallest on-chain units. These are
+# policy guardrails, not exchange-rate conversions or price recommendations.
+MIN_PAYMENT_RAW: dict[str, int] = {
+    "GRAM": 10_000_000,       # 0.01 native TON
+    "usdt-ton": 100_000,       # 0.10 USDT (6 decimals)
+}
+
+
+def validate_payment_amount(asset_id: str, amount_raw: int) -> int:
+    asset = ASSETS.get(asset_id)
+    if asset is None:
+        raise AssetRejected("Unsupported payment asset")
+    try:
+        amount = int(amount_raw)
+    except (TypeError, ValueError):
+        raise AssetRejected("Payment amount must be an integer in base units") from None
+    minimum = MIN_PAYMENT_RAW.get(asset_id, 1)
+    if amount < minimum:
+        raise AssetRejected("Payment amount is below the minimum anti-dust threshold")
+    if amount > 9_000_000_000_000_000:
+        raise AssetRejected("Payment amount exceeds the supported maximum")
+    return amount
+
+
 def is_crypto_payment_enabled(asset_id: str) -> bool:
     """Crypto checkout stays disabled until separate compliance/security approval."""
     asset = ASSETS.get(asset_id)
