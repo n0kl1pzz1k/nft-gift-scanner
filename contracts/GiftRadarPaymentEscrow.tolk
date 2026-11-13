@@ -67,10 +67,10 @@ fun onInternalMessage(in: InMessage) {
         InitializePaymentEscrow => {
             var storage = lazy PaymentEscrowStorage.load();
             val parties = storage.parties.load();
-            val auth = storage.authorities.load();
+            var auth = storage.authorities.load();
             val signers = auth.signers.load();
             val arbitrators = auth.arbitrators.load();
-            val assets = auth.assets.load();
+            var assets = auth.assets.load();
             assert (in.senderAddress == auth.platformConfigAuthority) throw PaymentEscrowErrors.Unauthorized;
             assert (!storage.initialized) throw PaymentEscrowErrors.BadState;
             assert (storage.state == V2_CREATED) throw PaymentEscrowErrors.BadState;
