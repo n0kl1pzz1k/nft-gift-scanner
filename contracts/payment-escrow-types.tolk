@@ -56,6 +56,15 @@ struct PaymentEscrowStorage {
     authorities: Cell<PaymentEscrowAuthorityConfig>
 }
 
+struct (0x5fcc3d14) AskToChangeOwnership {
+    queryId: uint64
+    newOwnerAddress: address
+    sendExcessesTo: address?
+    customPayload: cell?
+    forwardGrams: coins
+    forwardPayload: RemainingBitsAndRefs
+}
+
 struct (0x47525601) InitializePaymentEscrow {
     queryId: uint64
 }
@@ -113,6 +122,7 @@ type PaymentEscrowMessages =
     | ConfirmEscrowNftDelivery
     | RaisePaymentEscrowDispute
     | ApprovePaymentEscrowDispute
+    | AskToChangeOwnership
 
 struct PaymentEscrowStateReply {
     dealId: uint256
