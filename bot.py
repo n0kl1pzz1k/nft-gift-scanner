@@ -34,9 +34,16 @@ ADMIN_TELEGRAM_IDS = {
     if part.strip().isdigit()
 }
 CHANNEL_URL = "https://t.me/nopzw"
-STARS_PAYMENTS_ENABLED = os.getenv("TELEGRAM_STARS_PAYMENTS_ENABLED", "false").strip().lower() == "true"
 TERMS_URL = os.getenv("TERMS_URL", "").strip()
 PAYMENT_SUPPORT_URL = os.getenv("PAYMENT_SUPPORT_URL", "").strip()
+STARS_PAYMENTS_ENABLED = (
+    os.getenv("TELEGRAM_STARS_PAYMENTS_ENABLED", "false").strip().lower() == "true"
+    and os.getenv("MARKETPLACE_REAL_DEALS_ENABLED", "false").strip().lower() == "true"
+    and os.getenv("GIFT_RADAR_STORAGE_BACKEND", "sqlite").strip().lower() == "postgres"
+    and os.getenv("DATABASE_URL", "").strip().startswith(("postgres://", "postgresql://", "postgresql+psycopg://"))
+    and TERMS_URL.startswith("https://")
+    and PAYMENT_SUPPORT_URL.startswith("https://")
+)
 
 
 def is_admin(message: Message) -> bool:
