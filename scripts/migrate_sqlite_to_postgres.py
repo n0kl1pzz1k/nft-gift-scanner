@@ -71,8 +71,8 @@ def migrate(source_path: Path, apply: bool, source_quiesced: bool = False, batch
     try:
         with engine.connect() as connection:
             revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-            if revision != "0006_telegram_stars_refund_workflow":
-                raise RuntimeError("Target must be migrated to Alembic revision 0006_telegram_stars_refund_workflow")
+            if revision != "0006_stars_refunds":
+                raise RuntimeError("Target must be migrated to Alembic revision 0006_stars_refunds")
             metadata = MetaData()
             metadata.reflect(bind=connection, only=list(TARGET_GUARD_TABLES))
             missing_targets = sorted(set(TARGET_GUARD_TABLES) - set(metadata.tables))
