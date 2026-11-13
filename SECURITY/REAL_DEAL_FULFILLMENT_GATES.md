@@ -110,6 +110,16 @@ Until then, `TELEGRAM_STARS_PAYMENTS_ENABLED` and `MARKETPLACE_REAL_DEALS_ENABLE
 - This workflow records a decision and reason, not uploaded evidence or a full appeals/arbitration system.
 
 
+## Native marketplace Telegram Stars checkout
+
+- Native marketplace deals (`grd_…`) now use the same server-owned XTR invoice, pre-checkout validation and authenticated `successful_payment` receipt flow as the existing Stars checkout.
+- Invoice creation is restricted to the authenticated buyer of an active, unexpired reservation for an XTR-priced listing. Pre-checkout rechecks the deal, reservation, listing, buyer and exact integer Stars amount.
+- The successful payment update atomically appends the Stars receipt, posts the balanced ledger entry into that native deal's hold, changes the deal to `payment_confirmed`, and appends a deal event. A duplicate Telegram charge cannot credit the hold twice.
+- A confirmed Telegram Stars refund reverses the original hold only after Telegram's official refund call confirms success. For native deals, the listing is moved to `pending_verification` after refund rather than being silently republished; custody must be rechecked before relisting.
+- Refund requests and execution are rejected once native NFT transfer has started or the deal is otherwise in reconciliation. Ambiguous Telegram refund responses remain quarantined and cannot be blindly retried.
+- Native checkout is exposed at `POST /api/inventory/deals/{deal_id}/stars-invoice`. The existing legacy Stars endpoint remains separate and backwards compatible.
+- These code paths do not enable production checkout. The existing Stars release gates, legal/tax/data-residency/security approvals, PostgreSQL requirement and explicit production authorization remain mandatory.
+
 ## Manual chain reconciliation queue
 
 - Admins can inspect the bounded, oldest-first queue at `GET /api/admin/inventory/reconciliation`; access requires the normal Telegram admin session and configured admin allowlist.
