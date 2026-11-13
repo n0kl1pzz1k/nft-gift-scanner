@@ -290,4 +290,31 @@ get fun `test USDT test-Jetton transfers through TEP-74 wallet into escrow and n
 
     confirmPaymentTwice(escrow, signer1, signer2, 8002, 1000000);
     expect(readPaymentEscrowState(escrow).state).toEqual(V2_PAID);
+
+    testing.setNow(testing.getNow() + 86401);
+    val release = net.send(buyer, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: RequestEscrowNftRelease { queryId: 8003 },
+    }));
+    expect(release).toHaveSuccessfulTx<RequestEscrowNftRelease>({ from: buyer, to: escrow.address });
+    expect(net.runGetMethod<address>(nftItem, "get_nft_owner")).toEqual(buyer);
+
+    val proof = 0x123456789;
+    val firstDelivery = net.send(signer1, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ConfirmEscrowNftDelivery { queryId: 8004, buyerOwnershipProofHash: proof },
+    }));
+    expect(firstDelivery).toHaveSuccessfulTx<ConfirmEscrowNftDelivery>({ from: signer1, to: escrow.address });
+    val secondDelivery = net.send(signer2, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ConfirmEscrowNftDelivery { queryId: 8005, buyerOwnershipProofHash: proof },
+    }));
+    expect(secondDelivery).toHaveSuccessfulTx<ConfirmEscrowNftDelivery>({ from: signer2, to: escrow.address });
+    expect(readPaymentEscrowState(escrow).state).toEqual(V2_DELIVERED);
 }
