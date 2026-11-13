@@ -129,8 +129,9 @@ def init_inventory_schema(engine: Engine | None = None) -> None:
     if db.dialect.name == "postgresql":
         with db.connect() as conn:
             version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-        if version != "0011_withdrawal_approvals":
-            raise RuntimeError("Seller inventory migration 0009 is required")
+        from financial_ledger import migration_revision_number
+        if migration_revision_number(version) < 14:
+            raise RuntimeError("Seller inventory migrations through 0014 are required")
         return
     metadata.create_all(db)
     if db.dialect.name == "sqlite":
