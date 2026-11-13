@@ -15,28 +15,14 @@ from typing import Any
 
 from sqlalchemy import MetaData, create_engine, text
 
-
 TABLES = (
-    "telegram_users",
-    "user_profiles",
-    "telegram_sessions",
-    "telegram_initdata_uses",
-    "telegram_update_inbox",
-    "user_favorites",
-    "demo_orders",
-    "demo_order_events",
-    "demo_order_revisions",
-    "demo_order_reports",
-    "api_rate_limits",
-    "app_settings",
-    "demo_offers",
-    "demo_deals",
-    "demo_deal_events",
-    "demo_deal_lifecycle_events",
-    "demo_notifications",
-    "catalogue_gifts",
-    "catalogue_gift_snapshots",
+    "telegram_users", "user_profiles", "telegram_sessions", "telegram_initdata_uses",
+    "telegram_update_inbox", "user_favorites", "demo_orders", "demo_order_events",
+    "demo_order_revisions", "demo_order_reports", "api_rate_limits", "app_settings",
+    "demo_offers", "demo_deals", "demo_deal_events", "demo_deal_lifecycle_events",
+    "demo_notifications", "catalogue_gifts", "catalogue_gift_snapshots",
 )
+OPTIONAL_SOURCE_TABLES = {"catalogue_gifts", "catalogue_gift_snapshots"}
 SEQUENCE_COLUMNS = {
     "demo_order_events": "id",
     "demo_order_revisions": "id",
@@ -45,23 +31,24 @@ SEQUENCE_COLUMNS = {
 }
 
 
-def _canonical_hash(rows, columns: list[str]) -> str:
+def _hash_rows(rows, columns: list[str]) -> str:
     digest = hashlib.sha256()
     for row in rows:
-        item = {column: row[column] for column in columns}
-        digest.update(json.dumps(item, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8"))
+        value = {name: row[name] for name in columns}
+        digest.update(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8"))
         digest.update(b"\n")
     return digest.hexdigest()
 
 
-def _source_rows(source: sqlite3.Connection, table: str, columns: list[str], batch_size: int):
-    order = ", ".join(f'"{column}"' for column in columns)
-    cursor = source.execute(f'SELECT {", ".join(f""" "{column}" """ for column in columns)} FROM "{table}" ORDER BY {order}')
+def _source_batches(source, table: str, columns: list[str], order_columns: list[str], batch_size: int):
+    selected = ", ".join('"' + name + '"' for name in columns)
+    ordered = ", ".join('"' + name + '"' for name in order_columns)
+    cursor = source.execute('SELECT ' + selected + ' FROM "' + table + '" ORDER BY ' + ordered)
     while True:
         batch = cursor.fetchmany(batch_size)
         if not batch:
             break
-        yield [{column: row[column] for column in columns} for row in batch]
+        yield [{name: row[name] for name in columns} for row in batch]
 
 
 def migrate(source_path: Path, apply: bool, batch_size: int = 500) -> dict[str, Any]:
@@ -70,7 +57,7 @@ def migrate(source_path: Path, apply: bool, batch_size: int = 500) -> dict[str, 
         raise RuntimeError("DATABASE_URL is required; its value is never printed")
     if not source_path.is_file():
         raise FileNotFoundError(f"SQLite source database not found: {source_path}")
-    if batch_size < 1 or batch_size > 5000:
+    if not 1 <= batch_size <= 5000:
         raise ValueError("batch size must be between 1 and 5000")
 
     source = sqlite3.connect(f"file:{source_path.resolve()}?mode=ro", uri=True)
@@ -86,18 +73,20 @@ def migrate(source_path: Path, apply: bool, batch_size: int = 500) -> dict[str, 
             metadata.reflect(bind=connection, only=list(TABLES))
             missing_targets = sorted(set(TABLES) - set(metadata.tables))
             if missing_targets:
-                raise RuntimeError(f"Target schema is missing tables: {', '.join(missing_targets)}")
+                raise RuntimeError("Target schema missing tables: " + ", ".join(missing_targets))
+
             source_tables = {
                 row["name"] for row in source.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
                 ).fetchall()
             }
-            missing_sources = sorted(set(TABLES) - source_tables)
-            if missing_sources:
-                raise RuntimeError(f"SQLite source is missing required tables: {', '.join(missing_sources)}")
+            missing_required = sorted((set(TABLES) - OPTIONAL_SOURCE_TABLES) - source_tables)
+            if missing_required:
+                raise RuntimeError("SQLite source missing required tables: " + ", ".join(missing_required))
+
             target_counts = {
-                table: connection.execute(text(f'SELECT COUNT(*) FROM "{table}"')).scalar_one()
-                for table in TABLES
+                name: connection.execute(text('SELECT COUNT(*) FROM "' + name + '"')).scalar_one()
+                for name in TABLES
             }
             occupied = {name: count for name, count in target_counts.items() if count}
             if occupied:
@@ -110,24 +99,35 @@ def migrate(source_path: Path, apply: bool, batch_size: int = 500) -> dict[str, 
         source_counts: dict[str, int] = {}
         source_hashes: dict[str, str] = {}
         column_maps: dict[str, list[str]] = {}
-        for table_name in TABLES:
-            target_table = metadata.tables[table_name]
-            source_columns = [row["name"] for row in source.execute(f'PRAGMA table_info("{table_name}")')]
+        primary_keys: dict[str, list[str]] = {}
+
+        for name in TABLES:
+            target_table = metadata.tables[name]
+            if name not in source_tables:
+                report["tables"][name] = {"rows": 0, "source_table_absent": True, "verified": True}
+                source_counts[name] = 0
+                source_hashes[name] = _hash_rows([], [])
+                column_maps[name] = []
+                primary_keys[name] = []
+                continue
+
+            source_info = source.execute('PRAGMA table_info("' + name + '")').fetchall()
+            source_columns = [row["name"] for row in source_info]
             columns = [column.name for column in target_table.columns if column.name in source_columns]
-            if not columns:
-                raise RuntimeError(f"No compatible columns found for {table_name}")
-            primary_keys = [column.name for column in target_table.primary_key.columns if column.name in columns]
-            if not primary_keys:
-                raise RuntimeError(f"No shared primary key found for {table_name}")
-            count = source.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
-            hash_value = _canonical_hash(
-                (row for batch in _source_rows(source, table_name, columns, batch_size) for row in batch),
+            keys = [column.name for column in target_table.primary_key.columns if column.name in columns]
+            if not columns or not keys:
+                raise RuntimeError("No compatible columns or shared primary key found for " + name)
+
+            count = source.execute('SELECT COUNT(*) FROM "' + name + '"').fetchone()[0]
+            digest = _hash_rows(
+                (row for batch in _source_batches(source, name, columns, keys, batch_size) for row in batch),
                 columns,
             )
-            source_counts[table_name] = count
-            source_hashes[table_name] = hash_value
-            column_maps[table_name] = columns
-            report["tables"][table_name] = {"rows": count, "columns": columns, "sha256": hash_value}
+            source_counts[name] = count
+            source_hashes[name] = digest
+            column_maps[name] = columns
+            primary_keys[name] = keys
+            report["tables"][name] = {"rows": count, "columns": columns, "sha256": digest}
 
         if not apply:
             report["verified_source_tables"] = len(TABLES)
@@ -136,36 +136,41 @@ def migrate(source_path: Path, apply: bool, batch_size: int = 500) -> dict[str, 
 
         with engine.begin() as connection:
             connection.execute(text("SET LOCAL gift_radar.migrating = 'on'"))
-            for table_name in TABLES:
-                target_table = metadata.tables[table_name]
-                columns = column_maps[table_name]
-                for batch in _source_rows(source, table_name, columns, batch_size):
+            for name in TABLES:
+                columns = column_maps[name]
+                if not columns:
+                    continue
+                table = metadata.tables[name]
+                for batch in _source_batches(source, name, columns, primary_keys[name], batch_size):
                     if batch:
-                        connection.execute(target_table.insert(), batch)
+                        connection.execute(table.insert(), batch)
 
-            for table_name, column_name in SEQUENCE_COLUMNS.items():
-                connection.execute(text(
+            for name, column in SEQUENCE_COLUMNS.items():
+                if name not in source_tables:
+                    continue
+                statement = (
                     "SELECT setval(pg_get_serial_sequence(:table_name, :column_name), "
-                    "GREATEST(COALESCE(MAX(" + column_name + "), 1), 1), "
-                    "MAX(" + column_name + ") IS NOT NULL) FROM " + table_name
-                ), {"table_name": table_name, "column_name": column_name})
+                    "GREATEST(COALESCE(MAX(" + column + "), 1), 1), "
+                    "MAX(" + column + ") IS NOT NULL) FROM " + name
+                )
+                connection.execute(text(statement), {"table_name": name, "column_name": column})
 
-            for table_name in TABLES:
-                target_table = metadata.tables[table_name]
-                columns = column_maps[table_name]
-                count = connection.execute(text(f'SELECT COUNT(*) FROM "{table_name}"')).scalar_one()
-                if count != source_counts[table_name]:
-                    raise RuntimeError(f"Row-count mismatch after import for {table_name}: {count} != {source_counts[table_name]}")
-                order_columns = [column.name for column in target_table.primary_key.columns if column.name in columns]
-                order_sql = ", ".join(f'"{column}"' for column in order_columns)
-                result = connection.execute(text(
-                    f'SELECT {", ".join(f""" "{column}" """ for column in columns)} '
-                    f'FROM "{table_name}" ORDER BY {order_sql}'
-                ))
-                target_hash = _canonical_hash(result.mappings(), columns)
-                if target_hash != source_hashes[table_name]:
-                    raise RuntimeError(f"Content checksum mismatch after import for {table_name}")
-                report["tables"][table_name]["verified"] = True
+            for name in TABLES:
+                if not column_maps[name]:
+                    continue
+                table = metadata.tables[name]
+                columns = column_maps[name]
+                count = connection.execute(text('SELECT COUNT(*) FROM "' + name + '"')).scalar_one()
+                if count != source_counts[name]:
+                    raise RuntimeError(f"Row-count mismatch for {name}: {count} != {source_counts[name]}")
+                selected = ", ".join('"' + column + '"' for column in columns)
+                ordered = ", ".join('"' + column + '"' for column in primary_keys[name])
+                rows = connection.execute(text(
+                    'SELECT ' + selected + ' FROM "' + name + '" ORDER BY ' + ordered
+                )).mappings()
+                if _hash_rows(rows, columns) != source_hashes[name]:
+                    raise RuntimeError("Content checksum mismatch after import for " + name)
+                report["tables"][name]["verified"] = True
 
         report["verified_source_tables"] = len(TABLES)
         report["committed"] = True
@@ -178,11 +183,11 @@ def migrate(source_path: Path, apply: bool, batch_size: int = 500) -> dict[str, 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Migrate GIFT RADAR SQLite marketplace data to PostgreSQL")
     parser.add_argument("--source", default=os.getenv("GIFT_RADAR_SQLITE_PATH", "./data/gift-radar.sqlite3"))
-    parser.add_argument("--apply", action="store_true", help="commit the migration; without this flag only validate")
+    parser.add_argument("--apply", action="store_true", help="commit migration; without this flag only validate")
     parser.add_argument("--batch-size", type=int, default=500)
     args = parser.parse_args()
-    report = migrate(Path(args.source), args.apply, args.batch_size)
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    result = migrate(Path(args.source), args.apply, args.batch_size)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
