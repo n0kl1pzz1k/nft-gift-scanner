@@ -1,0 +1,71 @@
+"""Live PostgreSQL migration and adapter smoke tests for CI.
+
+These tests are skipped unless GIFT_RADAR_POSTGRES_CI=1 is explicitly set.
+"""
+from __future__ import annotations
+
+import os
+import unittest
+import uuid
+
+from sqlalchemy import create_engine, inspect, text
+
+from postgres_compat import connect_postgres
+
+
+@unittest.skipUnless(os.getenv("GIFT_RADAR_POSTGRES_CI") == "1", "PostgreSQL CI service is not enabled")
+class PostgresMigrationSmokeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        url = os.getenv("DATABASE_URL", "").strip()
+        if not url.startswith(("postgres://", "postgresql://", "postgresql+psycopg://")):
+            raise RuntimeError("PostgreSQL CI requires a PostgreSQL DATABASE_URL")
+        cls.engine = create_engine(url, future=True, pool_pre_ping=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.engine.dispose()
+
+    def test_schema_is_at_latest_revision_and_contains_core_tables(self):
+        with self.engine.connect() as connection:
+            revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            self.assertEqual(revision, "0003_telegram_stars_payments")
+            tables = set(inspect(connection).get_table_names())
+        expected = {
+            "telegram_users", "telegram_sessions", "demo_orders", "demo_offers",
+            "demo_deals", "demo_deal_events", "demo_notifications",
+            "catalogue_gifts", "ledger_accounts", "ledger_entries", "ledger_lines",
+            "payment_invoices", "payment_events", "telegram_stars_invoices",
+            "telegram_stars_payments", "telegram_stars_refund_events",
+        }
+        self.assertTrue(expected.issubset(tables), f"Missing tables: {sorted(expected - tables)}")
+
+    def test_financial_journal_is_append_only_in_postgres(self):
+        suffix = uuid.uuid4().hex
+        entry_id = str(uuid.uuid4())
+        with self.engine.begin() as connection:
+            connection.execute(text(
+                "INSERT INTO ledger_entries(entry_id,idempotency_key,source_type,source_reference,payload_hash,created_at) "
+                "VALUES (:entry,:key,'ci_smoke',:ref,:hash,1)"
+            ), {"entry": entry_id, "key": "ci:" + suffix, "ref": suffix, "hash": "0" * 64})
+        with self.assertRaises(Exception):
+            with self.engine.begin() as connection:
+                connection.execute(text(
+                    "UPDATE ledger_entries SET source_reference='tampered' WHERE entry_id=:entry"
+                ), {"entry": entry_id})
+        with self.engine.begin() as connection:
+            connection.execute(text("DELETE FROM ledger_entries WHERE entry_id=:entry"), {"entry": entry_id})
+
+    def test_postgres_compat_adapter_uses_real_driver_and_row_shapes(self):
+        url = os.getenv("DATABASE_URL", "").strip()
+        connection = connect_postgres(url)
+        try:
+            row = connection.execute("SELECT ?::text AS marker", ("gift-radar-ci",)).fetchone()
+            self.assertEqual(row[0], "gift-radar-ci")
+            self.assertEqual(row["marker"], "gift-radar-ci")
+        finally:
+            connection.close()
+
+
+if __name__ == "__main__":
+    unittest.main()
