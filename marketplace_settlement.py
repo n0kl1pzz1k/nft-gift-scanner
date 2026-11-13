@@ -490,6 +490,72 @@ def open_deal_dispute(*, deal_id: str, actor_user_id: str, reason: str,
         return {"opened": True, "duplicate": False, "status": next_status}
 
 
+
+def resolve_deal_dispute(*, deal_id: str, decision: str, reason: str,
+                         admin_user_id: str, engine: Engine | None = None,
+                         now: int | None = None) -> dict[str, Any]:
+    """Record an admin dispute decision; never resolve an in-flight chain transfer automatically."""
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    admin = str(admin_user_id)
+    clean = " ".join(str(reason or "").split())
+    if not admin.isdigit() or int(admin) <= 0 or not 8 <= len(clean) <= 500:
+        raise ValueError("A valid admin and resolution reason of 8-500 characters are required")
+    if decision not in {"refund", "dismiss"}:
+        raise ValueError("Unsupported dispute decision")
+    current = int(now or time.time())
+    lock = db.dialect.name == "postgresql"
+    if decision == "refund":
+        with db.connect() as conn:
+            query = select(marketplace_deals.c.status).where(
+                marketplace_deals.c.deal_id == deal_id
+            )
+            if lock:
+                query = query.with_for_update()
+            status = conn.execute(query).scalar_one_or_none()
+        if status != "disputed":
+            raise PermissionError("Only a pre-transfer disputed deal can be refunded by this workflow")
+        result = refund_unfulfilled_deal(
+            deal_id=deal_id, reason=clean, admin_user_id=admin,
+            engine=db, now=current,
+        )
+        if result.get("telegram_refund_required"):
+            return {**result, "decision": "refund", "manual_telegram_refund": True}
+        return {**result, "decision": "refund"}
+    with db.begin() as conn:
+        query = select(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id
+        )
+        if lock:
+            query = query.with_for_update()
+        deal = conn.execute(query).mappings().first()
+        if deal is None:
+            raise ValueError("Unknown marketplace deal")
+        if deal["status"] != "disputed":
+            raise PermissionError("Only a pre-transfer disputed deal can be dismissed")
+        prior = conn.execute(select(marketplace_deal_events.c.event_id).where(
+            marketplace_deal_events.c.deal_id == deal_id,
+            marketplace_deal_events.c.event_type == "dispute_resolved",
+        ).limit(1)).first()
+        if prior:
+            return {"resolved": False, "duplicate": True, "status": deal["status"]}
+        changed = conn.execute(update(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id,
+            marketplace_deals.c.status == "disputed",
+        ).values(status="payment_confirmed", updated_at=current))
+        if changed.rowcount != 1:
+            raise RuntimeError("Deal changed while resolving dispute; retry")
+        _event(
+            conn, deal_id=deal_id, event_type="dispute_resolved",
+            actor_type="admin", actor_id=admin,
+            data={"decision": "dismiss", "reason": clean,
+                  "previous_status": "disputed", "next_status": "payment_confirmed"},
+            now=current,
+        )
+        return {"resolved": True, "duplicate": False, "status": "payment_confirmed",
+                "decision": "dismiss"}
+
+
 def refund_unfulfilled_deal(*, deal_id: str, reason: str, admin_user_id: str,
                             engine: Engine | None = None,
                             now: int | None = None) -> dict[str, Any]:
