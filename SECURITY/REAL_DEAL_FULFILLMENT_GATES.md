@@ -98,3 +98,13 @@ Until then, `TELEGRAM_STARS_PAYMENTS_ENABLED` and `MARKETPLACE_REAL_DEALS_ENABLE
 - If NFT transfer is already pending, a dispute moves the deal to `reconciliation_required`. This deliberately blocks automatic refund or payout because the chain transfer may already have been broadcast.
 - Dispute reasons and state transitions are stored in the deal event journal and are visible only to the authenticated buyer and seller through the deal detail endpoint.
 - This is a dispute intake and safety gate, not a complete human arbitration operation. An authorized, audited admin resolution workflow and evidence review remain required before funds can be released.
+
+
+## Administrative dispute decisions
+
+- The admin resolution endpoint is restricted to Telegram users listed in `ADMIN_TELEGRAM_IDS` / `ADMIN_TELEGRAM_ID` and requires a server-issued session.
+- An admin may dismiss a dispute only while the deal is still in the pre-transfer `disputed` state. Dismissal returns it to `payment_confirmed` and leaves funds in the deal hold; it does not pay the seller.
+- An admin refund decision is restricted to the `disputed` state and rechecks that state under the deal row lock before posting the refund journal.
+- Telegram Stars dispute refunds restore the accounting hold and explicitly return `manual_telegram_refund`; an admin must still complete the official Telegram refund flow and wait for its confirmed result before recording the final refund.
+- Deals in `reconciliation_required` cannot be dismissed or refunded by this workflow. They require independent chain evidence and a separately reviewed manual reconciliation process.
+- This workflow records a decision and reason, not uploaded evidence or a full appeals/arbitration system.
