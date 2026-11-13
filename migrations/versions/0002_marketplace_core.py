@@ -158,7 +158,8 @@ def upgrade():
         sa.CheckConstraint("currency IN ('TON', 'XTR')", name="ck_demo_deals_currency"),
         sa.CheckConstraint("status IN ('payment_not_enabled', 'awaiting_payment', 'payment_pending', 'paid', 'delivery_pending', 'completed', 'disputed', 'cancelled', 'expired')", name="ck_demo_deals_status"))
     op.create_index("idx_demo_deals_one_open_reservation", "demo_deals", ["order_id"], unique=True,
-                    postgresql_where=sa.text("status NOT IN ('cancelled', 'expired')"))
+                    postgresql_where=sa.text("status NOT IN ('cancelled', 'expired')"),
+                    sqlite_where=sa.text("status NOT IN ('cancelled', 'expired')"))
 
     bind = op.get_bind()
     deal_event_sequence = (sa.Column("sequence", sa.Integer(), sa.Identity(), nullable=False, unique=True)
@@ -214,7 +215,7 @@ def upgrade():
         sa.Column("gift_id", sa.String(160), nullable=False),
         sa.Column("fingerprint", sa.String(64), nullable=False),
         sa.Column("gift_json", sa.Text(), nullable=False),
-        sa.Column("observed_at", sa.BigInteger(), nullable=False),
+        sa.Column("observed_at", sa.Float(), nullable=False),
         sa.PrimaryKeyConstraint("gift_id", "fingerprint"))
     op.create_index("idx_catalogue_snapshots_gift_time", "catalogue_gift_snapshots", ["gift_id", "observed_at"])
 
