@@ -83,9 +83,11 @@ def get_asset(asset_id: str, chain: str, master_address: str, surface: str) -> A
     if asset.master_address != master_address:
         raise AssetRejected("unrecognized token master/contract address")
 
-    if selected_surface is Surface.TELEGRAM_MINI_APP:
-        if not asset.wallet_connect_allowed_in_mini_app or selected_chain is not Chain.TON:
-            raise AssetRejected("non-TON asset interaction is not allowed in Telegram Mini Apps")
+    if (
+        selected_surface is Surface.TELEGRAM_MINI_APP
+        and (not asset.wallet_connect_allowed_in_mini_app or selected_chain is not Chain.TON)
+    ):
+        raise AssetRejected("non-TON asset interaction is not allowed in Telegram Mini Apps")
 
     return asset
 
