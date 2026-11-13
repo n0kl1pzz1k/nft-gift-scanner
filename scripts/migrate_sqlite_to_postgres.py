@@ -84,10 +84,11 @@ def migrate(source_path: Path, apply: bool, source_quiesced: bool = False, batch
                     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
                 ).fetchall()
             }
-            if "telegram_stars_payments" in source_tables:
-                paid_rows = source.execute("SELECT COUNT(*) FROM telegram_stars_payments").fetchone()[0]
-                if paid_rows:
-                    raise RuntimeError("SQLite contains Telegram Stars payments; reconcile them separately before cutover")
+            for stars_table in ("telegram_stars_invoices", "telegram_stars_payments", "telegram_stars_refund_events"):
+                if stars_table in source_tables:
+                    rows = source.execute('SELECT COUNT(*) FROM "' + stars_table + '"').fetchone()[0]
+                    if rows:
+                        raise RuntimeError("SQLite contains Telegram Stars records; reconcile them separately before cutover")
 
             missing_required = sorted((set(TABLES) - OPTIONAL_SOURCE_TABLES) - source_tables)
             if missing_required:
