@@ -1,5 +1,6 @@
 """Central role and ownership policy. No financial mutation permission exists."""
 from enum import Enum
+
 from fastapi import HTTPException
 
 class Role(str, Enum):
