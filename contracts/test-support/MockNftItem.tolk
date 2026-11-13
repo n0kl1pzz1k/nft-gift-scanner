@@ -55,5 +55,6 @@ fun onInternalMessage(in: InMessage) {
 }
 
 get fun get_nft_owner(): address {
-    return lazy MockNftItemStorage.load().ownerAddress;
+    val storage = lazy MockNftItemStorage.load();
+    return storage.ownerAddress;
 }
