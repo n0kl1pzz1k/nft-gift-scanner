@@ -37,7 +37,7 @@ fun isTwoOfThree(mask: uint8): bool {
     return (mask == 3) | (mask == 5) | (mask == 6) | (mask == 7);
 }
 
-fun signerBit(sender: address, auth: PaymentEscrowAuthorityConfig): uint8 {
+fun signerBit(sender: address, signers: PaymentEscrowSignerSet): uint8 {
     if (sender == signers.signer1) { return 1; }
     if (sender == signers.signer2) { return 2; }
     if (sender == signers.signer3) { return 4; }
@@ -79,8 +79,8 @@ fun onInternalMessage(in: InMessage) {
             assert (storage.deadline <= blockchain.now() + MAX_DEAL_LIFETIME) throw PaymentEscrowErrors.Expired;
             assert ((storage.assetKind == ASSET_TON) | (storage.assetKind == ASSET_TEST_USDT_JETTON)) throw PaymentEscrowErrors.BadAsset;
             assert (parties.seller != parties.buyer) throw PaymentEscrowErrors.BadAsset;
-            assert (parties.seller != auth.platformConfigAuthority) throw PaymentEscrowErrors.Unauthorized;
-            assert (parties.buyer != auth.platformConfigAuthority) throw PaymentEscrowErrors.Unauthorized;
+            assert (parties.seller != signers.platformConfigAuthority) throw PaymentEscrowErrors.Unauthorized;
+            assert (parties.buyer != signers.platformConfigAuthority) throw PaymentEscrowErrors.Unauthorized;
             assert (signers.signer1 != signers.signer2) throw PaymentEscrowErrors.BadQuorum;
             assert (signers.signer1 != signers.signer3) throw PaymentEscrowErrors.BadQuorum;
             assert (signers.signer2 != signers.signer3) throw PaymentEscrowErrors.BadQuorum;
@@ -108,12 +108,12 @@ fun onInternalMessage(in: InMessage) {
             assert (parties.buyer != arbitrators.arbitrator1) throw PaymentEscrowErrors.Unauthorized;
             assert (parties.buyer != arbitrators.arbitrator2) throw PaymentEscrowErrors.Unauthorized;
             assert (parties.buyer != arbitrators.arbitrator3) throw PaymentEscrowErrors.Unauthorized;
-            assert (auth.platformConfigAuthority != signers.signer1) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.platformConfigAuthority != signers.signer2) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.platformConfigAuthority != signers.signer3) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.platformConfigAuthority != arbitrators.arbitrator1) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.platformConfigAuthority != arbitrators.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
-            assert (auth.platformConfigAuthority != arbitrators.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.platformConfigAuthority != signers.signer1) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.platformConfigAuthority != signers.signer2) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.platformConfigAuthority != signers.signer3) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.platformConfigAuthority != arbitrators.arbitrator1) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.platformConfigAuthority != arbitrators.arbitrator2) throw PaymentEscrowErrors.BadQuorum;
+            assert (signers.platformConfigAuthority != arbitrators.arbitrator3) throw PaymentEscrowErrors.BadQuorum;
             assert (arbitrators.resolverMultisig != parties.seller) throw PaymentEscrowErrors.BadQuorum;
             assert (arbitrators.resolverMultisig != parties.buyer) throw PaymentEscrowErrors.BadQuorum;
             assert (arbitrators.resolverMultisig != signers.signer1) throw PaymentEscrowErrors.BadQuorum;
@@ -165,6 +165,7 @@ fun onInternalMessage(in: InMessage) {
             var storage = lazy PaymentEscrowStorage.load();
             val parties = storage.parties.load();
             val auth = storage.authorities.load();
+            val assets = auth.assets.load();
             assert (storage.initialized) throw PaymentEscrowErrors.BadState;
             assert (storage.assetKind == ASSET_TEST_USDT_JETTON) throw PaymentEscrowErrors.BadAsset;
             assert (in.senderAddress == assets.escrowUsdtJettonWallet) throw PaymentEscrowErrors.Unauthorized;
@@ -182,12 +183,13 @@ fun onInternalMessage(in: InMessage) {
         ConfirmEscrowPayment => {
             var storage = lazy PaymentEscrowStorage.load();
             val auth = storage.authorities.load();
+            val signers = auth.signers.load();
             assert (storage.initialized) throw PaymentEscrowErrors.BadState;
             assert (storage.state == V2_PAYMENT_PENDING) throw PaymentEscrowErrors.BadState;
             assert (blockchain.now() < storage.deadline) throw PaymentEscrowErrors.Expired;
             assert (msg.queryId == storage.paymentQueryId) throw PaymentEscrowErrors.BadProof;
             assert (msg.amount == storage.expectedAmount) throw PaymentEscrowErrors.BadAmount;
-            val bit = signerBit(in.senderAddress, auth);
+            val bit = signerBit(in.senderAddress, signers);
             assert (bit != 0) throw PaymentEscrowErrors.Unauthorized;
             if ((storage.paymentApprovals & bit) != 0) {
                 return;
@@ -219,6 +221,7 @@ fun onInternalMessage(in: InMessage) {
         ConfirmEscrowNftDelivery => {
             var storage = lazy PaymentEscrowStorage.load();
             val auth = storage.authorities.load();
+            val signers = auth.signers.load();
             assert (storage.initialized) throw PaymentEscrowErrors.BadState;
             assert (storage.state == V2_TRANSFER_PENDING) throw PaymentEscrowErrors.BadState;
             assert (msg.buyerOwnershipProofHash != 0) throw PaymentEscrowErrors.BadProof;
