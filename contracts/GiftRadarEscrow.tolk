@@ -164,10 +164,9 @@ fun sendNftTo(storage: EscrowStorage, recipient: address, queryId: uint64) {
 
 fun onBouncedMessage(in: InMessageBounced) {
     in.bouncedBody.skipBouncedPrefix();
-    val bounced = lazy AskToChangeOwnership.fromSlice(in.bouncedBody);
     var storage = lazy EscrowStorage.load();
     assert (in.senderAddress == storage.nftItem) throw ERR_BAD_ASSET;
-    if (storage.state == STATE_TRANSFER_PENDING | storage.state == STATE_REFUND_PENDING) {
+    if ((storage.state == STATE_TRANSFER_PENDING) | (storage.state == STATE_REFUND_PENDING)) {
         // The NFT item rejected the transfer. Do not assume ownership or retry automatically.
         storage.state = STATE_RECONCILIATION_REQUIRED;
         storage.save();
