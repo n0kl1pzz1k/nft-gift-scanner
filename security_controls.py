@@ -55,7 +55,7 @@ class SecurityControlsMiddleware(BaseHTTPMiddleware):
                 except Exception:
                     return JSONResponse({"detail":"Rate limiter unavailable; request rejected"}, status_code=503)
             else:
-                if os.getenv("ENVIRONMENT", "").lower() == "production":
+                if _is_production():
                     return JSONResponse({"detail": "Distributed rate limiter is required for production mutations"}, status_code=503)
                 now = time.monotonic()
                 hits = _local[key]
@@ -65,6 +65,10 @@ class SecurityControlsMiddleware(BaseHTTPMiddleware):
                     return JSONResponse({"detail":"Rate limit exceeded"}, status_code=429, headers={"Retry-After":str(window)})
                 hits.append(now)
         return await call_next(request)
+
+def _is_production() -> bool:
+    value = os.getenv("ENVIRONMENT", os.getenv("RAILWAY_ENVIRONMENT_NAME", "")).lower()
+    return value == "production"
 
 def rate_limit_status() -> dict[str, object]:
     distributed = bool(os.getenv("REDIS_URL", "").strip() and Redis is not None)
