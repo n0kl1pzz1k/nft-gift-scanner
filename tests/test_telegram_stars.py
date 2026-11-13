@@ -192,7 +192,7 @@ class TelegramStarsLedgerTests(unittest.TestCase):
         )
         self.assertTrue(result["credited"])
         self.assertEqual(get_account_balance("asset:telegram_stars:clearing", "XTR", self.engine), 75)
-        self.assertEqual(get_account_balance("liability:seller:10010:XTR", "XTR", self.engine), -75)
+        self.assertEqual(get_account_balance("liability:deal_hold:deal-1:XTR", "XTR", self.engine), -75)
         with self.engine.connect() as connection:
             status = connection.execute(text("SELECT status FROM demo_deals WHERE id='deal-1'")).scalar_one()
         self.assertEqual(status, "paid")
