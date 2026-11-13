@@ -10,7 +10,7 @@ from marketplace_inventory import (
 )
 from marketplace_settlement import (
     create_deal_from_reservation, init_marketplace_settlement_schema,
-    marketplace_deals, marketplace_listings,
+    marketplace_deals, marketplace_listings, mark_deal_nft_transfer_pending,
 )
 
 from financial_ledger import (
@@ -70,6 +70,32 @@ class TelegramStarsLedgerTests(unittest.TestCase):
             engine=self.engine, now=1030,
         )
         return deal["deal_id"], listing["listing_id"]
+
+    def test_native_stars_refund_is_blocked_after_nft_transfer_starts(self):
+        from marketplace_settlement import mark_deal_nft_transfer_pending
+        deal_id, _ = self._create_native_xtr_deal()
+        record_telegram_stars_terms_acceptance(user_id="10020", engine=self.engine, now=900)
+        invoice = create_telegram_stars_invoice(
+            deal_id=deal_id, buyer_user_id="10020", engine=self.engine, now=1035,
+        )
+        self.assertTrue(approve_telegram_stars_pre_checkout(
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
+            amount_stars=75, query_id="native-transfer-precheckout", engine=self.engine, now=1040,
+        ))
+        settle_telegram_stars_payment(
+            payload=invoice["payload"], buyer_user_id="10020", currency="XTR",
+            amount_stars=75, telegram_payment_charge_id="native-transfer-charge",
+            engine=self.engine, now=1050,
+        )
+        mark_deal_nft_transfer_pending(deal_id=deal_id, engine=self.engine, now=1060)
+        with self.assertRaises(PermissionError):
+            request_telegram_stars_refund(
+                invoice_id=invoice["invoice_id"], buyer_user_id="10020",
+                reason="Transfer has already started", engine=self.engine, now=1070,
+            )
+        self.assertEqual(get_account_balance(
+            f"liability:deal_hold:{deal_id}:XTR", "XTR", self.engine
+        ), -75)
 
     def test_native_marketplace_deal_can_be_paid_and_refunded_with_stars(self):
         deal_id, listing_id = self._create_native_xtr_deal()
