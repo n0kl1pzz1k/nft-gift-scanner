@@ -79,12 +79,9 @@ def init_marketplace_settlement_schema(engine: Engine | None = None) -> None:
             version = conn.execute(__import__("sqlalchemy").text(
                 "SELECT version_num FROM alembic_version"
             )).scalar_one_or_none()
-        try:
-            migration_number = int(str(version).split("_", 1)[0])
-        except (TypeError, ValueError):
-            migration_number = 0
-        if migration_number < 12:
-            raise RuntimeError("Marketplace settlement and inventory migrations through 0012 are required")
+        from financial_ledger import migration_revision_number
+        if migration_revision_number(version) < 14:
+            raise RuntimeError("Marketplace settlement and inventory migrations through 0014 are required")
         return
     metadata.create_all(db)
     if db.dialect.name == "sqlite":
