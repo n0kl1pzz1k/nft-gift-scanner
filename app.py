@@ -36,6 +36,7 @@ def _stars_payment_enabled() -> bool:
     database_url = os.getenv("DATABASE_URL", "").strip()
     return bool(
         os.getenv("TELEGRAM_STARS_PAYMENTS_ENABLED", "false").strip().lower() == "true"
+        and os.getenv("MARKETPLACE_REAL_DEALS_ENABLED", "false").strip().lower() == "true"
         and _telegram_bot is not None
         and os.getenv("GIFT_RADAR_STORAGE_BACKEND", "sqlite").strip().lower() == "postgres"
         and database_url.startswith(("postgres://", "postgresql://", "postgresql+psycopg://"))
