@@ -1,0 +1,42 @@
+name: TON testnet escrow
+
+on:
+  push:
+    branches:
+      - feat/ton-testnet-escrow
+  pull_request:
+    branches:
+      - main
+      - payments/stars-ton-proof-phase-2026-11-13
+
+permissions:
+  contents: read
+
+jobs:
+  escrow-contract:
+    name: Build and test Tolk escrow (local emulator only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Acton 1.2.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/acton" "$HOME/.local/bin"
+          curl -fsSL "https://github.com/ton-blockchain/acton/releases/download/v1.2.1/acton-x86_64-unknown-linux-gnu.tar.gz" -o "$RUNNER_TEMP/acton.tar.gz"
+          echo "490d6763dcfe148e9c8346e3d56c398e950552d329a768b7e9168d4dd54afe3f  $RUNNER_TEMP/acton.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/acton.tar.gz" -C "$RUNNER_TEMP/acton"
+          ACTON_BIN="$(find "$RUNNER_TEMP/acton" -type f -name acton -perm -u+x -print -quit)"
+          test -n "$ACTON_BIN"
+          install -m 0755 "$ACTON_BIN" "$HOME/.local/bin/acton"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          acton --version
+      - name: Initialize pinned Acton standard library
+        run: acton init --stdlib-only
+      - name: Build escrow contract
+        run: acton build GiftRadarEscrow
+      - name: Generate typed test wrapper
+        run: acton wrapper GiftRadarEscrow
+      - name: Run local emulator tests
+        run: acton test --no-studio-reporting
