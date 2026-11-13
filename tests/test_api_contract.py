@@ -10,7 +10,7 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(_safe_total_count("12", 3), 12)
         self.assertEqual(_safe_total_count("invalid", 3), 3)
 
-    def test_portals_is_the_only_marketplace_adapter(self):
+    def test_native_marketplace_routes_are_exposed_without_external_adapters(self):
         paths = set(app.openapi()['paths'])
         self.assertIn("/health", paths)
         self.assertIn("/api/status", paths)
@@ -22,15 +22,14 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("/api/telegram/webhook", paths)
         self.assertNotIn("/api/tonnel/gifts", paths)
         self.assertNotIn("/api/mrkt/gifts", paths)
+        self.assertNotIn("/api/catalog/items", paths)
+        self.assertNotIn("/api/reference/gift-changes", paths)
+        self.assertNotIn("/api/reference/daily-floors", paths)
+        self.assertNotIn("/api/admin/marketplaces/{market}", paths)
 
-    def test_marketplace_visibility_contains_only_portals(self):
-        with patch("app.get_app_setting", return_value="true"):
-            self.assertEqual(_marketplace_visibility(), {"portals": True})
+    def test_marketplace_visibility_is_native_and_external_feeds_are_disabled(self):
+        self.assertEqual(_marketplace_visibility(), {"native": True, "external_marketplaces": False})
 
-    def test_reference_feeds_remain_separate_from_marketplace(self):
-        paths = set(app.openapi()['paths'])
-        self.assertIn("/api/reference/gift-changes", paths)
-        self.assertIn("/api/reference/daily-floors", paths)
 
     def test_cors_allows_telegram_post_auth(self):
         cors = next(
