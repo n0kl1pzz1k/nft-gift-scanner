@@ -17,7 +17,8 @@ class FinancialLedgerTests(unittest.TestCase):
         self.engine=create_engine(f"sqlite:///{Path(self.temp.name)/'ledger.sqlite3'}",future=True)
         init_financial_schema(self.engine)
     def tearDown(self):
-        self.engine.dispose(); self.temp.cleanup()
+        self.engine.dispose()
+        self.temp.cleanup()
     def postings(self, amount=100):
         return [
           {"account_id":"asset:clearing:TON","account_type":"asset","currency":"TON","amount_raw":amount},
@@ -34,7 +35,8 @@ class FinancialLedgerTests(unittest.TestCase):
     def test_duplicate_idempotency_key_is_harmless(self):
         a=post_journal_entry(idempotency_key="same",source_type="test",source_reference="ref",postings=self.postings(),engine=self.engine)
         b=post_journal_entry(idempotency_key="same",source_type="test",source_reference="ref",postings=self.postings(),engine=self.engine)
-        self.assertEqual(a["entry_id"],b["entry_id"]); self.assertTrue(b["duplicate"])
+        self.assertEqual(a["entry_id"], b["entry_id"])
+        self.assertTrue(b["duplicate"])
     def test_idempotency_key_payload_collision_rejected(self):
         post_journal_entry(idempotency_key="same",source_type="test",source_reference="ref",postings=self.postings(),engine=self.engine)
         with self.assertRaises(ValueError):
@@ -73,8 +75,11 @@ class FinancialLedgerTests(unittest.TestCase):
         trace={"chain":"ton-mainnet","master_address":"master","source_jetton_wallet":"jw","expected_source_jetton_wallet":"jw",
           "recipient_address":"other","amount_raw":100,"payload":"inv","opcode":"0x7362d09c","successful":True,
           "bounced":False,"finalized":True,"tx_hash":"abc","event_index":0}
-        with self.assertRaises(ValueError): verify_ton_payment_trace(trace,invoice)
-        trace["recipient_address"]="wallet"; trace["finalized"]=False
+        with self.assertRaises(ValueError):
+            verify_ton_payment_trace(trace, invoice)
+        trace["recipient_address"] = "wallet"
+        trace["finalized"] = False
         with self.assertRaises(ValueError): verify_ton_payment_trace(trace,invoice)
 
-if __name__=="__main__": unittest.main()
+if __name__ == "__main__":
+    unittest.main()
