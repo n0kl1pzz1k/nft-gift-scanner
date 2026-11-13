@@ -14,7 +14,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import (
-    BigInteger, CheckConstraint, Column, ForeignKey, Index, String, Table, Text,
+    BigInteger, CheckConstraint, Column, ForeignKey, Index, String, Table, Text, func,
     insert, select, update,
 )
 from sqlalchemy.engine import Engine
@@ -713,9 +713,14 @@ def list_reconciliation_required_deals(*, engine: Engine | None = None,
         marketplace_deals.c.updated_at.asc(), marketplace_deals.c.deal_id.asc()
     ).limit(int(limit)).offset(int(offset))
     with db.connect() as conn:
+        total = int(conn.execute(select(func.count()).select_from(
+            marketplace_deals
+        ).where(
+            marketplace_deals.c.status == "reconciliation_required"
+        )).scalar_one())
         rows = [dict(row) for row in conn.execute(query).mappings().all()]
         if not rows:
-            return {"items": [], "limit": int(limit), "offset": int(offset)}
+            return {"items": [], "total": total, "limit": int(limit), "offset": int(offset)}
         ids = [row["deal_id"] for row in rows]
         asset_ids = list({row["asset_id"] for row in rows})
         proofs = conn.execute(select(
@@ -774,7 +779,7 @@ def list_reconciliation_required_deals(*, engine: Engine | None = None,
     for row in rows:
         row["latest_ownership_proof"] = latest_proof.get(row["asset_id"])
         row["events"] = by_deal[row["deal_id"]][-25:]
-    return {"items": rows, "limit": int(limit), "offset": int(offset)}
+    return {"items": rows, "total": total, "limit": int(limit), "offset": int(offset)}
 
 
 def add_deal_reconciliation_note(*, deal_id: str, admin_user_id: str,
