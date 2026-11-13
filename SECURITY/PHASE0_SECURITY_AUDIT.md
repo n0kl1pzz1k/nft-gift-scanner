@@ -107,9 +107,15 @@ The inherited architecture document described a separate external web checkout a
 
 ## Test execution
 
-The six existing tests in tests/test_asset_policy.py were reproduced from the exact branch file contents in an isolated temporary Python test directory. Result: 6 passed.
+GitHub Actions run #280 for PR #49 completed successfully:
+- Backend: Ruff lint passed for the added security/test modules.
+- Backend: Python compileall passed.
+- Backend: all 81 unit/regression tests passed, including the three new Telegram update inbox idempotency tests.
+- Secret scan: Gitleaks full-history scan passed with no findings reported by the action.
+- Frontend: browser JavaScript syntax check, Svelte/TypeScript check, and frontend build passed.
+- Deployment configuration validation passed.
 
-This was not a full repository checkout or CI run. It does not validate app.py, marketplace.py, bot.py, the frontend, database migrations, or payment settlement. The new CI workflow and webhook inbox tests added in this branch still require a GitHub Actions run.
+This validates the current CI suite and repository state in the PR merge checkout. It does not prove production security, verify live payment settlement, or replace an independent penetration test and legal/platform review. Chain-payment idempotency remains unimplemented because there is no payment settlement or chain watcher yet.
 
 ## Release gate
 
