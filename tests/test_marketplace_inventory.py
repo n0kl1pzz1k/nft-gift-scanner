@@ -8,7 +8,6 @@ from sqlalchemy.exc import DBAPIError
 from marketplace_inventory import (
     init_inventory_schema, record_wallet_owned_nft, create_escrow_pending_listing,
     confirm_nft_escrow_deposit, reserve_verified_listing, cancel_listing_reservation,
-    marketplace_assets, marketplace_listing_events,
 )
 
 
