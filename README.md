@@ -67,6 +67,8 @@ Catalogue and provider integrations are read-only. The separate order-book inter
 
 ## Financial infrastructure and wallet connection (in progress)
 
+Real deal activation requirements are documented in [SECURITY/REAL_DEAL_FULFILLMENT_GATES.md](SECURITY/REAL_DEAL_FULFILLMENT_GATES.md). This is a release gate, not an enabled fulfilment feature.
+
 The financial ledger and marketplace stores are separate logical subsystems. A guarded PostgreSQL adapter and a one-way migration path now cover the marketplace, offers, notifications and Portals catalogue tables; SQLite remains the default until a controlled data cutover is completed.
 
 - financial_ledger.py implements balanced signed integer-unit postings, immutable journal rows, idempotency keys, account balance projections, server-owned payment invoices and strict normalized TON Jetton trace checks.
