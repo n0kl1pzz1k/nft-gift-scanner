@@ -26,6 +26,9 @@ class ApiContractTests(unittest.TestCase):
         self.assertNotIn("/api/reference/gift-changes", paths)
         self.assertNotIn("/api/reference/daily-floors", paths)
         self.assertNotIn("/api/admin/marketplaces/{market}", paths)
+        self.assertIn("/api/payments/stars/policy", paths)
+        self.assertIn("/api/payments/stars/refunds", paths)
+        self.assertIn("/api/admin/payments/stars/refunds/{request_id}/execute", paths)
 
     def test_marketplace_visibility_is_native_and_external_feeds_are_disabled(self):
         self.assertEqual(_marketplace_visibility(), {"native": True, "external_marketplaces": False})
