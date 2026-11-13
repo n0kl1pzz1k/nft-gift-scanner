@@ -493,8 +493,7 @@ async def list_verified_inventory_listings(limit: int = Query(default=50, ge=1, 
     init_inventory_schema(db)
     with db.connect() as conn:
         rows = conn.execute(select(
-            marketplace_listings.c.listing_id, marketplace_listings.c.asset_id,
-            marketplace_listings.c.price_raw,
+            marketplace_listings.c.listing_id, marketplace_listings.c.price_raw,
             marketplace_listings.c.currency, marketplace_listings.c.created_at,
             marketplace_assets.c.asset_type, marketplace_assets.c.collection_address,
             marketplace_assets.c.token_id,
@@ -787,9 +786,12 @@ async def _run_nft_inventory_monitor():
             try:
                 result = await scan_pending_nft_listings(engine=get_engine())
                 if result["activated"] or result["errors"]:
-                    logging.info("NFT escrow monitor: %s", result)
-            except Exception:
-                logging.exception("NFT escrow monitor cycle failed")
+                    logging.info(
+                        "NFT escrow monitor cycle completed; activated=%d; errors=%d",
+                        int(result["activated"]), len(result["errors"]),
+                    )
+            except Exception as exc:
+                logging.warning("NFT escrow monitor cycle failed (%s)", type(exc).__name__)
         await asyncio.sleep(20)
 
 
