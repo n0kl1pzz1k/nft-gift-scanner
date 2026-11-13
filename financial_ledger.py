@@ -413,6 +413,14 @@ def settle_telegram_stars_payment(*, payload: str, buyer_user_id: str, currency:
 
         if invoice["status"] != "pre_checkout_approved" or invoice["pre_checkout_approved_at"] is None:
             raise ValueError("Telegram payment was not pre-approved")
+        deal_state = conn.execute(text(
+            "SELECT d.is_real, d.status AS deal_status, o.status AS order_status "
+            "FROM demo_deals d JOIN demo_orders o ON o.id=d.order_id WHERE d.id=:deal_id"
+        ), {"deal_id": invoice["deal_id"]}).mappings().first()
+        if (deal_state is None or int(deal_state["is_real"] or 0) != 1
+                or deal_state["deal_status"] not in {"awaiting_payment", "payment_pending"}
+                or deal_state["order_status"] != "matched"):
+            raise RuntimeError("Payment receipt does not match a payable real deal")
         payment_event_id = str(uuid.uuid4())
         conn.execute(insert(stars_payments).values(
             payment_event_id=payment_event_id, invoice_id=invoice["invoice_id"],
