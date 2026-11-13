@@ -624,7 +624,7 @@ def request_telegram_stars_refund(*, invoice_id: str, buyer_user_id: str, reason
     lock = " FOR UPDATE" if db.dialect.name == "postgresql" else ""
     with db.begin() as conn:
         invoice = conn.execute(text(
-            "SELECT invoice_id, buyer_user_id, amount_stars, status, telegram_payment_charge_id "
+            "SELECT invoice_id, deal_id, buyer_user_id, amount_stars, status, telegram_payment_charge_id "
             "FROM telegram_stars_invoices WHERE invoice_id=:invoice_id" + lock
         ), {"invoice_id": str(invoice_id)}).mappings().first()
         if invoice is None:
@@ -633,6 +633,11 @@ def request_telegram_stars_refund(*, invoice_id: str, buyer_user_id: str, reason
             raise PermissionError("Only the original buyer can request a refund")
         if invoice["status"] != "paid" or not invoice["telegram_payment_charge_id"]:
             raise ValueError("Only a paid, non-refunded invoice can be refunded")
+        deal_status = conn.execute(text(
+            "SELECT status FROM demo_deals WHERE id=:deal_id"
+        ), {"deal_id": invoice["deal_id"]}).scalar_one_or_none()
+        if deal_status not in {"paid", "delivery_pending", "disputed"}:
+            raise PermissionError("Completed or inactive deals cannot be refunded")
         payment = conn.execute(select(stars_payments).where(
             stars_payments.c.invoice_id == str(invoice_id))).mappings().first()
         if (payment is None or payment["telegram_payment_charge_id"] != invoice["telegram_payment_charge_id"]
