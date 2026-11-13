@@ -28,6 +28,7 @@ fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscr
         initialized: false,
         state: V2_CREATED,
         paymentQueryId: 0,
+        transferQueryId: 0,
         paymentApprovals: 0,
         deliveryApprovals: 0,
         deliveryProofHash: 0,
