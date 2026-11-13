@@ -49,6 +49,7 @@ struct PaymentEscrowStorage {
     initialized: bool
     state: uint8
     paymentQueryId: uint64
+    transferQueryId: uint64
     paymentApprovals: uint8
     deliveryApprovals: uint8
     deliveryProofHash: uint256
@@ -133,6 +134,7 @@ struct PaymentEscrowStateReply {
     initialized: bool
     state: uint8
     paymentQueryId: uint64
+    transferQueryId: uint64
     paymentApprovals: uint8
     deliveryApprovals: uint8
     deliveryProofHash: uint256
