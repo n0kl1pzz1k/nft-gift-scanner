@@ -38,8 +38,7 @@ class SecurityControlsMiddleware(BaseHTTPMiddleware):
             if not origin and request.headers.get("sec-fetch-site", "").lower() == "cross-site":
                 return JSONResponse({"detail":"Cross-site mutation rejected"}, status_code=403)
         if path not in _EXEMPT and (path.startswith(_MUTATING_PREFIXES) or method not in {"GET","HEAD","OPTIONS"}):
-            ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-            ip = ip or (request.client.host if request.client else "unknown")
+            ip = request.client.host if request.client else "unknown"
             key = f"{method}:{path}:{ip}"
             limit, window = (30, 60)
             redis_url = os.getenv("REDIS_URL", "").strip()
@@ -56,6 +55,8 @@ class SecurityControlsMiddleware(BaseHTTPMiddleware):
                 except Exception:
                     return JSONResponse({"detail":"Rate limiter unavailable; request rejected"}, status_code=503)
             else:
+                if os.getenv("ENVIRONMENT", "").lower() == "production":
+                    return JSONResponse({"detail": "Distributed rate limiter is required for production mutations"}, status_code=503)
                 now = time.monotonic()
                 hits = _local[key]
                 while hits and hits[0] <= now-window:
