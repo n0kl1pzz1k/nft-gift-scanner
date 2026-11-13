@@ -202,7 +202,7 @@ Demo notification records exist, but there is no production outbox worker with r
 
 ### Last completed baseline run before this Phase 0 patch
 
-GitHub Actions run **#710**, commit `705dd077a67e3d13e8ab417e75cafa679705f450`, completed with success for all six jobs:
+GitHub Actions run **#714**, commit `b03904c27318faf5ceee506405da46625556a687`, completed with success for all six jobs:
 
 - Backend: Ruff lint, Python compilation, Alembic SQLite migration, `pip-audit` and **199 unit/regression tests passed** (5 skipped by the existing suite).
 - PostgreSQL integration: Alembic migration and **5 PostgreSQL schema/append-only smoke tests passed**.
@@ -211,7 +211,7 @@ GitHub Actions run **#710**, commit `705dd077a67e3d13e8ab417e75cafa679705f450`, 
 - Deployment configuration validation passed.
 - Gitleaks full-history scan for the checked-out stacked PR ref reported **no leaks found**.
 
-Run #710 validates the code at `705dd077`, including the request-body limiter and its regression tests. Later changes must be covered by the PR's latest CI run before merge.
+Run #714 validates the current code at `b03904c2`, including the global request-body limiter, forced no-store behavior and the public interface change log.
 
 The PostgreSQL smoke test intentionally emits database error log lines when asserting append-only triggers and uniqueness constraints. Those expected constraint errors were followed by a successful test result.
 
