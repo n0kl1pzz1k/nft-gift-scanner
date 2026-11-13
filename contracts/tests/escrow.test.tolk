@@ -57,7 +57,7 @@ fun setupEscrow(): (GiftRadarEscrow, address, address, address, address, address
 }
 
 fun depositNft(escrow: GiftRadarEscrow, seller: address, nftItem: address) {
-    val result = net.send(nftItem.address, createMessage({
+    val result = net.send(nftItem, createMessage({
         bounce: true,
         value: grams("0.2"),
         dest: escrow.address,
