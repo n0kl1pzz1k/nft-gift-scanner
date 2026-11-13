@@ -64,7 +64,7 @@ class SecurityControlsMiddleware(BaseHTTPMiddleware):
             if not origin and request.headers.get("sec-fetch-site", "").lower() == "cross-site":
                 return JSONResponse({"detail": "Cross-site mutation rejected"}, status_code=403)
 
-        needs_edge_limit = _requires_edge_limit(path)
+        needs_edge_limit = is_mutation and _requires_edge_limit(path)
         if path not in _EXEMPT and needs_edge_limit:
             ip = request.client.host if request.client else "unknown"
             bucket = next(prefix for prefix in _MUTATING_PREFIXES if path.startswith(prefix))\n            key = f"{method}:{bucket}:{ip}"
