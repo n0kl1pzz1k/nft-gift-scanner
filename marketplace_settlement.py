@@ -531,14 +531,14 @@ def resolve_deal_dispute(*, deal_id: str, decision: str, reason: str,
         deal = conn.execute(query).mappings().first()
         if deal is None:
             raise ValueError("Unknown marketplace deal")
-        if deal["status"] != "disputed":
-            raise PermissionError("Only a pre-transfer disputed deal can be dismissed")
         prior = conn.execute(select(marketplace_deal_events.c.event_id).where(
             marketplace_deal_events.c.deal_id == deal_id,
             marketplace_deal_events.c.event_type == "dispute_resolved",
         ).limit(1)).first()
         if prior:
             return {"resolved": False, "duplicate": True, "status": deal["status"]}
+        if deal["status"] != "disputed":
+            raise PermissionError("Only a pre-transfer disputed deal can be dismissed")
         changed = conn.execute(update(marketplace_deals).where(
             marketplace_deals.c.deal_id == deal_id,
             marketplace_deals.c.status == "disputed",
