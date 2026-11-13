@@ -225,7 +225,7 @@ async def telegram_logout_all(x_telegram_init_data: str | None = Header(default=
     return {"revoked_sessions": revoked_count}
 
 
-@app.post("/api/admin/marketplaces/{market}")
+@app.post("/api/admin/marketplaces/{market}", include_in_schema=False)
 async def admin_set_marketplace(
     market: str,
     payload: MarketplaceSettingRequest,
