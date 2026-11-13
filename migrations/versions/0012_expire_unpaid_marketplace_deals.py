@@ -1,7 +1,7 @@
 """Allow unpaid marketplace deals to expire without financial settlement."""
 from alembic import op
 
-revision = "0012_expire_unpaid_marketplace_deals"
+revision = "0012_expire_unpaid_deals"
 down_revision = "0011_withdrawal_approvals"
 branch_labels = None
 depends_on = None
