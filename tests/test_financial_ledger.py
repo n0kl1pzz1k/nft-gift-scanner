@@ -3,13 +3,14 @@ import time
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
-from sqlalchemy import create_engine, insert, text
+from sqlalchemy import create_engine, insert, select, text
 from sqlalchemy.exc import DBAPIError
 
 from financial_ledger import (
     get_account_balance, init_financial_schema, invoices, post_journal_entry,
-    migration_revision_number,
+    migration_revision_number, create_payment_invoice,
     ton_chain_observations, ton_trace_evidence_hash,
     settle_verified_ton_payment, verify_ton_payment_trace,
     request_ton_withdrawal, advance_withdrawal_to_processing,
@@ -131,6 +132,39 @@ class FinancialLedgerTests(unittest.TestCase):
         self.assertEqual(
             get_account_balance("liability:user:88:GRAM", "GRAM", self.engine), 0
         )
+
+    def test_crypto_invoice_creation_requires_full_release_gates_and_uses_exact_amount(self):
+        env = {
+            "TON_CRYPTO_DEPOSITS_ENABLED": "true",
+            "TON_DEPOSIT_MONITOR_ENABLED": "true",
+            "MARKETPLACE_REAL_DEALS_ENABLED": "true",
+            "GIFT_RADAR_STORAGE_BACKEND": "postgres",
+            "DATABASE_URL": "postgresql://user:pass@db.example/giftradar",
+            "TON_DEPOSIT_PROVIDER_IDS": "tonapi,toncenter",
+            "TONCENTER_API_KEY": "test-key",
+            "TONAPI_EMBED_URL": "https://tonapi.example",
+            "TON_DEPOSIT_ADDRESS": "0:" + "11" * 32,
+            "KZ_LEGAL_REVIEW_APPROVED": "true",
+            "KZ_DATA_RESIDENCY_VERIFIED": "true",
+            "KZ_TAX_REVIEW_APPROVED": "true",
+            "KZ_SECURITY_REVIEW_APPROVED": "true",
+        }
+        with patch.dict("os.environ", env, clear=True):
+            invoice_id = create_payment_invoice(
+                user_id="42", asset_id="usdt-ton", chain="ton-mainnet",
+                master_address="EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
+                recipient_address="0:" + "11" * 32, amount_raw=100_000,
+                payload="gri_crypto_invoice_test", expires_at=int(time.time()) + 600,
+                engine=self.engine,
+            )
+        with self.engine.connect() as conn:
+            invoice = conn.execute(select(invoices).where(
+                invoices.c.invoice_id == invoice_id
+            )).mappings().one()
+        self.assertEqual(invoice["asset_id"], "usdt-ton")
+        self.assertEqual(int(invoice["amount_raw"]), 100_000)
+        self.assertEqual(invoice["payload"], "gri_crypto_invoice_test")
+        self.assertEqual(invoice["status"], "pending")
 
     def test_crypto_invoice_creation_is_disabled_by_default(self):
         from financial_ledger import create_payment_invoice
