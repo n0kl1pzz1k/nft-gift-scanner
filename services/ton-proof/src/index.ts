@@ -38,7 +38,7 @@ const proofSchema = z.object({
 const verifySchema = z.object({
   userId: z.string().regex(/^\\d{1,24}$/),
   address: z.string().min(3).max(128),
-  network: z.enum(["-239", "-3"]),
+  network: z.literal("-3"),
   public_key: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(),
   proof: proofSchema,
   state_init: z.string().min(1).max(12000)
