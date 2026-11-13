@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, get_app_setting, init_marketplace_db, set_app_setting, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update
 from demo_offers import create_demo_offers_router, init_demo_offers_db
-from security_controls import SecurityControlsMiddleware, rate_limit_status
+from security_controls import SecurityControlsMiddleware
 from financial_ledger import get_engine
 from marketplace_inventory import (
     save_verified_wallet, get_active_verified_wallet, revoke_verified_wallet, record_wallet_owned_nft,
