@@ -70,6 +70,14 @@ app.add_middleware(SecurityControlsMiddleware)
 _refresh_task: asyncio.Task | None = None
 
 
+def _safe_total_count(reported_total: Any, item_count: int) -> int:
+    """Never report fewer catalogue rows than are actually returned."""
+    try:
+        return max(item_count, int(reported_total or 0))
+    except (TypeError, ValueError):
+        return item_count
+
+
 def _refresh_interval_seconds() -> int:
     try:
         return max(60, min(int(os.getenv("DATA_REFRESH_SECONDS", "60")), 900))
