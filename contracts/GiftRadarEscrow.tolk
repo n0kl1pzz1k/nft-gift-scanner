@@ -196,6 +196,12 @@ fun onInternalMessage(in: InMessage) {
                     (storage.state == STATE_PAID) |
                     (storage.state == STATE_TRANSFER_PENDING)) throw Errors.BadState;
             storage.disputeReasonHash = msg.reasonHash;
+            // A dismissed prior dispute must not poison the next dispute cycle.
+            storage.disputeApprovals = 0;
+            storage.resolutionDecision = 0;
+            var previousDeliveryEvidence = storage.deliveryEvidence.load();
+            previousDeliveryEvidence.resolutionHash = 0;
+            storage.deliveryEvidence = previousDeliveryEvidence.toCell();
             if (storage.state == STATE_TRANSFER_PENDING) {
                 // A transfer may already have executed on the NFT item. Never guess ownership.
                 storage.state = STATE_RECONCILIATION_REQUIRED;
@@ -291,7 +297,10 @@ fun onInternalMessage(in: InMessage) {
 
             // Dismissal resumes the previous state but never releases funds.
             storage.state = storage.preDisputeState;
-            storage.disputeApprovals = 3;
+            storage.disputeApprovals = 0;
+            storage.resolutionDecision = 0;
+            deliveryEvidence.resolutionHash = 0;
+            storage.deliveryEvidence = deliveryEvidence.toCell();
             storage.save();
         }
 
