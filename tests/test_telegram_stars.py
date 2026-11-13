@@ -10,7 +10,7 @@ from marketplace_inventory import (
 )
 from marketplace_settlement import (
     create_deal_from_reservation, init_marketplace_settlement_schema,
-    marketplace_deals, marketplace_listings, mark_deal_nft_transfer_pending,
+    mark_deal_nft_transfer_pending,
 )
 
 from financial_ledger import (
@@ -72,7 +72,6 @@ class TelegramStarsLedgerTests(unittest.TestCase):
         return deal["deal_id"], listing["listing_id"]
 
     def test_native_stars_refund_is_blocked_after_nft_transfer_starts(self):
-        from marketplace_settlement import mark_deal_nft_transfer_pending
         deal_id, _ = self._create_native_xtr_deal()
         record_telegram_stars_terms_acceptance(user_id="10020", engine=self.engine, now=900)
         invoice = create_telegram_stars_invoice(
