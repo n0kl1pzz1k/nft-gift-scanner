@@ -5,6 +5,7 @@ import os
 from typing import Any, Protocol
 
 from financial_ledger import _hash
+from ton_nft_providers import canonical_ton_address
 
 
 class TonNftStateProvider(Protocol):
@@ -16,8 +17,8 @@ class TonNftStateProvider(Protocol):
 
 def _configured_providers() -> set[str]:
     values = {part.strip() for part in os.getenv("TON_NFT_PROVIDER_IDS", "").split(",") if part.strip()}
-    if len(values) < 2:
-        raise RuntimeError("At least two independent TON NFT providers must be configured")
+    if values != {"tonapi", "toncenter"}:
+        raise RuntimeError("TON_NFT_PROVIDER_IDS must explicitly be 'tonapi,toncenter'")
     return values
 
 
@@ -46,13 +47,17 @@ def _validate_seller_nft_request(
         raise PermissionError("The verified wallet is not bound to this seller")
     if not verified_wallet_address or not collection_address or not item_address:
         raise ValueError("A verified seller wallet and canonical NFT identity are required")
+    verified_wallet_address = canonical_ton_address(verified_wallet_address)
+    collection_address = canonical_ton_address(collection_address)
+    item_address = canonical_ton_address(item_address)
     try:
         canonical_index = str(int(token_id))
     except (TypeError, ValueError):
         raise ValueError("NFT token ID must be a non-negative integer") from None
     if canonical_index != str(token_id).strip() or int(canonical_index) < 0:
         raise ValueError("NFT token ID is not canonical")
-    if collection_address not in allowed_collections.get(asset_type, set()):
+    approved = {canonical_ton_address(value) for value in allowed_collections.get(asset_type, set())}
+    if collection_address not in approved:
         raise PermissionError("NFT collection is not in the reviewed collection registry")
 
     trusted = _configured_providers()
@@ -98,10 +103,10 @@ async def verify_seller_nft_ownership_async(
         if state is None:
             raise ValueError("NFT item was not found by every configured provider")
         normalized = {
-            "item_address": str(state.get("item_address") or ""),
-            "collection_address": str(state.get("collection_address") or ""),
+            "item_address": canonical_ton_address(str(state.get("item_address") or "")),
+            "collection_address": canonical_ton_address(str(state.get("collection_address") or "")),
             "token_id": str(state.get("token_id") or ""),
-            "owner_address": str(state.get("owner_address") or ""),
+            "owner_address": canonical_ton_address(str(state.get("owner_address") or "")) if state.get("owner_address") else "",
             "initialized": state.get("initialized") is True,
         }
         states.append((provider.provider_id, normalized))
@@ -111,9 +116,9 @@ async def verify_seller_nft_ownership_async(
     state = states[0][1]
     if state["initialized"] is not True:
         raise ValueError("NFT item is not initialized")
-    if state["item_address"] != item_address:
+    if state["item_address"] != base["item_address"]:
         raise ValueError("NFT item address mismatch")
-    if state["collection_address"] != collection_address:
+    if state["collection_address"] != base["collection_address"]:
         raise ValueError("NFT collection mismatch")
     if state["token_id"] != base["token_id"]:
         raise ValueError("NFT token ID mismatch")
