@@ -46,6 +46,11 @@ class DealDisputeRequest(BaseModel):
     reason: str = Field(min_length=8, max_length=500)
 
 
+class DealReconciliationNoteRequest(BaseModel):
+    note: str = Field(min_length=8, max_length=1000)
+    idempotency_key: str = Field(min_length=16, max_length=128)
+
+
 class TonNftImportRequest(BaseModel):
     asset_type: str
     collection_address: str = Field(min_length=3, max_length=128)
@@ -726,6 +731,42 @@ async def resolve_native_marketplace_deal_dispute(
         raise HTTPException(status_code=403, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.get("/api/admin/inventory/reconciliation")
+async def list_native_marketplace_reconciliation_queue(
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    _require_admin(x_telegram_init_data)
+    from marketplace_settlement import list_reconciliation_required_deals
+    try:
+        return list_reconciliation_required_deals(
+            engine=get_engine(), limit=limit, offset=offset,
+        )
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid reconciliation queue pagination")
+
+
+@app.post("/api/admin/inventory/deals/{deal_id}/reconciliation-notes")
+async def add_native_marketplace_reconciliation_note(
+    deal_id: str,
+    payload: DealReconciliationNoteRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _require_admin(x_telegram_init_data)
+    from marketplace_settlement import add_deal_reconciliation_note
+    try:
+        return add_deal_reconciliation_note(
+            deal_id=deal_id, admin_user_id=str(user["id"]),
+            note=payload.note, idempotency_key=payload.idempotency_key,
+            engine=get_engine(),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 
