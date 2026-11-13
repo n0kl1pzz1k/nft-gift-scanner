@@ -1,7 +1,7 @@
 import tempfile, unittest
 from pathlib import Path
 from sqlalchemy import create_engine, text
-from financial_ledger import get_account_balance, init_financial_schema, post_journal_entry, verify_ton_payment_trace
+from financial_ledger import (get_account_balance, init_financial_schema, post_journal_entry, verify_ton_payment_trace, settle_verified_ton_payment, invoices)
 
 class FinancialLedgerTests(unittest.TestCase):
     def setUp(self):
@@ -35,6 +35,33 @@ class FinancialLedgerTests(unittest.TestCase):
         post_journal_entry(idempotency_key="append",source_type="test",source_reference="ref",postings=self.postings(),engine=self.engine)
         with self.assertRaises(Exception):
             with self.engine.begin() as conn: conn.execute(text("UPDATE ledger_entries SET source_type='changed'"))
+
+    def test_verified_ton_payment_posts_once_and_replay_is_harmless(self):
+        from sqlalchemy import insert
+        import time
+        invoice = {"invoice_id":"gri_test","user_id":"42","asset_id":"usdt-ton","chain":"ton-mainnet",
+            "master_address":"master","recipient_address":"wallet","amount_raw":"100",
+            "payload":"invoice-payload","expires_at":int(time.time())+600,"status":"pending","created_at":int(time.time())}
+        with self.engine.begin() as conn:
+            conn.execute(insert(invoices).values(**invoice))
+        trace = {"chain":"ton-mainnet","master_address":"master","source_jetton_wallet":"jetton-wallet",
+            "expected_source_jetton_wallet":"jetton-wallet","recipient_address":"wallet","amount_raw":100,
+            "payload":"invoice-payload","opcode":"0x7362d09c","successful":True,"bounced":False,
+            "finalized":True,"tx_hash":"transaction-hash","event_index":0}
+        first = settle_verified_ton_payment(invoice_id="gri_test",trace=trace,engine=self.engine)
+        second = settle_verified_ton_payment(invoice_id="gri_test",trace=trace,engine=self.engine)
+        self.assertTrue(first["credited"])
+        self.assertTrue(second["duplicate"])
+        self.assertEqual(get_account_balance("liability:user:42:usdt-ton","usdt-ton",self.engine),-100)
+
+    def test_crypto_invoice_creation_is_disabled_by_default(self):
+        from financial_ledger import create_payment_invoice
+        with self.assertRaises(PermissionError):
+            create_payment_invoice(user_id="1",asset_id="usdt-ton",chain="ton-mainnet",
+                master_address="EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
+                recipient_address="wallet",amount_raw=100,payload="disabled",expires_at=9999999999,
+                engine=self.engine)
+
     def test_ton_trace_fails_closed(self):
         invoice={"chain":"ton-mainnet","master_address":"master","recipient_address":"wallet","amount_raw":"100","payload":"inv"}
         trace={"chain":"ton-mainnet","master_address":"master","source_jetton_wallet":"jw","expected_source_jetton_wallet":"jw",
