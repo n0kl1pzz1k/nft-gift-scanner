@@ -7,7 +7,8 @@ from unittest.mock import patch
 from sqlalchemy import create_engine, insert
 
 from financial_ledger import withdrawal_requests
-from withdrawal_signer import (approve_withdrawal, init_withdrawal_signer_schema, RemoteHsmSigner,\n                                _require_matching_message_hash)
+from withdrawal_signer import (approve_withdrawal, init_withdrawal_signer_schema, RemoteHsmSigner,
+                                _require_matching_message_hash)
 
 
 class WithdrawalApprovalTests(unittest.TestCase):
