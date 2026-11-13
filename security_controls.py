@@ -22,6 +22,12 @@ except ImportError:
 _EXEMPT = {"/health"}
 _local: dict[str, deque[float]] = defaultdict(deque)
 _redis = None
+_RATE_LIMIT_SCRIPT = (
+    "local count = redis.call('INCR', KEYS[1]); "
+    "if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]); end; "
+    "return count"
+)
+API_MAX_BODY_BYTES = 1_048_576
 
 
 def _requires_edge_limit(path: str) -> bool:
@@ -101,9 +107,9 @@ class SecurityControlsMiddleware(BaseHTTPMiddleware):
                 if _redis is None:
                     _redis = Redis.from_url(redis_url, decode_responses=True)
                 try:
-                    count = await _redis.incr(f"gift-radar:rl:{key}")
-                    if count == 1:
-                        await _redis.expire(f"gift-radar:rl:{key}", window)
+                    count = await _redis.eval(
+                        _RATE_LIMIT_SCRIPT, 1, f"gift-radar:rl:{key}", window
+                    )
                     if count > limit:
                         return _apply_security_headers(JSONResponse(
                             {"detail": "Rate limit exceeded"},
@@ -134,6 +140,73 @@ class SecurityControlsMiddleware(BaseHTTPMiddleware):
                 hits.append(now)
         response = await call_next(request)
         return _apply_security_headers(response)
+
+
+class RequestBodyLimitMiddleware:
+    """Bound all API request bodies before FastAPI/Pydantic buffers them."""
+
+    def __init__(self, app, max_body_bytes: int = API_MAX_BODY_BYTES):
+        self.app = app
+        self.max_body_bytes = max_body_bytes
+
+    async def __call__(self, scope, receive, send):
+        if (
+            scope.get("type") != "http"
+            or not scope.get("path", "").startswith("/api/")
+            or scope.get("method", "GET").upper() not in {"POST", "PUT", "PATCH", "DELETE"}
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        raw_length = headers.get(b"content-length")
+        if raw_length is not None:
+            try:
+                declared_length = int(raw_length)
+            except (TypeError, ValueError):
+                response = _apply_security_headers(JSONResponse(
+                    {"detail": "Invalid Content-Length"}, status_code=400
+                ))
+                await response(scope, receive, send)
+                return
+            if declared_length < 0:
+                response = _apply_security_headers(JSONResponse(
+                    {"detail": "Invalid Content-Length"}, status_code=400
+                ))
+                await response(scope, receive, send)
+                return
+            if declared_length > self.max_body_bytes:
+                response = _apply_security_headers(JSONResponse(
+                    {"detail": "Request body too large"}, status_code=413
+                ))
+                await response(scope, receive, send)
+                return
+
+        buffered_messages = []
+        received_bytes = 0
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            if message["type"] != "http.request":
+                continue
+            received_bytes += len(message.get("body", b""))
+            if received_bytes > self.max_body_bytes:
+                response = _apply_security_headers(JSONResponse(
+                    {"detail": "Request body too large"}, status_code=413
+                ))
+                await response(scope, receive, send)
+                return
+            buffered_messages.append(message)
+            if not message.get("more_body", False):
+                break
+
+        async def replay_receive():
+            if buffered_messages:
+                return buffered_messages.pop(0)
+            return await receive()
+
+        await self.app(scope, replay_receive, send)
 
 
 def _is_production() -> bool:
