@@ -63,7 +63,6 @@ struct EscrowStorage {
     transferQueryId: uint64
     parties: Cell<EscrowParties>
     authorities: Cell<EscrowAuthorities>
-    disputeReasonHash: uint256
     paymentEvidence: Cell<PaymentEvidence>
     deliveryEvidence: Cell<DeliveryEvidence>
 }
