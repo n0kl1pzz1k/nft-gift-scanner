@@ -76,7 +76,9 @@ def create_withdrawal_request(*, user_id: str, asset_id: str,
                               destination_address: str, amount_raw: int,
                               idempotency_key: str, engine: Engine | None = None,
                               now: int | None = None) -> dict[str, Any]:
-    """Reserve a user's available ledger funds for a two-admin TON withdrawal."""
+    """Reserve funds only when the dedicated TON testnet payout adapter exists."""
+    if not TON_TESTNET_WITHDRAWAL_ADAPTER_READY:
+        raise PermissionError("TON withdrawal requests are disabled: no testnet payout adapter is implemented")
     if os.getenv("TON_WITHDRAWAL_REQUESTS_ENABLED", "false").strip().lower() != "true":
         raise PermissionError("TON withdrawal requests are disabled by policy")
     if os.getenv("TON_WITHDRAWALS_ENABLED", "false").strip().lower() != "true":
