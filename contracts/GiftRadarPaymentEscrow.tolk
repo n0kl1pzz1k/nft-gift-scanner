@@ -267,7 +267,7 @@ fun onInternalMessage(in: InMessage) {
             storage.paymentApprovals = storage.paymentApprovals | bit;
             if (isTwoOfThree(storage.paymentApprovals)) {
                 storage.state = V2_PAID;
-                storage.releaseAfter = blockchain.now() + 86400;
+                storage.releaseAfter = blockchain.now() + storage.releaseDelaySeconds;
             }
             storage.save();
         }
