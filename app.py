@@ -1173,17 +1173,18 @@ async def create_testnet_deal_payment_intent(
             deal_id=deal_id, route=route, actor_user_id=str(user["id"]),
             engine=get_engine(),
         )
-        jetton_wallet = os.getenv("TON_TESTNET_ESCROW_JETTON_WALLET", "").strip()
-        if not jetton_wallet:
-            raise RuntimeError("The escrow test Jetton wallet is not configured")
+        if not intent.payer_jetton_wallet_address or not intent.query_id:
+            raise RuntimeError("Buyer testnet Jetton wallet or transfer query ID is unavailable")
         return {
             "deal_id": intent.deal_id, "route_id": route.route_id,
             "network": intent.network, "currency": intent.currency,
             "amount_raw": intent.amount, "reference": intent.reference,
+            "query_id": intent.query_id,
+            "payer_address": intent.payer_address,
+            "payer_jetton_wallet_address": intent.payer_jetton_wallet_address,
             "escrow_address": route.escrow_address,
             "jetton_master": route.jetton_master,
-            "jetton_wallet": jetton_wallet,
-            "note": "Platform-issued test Jetton only. Attach the reference as a text forward payload.",
+            "note": "Platform-issued test Jetton only. The transaction includes the exact deal reference.",
         }
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
@@ -1199,9 +1200,7 @@ async def confirm_testnet_deal_payment(
     deal_id: str,
     x_telegram_init_data: str | None = Header(default=None),
 ):
-    # Confirmation is an independent administrative observation, never a
-    # buyer/seller action. The caller must be authenticated as a platform admin.
-    admin = _require_admin(x_telegram_init_data)
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
     from marketplace_settlement import (
         create_deal_payment_intent_via_route, confirm_deal_payment_via_route,
         marketplace_deals,
@@ -1215,15 +1214,15 @@ async def confirm_testnet_deal_payment(
             )).mappings().first()
         if deal is None:
             raise ValueError("Unknown marketplace deal")
-        # Build the read-only payment reference for this deal; this does not
-        # authorize the admin as a buyer and does not sign or broadcast.
+        if str(user["id"]) != str(deal["buyer_user_id"]):
+            _require_admin(x_telegram_init_data)
         intent = await create_deal_payment_intent_via_route(
             deal_id=deal_id, route=route, actor_user_id=str(deal["buyer_user_id"]),
             engine=get_engine(),
         )
         return await confirm_deal_payment_via_route(
             deal_id=deal_id, intent=intent, route=route,
-            actor_user_id=str(admin["id"]), engine=get_engine(),
+            actor_user_id=str(user["id"]), engine=get_engine(),
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
