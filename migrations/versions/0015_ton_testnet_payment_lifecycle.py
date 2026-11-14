@@ -49,6 +49,7 @@ def upgrade():
 
     with op.batch_alter_table("marketplace_deals") as batch:
         batch.add_column(sa.Column("seller_wallet_address", sa.String(128), nullable=True))
+        batch.add_column(sa.Column("escrow_contract_address", sa.String(128), nullable=True))
         batch.add_column(sa.Column("network", sa.String(16), nullable=False, server_default="ton-mainnet"))
         batch.add_column(sa.Column("payment_query_id", sa.BigInteger(), nullable=True))
         batch.add_column(sa.Column("payment_reference", sa.String(128), nullable=True))
@@ -108,7 +109,7 @@ def downgrade():
             "refund_verified_at", "refund_tx_hash", "refund_query_id",
             "payout_verified_at", "payout_tx_hash", "payout_query_id",
             "payment_network", "payment_reference", "payment_query_id",
-            "network", "seller_wallet_address",
+            "network", "escrow_contract_address", "seller_wallet_address",
         ):
             batch.drop_column(name)
 
