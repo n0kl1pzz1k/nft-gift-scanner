@@ -61,6 +61,9 @@ fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscr
         disputeApprovals: 0,
         disputeDecision: 0,
         disputeResolutionHash: 0,
+        payoutQueryId: 0,
+        payoutApprovals: 0,
+        payoutTxHash: 0,
         parties: PaymentEscrowParties {
             seller: seller.address,
             buyer: buyer.address,
@@ -254,8 +257,26 @@ get fun `test TON payment enters escrow then requires two distinct signers befor
         body: ConfirmEscrowNftDelivery { queryId: 7005, buyerOwnershipProofHash: proof },
     }));
     expect(secondDelivery).toHaveSuccessfulTx<ConfirmEscrowNftDelivery>({ from: signer2, to: escrow.address });
-    expect(readPaymentEscrowState(escrow).state).toEqual(V2_DELIVERED);
+    expect(readPaymentEscrowState(escrow).state).toEqual(V2_PAYOUT_PENDING);
     expect(readPaymentEscrowState(escrow).deliveryApprovals).toEqual(3);
+    expect(readPaymentEscrowState(escrow).payoutQueryId).toEqual(7005);
+    val payoutConfirmation1 = net.send(signer1, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ConfirmEscrowSellerPayout { queryId: 7005, payoutTxHash: 0x7005abc },
+    }));
+    expect(payoutConfirmation1).toHaveSuccessfulTx<ConfirmEscrowSellerPayout>({ from: signer1, to: escrow.address });
+    expect(readPaymentEscrowState(escrow).payoutApprovals).toEqual(1);
+    val payoutConfirmation2 = net.send(signer2, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ConfirmEscrowSellerPayout { queryId: 7005, payoutTxHash: 0x7005abc },
+    }));
+    expect(payoutConfirmation2).toHaveSuccessfulTx<ConfirmEscrowSellerPayout>({ from: signer2, to: escrow.address });
+    expect(readPaymentEscrowState(escrow).state).toEqual(V2_SETTLED);
+    expect(readPaymentEscrowState(escrow).payoutApprovals).toEqual(3);
 }
 
 get fun `test standard TEP-74 test Jetton transfers into escrow and needs two signers`() {
@@ -331,7 +352,23 @@ get fun `test standard TEP-74 test Jetton transfers into escrow and needs two si
         body: ConfirmEscrowNftDelivery { queryId: 8005, buyerOwnershipProofHash: proof },
     }));
     expect(secondDelivery).toHaveSuccessfulTx<ConfirmEscrowNftDelivery>({ from: signer2, to: escrow.address });
-    expect(readPaymentEscrowState(escrow).state).toEqual(V2_DELIVERED);
+    expect(readPaymentEscrowState(escrow).state).toEqual(V2_PAYOUT_PENDING);
+    expect(readPaymentEscrowState(escrow).payoutQueryId).toEqual(8005);
+    val payoutConfirmation1 = net.send(signer1, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ConfirmEscrowSellerPayout { queryId: 8005, payoutTxHash: 0x8005abc },
+    }));
+    expect(payoutConfirmation1).toHaveSuccessfulTx<ConfirmEscrowSellerPayout>({ from: signer1, to: escrow.address });
+    val payoutConfirmation2 = net.send(signer2, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ConfirmEscrowSellerPayout { queryId: 8005, payoutTxHash: 0x8005abc },
+    }));
+    expect(payoutConfirmation2).toHaveSuccessfulTx<ConfirmEscrowSellerPayout>({ from: signer2, to: escrow.address });
+    expect(readPaymentEscrowState(escrow).state).toEqual(V2_SETTLED);
 }
 
 

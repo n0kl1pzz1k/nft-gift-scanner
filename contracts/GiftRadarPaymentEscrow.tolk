@@ -16,6 +16,38 @@ contract GiftRadarPaymentEscrow {
     incomingMessages: PaymentEscrowMessages
 }
 
+fun sendSellerPayout(storage: PaymentEscrowStorage, parties: PaymentEscrowParties, auth: PaymentEscrowAuthorityConfig, queryId: uint64) {
+    assert (queryId != 0) throw PaymentEscrowErrors.BadProof;
+    if (storage.assetKind == ASSET_TON) {
+        assert (contract.getOriginalBalance() >= grams("0.2") + storage.expectedAmount) throw PaymentEscrowErrors.NotEnoughGas;
+        val payout = createMessage({
+            bounce: BounceMode.Only256BitsOfBody,
+            dest: parties.seller,
+            value: storage.expectedAmount,
+            body: SellerPayoutNotice { queryId, amount: storage.expectedAmount },
+        });
+        payout.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
+    } else {
+        val assets = auth.assets.load();
+        assert (assets.escrowUsdtJettonWallet != null) throw PaymentEscrowErrors.BadAsset;
+        val payout = createMessage({
+            bounce: BounceMode.Only256BitsOfBody,
+            dest: assets.escrowUsdtJettonWallet!,
+            value: grams("0.15"),
+            body: PaymentEscrowJettonTransfer {
+                queryId,
+                jettonAmount: storage.expectedAmount,
+                transferRecipient: parties.seller,
+                sendExcessesTo: contract.getAddress(),
+                customPayload: null,
+                forwardTonAmount: grams("0.05"),
+                forwardPayload: beginCell().storeUint(queryId, 64).toSlice(),
+            },
+        });
+        payout.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
+    }
+}
+
 fun sendEscrowNft(nftItem: address, recipient: address, queryId: uint64) {
     val transfer = createMessage({
         bounce: BounceMode.Only256BitsOfBody,
@@ -250,7 +282,38 @@ fun onInternalMessage(in: InMessage) {
                 storage.deliveryApprovals = storage.deliveryApprovals | bit;
             }
             if (isTwoOfThree(storage.deliveryApprovals)) {
-                storage.state = V2_DELIVERED;
+                storage.state = V2_PAYOUT_PENDING;
+                storage.payoutQueryId = msg.queryId;
+                storage.payoutApprovals = 0;
+                storage.payoutTxHash = 0;
+                storage.save();
+                sendSellerPayout(storage, parties, auth, msg.queryId);
+                return;
+            }
+            storage.save();
+        }
+
+        ConfirmEscrowSellerPayout => {
+            var storage = lazy PaymentEscrowStorage.load();
+            val auth = storage.authorities.load();
+            val signers = auth.signers.load();
+            assert (storage.initialized) throw PaymentEscrowErrors.BadState;
+            assert (storage.state == V2_PAYOUT_PENDING) throw PaymentEscrowErrors.BadState;
+            assert (msg.queryId == storage.payoutQueryId) throw PaymentEscrowErrors.BadProof;
+            assert (msg.payoutTxHash != 0) throw PaymentEscrowErrors.BadProof;
+            val bit = signerBit(in.senderAddress, signers);
+            assert (bit != 0) throw PaymentEscrowErrors.Unauthorized;
+            if (storage.payoutApprovals == 0) {
+                storage.payoutTxHash = msg.payoutTxHash;
+            } else {
+                assert (storage.payoutTxHash == msg.payoutTxHash) throw PaymentEscrowErrors.BadProof;
+            }
+            if ((storage.payoutApprovals & bit) != 0) {
+                return;
+            }
+            storage.payoutApprovals = storage.payoutApprovals | bit;
+            if (isTwoOfThree(storage.payoutApprovals)) {
+                storage.state = V2_SETTLED;
             }
             storage.save();
         }
@@ -317,6 +380,9 @@ get fun get_payment_escrow_state(): PaymentEscrowStateReply {
         disputeApprovals: storage.disputeApprovals,
         disputeDecision: storage.disputeDecision,
         disputeResolutionHash: storage.disputeResolutionHash,
+        payoutQueryId: storage.payoutQueryId,
+        payoutApprovals: storage.payoutApprovals,
+        payoutTxHash: storage.payoutTxHash,
     };
 }
 

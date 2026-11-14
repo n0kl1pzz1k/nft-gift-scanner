@@ -20,6 +20,8 @@ const V2_DELIVERED = 5;
 const V2_DISPUTED = 6;
 const V2_RECONCILIATION_REQUIRED = 7;
 const V2_DISPUTE_RESOLVED = 8;
+const V2_PAYOUT_PENDING = 9;
+const V2_SETTLED = 10;
 
 const ASSET_TON = 0;
 const ASSET_TEST_USDT_JETTON = 1;
@@ -71,6 +73,9 @@ struct PaymentEscrowStorage {
     disputeApprovals: uint8
     disputeDecision: uint8
     disputeResolutionHash: uint256
+    payoutQueryId: uint64
+    payoutApprovals: uint8
+    payoutTxHash: uint256
     parties: Cell<PaymentEscrowParties>
     authorities: Cell<PaymentEscrowAuthorityConfig>
 }
@@ -132,6 +137,26 @@ struct (0x47525607) ApprovePaymentEscrowDispute {
     resolutionHash: uint256
 }
 
+struct (0x47525608) SellerPayoutNotice {
+    queryId: uint64
+    amount: uint128
+}
+
+struct (0x0f8a7ea5) PaymentEscrowJettonTransfer {
+    queryId: uint64
+    jettonAmount: coins
+    transferRecipient: address
+    sendExcessesTo: address?
+    customPayload: cell?
+    forwardTonAmount: coins
+    forwardPayload: RemainingBitsAndRefs
+}
+
+struct (0x47525609) ConfirmEscrowSellerPayout {
+    queryId: uint64
+    payoutTxHash: uint256
+}
+
 type PaymentEscrowMessages =
     | InitializePaymentEscrow
     | PaymentEscrowNftDeposit
@@ -142,6 +167,7 @@ type PaymentEscrowMessages =
     | ConfirmEscrowNftDelivery
     | RaisePaymentEscrowDispute
     | ApprovePaymentEscrowDispute
+    | ConfirmEscrowSellerPayout
 
 struct PaymentEscrowStateReply {
     dealId: uint256
@@ -159,4 +185,7 @@ struct PaymentEscrowStateReply {
     disputeApprovals: uint8
     disputeDecision: uint8
     disputeResolutionHash: uint256
+    payoutQueryId: uint64
+    payoutApprovals: uint8
+    payoutTxHash: uint256
 }
