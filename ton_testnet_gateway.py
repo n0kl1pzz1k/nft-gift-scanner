@@ -244,8 +244,12 @@ class TonApiEmbedTestnetProvider:
 
     def __init__(self, *, base_url: str, api_key: str = "", timeout: float = 12.0):
         parsed = urlsplit(base_url)
-        hostname_labels = (parsed.hostname or "").lower().split(".")
-        if (parsed.scheme != "https" or "testnet" not in hostname_labels
+        hostname = (parsed.hostname or "").lower()
+        approved_host = (
+            hostname == "testnet.tonapi.io"
+            or hostname.startswith("embed.testnet.")
+        )
+        if (parsed.scheme != "https" or not approved_host
                 or parsed.username or parsed.password or parsed.query or parsed.fragment):
             raise PaymentRouteError(
                 "TonAPI Embed must use an explicitly configured HTTPS host with a dedicated testnet label"
