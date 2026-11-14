@@ -477,13 +477,25 @@ def mark_deal_nft_transfer_pending(*, deal_id: str, engine: Engine | None = None
     db = engine or get_engine()
     init_marketplace_settlement_schema(db)
     current = int(now or time.time())
+    lock = db.dialect.name == "postgresql"
     with db.begin() as conn:
+        query = select(marketplace_deals).where(marketplace_deals.c.deal_id == deal_id)
+        if lock:
+            query = query.with_for_update()
+        deal = conn.execute(query).mappings().first()
+        if deal is None:
+            raise ValueError("Unknown marketplace deal")
+        if deal["status"] != "payment_confirmed":
+            raise ValueError("Only a paid deal can enter NFT transfer")
+        if (deal["network"] == "ton-testnet" and deal["currency"] == "tUSDT"
+                and (not deal["payment_query_id"] or not deal["escrow_contract_address"])):
+            raise PermissionError("Testnet NFT release requires verified payment and escrow snapshots")
         changed = conn.execute(update(marketplace_deals).where(
             marketplace_deals.c.deal_id == deal_id,
             marketplace_deals.c.status == "payment_confirmed",
         ).values(status="nft_transfer_pending", updated_at=current))
         if changed.rowcount != 1:
-            raise ValueError("Only a paid deal can enter NFT transfer")
+            raise RuntimeError("Deal changed while preparing NFT transfer")
         _event(conn, deal_id=deal_id, event_type="nft_transfer_pending", now=current)
 
 
