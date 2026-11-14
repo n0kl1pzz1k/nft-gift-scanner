@@ -30,8 +30,8 @@ def canonical_ton_address(value: str) -> str:
     if len(decoded) != 36:
         raise ValueError("Friendly TON address must decode to 36 bytes")
     payload, checksum = decoded[:34], decoded[34:]
-    if payload[0] not in (0x11, 0x51):
-        raise ValueError("Only mainnet bounceable/non-bounceable friendly addresses are accepted")
+    if payload[0] not in (0x11, 0x51, 0x91, 0xD1):
+        raise ValueError("Unsupported TON friendly address flags")
     crc = 0
     for byte in payload:
         crc ^= byte << 8
@@ -46,16 +46,17 @@ def canonical_ton_address(value: str) -> str:
 class TonApiNftProvider:
     provider_id = "tonapi"
 
-    def __init__(self, *, api_key: str, timeout: float = 12.0):
+    def __init__(self, *, api_key: str, base_url: str = "https://tonapi.io", timeout: float = 12.0):
         if not api_key:
             raise RuntimeError("TONAPI_KEY is required for the TonAPI NFT adapter")
         self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
     async def get_nft_transfer(self, item_address: str, old_owner: str, new_owner: str) -> dict[str, Any] | None:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.get(
-                "https://tonapi.io/v2/accounts/" + new_owner + "/nfts/history",
+                self.base_url + "/v2/accounts/" + new_owner + "/nfts/history",
                 params={"limit": 1000},
                 headers={"Authorization": "Bearer " + self.api_key},
             )
@@ -89,7 +90,7 @@ class TonApiNftProvider:
     async def get_account_code_hash(self, account_address: str) -> str | None:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.get(
-                "https://tonapi.io/v2/blockchain/accounts/" + account_address,
+                self.base_url + "/v2/blockchain/accounts/" + account_address,
                 headers={"Authorization": "Bearer " + self.api_key},
             )
         if response.status_code == 404:
@@ -101,7 +102,7 @@ class TonApiNftProvider:
     async def get_nft_state(self, item_address: str) -> dict[str, Any] | None:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.get(
-                "https://tonapi.io/v2/nfts/" + item_address,
+                self.base_url + "/v2/nfts/" + item_address,
                 headers={"Authorization": "Bearer " + self.api_key},
             )
         if response.status_code == 404:
@@ -122,16 +123,17 @@ class TonApiNftProvider:
 class ToncenterNftProvider:
     provider_id = "toncenter"
 
-    def __init__(self, *, api_key: str, timeout: float = 12.0):
+    def __init__(self, *, api_key: str, base_url: str = "https://toncenter.com", timeout: float = 12.0):
         if not api_key:
             raise RuntimeError("TONCENTER_API_KEY is required for the Toncenter NFT adapter")
         self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
     async def get_nft_transfer(self, item_address: str, old_owner: str, new_owner: str) -> dict[str, Any] | None:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.get(
-                "https://toncenter.com/api/v3/nft/transfers",
+                self.base_url + "/api/v3/nft/transfers",
                 params={"item_address": item_address, "limit": 100, "sort": "desc"},
                 headers={"X-API-Key": self.api_key},
             )
@@ -159,7 +161,7 @@ class ToncenterNftProvider:
     async def get_account_code_hash(self, account_address: str) -> str | None:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.get(
-                "https://toncenter.com/api/v3/accountStates",
+                self.base_url + "/api/v3/accountStates",
                 params={"address": account_address, "include_boc": "false"},
                 headers={"X-API-Key": self.api_key},
             )
@@ -173,7 +175,7 @@ class ToncenterNftProvider:
     async def get_nft_state(self, item_address: str) -> dict[str, Any] | None:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.get(
-                "https://toncenter.com/api/v3/nft/items",
+                self.base_url + "/api/v3/nft/items",
                 params={"address": item_address, "limit": 1},
                 headers={"X-API-Key": self.api_key},
             )
@@ -206,4 +208,21 @@ def configured_nft_providers() -> list[Any]:
     return [
         TonApiNftProvider(api_key=os.getenv("TONAPI_KEY", "")),
         ToncenterNftProvider(api_key=os.getenv("TONCENTER_API_KEY", "")),
+    ]
+def configured_testnet_nft_providers() -> list[Any]:
+    """Use the testnet API hosts and separately scoped credentials."""
+    configured = {
+        item.strip() for item in os.getenv("TON_TESTNET_NFT_PROVIDER_IDS", "").split(",") if item.strip()
+    }
+    if configured != {"tonapi", "toncenter"}:
+        raise RuntimeError("TON_TESTNET_NFT_PROVIDER_IDS must explicitly be 'tonapi,toncenter'")
+    return [
+        TonApiNftProvider(
+            api_key=os.getenv("TON_TESTNET_TONAPI_KEY", ""),
+            base_url="https://testnet.tonapi.io",
+        ),
+        ToncenterNftProvider(
+            api_key=os.getenv("TON_TESTNET_TONCENTER_API_KEY", ""),
+            base_url="https://testnet.toncenter.com",
+        ),
     ]
