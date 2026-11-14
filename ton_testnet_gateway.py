@@ -206,7 +206,7 @@ class TonCenterTestnetProvider:
                 continue
             return TestnetTransfer(
                 provider_id=self.provider_id, transaction_id=tx,
-                deal_id=reference.split(":")[1], reference=reference,
+                deal_id=_deal_id_from_reference(reference), reference=reference,
                 amount=row_amount, currency="tUSDT", network="testnet",
                 sender=str(sender), recipient=str(recipient),
                 finalized=bool(mc_seqno > 0 and account_lt >= lt),
@@ -305,7 +305,7 @@ class TonApiEmbedTestnetProvider:
                 continue
             return TestnetTransfer(
                 provider_id=self.provider_id, transaction_id=tx,
-                deal_id=reference.split(":")[1], reference=reference,
+                deal_id=_deal_id_from_reference(reference), reference=reference,
                 amount=row_amount, currency="tUSDT", network="testnet",
                 sender=str(sender), recipient=str(recipient),
                 finalized=bool(mc_seqno > 0 and last_lt >= lt),
