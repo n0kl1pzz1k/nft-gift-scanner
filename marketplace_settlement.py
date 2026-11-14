@@ -182,9 +182,12 @@ def create_deal_from_reservation(*, reservation_id: str, buyer_user_id: str,
             raise ValueError("TON testnet listings must use the testnet-only tUSDT currency")
         if network == "ton-mainnet" and listing["currency"] == "tUSDT":
             raise ValueError("tUSDT cannot be used for a mainnet asset")
-        seller_wallet = canonical_ton_address(asset["owner_wallet_address"] or "")
+        seller_wallet_source = asset["seller_wallet_address"] or (
+            asset["owner_wallet_address"] if asset["custody_state"] == "wallet_owned" else ""
+        )
+        seller_wallet = canonical_ton_address(seller_wallet_source or "")
         if not seller_wallet.startswith("0:"):
-            raise ValueError("Seller wallet snapshot is missing or invalid")
+            raise ValueError("Immutable seller wallet snapshot is missing; asset must be re-verified before sale")
         escrow_address = str(
             asset["escrow_contract_address"]
             or os.getenv("TON_TESTNET_ESCROW_ADDRESS" if network == "ton-testnet" else "GIFT_RADAR_ESCROW_ADDRESS", "")
