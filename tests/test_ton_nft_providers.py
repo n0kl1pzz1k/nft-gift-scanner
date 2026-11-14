@@ -60,6 +60,67 @@ class TonNftProviderTests(unittest.TestCase):
         ToncenterNftProvider(api_key="test-key", base_url="https://testnet.toncenter.com")
         ToncenterNftProvider(api_key="test-key", base_url="https://toncenter.com")
 
+
+    def test_tonapi_rejects_state_for_a_different_nft_item(self):
+        import asyncio
+        requested = "0:" + "11" * 32
+        returned = "0:" + "22" * 32
+        collection = "0:" + "33" * 32
+
+        class Response:
+            status_code = 200
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {
+                    "address": returned,
+                    "collection": {"address": collection},
+                    "index": 7,
+                    "owner": {"address": "0:" + "44" * 32},
+                }
+
+        class Client:
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return False
+            async def get(self, *args, **kwargs):
+                return Response()
+
+        provider = TonApiNftProvider(api_key="test-key", base_url="https://testnet.tonapi.io")
+        with patch("ton_nft_providers.httpx.AsyncClient", return_value=Client()):
+            with self.assertRaisesRegex(ValueError, "different NFT item"):
+                asyncio.run(provider.get_nft_state(requested))
+
+    def test_toncenter_ignores_state_for_a_different_nft_item(self):
+        import asyncio
+        requested = "0:" + "11" * 32
+        returned = "0:" + "22" * 32
+
+        class Response:
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {"nft_items": [{
+                    "address": returned,
+                    "collection_address": "0:" + "33" * 32,
+                    "index": 7,
+                    "owner_address": "0:" + "44" * 32,
+                    "init": True,
+                }]}
+
+        class Client:
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return False
+            async def get(self, *args, **kwargs):
+                return Response()
+
+        provider = ToncenterNftProvider(api_key="test-key", base_url="https://testnet.toncenter.com")
+        with patch("ton_nft_providers.httpx.AsyncClient", return_value=Client()):
+            self.assertIsNone(asyncio.run(provider.get_nft_state(requested)))
+
     def test_provider_quorum_requires_two_named_independent_operators_and_keys(self):
         with patch.dict(os.environ, {
             "TON_NFT_PROVIDER_IDS": "tonapi,toncenter",
