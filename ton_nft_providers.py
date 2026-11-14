@@ -5,6 +5,7 @@ import base64
 import binascii
 import os
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -49,6 +50,10 @@ class TonApiNftProvider:
     def __init__(self, *, api_key: str, base_url: str = "https://tonapi.io", timeout: float = 12.0):
         if not api_key:
             raise RuntimeError("TONAPI_KEY is required for the TonAPI NFT adapter")
+        parsed = urlparse(base_url)
+        if (parsed.scheme != "https" or parsed.hostname not in {"tonapi.io", "testnet.tonapi.io"}
+                or parsed.username or parsed.password or parsed.port or parsed.query or parsed.fragment):
+            raise ValueError("TonAPI NFT adapter requires an approved HTTPS TON API hostname")
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
@@ -126,6 +131,11 @@ class ToncenterNftProvider:
     def __init__(self, *, api_key: str, base_url: str = "https://toncenter.com", timeout: float = 12.0):
         if not api_key:
             raise RuntimeError("TONCENTER_API_KEY is required for the Toncenter NFT adapter")
+        parsed = urlparse(base_url)
+        if (parsed.scheme != "https" or parsed.hostname not in {
+                "toncenter.com", "testnet.toncenter.com"
+        } or parsed.username or parsed.password or parsed.port or parsed.query or parsed.fragment):
+            raise ValueError("Toncenter NFT adapter requires an approved HTTPS TON API hostname")
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
