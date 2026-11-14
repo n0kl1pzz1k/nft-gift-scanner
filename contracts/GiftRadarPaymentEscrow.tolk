@@ -375,7 +375,7 @@ fun onInternalMessage(in: InMessage) {
             }
             storage.disputeApprovals = storage.disputeApprovals | bit;
             if (isTwoOfThree(storage.disputeApprovals)) {
-                storage.state = V2_DISPUTE_RESOLVED;
+                storage.state = V2_DISPUTE_DECISION_APPROVED;
             }
             storage.save();
         }
