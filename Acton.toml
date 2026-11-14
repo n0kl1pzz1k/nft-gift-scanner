@@ -14,6 +14,11 @@ src = "contracts/GiftRadarPaymentEscrow.tolk"
 depends = []
 output = "artifacts/GiftRadarPaymentEscrow.boc"
 
+[contracts.MockNftCollection]
+src = "contracts/test-support/MockNftCollection.tolk"
+depends = []
+output = "artifacts/MockNftCollection.boc"
+
 [contracts.MockNftItem]
 src = "contracts/test-support/MockNftItem.tolk"
 depends = []
