@@ -1333,11 +1333,10 @@ async def confirm_testnet_deal_refund(
                 raise HTTPException(status_code=409, detail="NFT identity differs from the registered asset")
             tx_hash = str(transfer["tx_hash"]).lower().removeprefix("0x")
             evidence_hash = hashlib.sha256(json.dumps({
-                "provider_id": provider.provider_id, "tx_hash": tx_hash,
-                "item_address": asset["item_address"],
-                "old_owner": deal["escrow_contract_address"],
-                "new_owner": deal["seller_wallet_address"],
-                "event_index": transfer.get("event_index"),
+                "tx_hash": tx_hash,
+                "item_address": canonical_ton_address(asset["item_address"]),
+                "old_owner": canonical_ton_address(deal["escrow_contract_address"]),
+                "new_owner": canonical_ton_address(deal["seller_wallet_address"]),
             }, sort_keys=True).encode()).hexdigest()
             return_proofs.append({
                 "provider_id": provider.provider_id, "tx_hash": tx_hash,
