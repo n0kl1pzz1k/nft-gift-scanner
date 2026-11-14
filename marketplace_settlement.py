@@ -184,6 +184,13 @@ def create_deal_from_reservation(*, reservation_id: str, buyer_user_id: str,
         seller_wallet = canonical_ton_address(asset["owner_wallet_address"] or "")
         if not seller_wallet.startswith("0:"):
             raise ValueError("Seller wallet snapshot is missing or invalid")
+        escrow_address = str(
+            asset["escrow_contract_address"]
+            or os.getenv("TON_TESTNET_ESCROW_ADDRESS" if network == "ton-testnet" else "GIFT_RADAR_ESCROW_ADDRESS", "")
+        ).strip()
+        escrow_address = canonical_ton_address(escrow_address) if escrow_address else ""
+        if not escrow_address.startswith("0:"):
+            raise ValueError("The asset has no configured escrow contract address")
         if asset["custody_state"] != "escrowed" or int(asset["ownership_expires_at"] or 0) <= current:
             raise PermissionError("NFT escrow ownership proof is stale")
         deal_id = "grd_" + uuid.uuid4().hex
@@ -192,6 +199,7 @@ def create_deal_from_reservation(*, reservation_id: str, buyer_user_id: str,
             reservation_id=reservation_id, asset_id=listing["asset_id"],
             buyer_user_id=uid, seller_user_id=listing["seller_user_id"],
             buyer_wallet_address=wallet, seller_wallet_address=seller_wallet,
+            escrow_contract_address=escrow_address,
             network=network, currency=listing["currency"],
             price_raw=int(listing["price_raw"]), status="reserved",
             idempotency_key=idempotency_key, created_at=current, updated_at=current,
