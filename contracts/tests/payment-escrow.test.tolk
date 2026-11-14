@@ -88,9 +88,9 @@ fun setupPaymentEscrow(assetKind: uint8, amount: coins): (GiftRadarPaymentEscrow
                 signer3: signer3.address,
             }.toCell(),
             arbitrators: PaymentEscrowArbitratorSet {
-                arbitrator1: arb1,
-                arbitrator2: arb2,
-                arbitrator3: arb3,
+                arbitrator1: arb1.address,
+                arbitrator2: arb2.address,
+                arbitrator3: arb3.address,
             }.toCell(),
             assets: PaymentEscrowAssetConfig {
                 usdtJettonMaster: minter.address,
@@ -416,7 +416,7 @@ get fun `test standard TEP-74 test Jetton transfers into escrow and needs two si
 
 
 get fun `test dispute decision requires two distinct arbitrators and matching resolution evidence`() {
-    val (escrow, seller, buyer, nftItem, signer1, signer2, signer3, _, _, _, _, arb1, arb2, arb3, resolver) =
+    val (escrow, seller, buyer, nftItem, signer1, signer2, _signer3, _, _, _, _, arb1, arb2, arb3, resolver) =
         setupPaymentEscrow(ASSET_TON, 250000000);
     depositPaymentNft(escrow, seller, nftItem);
 
