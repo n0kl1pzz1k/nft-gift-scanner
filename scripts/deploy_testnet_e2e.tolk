@@ -9,6 +9,7 @@ import "@contracts/test-jetton/storage"
 import "@wrappers/GiftRadarPaymentEscrow.gen"
 import "@wrappers/MockNftItem.gen"
 import "@wrappers/MockNftCollection.gen"
+import "@contracts/test-support/MockNftCollection"
 import "@wrappers/JettonMinter.gen"
 
 fun buildTestNftContent(): cell {
