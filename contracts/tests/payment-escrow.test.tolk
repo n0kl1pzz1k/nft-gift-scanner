@@ -27,6 +27,9 @@ fun setupPaymentEscrow(assetKind: uint8, amount: coins): (GiftRadarPaymentEscrow
     val signer1 = testing.treasury("payment-signer-1");
     val signer2 = testing.treasury("payment-signer-2");
     val signer3 = testing.treasury("payment-signer-3");
+    val arb1 = testing.treasury("payment-arb-1");
+    val arb2 = testing.treasury("payment-arb-2");
+    val arb3 = testing.treasury("payment-arb-3");
     val resolver = testing.treasury("neutral-resolver-multisig");
     val minter = JettonMinter.fromStorage({
         totalSupply: 0,
