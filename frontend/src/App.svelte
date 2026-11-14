@@ -38,6 +38,7 @@
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://nft-gift-scanner-production.up.railway.app').replace(/\/$/, '');
   let tonConnectUI = $state<TonConnectUI | null>(null);
   let connectedWallet = $state('');
+  let walletNetwork = $state('');
   let walletAppName = $state('');
   let walletBusy = $state(false);
   let walletVerified = $state(false);
@@ -955,10 +956,14 @@
       if (verified.verified !== true) throw new Error('Server did not verify wallet ownership');
       connectedWallet = verified.address || wallet.account.address;
       walletAppName = wallet.device.appName || 'TON Connect';
-      walletVerified = true;
+      walletNetwork = String(verified.network || wallet.account.chain);
+      walletVerified = verified.verified === true && walletNetwork === '-239';
+      if (!walletVerified) throw new Error(lang === 'ru'
+        ? 'Для покупательской привязки backend пока принимает только TON mainnet TON Proof. Переключи сеть кошелька на mainnet и подключи его снова. Оплата tUSDT при этом остаётся отдельным тестом в TON testnet.'
+        : 'The current buyer-wallet binding accepts TON mainnet TON Proof only. Switch the wallet to mainnet and reconnect. The tUSDT payment itself remains a separate TON testnet test.');
       notice = lang === 'ru'
-        ? 'Кошелёк подключён и подтверждён криптографической подписью.'
-        : 'Wallet connected and verified with a cryptographic proof.';
+        ? 'TON mainnet-кошелёк подтверждён. Тестовый tUSDT-платёж будет идти отдельно в TON testnet.'
+        : 'TON mainnet wallet verified. The testnet tUSDT payment runs separately on TON testnet.';
     } catch (e) {
       walletVerified = false;
       notice = e instanceof Error ? e.message : String(e);
@@ -978,6 +983,7 @@
       await tonConnectUI.disconnect();
       connectedWallet = '';
       walletAppName = '';
+      walletNetwork = '';
       walletVerified = false;
       notice = lang==='ru' ? 'Кошелёк отключён, подтверждённая привязка отозвана.' : 'Wallet disconnected and verified binding revoked.';
     } catch (e) {
@@ -1037,7 +1043,7 @@
       });
       tonConnectUI.onStatusChange((wallet) => {
         const nextAddress = wallet?.account.address || '';
-        if (nextAddress !== connectedWallet) walletVerified = false;
+        if (nextAddress !== connectedWallet) { walletVerified = false; walletNetwork = ''; }
         connectedWallet = nextAddress;
         walletAppName = wallet?.device.appName || '';
       });
