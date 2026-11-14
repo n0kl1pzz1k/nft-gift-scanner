@@ -127,8 +127,19 @@ class MarketplaceSettlementTests(unittest.TestCase):
 
         with self.engine.begin() as conn:
             conn.execute(text(
-                "UPDATE marketplace_deals SET currency='USDT' WHERE deal_id=:deal_id"
-            ), {"deal_id": self.deal_id})
+                "UPDATE marketplace_assets SET network='ton-testnet', asset_type='testnet_mock_nft', "
+                "canonical_asset_id=:canonical WHERE asset_id=:asset_id"
+            ), {"canonical": f"ton-testnet:{self.collection}:7", "asset_id": self.asset_id})
+            conn.execute(text(
+                "UPDATE marketplace_listings SET currency='tUSDT' WHERE listing_id=:listing_id"
+            ), {"listing_id": self.listing_id})
+            conn.execute(text(
+                "UPDATE verified_wallets SET network='ton-testnet' WHERE user_id='202' AND address=:wallet"
+            ), {"wallet": self.buyer_wallet})
+            conn.execute(text(
+                "UPDATE marketplace_deals SET currency='tUSDT', network='ton-testnet', "
+                "escrow_contract_address=:escrow WHERE deal_id=:deal_id"
+            ), {"escrow": self.escrow, "deal_id": self.deal_id})
         buyer_before = get_account_balance(
             "liability:user:202:GRAM", "GRAM", engine=self.engine,
         )
