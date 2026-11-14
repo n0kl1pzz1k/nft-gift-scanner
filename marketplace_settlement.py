@@ -198,6 +198,7 @@ async def create_deal_payment_intent_via_route(*, deal_id: str, route: Any,
         raise PermissionError("The selected payment route is not enabled for testnet deals")
     return await route.create_intent(
         deal_id=deal_id, amount=int(deal["price_raw"]), currency="tUSDT",
+        payer_address=str(deal["buyer_wallet_address"]),
     )
 
 

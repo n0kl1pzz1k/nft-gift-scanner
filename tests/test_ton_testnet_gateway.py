@@ -92,6 +92,14 @@ class TonTestnetGatewayTests(unittest.TestCase):
             self.intent, seller_address=self.seller_address, query_id=992,
         )))
 
+    def test_payment_from_wrong_buyer_wallet_does_not_confirm(self):
+        expected = PaymentIntent(
+            deal_id="deal-123", amount=2500000, currency="tUSDT",
+            reference="grpay:deal-123", network="testnet",
+            payer_address="0:" + "99" * 32,
+        )
+        self.assertIsNone(asyncio.run(self.gateway().verify_payment(expected)))
+
     def test_provider_disagreement_fails_closed(self):
         other = TestnetTransfer(**{**self.transfer.__dict__,
             "provider_id": "tonapi", "transaction_id": "cd" * 32})

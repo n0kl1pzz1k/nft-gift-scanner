@@ -22,6 +22,7 @@ class PaymentIntent:
     currency: str
     reference: str
     network: str
+    payer_address: str | None = None
 
 
 @dataclass(frozen=True)
@@ -73,7 +74,8 @@ class StarsPaymentRoute:
 
 class TestnetTonUsdtGateway(Protocol):
     async def create_intent(self, *, deal_id: str, amount: int, currency: str,
-                            escrow_address: str, jetton_master: str) -> PaymentIntent: ...
+                            escrow_address: str, jetton_master: str,
+                            payer_address: str | None = None) -> PaymentIntent: ...
 
     async def verify_payment(self, intent: PaymentIntent) -> PaymentEvidence | None: ...
 
@@ -103,7 +105,8 @@ class TonUsdtTestnetPaymentRoute:
     def enabled(self) -> bool:
         return True
 
-    async def create_intent(self, *, deal_id: str, amount: int, currency: str) -> PaymentIntent:
+    async def create_intent(self, *, deal_id: str, amount: int, currency: str,
+                            payer_address: str | None = None) -> PaymentIntent:
         if currency != "tUSDT":
             raise PaymentRouteError("Only the platform-issued tUSDT test Jetton is supported")
         if amount <= 0 or not deal_id:
@@ -111,7 +114,11 @@ class TonUsdtTestnetPaymentRoute:
         return await self._gateway.create_intent(
             deal_id=deal_id, amount=amount, currency=currency,
             escrow_address=self._escrow_address, jetton_master=self._jetton_master,
+            payer_address=payer_address,
         )
+        if payer_address and intent.payer_address != payer_address:
+            raise PaymentRouteError("Gateway returned a payment intent for a different buyer wallet")
+        return intent
 
     async def verify_payment(self, intent: PaymentIntent) -> PaymentEvidence | None:
         if intent.network != "testnet" or intent.currency != "tUSDT":

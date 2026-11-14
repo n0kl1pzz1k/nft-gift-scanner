@@ -135,6 +135,10 @@ class TonCenterTestnetProvider:
         account_lt = int(_pick(state_rows[0], "last_transaction_lt", "last_transaction_logical_time") or 0)
         mc_seqno = _seqno(masterchain.json(), "last", "last_mc_block_seqno", "seqno")
         for row in _rows(history.json(), "jetton_transfers", "transfers"):
+            if row.get("transaction_aborted") is True:
+                continue
+            if row.get("aborted") is True or row.get("transaction_aborted") is True:
+                continue
             if _comment(_pick(row, "comment", "forward_payload", "payload")) != reference:
                 continue
             tx = _hash(_pick(row, "transaction_hash", "tx_hash", "hash"))
@@ -180,6 +184,8 @@ class TonCenterTestnetProvider:
         account_lt = int(_pick(state_rows[0], "last_transaction_lt", "last_transaction_logical_time") or 0)
         mc_seqno = _seqno(masterchain.json(), "last", "last_mc_block_seqno", "seqno")
         for row in _rows(history.json(), "jetton_transfers", "transfers"):
+            if row.get("transaction_aborted") is True:
+                continue
             if int(_pick(row, "query_id") or 0) != query_id:
                 continue
             tx = _hash(_pick(row, "transaction_hash", "tx_hash", "hash"))
@@ -274,6 +280,8 @@ class TonApiEmbedTestnetProvider:
             # TonAPI Embed's documented transfer history does not guarantee a
             # query_id field. If present, it must match; otherwise the gateway
             # anchors the same transaction hash against TON Center's exact query_id.
+            if row.get("aborted") is True or row.get("transaction_aborted") is True:
+                continue
             reported_query_id = _pick(row, "query_id")
             if reported_query_id not in (None, "", 0, "0") and int(reported_query_id) != query_id:
                 continue
@@ -314,14 +322,15 @@ class TonTestnetPaymentGateway:
         self.jetton_master = jetton_master
 
     async def create_intent(self, *, deal_id: str, amount: int, currency: str,
-                            escrow_address: str, jetton_master: str) -> PaymentIntent:
+                            escrow_address: str, jetton_master: str,
+                            payer_address: str | None = None) -> PaymentIntent:
         if escrow_address != self.escrow_address or jetton_master != self.jetton_master:
             raise PaymentRouteError("Payment intent does not match platform testnet registry")
         if not deal_id or amount <= 0 or currency != "tUSDT":
             raise PaymentRouteError("Only positive tUSDT testnet deal intents are supported")
         return PaymentIntent(
             deal_id=deal_id, amount=amount, currency="tUSDT",
-            reference="grpay:" + deal_id, network="testnet",
+            reference="grpay:" + deal_id, network="testnet", payer_address=payer_address,
         )
 
     async def verify_payment(self, intent: PaymentIntent) -> PaymentEvidence | None:
@@ -353,6 +362,8 @@ class TonTestnetPaymentGateway:
                 or center.query_id <= 0):
             return None
         if center.reference != intent.reference:
+            return None
+        if intent.payer_address and not _same_address(center.sender, intent.payer_address):
             return None
         return PaymentEvidence(
             deal_id=center.deal_id, reference=center.reference, amount=center.amount,
