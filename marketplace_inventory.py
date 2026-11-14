@@ -273,7 +273,7 @@ def create_escrow_pending_listing(*, user_id: str, asset_id: str, price_raw: int
     """Create a private pending listing. It cannot appear publicly before escrow."""
     db = engine or get_engine()
     init_inventory_schema(db)
-    if int(price_raw) <= 0 or currency not in {"XTR", "GRAM", "USDT", "tUSDT"}:
+    if int(price_raw) <= 0 or currency not in {"XTR", "GRAM", "USDT"}:
         raise ValueError("Invalid listing price or currency")
     if not idempotency_key or len(idempotency_key) > 128:
         raise ValueError("A bounded listing idempotency key is required")
