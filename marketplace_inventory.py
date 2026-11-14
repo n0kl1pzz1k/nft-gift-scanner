@@ -252,7 +252,8 @@ def record_wallet_owned_nft(*, user_id: str, wallet_address: str, asset_type: st
                 canonical_asset_id=canonical, collection_address=collection_address,
                 token_id=str(int(token_id)), item_address=item_address,
                 telegram_gift_id="", owner_user_id=str(user_id),
-                owner_wallet_address=wallet_address, ownership_state="verified",
+                owner_wallet_address=wallet_address, seller_wallet_address=wallet_address,
+                ownership_state="verified",
                 ownership_checked_at=current, ownership_expires_at=current + proof_ttl_seconds,
                 custody_state="wallet_owned", created_at=current, updated_at=current,
             ))
