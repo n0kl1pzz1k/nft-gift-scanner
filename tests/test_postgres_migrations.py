@@ -29,7 +29,7 @@ class PostgresMigrationSmokeTests(unittest.TestCase):
     def test_schema_is_at_latest_revision_and_contains_core_tables(self):
         with self.engine.connect() as connection:
             revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            self.assertEqual(revision, "0014_ownership_proof_index")
+            self.assertEqual(revision, "0015_testnet_payment")
             connection.execute(text(
                 "SELECT reconciliation_note FROM telegram_stars_refund_requests LIMIT 0"
             ))
