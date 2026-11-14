@@ -28,7 +28,7 @@ from marketplace_inventory import (
     init_inventory_schema, scan_pending_nft_listings,
 )
 from ton_nft_verifier import verify_seller_nft_ownership_async
-from ton_nft_providers import configured_nft_providers, canonical_ton_address
+from ton_nft_providers import configured_nft_providers, configured_testnet_nft_providers, canonical_ton_address
 from sqlalchemy import select, func, or_
 
 from financial_ledger import (
@@ -55,6 +55,7 @@ class DealReconciliationNoteRequest(BaseModel):
 
 class TonNftImportRequest(BaseModel):
     asset_type: str
+    network: str = Field(default="ton-mainnet", pattern="^(ton-mainnet|ton-testnet)$")
     collection_address: str = Field(min_length=3, max_length=128)
     token_id: str = Field(min_length=1, max_length=40)
     item_address: str = Field(min_length=3, max_length=128)
@@ -606,9 +607,12 @@ async def ton_proof_verify(
         result = response.json()
         if not isinstance(result, dict) or result.get("verified") is not True:
             raise HTTPException(status_code=401, detail="TON wallet proof was not verified")
-        if result.get("network") == "-239":
-            save_verified_wallet(user_id=str(user["id"]), address=result.get("address", ""),
-                                 network="ton-mainnet", engine=get_engine())
+        if result.get("network") in {"-239", "-3"}:
+            save_verified_wallet(
+                user_id=str(user["id"]), address=result.get("address", ""),
+                network="ton-mainnet" if result["network"] == "-239" else "ton-testnet",
+                engine=get_engine(),
+            )
         return {"verified": True, "address": result.get("address"), "network": result.get("network")}
     except httpx.HTTPError:
         raise HTTPException(status_code=503, detail="TON Proof service is unreachable")
@@ -616,9 +620,12 @@ async def ton_proof_verify(
 
 
 @app.post("/api/wallet/ton-proof/revoke")
-async def revoke_ton_wallet_proof(x_telegram_init_data: str | None = Header(default=None)):
+async def revoke_ton_wallet_proof(
+    network: str = Query(default="ton-mainnet", pattern="^(ton-mainnet|ton-testnet)$"),
+    x_telegram_init_data: str | None = Header(default=None),
+):
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
-    revoked = revoke_verified_wallet(user_id=str(user["id"]), engine=get_engine())
+    revoked = revoke_verified_wallet(user_id=str(user["id"]), network=network, engine=get_engine())
     return {"revoked": revoked > 0, "revoked_bindings": revoked}
 
 
@@ -628,31 +635,49 @@ async def import_owned_nft(
     x_telegram_init_data: str | None = Header(default=None),
 ):
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
-    if payload.asset_type not in {"ton_nft", "collectible_username", "collectible_phone_number"}:
-        raise HTTPException(status_code=422, detail="Unsupported collectible asset type")
+    allowed_types = (
+        {"ton_nft", "collectible_username", "collectible_phone_number"}
+        if payload.network == "ton-mainnet" else {"testnet_mock_nft"}
+    )
+    if payload.asset_type not in allowed_types:
+        raise HTTPException(status_code=422, detail="Unsupported collectible asset type for this TON network")
     try:
-        wallet = get_active_verified_wallet(user_id=str(user["id"]), engine=get_engine())
-        registry = json.loads(os.getenv("GIFT_RADAR_NFT_COLLECTIONS", "{}"))
+        wallet = get_active_verified_wallet(
+            user_id=str(user["id"]), network=payload.network, engine=get_engine(),
+        )
+        registry_name = (
+            "GIFT_RADAR_NFT_COLLECTIONS" if payload.network == "ton-mainnet"
+            else "GIFT_RADAR_TESTNET_NFT_COLLECTIONS"
+        )
+        registry = json.loads(os.getenv(registry_name, "{}"))
         allowed = {
             key: {canonical_ton_address(value) for value in values}
             for key, values in registry.items() if isinstance(values, list)
         }
-        providers = configured_nft_providers()
+        providers = (
+            configured_nft_providers() if payload.network == "ton-mainnet"
+            else configured_testnet_nft_providers()
+        )
         evidence = await verify_seller_nft_ownership_async(
             seller_user_id=str(user["id"]), wallet_user_id=str(user["id"]),
             verified_wallet_address=wallet, asset_type=payload.asset_type,
-            network="ton-mainnet", collection_address=payload.collection_address,
+            network=payload.network, collection_address=payload.collection_address,
             token_id=payload.token_id, item_address=payload.item_address,
             allowed_collections=allowed, providers=providers,
         )
         result = record_wallet_owned_nft(
             user_id=str(user["id"]), wallet_address=wallet,
-            asset_type=payload.asset_type,
+            asset_type=payload.asset_type, network=payload.network,
             collection_address=evidence["collection_address"],
             token_id=evidence["token_id"], item_address=evidence["item_address"],
             evidence=evidence, engine=get_engine(),
         )
-        return {"item": result, "next_step": "Create a listing, then transfer the NFT to the official escrow address"}
+        next_step = (
+            "Testnet asset imported. A predeployed demo escrow listing is required before it can be offered."
+            if payload.network == "ton-testnet"
+            else "Create a listing, then transfer the NFT to the official escrow address"
+        )
+        return {"item": result, "next_step": next_step}
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="TON NFT verification providers are not configured") from exc
     except PermissionError as exc:
