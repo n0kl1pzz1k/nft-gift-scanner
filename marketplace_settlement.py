@@ -133,7 +133,7 @@ def create_deal_from_reservation(*, reservation_id: str, buyer_user_id: str,
         raise ValueError("Invalid buyer or idempotency key")
     wallet = canonical_ton_address(buyer_wallet_address)
     if not wallet.startswith("0:"):
-        raise ValueError("Only TON mainnet basechain wallets are supported")
+        raise ValueError("Only TON basechain wallets on supported networks are accepted")
     lock = db.dialect.name == "postgresql"
     with db.begin() as conn:
         existing = conn.execute(select(marketplace_deals).where(
@@ -143,14 +143,6 @@ def create_deal_from_reservation(*, reservation_id: str, buyer_user_id: str,
             if existing["reservation_id"] != reservation_id or existing["buyer_user_id"] != uid:
                 raise ValueError("Deal idempotency key was reused with different details")
             return {**dict(existing), "duplicate": True}
-        wallet_row = conn.execute(select(verified_wallets).where(
-            verified_wallets.c.user_id == uid,
-            verified_wallets.c.network == "ton-mainnet",
-            verified_wallets.c.address == wallet,
-            verified_wallets.c.revoked_at.is_(None),
-        )).mappings().first()
-        if wallet_row is None:
-            raise PermissionError("Buyer wallet must be verified by the server before a deal")
         reservation_q = select(marketplace_reservations).where(
             marketplace_reservations.c.reservation_id == reservation_id
         )
@@ -173,6 +165,24 @@ def create_deal_from_reservation(*, reservation_id: str, buyer_user_id: str,
         asset = conn.execute(select(marketplace_assets).where(
             marketplace_assets.c.asset_id == listing["asset_id"]
         )).mappings().one()
+        network = str(asset["network"])
+        if network not in {"ton-mainnet", "ton-testnet"}:
+            raise ValueError("Marketplace deals require a supported TON network")
+        wallet_row = conn.execute(select(verified_wallets).where(
+            verified_wallets.c.user_id == uid,
+            verified_wallets.c.network == network,
+            verified_wallets.c.address == wallet,
+            verified_wallets.c.revoked_at.is_(None),
+        )).mappings().first()
+        if wallet_row is None:
+            raise PermissionError("Buyer wallet must be verified on the asset's network")
+        if network == "ton-testnet" and listing["currency"] != "tUSDT":
+            raise ValueError("TON testnet listings must use the testnet-only tUSDT currency")
+        if network == "ton-mainnet" and listing["currency"] == "tUSDT":
+            raise ValueError("tUSDT cannot be used for a mainnet asset")
+        seller_wallet = canonical_ton_address(asset["owner_wallet_address"] or "")
+        if not seller_wallet.startswith("0:"):
+            raise ValueError("Seller wallet snapshot is missing or invalid")
         if asset["custody_state"] != "escrowed" or int(asset["ownership_expires_at"] or 0) <= current:
             raise PermissionError("NFT escrow ownership proof is stale")
         deal_id = "grd_" + uuid.uuid4().hex
@@ -180,7 +190,8 @@ def create_deal_from_reservation(*, reservation_id: str, buyer_user_id: str,
             deal_id=deal_id, listing_id=listing["listing_id"],
             reservation_id=reservation_id, asset_id=listing["asset_id"],
             buyer_user_id=uid, seller_user_id=listing["seller_user_id"],
-            buyer_wallet_address=wallet, currency=listing["currency"],
+            buyer_wallet_address=wallet, seller_wallet_address=seller_wallet,
+            network=network, currency=listing["currency"],
             price_raw=int(listing["price_raw"]), status="reserved",
             idempotency_key=idempotency_key, created_at=current, updated_at=current,
         ))
