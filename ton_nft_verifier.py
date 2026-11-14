@@ -15,10 +15,11 @@ class TonNftStateProvider(Protocol):
         """Return live TEP-62 get_nft_data plus the resolved collection item identity."""
 
 
-def _configured_providers() -> set[str]:
-    values = {part.strip() for part in os.getenv("TON_NFT_PROVIDER_IDS", "").split(",") if part.strip()}
+def _configured_providers(network: str) -> set[str]:
+    variable = "TON_TESTNET_NFT_PROVIDER_IDS" if network == "ton-testnet" else "TON_NFT_PROVIDER_IDS"
+    values = {part.strip() for part in os.getenv(variable, "").split(",") if part.strip()}
     if values != {"tonapi", "toncenter"}:
-        raise RuntimeError("TON_NFT_PROVIDER_IDS must explicitly be 'tonapi,toncenter'")
+        raise RuntimeError(f"{variable} must explicitly be 'tonapi,toncenter'")
     return values
 
 
@@ -40,9 +41,12 @@ def _validate_seller_nft_request(
     The verified wallet binding must come from the server-side TON Proof service.
     TON Proof alone is not treated as proof of NFT ownership.
     """
-    supported = {"ton_nft", "collectible_username", "collectible_phone_number"}
-    if asset_type not in supported or network != "ton-mainnet":
-        raise ValueError("Only supported TON mainnet NFT asset types can be verified")
+    supported = (
+        {"ton_nft", "collectible_username", "collectible_phone_number"}
+        if network == "ton-mainnet" else {"testnet_mock_nft"}
+    )
+    if network not in {"ton-mainnet", "ton-testnet"} or asset_type not in supported:
+        raise ValueError("NFT asset type is not supported on the requested TON network")
     if str(seller_user_id) != str(wallet_user_id):
         raise PermissionError("The verified wallet is not bound to this seller")
     if not verified_wallet_address or not collection_address or not item_address:
@@ -64,7 +68,7 @@ def _validate_seller_nft_request(
     if collection_address not in approved:
         raise PermissionError("NFT collection is not in the reviewed collection registry")
 
-    trusted = _configured_providers()
+    trusted = _configured_providers(network)
     by_id = {provider.provider_id: provider for provider in providers}
     if len(by_id) < 2 or not set(by_id).issubset(trusted):
         raise PermissionError("Two configured independent TON NFT providers are required")
