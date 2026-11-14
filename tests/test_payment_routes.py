@@ -19,6 +19,7 @@ class FakeGateway:
         self.evidence = None
         self.intent_args = None
         self.payout_evidence = None
+        self.refund_evidence = None
 
     async def create_intent(self, **kwargs):
         self.intent_args = kwargs
@@ -33,6 +34,9 @@ class FakeGateway:
 
     async def verify_payout(self, intent, *, seller_address, query_id):
         return self.payout_evidence
+
+    async def verify_refund(self, intent, *, buyer_address, query_id):
+        return self.refund_evidence
 
     async def refund(self, evidence):
         return "testnet-refund-request"
@@ -81,6 +85,30 @@ class PaymentRouteTests(unittest.IsolatedAsyncioTestCase):
         )
         with self.assertRaises(PaymentRouteError):
             await route.verify_payout(intent, seller_address="EQ_SELLER", query_id=77)
+
+    async def test_refund_evidence_must_match_buyer_and_query_id(self):
+        gateway = FakeGateway()
+        route = TonUsdtTestnetPaymentRoute(
+            gateway, network="testnet", escrow_address="EQ_ESCROW",
+            jetton_master="EQ_MASTER",
+        )
+        intent = await route.create_intent(deal_id="deal-1", amount=500, currency="tUSDT")
+        self.assertEqual(route.escrow_address, "EQ_ESCROW")
+        self.assertEqual(route.jetton_master, "EQ_MASTER")
+        gateway.refund_evidence = PaymentEvidence(
+            deal_id="deal-1", reference="grrefund:deal-1:88", amount=500,
+            currency="tUSDT", transaction_id="refund-tx", finalized=True,
+            network="testnet", query_id=88,
+        )
+        result = await route.verify_refund(intent, buyer_address="EQ_BUYER", query_id=88)
+        self.assertEqual(result.transaction_id, "refund-tx")
+        gateway.refund_evidence = PaymentEvidence(
+            deal_id="deal-1", reference="grrefund:deal-1:89", amount=500,
+            currency="tUSDT", transaction_id="wrong-refund", finalized=True,
+            network="testnet", query_id=89,
+        )
+        with self.assertRaises(PaymentRouteError):
+            await route.verify_refund(intent, buyer_address="EQ_BUYER", query_id=88)
 
     async def test_mainnet_and_real_usdt_are_rejected(self):
         gateway = FakeGateway()
