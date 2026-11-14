@@ -1282,6 +1282,23 @@ async def confirm_testnet_deal_payout(
         raise HTTPException(status_code=503, detail="TON testnet payout verification is unavailable")
 
 
+@app.get("/api/inventory/deals/{deal_id}/testnet-dispute-query")
+async def get_testnet_dispute_query(
+    deal_id: str,
+    decision: str = Query(..., pattern="^(refund|release)$"),
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    admin = _require_admin(x_telegram_init_data)
+    from marketplace_settlement import get_deal_testnet_dispute_query_id
+    try:
+        result = get_deal_testnet_dispute_query_id(
+            deal_id=deal_id, decision=decision, engine=get_engine(),
+        )
+        return result
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.post("/api/inventory/deals/{deal_id}/testnet-dispute-release-pending")
 async def mark_testnet_deal_dispute_release_pending(
     deal_id: str,
