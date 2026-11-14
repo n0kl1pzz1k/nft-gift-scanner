@@ -18,6 +18,7 @@ class FakeGateway:
     def __init__(self):
         self.evidence = None
         self.intent_args = None
+        self.payout_evidence = None
 
     async def create_intent(self, **kwargs):
         self.intent_args = kwargs
@@ -28,6 +29,9 @@ class FakeGateway:
 
     async def verify_payment(self, intent):
         return self.evidence
+
+    async def verify_payout(self, intent, *, seller_address, query_id):
+        return self.payout_evidence
 
     async def refund(self, evidence):
         return "testnet-refund-request"
@@ -50,6 +54,28 @@ class PaymentRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(intent.network, "testnet")
         self.assertEqual(gateway.intent_args["escrow_address"], "EQ_ESCROW_TEST")
         self.assertEqual(gateway.intent_args["jetton_master"], "EQ_TEST_JETTON")
+
+    async def test_payout_evidence_must_match_seller_and_query_id(self):
+        gateway = FakeGateway()
+        route = TonUsdtTestnetPaymentRoute(
+            gateway, network="testnet", escrow_address="EQ_ESCROW",
+            jetton_master="EQ_MASTER",
+        )
+        intent = await route.create_intent(deal_id="deal-1", amount=500, currency="tUSDT")
+        gateway.payout_evidence = PaymentEvidence(
+            deal_id="deal-1", reference="grpayout:deal-1:77", amount=500,
+            currency="tUSDT", transaction_id="payout-tx", finalized=True,
+            network="testnet", query_id=77,
+        )
+        result = await route.verify_payout(intent, seller_address="EQ_SELLER", query_id=77)
+        self.assertEqual(result.transaction_id, "payout-tx")
+        gateway.payout_evidence = PaymentEvidence(
+            deal_id="deal-1", reference="grpayout:deal-1:78", amount=500,
+            currency="tUSDT", transaction_id="wrong-query", finalized=True,
+            network="testnet", query_id=78,
+        )
+        with self.assertRaises(PaymentRouteError):
+            await route.verify_payout(intent, seller_address="EQ_SELLER", query_id=77)
 
     async def test_mainnet_and_real_usdt_are_rejected(self):
         gateway = FakeGateway()

@@ -40,6 +40,10 @@ class TransferProvider(Protocol):
     async def find_transfer(self, *, escrow_address: str, jetton_master: str,
                             reference: str) -> TestnetTransfer | None: ...
 
+    async def find_payout(self, *, escrow_address: str, jetton_master: str,
+                          seller_address: str, query_id: int, amount: int,
+                          reference: str) -> TestnetTransfer | None: ...
+
 
 def _pick(row: dict[str, Any], *keys: str) -> Any:
     for key in keys:
@@ -153,6 +157,52 @@ class TonCenterTestnetProvider:
             )
         return None
 
+    async def find_payout(self, *, escrow_address: str, jetton_master: str,
+                          seller_address: str, query_id: int, amount: int,
+                          reference: str) -> TestnetTransfer | None:
+        headers = {"X-API-Key": self.api_key} if self.api_key else {}
+        async with httpx.AsyncClient(timeout=self.timeout, headers=headers) as client:
+            history, states, masterchain = await asyncio.gather(
+                client.get(self.base_url + "/jetton/transfers", params={
+                    "jetton_master": jetton_master, "owner_address": escrow_address,
+                    "direction": "out", "limit": 1000, "sort": "desc",
+                }),
+                client.get(self.base_url + "/accountStates", params={
+                    "address": escrow_address, "include_boc": "false",
+                }),
+                client.get(self.base_url + "/masterchainInfo"),
+            )
+        for response in (history, states, masterchain):
+            response.raise_for_status()
+        state_rows = _rows(states.json(), "accounts")
+        if not state_rows:
+            return None
+        account_lt = int(_pick(state_rows[0], "last_transaction_lt", "last_transaction_logical_time") or 0)
+        mc_seqno = _seqno(masterchain.json(), "last", "last_mc_block_seqno", "seqno")
+        for row in _rows(history.json(), "jetton_transfers", "transfers"):
+            if int(_pick(row, "query_id") or 0) != query_id:
+                continue
+            tx = _hash(_pick(row, "transaction_hash", "tx_hash", "hash"))
+            lt = int(_pick(row, "transaction_lt", "lt") or 0)
+            row_amount = int(_pick(row, "amount") or 0)
+            master = _pick(row, "jetton_master", "master")
+            sender = _pick(row, "source_owner", "sender_owner", "source", "sender")
+            recipient = _pick(row, "destination_owner", "recipient_owner", "destination", "recipient")
+            if (not tx or not lt or row_amount != amount or not master
+                    or not _same_address(master, jetton_master)
+                    or not _same_address(sender, escrow_address)
+                    or not _same_address(recipient, seller_address)):
+                continue
+            return TestnetTransfer(
+                provider_id=self.provider_id, transaction_id=tx,
+                deal_id=reference.split(":")[1], reference=reference,
+                amount=row_amount, currency="tUSDT", network="testnet",
+                sender=str(sender), recipient=str(recipient),
+                finalized=bool(mc_seqno > 0 and account_lt >= lt),
+                query_id=query_id,
+            )
+        return None
+
 
 class TonApiEmbedTestnetProvider:
     provider_id = "tonapi"
@@ -200,6 +250,47 @@ class TonApiEmbedTestnetProvider:
                 recipient=str(recipient),
                 finalized=bool(mc_seqno > 0 and last_lt >= lt),
                 query_id=int(_pick(row, "query_id") or 0),
+            )
+        return None
+
+    async def find_payout(self, *, escrow_address: str, jetton_master: str,
+                          seller_address: str, query_id: int, amount: int,
+                          reference: str) -> TestnetTransfer | None:
+        headers = {"Authorization": "Bearer " + self.api_key} if self.api_key else {}
+        root = self.base_url
+        encoded_master = quote(jetton_master, safe=":")
+        encoded_owner = quote(escrow_address, safe=":")
+        async with httpx.AsyncClient(timeout=self.timeout, headers=headers) as client:
+            history, account, status = await asyncio.gather(
+                client.get(f"{root}/jetton/{encoded_master}/{encoded_owner}/history"),
+                client.get(f"{root}/jetton/{encoded_master}/{encoded_owner}"),
+                client.get(f"{root}/status"),
+            )
+        for response in (history, account, status):
+            response.raise_for_status()
+        last_lt = int(_pick(account.json(), "last_processed_tx_lt", "last_transaction_lt") or 0)
+        mc_seqno = _seqno(status.json(), "mc_seqno", "last_mc_seqno")
+        for row in _rows(history.json(), "transfers", "history", "items"):
+            if int(_pick(row, "query_id") or 0) != query_id:
+                continue
+            tx = _hash(_pick(row, "hash", "transaction_hash", "tx_hash"))
+            lt = int(_pick(row, "lt", "transaction_lt") or 0)
+            row_amount = int(_pick(row, "amount") or 0)
+            master = _pick(row, "jetton_master", "jetton")
+            sender = _pick(row, "source_owner", "sender_owner", "source", "sender")
+            recipient = _pick(row, "destination_owner", "recipient_owner", "destination", "recipient")
+            if (not tx or not lt or row_amount != amount or not master
+                    or not _same_address(master, jetton_master)
+                    or not _same_address(sender, escrow_address)
+                    or not _same_address(recipient, seller_address)):
+                continue
+            return TestnetTransfer(
+                provider_id=self.provider_id, transaction_id=tx,
+                deal_id=reference.split(":")[1], reference=reference,
+                amount=row_amount, currency="tUSDT", network="testnet",
+                sender=str(sender), recipient=str(recipient),
+                finalized=bool(mc_seqno > 0 and last_lt >= lt),
+                query_id=query_id,
             )
         return None
 
@@ -263,6 +354,47 @@ class TonTestnetPaymentGateway:
             deal_id=center.deal_id, reference=center.reference, amount=center.amount,
             currency="tUSDT", transaction_id=center.transaction_id,
             finalized=True, network="testnet", query_id=center.query_id,
+        )
+
+    async def verify_payout(self, intent: PaymentIntent, *, seller_address: str,
+                            query_id: int) -> PaymentEvidence | None:
+        if intent.network != "testnet" or intent.currency != "tUSDT" or query_id <= 0:
+            raise PaymentRouteError("Only positive-query-id tUSDT testnet payouts can be verified")
+        reference = f"grpayout:{intent.deal_id}:{query_id}"
+        observations = await asyncio.gather(*[
+            provider.find_payout(
+                escrow_address=self.escrow_address,
+                jetton_master=self.jetton_master,
+                seller_address=seller_address,
+                query_id=query_id,
+                amount=intent.amount,
+                reference=reference,
+            )
+            for provider in self.providers
+        ])
+        if any(item is None for item in observations):
+            return None
+        first, second = observations
+        assert first is not None and second is not None
+        def comparable(item):
+            return (
+                item.transaction_id, item.deal_id, item.reference, item.amount,
+                item.currency, item.network, item.sender, item.recipient,
+                item.finalized, item.query_id,
+            )
+        if comparable(first) != comparable(second):
+            raise PaymentRouteError("TON testnet providers disagree on seller payout evidence")
+        if (not first.finalized or first.amount != intent.amount
+                or first.deal_id != intent.deal_id or first.reference != reference
+                or first.query_id != query_id
+                or not _same_address(first.sender, self.escrow_address)):
+            return None
+        if not _same_address(first.recipient, seller_address):
+            return None
+        return PaymentEvidence(
+            deal_id=first.deal_id, reference=first.reference, amount=first.amount,
+            currency="tUSDT", transaction_id=first.transaction_id,
+            finalized=True, network="testnet", query_id=query_id,
         )
 
     async def refund(self, evidence: PaymentEvidence) -> str:
