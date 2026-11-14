@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from ton_nft_providers import (
     canonical_ton_address, configured_nft_providers, configured_testnet_nft_providers,
+    TonApiNftProvider, ToncenterNftProvider,
 )
 
 
@@ -38,6 +39,26 @@ class TonNftProviderTests(unittest.TestCase):
             providers = configured_testnet_nft_providers()
         self.assertEqual({provider.provider_id for provider in providers}, {"tonapi", "toncenter"})
         self.assertTrue(all("testnet" in provider.base_url for provider in providers))
+
+    def test_nft_providers_reject_noncanonical_or_non_https_hosts(self):
+        for factory, key in (
+            (TonApiNftProvider, "api_key"),
+            (ToncenterNftProvider, "api_key"),
+        ):
+            for url in (
+                "http://testnet.tonapi.io",
+                "https://testnet.tonapi.io.evil.example",
+                "https://evil.example",
+                "https://user:pass@testnet.tonapi.io",
+            ):
+                with self.subTest(factory=factory.__name__, url=url), self.assertRaises(ValueError):
+                    factory(**{key: "test-key", "base_url": url})
+
+    def test_nft_providers_accept_exact_mainnet_and_testnet_hosts(self):
+        TonApiNftProvider(api_key="test-key", base_url="https://testnet.tonapi.io")
+        TonApiNftProvider(api_key="test-key", base_url="https://tonapi.io")
+        ToncenterNftProvider(api_key="test-key", base_url="https://testnet.toncenter.com")
+        ToncenterNftProvider(api_key="test-key", base_url="https://toncenter.com")
 
     def test_provider_quorum_requires_two_named_independent_operators_and_keys(self):
         with patch.dict(os.environ, {
