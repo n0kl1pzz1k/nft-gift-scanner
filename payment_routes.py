@@ -74,6 +74,10 @@ class StarsPaymentRoute:
                             query_id: int) -> PaymentEvidence | None:
         raise PaymentRouteError("Telegram Stars route is disabled")
 
+    async def verify_refund(self, intent: PaymentIntent, *, buyer_address: str,
+                            query_id: int) -> PaymentEvidence | None:
+        raise PaymentRouteError("Telegram Stars route is disabled")
+
     async def refund(self, evidence: PaymentEvidence) -> str:
         raise PaymentRouteError("Telegram Stars route is disabled")
 
