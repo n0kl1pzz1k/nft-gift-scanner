@@ -2,7 +2,7 @@
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0015_ton_testnet_payment_lifecycle"
+revision = "0015_testnet_payment"
 down_revision = "0014_ownership_proof_index"
 branch_labels = None
 depends_on = None
