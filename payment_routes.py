@@ -68,6 +68,10 @@ class StarsPaymentRoute:
     async def verify_payment(self, intent: PaymentIntent) -> PaymentEvidence | None:
         raise PaymentRouteError("Telegram Stars route is disabled")
 
+    async def verify_payout(self, intent: PaymentIntent, *, seller_address: str,
+                            query_id: int) -> PaymentEvidence | None:
+        raise PaymentRouteError("Telegram Stars route is disabled")
+
     async def refund(self, evidence: PaymentEvidence) -> str:
         raise PaymentRouteError("Telegram Stars route is disabled")
 
@@ -78,6 +82,9 @@ class TestnetTonUsdtGateway(Protocol):
                             payer_address: str | None = None) -> PaymentIntent: ...
 
     async def verify_payment(self, intent: PaymentIntent) -> PaymentEvidence | None: ...
+
+    async def verify_payout(self, intent: PaymentIntent, *, seller_address: str,
+                            query_id: int) -> PaymentEvidence | None: ...
 
     async def refund(self, evidence: PaymentEvidence) -> str: ...
 
