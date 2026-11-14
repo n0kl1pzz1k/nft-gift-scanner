@@ -244,9 +244,12 @@ class TonApiEmbedTestnetProvider:
 
     def __init__(self, *, base_url: str, api_key: str = "", timeout: float = 12.0):
         parsed = urlsplit(base_url)
-        if (parsed.scheme != "https" or parsed.hostname != "testnet.tonapi.io"
+        hostname_labels = (parsed.hostname or "").lower().split(".")
+        if (parsed.scheme != "https" or "testnet" not in hostname_labels
                 or parsed.username or parsed.password or parsed.query or parsed.fragment):
-            raise PaymentRouteError("TonAPI Embed provider must use the official HTTPS testnet host")
+            raise PaymentRouteError(
+                "TonAPI Embed must use an explicitly configured HTTPS host with a dedicated testnet label"
+            )
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
@@ -515,7 +518,9 @@ def configured_ton_testnet_gateway() -> TonTestnetPaymentGateway:
     escrow = os.getenv("TON_TESTNET_ESCROW_ADDRESS", "").strip()
     master = os.getenv("TON_TESTNET_USDT_MASTER", "").strip()
     center_url = os.getenv("TON_TESTNET_TONCENTER_URL", "https://testnet.toncenter.com/api/v3").strip()
-    embed_url = os.getenv("TON_TESTNET_TONAPI_EMBED_URL", "https://testnet.tonapi.io/v2").strip()
+    embed_url = os.getenv("TON_TESTNET_TONAPI_EMBED_URL", "").strip()
+    if not embed_url:
+        raise PaymentRouteError("TON_TESTNET_TONAPI_EMBED_URL must point to a self-hosted testnet TonAPI Embed instance")
     return TonTestnetPaymentGateway(
         providers=[
             TonCenterTestnetProvider(
