@@ -33,6 +33,7 @@ jobs:
           test -n "$ACTON_BIN"
           install -m 0755 "$ACTON_BIN" "$HOME/.local/bin/acton"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
           acton --version
       - name: Initialize pinned Acton standard library
         run: acton init --stdlib-only
