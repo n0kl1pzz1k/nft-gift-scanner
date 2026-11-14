@@ -65,12 +65,12 @@ def _hash(value: Any) -> str:
     return decoded.hex() if len(decoded) == 32 else ""
 
 
-def _deal_id_from_reference(reference: str) -> str {
+def _deal_id_from_reference(reference: str) -> str:
     parts = reference.split(":")
     if len(parts) >= 2 and parts[0] in {"grpay", "grpayout", "grrefund"}:
         return parts[1]
     return ""
-}
+
 
 def _comment(value: Any) -> str:
     if isinstance(value, str):
