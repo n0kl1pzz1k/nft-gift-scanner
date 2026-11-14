@@ -271,7 +271,11 @@ class TonApiEmbedTestnetProvider:
         last_lt = int(_pick(account.json(), "last_processed_tx_lt", "last_transaction_lt") or 0)
         mc_seqno = _seqno(status.json(), "mc_seqno", "last_mc_seqno")
         for row in _rows(history.json(), "transfers", "history", "items"):
-            if int(_pick(row, "query_id") or 0) != query_id:
+            # TonAPI Embed's documented transfer history does not guarantee a
+            # query_id field. If present, it must match; otherwise the gateway
+            # anchors the same transaction hash against TON Center's exact query_id.
+            reported_query_id = _pick(row, "query_id")
+            if reported_query_id not in (None, "", 0, "0") and int(reported_query_id) != query_id:
                 continue
             tx = _hash(_pick(row, "hash", "transaction_hash", "tx_hash"))
             lt = int(_pick(row, "lt", "transaction_lt") or 0)
