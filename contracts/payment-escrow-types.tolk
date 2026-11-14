@@ -66,7 +66,7 @@ struct PaymentEscrowEvidence {
 
 struct PaymentEscrowStorage {
     dealId: uint256
-    expectedAmount: uint128
+    expectedAmount: coins
     deadline: uint64
     releaseAfter: uint64
     assetKind: uint8
@@ -107,7 +107,7 @@ struct (0x05138d91) PaymentEscrowNftDeposit {
 
 struct (0x47525602) DepositTonPayment {
     queryId: uint64
-    amount: uint128
+    amount: coins
 }
 
 struct (0x7362d09c) JettonTransferNotification {
@@ -119,7 +119,7 @@ struct (0x7362d09c) JettonTransferNotification {
 
 struct (0x47525603) ConfirmEscrowPayment {
     queryId: uint64
-    amount: uint128
+    amount: coins
 }
 
 struct (0x47525604) RequestEscrowNftRelease {
@@ -144,7 +144,7 @@ struct (0x47525607) ApprovePaymentEscrowDispute {
 
 struct (0x47525608) SellerPayoutNotice {
     queryId: uint64
-    amount: uint128
+    amount: coins
 }
 
 struct (0x0f8a7ea5) PaymentEscrowJettonTransfer {
@@ -176,7 +176,7 @@ type PaymentEscrowMessages =
 
 struct PaymentEscrowStateReply {
     dealId: uint256
-    expectedAmount: uint128
+    expectedAmount: coins
     deadline: uint64
     releaseAfter: uint64
     assetKind: uint8
