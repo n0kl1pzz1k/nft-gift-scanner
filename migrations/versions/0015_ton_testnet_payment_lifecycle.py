@@ -18,6 +18,7 @@ def upgrade():
 
     with op.batch_alter_table("marketplace_assets") as batch:
         batch.add_column(sa.Column("escrow_contract_address", sa.String(128), nullable=True))
+        batch.add_column(sa.Column("item_address", sa.String(128), nullable=True))
         batch.drop_constraint("ck_marketplace_assets_type", type_="check")
         batch.drop_constraint("ck_marketplace_assets_network", type_="check")
         batch.drop_constraint("ck_marketplace_assets_identity", type_="check")
@@ -146,6 +147,7 @@ def downgrade():
             "(asset_type IN ('ton_nft','collectible_username','collectible_phone_number') AND network='ton-mainnet' AND collection_address<>'' AND token_id<>'') "
             "OR (asset_type='telegram_gift' AND network='telegram' AND telegram_gift_id<>'')",
         )
+        batch.drop_column("item_address")
         batch.drop_column("escrow_contract_address")
 
     with op.batch_alter_table("verified_wallets") as batch:
