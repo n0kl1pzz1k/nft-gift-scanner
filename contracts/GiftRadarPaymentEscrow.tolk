@@ -36,7 +36,7 @@ fun sendSellerPayout(storage: PaymentEscrowStorage, parties: PaymentEscrowPartie
             value: grams("0.15"),
             body: PaymentEscrowJettonTransfer {
                 queryId,
-                jettonAmount: storage.expectedAmount,
+                jettonAmount: storage.expectedAmount as coins,
                 transferRecipient: parties.seller,
                 sendExcessesTo: null,
                 customPayload: null,
@@ -137,6 +137,7 @@ fun onInternalMessage(in: InMessage) {
             assert (!storage.initialized) throw PaymentEscrowErrors.BadState;
             assert (storage.state == V2_CREATED) throw PaymentEscrowErrors.BadState;
             assert (storage.expectedAmount > 0) throw PaymentEscrowErrors.BadAmount;
+            assert (storage.expectedAmount <= MAX_PAYMENT_AMOUNT) throw PaymentEscrowErrors.BadAmount;
             assert (storage.deadline > blockchain.now()) throw PaymentEscrowErrors.Expired;
             assert (storage.deadline <= blockchain.now() + MAX_DEAL_LIFETIME) throw PaymentEscrowErrors.Expired;
             assert ((storage.assetKind == ASSET_TON) | (storage.assetKind == ASSET_TEST_USDT_JETTON)) throw PaymentEscrowErrors.BadAsset;
