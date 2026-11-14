@@ -229,6 +229,8 @@ async def create_deal_payment_intent_via_route(*, deal_id: str, route: Any,
         raise ValueError("Deal is not eligible for the TON testnet tUSDT route")
     if not getattr(route, "enabled", False) or route.route_id != "ton_usdt_testnet":
         raise PermissionError("The selected payment route is not enabled for testnet deals")
+    if canonical_ton_address(deal["escrow_contract_address"] or "") != canonical_ton_address(route.escrow_address):
+        raise PermissionError("Payment route escrow does not match the deal's escrow contract")
     intent = await route.create_intent(
         deal_id=deal_id, amount=int(deal["price_raw"]), currency="tUSDT",
         escrow_address=route.escrow_address,
@@ -267,6 +269,8 @@ async def confirm_deal_payment_via_route(*, deal_id: str, intent: Any, route: An
         raise PermissionError("The selected payment route is not enabled for testnet deals")
     if intent.deal_id != deal_id or intent.network != "testnet" or intent.currency != "tUSDT":
         raise ValueError("Payment intent does not match the TON testnet deal")
+    if not getattr(route, "enabled", False) or route.route_id != "ton_usdt_testnet":
+        raise PermissionError("The selected payment route is not enabled for testnet deals")
     evidence = await route.verify_payment(intent)
     if evidence is None:
         return {"confirmed": False, "status": "reserved", "reason": "payment_not_finalized"}
