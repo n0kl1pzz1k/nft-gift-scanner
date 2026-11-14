@@ -129,15 +129,20 @@ class TonTestnetGatewayTests(unittest.TestCase):
 
         self.assertEqual(asyncio.run(run()), "0:" + "55" * 32)
 
-    def test_default_gateway_configuration_uses_official_testnet_hosts(self):
+    def test_gateway_requires_explicit_self_hosted_testnet_embed_endpoint(self):
         env = {
             "TON_TESTNET_ESCROW_ADDRESS": "0:" + "22" * 32,
             "TON_TESTNET_USDT_MASTER": "0:" + "33" * 32,
         }
         with patch.dict(os.environ, env, clear=True):
-            gateway = configured_ton_testnet_gateway()
-        self.assertEqual(gateway.providers[0].base_url, "https://testnet.toncenter.com/api/v3")
-        self.assertEqual(gateway.providers[1].base_url, "https://testnet.tonapi.io/v2")
+            with self.assertRaises(PaymentRouteError):
+                configured_ton_testnet_gateway()
+
+    def test_embed_provider_accepts_explicit_testnet_host_only(self):
+        provider = TonApiEmbedTestnetProvider(
+            base_url="https://embed.testnet.example.org",
+        )
+        self.assertEqual(provider.provider_id, "tonapi")
 
     def test_providers_accept_https_testnet_hosts(self):
         center = TonCenterTestnetProvider(base_url="https://testnet.toncenter.com/api/v3")
