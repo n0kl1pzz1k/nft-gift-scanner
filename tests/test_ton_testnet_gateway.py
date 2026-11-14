@@ -2,7 +2,7 @@ import asyncio
 import unittest
 
 from payment_routes import PaymentEvidence, PaymentIntent, PaymentRouteError
-from ton_testnet_gateway import TestnetTransfer, TonTestnetPaymentGateway
+from ton_testnet_gateway import (\n    TestnetTransfer, TonApiEmbedTestnetProvider, TonCenterTestnetProvider,\n    TonTestnetPaymentGateway,\n)
 
 
 class Provider:
@@ -62,6 +62,23 @@ class TonTestnetGatewayTests(unittest.TestCase):
             escrow_address="0:" + "22" * 32,
             jetton_master="0:" + "33" * 32,
         )
+
+
+    def test_providers_reject_mainnet_and_non_testnet_hosts(self):
+        with self.assertRaises(PaymentRouteError):
+            TonCenterTestnetProvider(base_url="https://toncenter.com/api/v3")
+        with self.assertRaises(PaymentRouteError):
+            TonCenterTestnetProvider(base_url="https://example.com/testnet")
+        with self.assertRaises(PaymentRouteError):
+            TonApiEmbedTestnetProvider(base_url="https://tonapi.io/v2")
+        with self.assertRaises(PaymentRouteError):
+            TonApiEmbedTestnetProvider(base_url="http://testnet.tonapi.io/v2")
+
+    def test_providers_accept_https_testnet_hosts(self):
+        center = TonCenterTestnetProvider(base_url="https://testnet.toncenter.com/api/v3")
+        tonapi = TonApiEmbedTestnetProvider(base_url="https://testnet.tonapi.io/v2")
+        self.assertEqual(center.provider_id, "toncenter")
+        self.assertEqual(tonapi.provider_id, "tonapi")
 
     def test_requires_two_distinct_independent_providers(self):
         with self.assertRaises(PaymentRouteError):
