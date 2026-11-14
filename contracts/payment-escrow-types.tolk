@@ -58,6 +58,12 @@ struct PaymentEscrowAuthorityConfig {
     assets: Cell<PaymentEscrowAssetConfig>
 }
 
+struct PaymentEscrowEvidence {
+    deliveryProofHash: uint256
+    disputeResolutionHash: uint256
+    payoutTxHash: uint256
+}
+
 struct PaymentEscrowStorage {
     dealId: uint256
     expectedAmount: uint128
@@ -70,13 +76,11 @@ struct PaymentEscrowStorage {
     transferQueryId: uint64
     paymentApprovals: uint8
     deliveryApprovals: uint8
-    deliveryProofHash: uint256
     disputeApprovals: uint8
     disputeDecision: uint8
-    disputeResolutionHash: uint256
     payoutQueryId: uint64
     payoutApprovals: uint8
-    payoutTxHash: uint256
+    evidence: Cell<PaymentEscrowEvidence>
     parties: Cell<PaymentEscrowParties>
     authorities: Cell<PaymentEscrowAuthorityConfig>
 }
