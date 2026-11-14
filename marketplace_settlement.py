@@ -744,7 +744,8 @@ async def confirm_deal_testnet_payout(*, deal_id: str, route: Any,
     )
     if evidence is None:
         return {"confirmed": False, "status": "payout_pending", "reason": "payout_not_finalized"}
-    if (evidence.deal_id != deal_id or evidence.amount != int(deal["price_raw"])
+    if (evidence.deal_id != deal_id or evidence.reference != f"grpayout:{deal_id}:{query_id}"
+            or evidence.amount != int(deal["price_raw"])
             or evidence.currency != "tUSDT" or evidence.network != "testnet"
             or evidence.query_id != query_id or not evidence.finalized
             or not evidence.transaction_id):
@@ -929,7 +930,8 @@ async def confirm_deal_testnet_refund(*, deal_id: str, route: Any,
     )
     if evidence is None:
         return {"confirmed": False, "status": "refund_pending", "reason": "refund_not_finalized"}
-    if (evidence.deal_id != deal_id or evidence.amount != int(deal["price_raw"])
+    if (evidence.deal_id != deal_id or evidence.reference != f"grrefund:{deal_id}:{query_id}"
+            or evidence.amount != int(deal["price_raw"])
             or evidence.currency != "tUSDT" or evidence.network != "testnet"
             or evidence.query_id != query_id or not evidence.finalized
             or not evidence.transaction_id):
