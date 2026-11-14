@@ -289,6 +289,7 @@ fun onInternalMessage(in: InMessage) {
 
         ConfirmEscrowNftDelivery => {
             var storage = lazy PaymentEscrowStorage.load();
+            var evidence = storage.evidence.load();
             val parties = storage.parties.load();
             val auth = storage.authorities.load();
             val signers = auth.signers.load();
@@ -298,9 +299,9 @@ fun onInternalMessage(in: InMessage) {
             val bit = signerBit(in.senderAddress, signers);
             assert (bit != 0) throw PaymentEscrowErrors.Unauthorized;
             if (storage.deliveryApprovals == 0) {
-                storage.deliveryProofHash = msg.buyerOwnershipProofHash;
+                evidence.deliveryProofHash = msg.buyerOwnershipProofHash;
             } else {
-                assert (storage.deliveryProofHash == msg.buyerOwnershipProofHash) throw PaymentEscrowErrors.BadProof;
+                assert (evidence.deliveryProofHash == msg.buyerOwnershipProofHash) throw PaymentEscrowErrors.BadProof;
             }
             if ((storage.deliveryApprovals & bit) == 0) {
                 storage.deliveryApprovals = storage.deliveryApprovals | bit;
@@ -309,16 +310,19 @@ fun onInternalMessage(in: InMessage) {
                 storage.state = V2_PAYOUT_PENDING;
                 storage.payoutQueryId = msg.queryId;
                 storage.payoutApprovals = 0;
-                storage.payoutTxHash = 0;
+                evidence.payoutTxHash = 0;
+                storage.evidence = evidence.toCell();
                 storage.save();
                 sendSellerPayout(storage, parties, auth, msg.queryId);
                 return;
             }
+            storage.evidence = evidence.toCell();
             storage.save();
         }
 
         ConfirmEscrowSellerPayout => {
             var storage = lazy PaymentEscrowStorage.load();
+            var evidence = storage.evidence.load();
             val auth = storage.authorities.load();
             val signers = auth.signers.load();
             assert (storage.initialized) throw PaymentEscrowErrors.BadState;
@@ -328,9 +332,9 @@ fun onInternalMessage(in: InMessage) {
             val bit = signerBit(in.senderAddress, signers);
             assert (bit != 0) throw PaymentEscrowErrors.Unauthorized;
             if (storage.payoutApprovals == 0) {
-                storage.payoutTxHash = msg.payoutTxHash;
+                evidence.payoutTxHash = msg.payoutTxHash;
             } else {
-                assert (storage.payoutTxHash == msg.payoutTxHash) throw PaymentEscrowErrors.BadProof;
+                assert (evidence.payoutTxHash == msg.payoutTxHash) throw PaymentEscrowErrors.BadProof;
             }
             if ((storage.payoutApprovals & bit) != 0) {
                 return;
@@ -339,6 +343,7 @@ fun onInternalMessage(in: InMessage) {
             if (isTwoOfThree(storage.payoutApprovals)) {
                 storage.state = V2_SETTLED;
             }
+            storage.evidence = evidence.toCell();
             storage.save();
         }
 
@@ -355,6 +360,7 @@ fun onInternalMessage(in: InMessage) {
 
         ApprovePaymentEscrowDispute => {
             var storage = lazy PaymentEscrowStorage.load();
+            var evidence = storage.evidence.load();
             val auth = storage.authorities.load();
             val arbitrators = auth.arbitrators.load();
             assert (storage.initialized) throw PaymentEscrowErrors.BadState;
@@ -365,10 +371,10 @@ fun onInternalMessage(in: InMessage) {
             assert (bit != 0) throw PaymentEscrowErrors.Unauthorized;
             if (storage.disputeApprovals == 0) {
                 storage.disputeDecision = msg.decision;
-                storage.disputeResolutionHash = msg.resolutionHash;
+                evidence.disputeResolutionHash = msg.resolutionHash;
             } else {
                 assert (storage.disputeDecision == msg.decision) throw PaymentEscrowErrors.BadProof;
-                assert (storage.disputeResolutionHash == msg.resolutionHash) throw PaymentEscrowErrors.BadProof;
+                assert (evidence.disputeResolutionHash == msg.resolutionHash) throw PaymentEscrowErrors.BadProof;
             }
             if ((storage.disputeApprovals & bit) != 0) {
                 return;
@@ -377,6 +383,7 @@ fun onInternalMessage(in: InMessage) {
             if (isTwoOfThree(storage.disputeApprovals)) {
                 storage.state = V2_DISPUTE_DECISION_APPROVED;
             }
+            storage.evidence = evidence.toCell();
             storage.save();
         }
 
@@ -388,6 +395,7 @@ fun onInternalMessage(in: InMessage) {
 
 get fun get_payment_escrow_state(): PaymentEscrowStateReply {
     val storage = lazy PaymentEscrowStorage.load();
+    val evidence = storage.evidence.load();
     return {
         dealId: storage.dealId,
         expectedAmount: storage.expectedAmount,
@@ -400,13 +408,13 @@ get fun get_payment_escrow_state(): PaymentEscrowStateReply {
         transferQueryId: storage.transferQueryId,
         paymentApprovals: storage.paymentApprovals,
         deliveryApprovals: storage.deliveryApprovals,
-        deliveryProofHash: storage.deliveryProofHash,
+        deliveryProofHash: evidence.deliveryProofHash,
         disputeApprovals: storage.disputeApprovals,
         disputeDecision: storage.disputeDecision,
-        disputeResolutionHash: storage.disputeResolutionHash,
+        disputeResolutionHash: evidence.disputeResolutionHash,
         payoutQueryId: storage.payoutQueryId,
         payoutApprovals: storage.payoutApprovals,
-        payoutTxHash: storage.payoutTxHash,
+        payoutTxHash: evidence.payoutTxHash,
     };
 }
 
