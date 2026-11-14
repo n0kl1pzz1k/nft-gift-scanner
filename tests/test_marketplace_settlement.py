@@ -111,7 +111,7 @@ class MarketplaceSettlementTests(unittest.TestCase):
                 return PaymentIntent(
                     deal_id=kwargs["deal_id"], amount=kwargs["amount"],
                     currency=kwargs["currency"], reference="grpay:" + kwargs["deal_id"],
-                    network="testnet",
+                    network="testnet", payer_address=kwargs.get("payer_address"),
                 )
 
             async def verify_payment(self, intent):
