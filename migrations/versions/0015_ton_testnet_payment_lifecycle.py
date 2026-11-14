@@ -55,6 +55,7 @@ def upgrade():
         batch.add_column(sa.Column("payment_query_id", sa.BigInteger(), nullable=True))
         batch.add_column(sa.Column("payment_reference", sa.String(128), nullable=True))
         batch.add_column(sa.Column("payment_network", sa.String(16), nullable=True))
+        batch.add_column(sa.Column("nft_return_tx_hash", sa.String(128), nullable=True))
         batch.add_column(sa.Column("payout_query_id", sa.BigInteger(), nullable=True))
         batch.add_column(sa.Column("payout_tx_hash", sa.String(128), nullable=True))
         batch.add_column(sa.Column("payout_verified_at", sa.BigInteger(), nullable=True))
@@ -83,6 +84,7 @@ def upgrade():
         "WHERE status IN ('reserved','payment_confirmed','nft_transfer_pending','payout_pending','refund_pending')"
     )
     op.create_index("uq_marketplace_deals_payment_reference", "marketplace_deals", ["payment_reference"], unique=True)
+    op.create_index("uq_marketplace_deals_nft_return_tx_hash", "marketplace_deals", ["nft_return_tx_hash"], unique=True)
     op.create_index("uq_marketplace_deals_payout_tx_hash", "marketplace_deals", ["payout_tx_hash"], unique=True)
     op.create_index("uq_marketplace_deals_refund_tx_hash", "marketplace_deals", ["refund_tx_hash"], unique=True)
     op.create_index("idx_marketplace_deals_network_status", "marketplace_deals", ["network", "status"])
@@ -92,6 +94,7 @@ def downgrade():
     op.drop_index("idx_marketplace_deals_network_status", table_name="marketplace_deals")
     op.drop_index("uq_marketplace_deals_refund_tx_hash", table_name="marketplace_deals")
     op.drop_index("uq_marketplace_deals_payout_tx_hash", table_name="marketplace_deals")
+    op.drop_index("uq_marketplace_deals_nft_return_tx_hash", table_name="marketplace_deals")
     op.drop_index("uq_marketplace_deals_payment_reference", table_name="marketplace_deals")
 
     with op.batch_alter_table("marketplace_deals") as batch:
@@ -108,7 +111,7 @@ def downgrade():
         )
         for name in (
             "refund_verified_at", "refund_tx_hash", "refund_query_id",
-            "payout_verified_at", "payout_tx_hash", "payout_query_id",
+            "payout_verified_at", "payout_tx_hash", "payout_query_id", "nft_return_tx_hash",
             "payment_network", "payment_reference", "payment_query_id",
             "network", "escrow_contract_address", "seller_wallet_address",
         ):
