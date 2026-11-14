@@ -237,8 +237,6 @@ async def create_deal_payment_intent_via_route(*, deal_id: str, route: Any,
         raise PermissionError("Payment route escrow does not match the deal's escrow contract")
     intent = await route.create_intent(
         deal_id=deal_id, amount=int(deal["price_raw"]), currency="tUSDT",
-        escrow_address=route.escrow_address,
-        jetton_master=route.jetton_master,
         payer_address=str(deal["buyer_wallet_address"]),
     )
     current = int(time.time())
@@ -691,7 +689,6 @@ async def _build_testnet_deal_intent(deal: Any, route: Any) -> Any:
         raise PermissionError("Payment route escrow does not match the deal escrow snapshot")
     return await route.create_intent(
         deal_id=str(deal["deal_id"]), amount=int(deal["price_raw"]), currency="tUSDT",
-        escrow_address=route.escrow_address, jetton_master=route.jetton_master,
         payer_address=str(deal["buyer_wallet_address"]),
     )
 
