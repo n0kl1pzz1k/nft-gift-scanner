@@ -1370,9 +1370,11 @@ async def confirm_testnet_deal_payout(
             state = await provider.get_nft_state(str(asset["item_address"]))
             if not state:
                 raise HTTPException(status_code=503, detail="Independent NFT owner lookup is unavailable")
-            if (canonical_ton_address(state["collection_address"]) != canonical_ton_address(asset["collection_address"])
-                    or str(state["token_id"]) != str(asset["token_id"])):
-                raise HTTPException(status_code=409, detail="NFT identity differs from the registered asset")
+            if (not state.get("initialized")
+                    or canonical_ton_address(state.get("item_address") or "") != canonical_ton_address(asset["item_address"])
+                    or canonical_ton_address(state.get("collection_address") or "") != canonical_ton_address(asset["collection_address"])
+                    or str(state.get("token_id") or "") != str(asset["token_id"])):
+                raise HTTPException(status_code=409, detail="NFT identity or initialization differs from the registered asset")
             owner_proofs.append({
                 "provider_id": provider.provider_id,
                 "owner_address": state["owner_address"],
@@ -1471,9 +1473,11 @@ async def confirm_testnet_deal_refund(
             )
             if not state or not transfer:
                 raise HTTPException(status_code=409, detail="NFT return is not finalized on both independent providers")
-            if (canonical_ton_address(state["collection_address"]) != canonical_ton_address(asset["collection_address"])
-                    or str(state["token_id"]) != str(asset["token_id"])):
-                raise HTTPException(status_code=409, detail="NFT identity differs from the registered asset")
+            if (not state.get("initialized")
+                    or canonical_ton_address(state.get("item_address") or "") != canonical_ton_address(asset["item_address"])
+                    or canonical_ton_address(state.get("collection_address") or "") != canonical_ton_address(asset["collection_address"])
+                    or str(state.get("token_id") or "") != str(asset["token_id"])):
+                raise HTTPException(status_code=409, detail="NFT identity or initialization differs from the registered asset")
             tx_hash = str(transfer["tx_hash"]).lower().removeprefix("0x")
             evidence_hash = hashlib.sha256(json.dumps({
                 "tx_hash": tx_hash,
