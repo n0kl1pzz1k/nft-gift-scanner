@@ -1,3 +1,5 @@
+import "@contracts/test-support/mock-nft-collection-types"
+
 struct MockNftCollectionStorage {
     ownerAddress: address
     itemAddress: address?
@@ -8,10 +10,6 @@ struct MockNftCollectionDataReply {
     nextItemIndex: uint256
     collectionContent: cell
     ownerAddress: address
-}
-
-struct (0x4d4e4931) MockNftCollectionSetItem {
-    itemAddress: address
 }
 
 contract MockNftCollection {
