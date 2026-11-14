@@ -24,6 +24,9 @@ class TestnetPaymentEndpointSecurityTests(unittest.TestCase):
 
     def test_payment_confirmation_requires_platform_admin_authentication(self):
         with patch.object(
+            app_module, "_authenticate_telegram_credential",
+            return_value={"id": "202"},
+        ), patch.object(
             app_module, "_require_admin",
             side_effect=HTTPException(status_code=403, detail="Forbidden"),
         ):
