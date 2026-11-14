@@ -33,7 +33,7 @@
     data_pipeline?: { refresh_interval_seconds?: number };
     note?: string;
   };
-  type View = 'market' | 'orders' | 'create' | 'favorites' | 'profile' | 'seller' | 'inventory';
+  type View = 'market' | 'orders' | 'create' | 'favorites' | 'profile' | 'seller' | 'inventory' | 'payments';
 
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://nft-gift-scanner-production.up.railway.app').replace(/\/$/, '');
   let tonConnectUI = $state<TonConnectUI | null>(null);
@@ -52,6 +52,12 @@
   let nftItemAddress = $state('');
   let inventoryPrices = $state<Record<string,string>>({});
   let inventoryCurrencies = $state<Record<string,'GRAM'|'USDT'|'XTR'>>({});
+  let testnetListings = $state<any[]>([]);
+  let testnetListingsBusy = $state(false);
+  let testnetDeal = $state<any | null>(null);
+  let testnetIntent = $state<any | null>(null);
+  let testnetPaymentBusy = $state(false);
+  let testnetVerifyBusy = $state(false);
   let lang = $state<'ru' | 'en'>('ru');
   let view = $state<View>('market');
   let gifts = $state<Gift[]>([]);
@@ -730,6 +736,93 @@
     }
   }
 
+  async function loadTestnetListings() {
+    if (!signedIn) { testnetListings = []; return; }
+    testnetListingsBusy = true;
+    try {
+      const data = await request('/api/inventory/listings?currency=USDT&limit=50&offset=0');
+      testnetListings = Array.isArray(data.items) ? data.items : [];
+    } catch (e) {
+      testnetListings = [];
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      testnetListingsBusy = false;
+    }
+  }
+
+  async function startTestnetPayment(listingId: string) {
+    if (!signedIn || !walletVerified || testnetPaymentBusy) {
+      notice = lang === 'ru'
+        ? 'Сначала войди через Telegram и подтверди TON-кошелёк в профиле.'
+        : 'Sign in through Telegram and verify your TON wallet first.';
+      return;
+    }
+    testnetPaymentBusy = true;
+    testnetIntent = null;
+    try {
+      const reservation = await request('/api/inventory/listings/' + encodeURIComponent(listingId) + '/reserve', undefined, { method: 'POST' });
+      if (typeof reservation.reservation_id !== 'string') throw new Error('Reservation response is incomplete');
+      const deal = await request('/api/inventory/reservations/' + encodeURIComponent(reservation.reservation_id) + '/deal', undefined, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+      });
+      if (typeof deal.deal_id !== 'string') throw new Error('Deal response is incomplete');
+      testnetDeal = deal;
+      const intent = await request('/api/inventory/deals/' + encodeURIComponent(deal.deal_id) + '/testnet-payment-intent', undefined, { method: 'POST' });
+      if (intent.network !== 'testnet' || intent.currency !== 'tUSDT' || intent.route_id !== 'ton_usdt_testnet') {
+        throw new Error('Backend returned an unexpected payment route');
+      }
+      testnetIntent = intent;
+      notice = lang === 'ru'
+        ? 'Тестовая сделка создана. Используй только tUSDT в TON testnet и точный комментарий платежа.'
+        : 'Testnet deal created. Use only tUSDT on TON testnet with the exact payment comment.';
+      await loadTestnetListings();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      testnetPaymentBusy = false;
+    }
+  }
+
+  async function refreshTestnetDeal() {
+    if (!testnetDeal?.deal_id) return;
+    try {
+      const latest = await request('/api/inventory/deals/' + encodeURIComponent(testnetDeal.deal_id));
+      testnetDeal = latest;
+      notice = lang === 'ru' ? 'Статус сделки обновлён.' : 'Deal status refreshed.';
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function verifyTestnetPayment() {
+    if (!isAdmin || !testnetDeal?.deal_id || testnetVerifyBusy) return;
+    testnetVerifyBusy = true;
+    try {
+      const result = await request('/api/inventory/deals/' + encodeURIComponent(testnetDeal.deal_id) + '/testnet-payment-confirmation', undefined, { method: 'POST' });
+      if (result.confirmed) {
+        testnetDeal = { ...testnetDeal, status: result.status || 'payment_confirmed' };
+        notice = lang === 'ru' ? 'Платёж подтверждён независимыми TON-провайдерами.' : 'Payment confirmed by independent TON providers.';
+      } else {
+        notice = lang === 'ru' ? 'Платёж пока не финализирован или не найден. Сделка не отмечена оплаченной.' : 'Payment is not finalized or was not found. The deal remains unpaid.';
+      }
+      await refreshTestnetDeal();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      testnetVerifyBusy = false;
+    }
+  }
+
+  async function copyTestnetValue(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      notice = lang === 'ru' ? 'Скопировано.' : 'Copied.';
+    } catch {
+      notice = lang === 'ru' ? 'Не удалось скопировать значение.' : 'Could not copy value.';
+    }
+  }
+
   async function loadMyInventory() {
     if (!signedIn) return;
     inventoryBusy = true;
@@ -983,8 +1076,8 @@
     <a class="brand" href="#market"><span class="brand-symbol">✳</span><span>GIFT RADAR<small>THE GIFT MARKET</small></span></a>
     <div class="nav-caption">WORKSPACE</div>
     <nav class="side-nav">
-      {#each [{id:'market',label:t.market,icon:'▦'},{id:'inventory',label:lang==='ru'?'Мои NFT':'My NFTs',icon:'◈'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
-        <button class:active={view===item.id} class="nav-item" onclick={()=>{view=item.id as View;notice='';if(item.id==='inventory')void loadMyInventory();}}><span>{item.icon}</span>{item.label}</button>
+      {#each [{id:'market',label:t.market,icon:'▦'},{id:'inventory',label:lang==='ru'?'Мои NFT':'My NFTs',icon:'◈'},{id:'payments',label:lang==='ru'?'Платежи':'Payments',icon:'₮'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
+        <button class:active={view===item.id} class="nav-item" onclick={()=>{view=item.id as View;notice='';if(item.id==='inventory')void loadMyInventory();if(item.id==='payments')void loadTestnetListings();}}><span>{item.icon}</span>{item.label}</button>
       {/each}
     </nav>
     <div class="sidebar-bottom"><div class="demo-card"><span class="demo-dot"></span>{t.demo}<p>{t.demoWalletText}</p></div><div class="sidebar-version">INDEPENDENT MARKET · GIFT RADAR</div></div>
@@ -1132,6 +1225,71 @@
         <button class="publish-button" onclick={createOrder}>{t.publish} <span>→</span></button>
         <p class="safety-note">ⓘ {t.createHint}</p>
       </div><div class="create-aside"><div class="aside-icon">✳</div><div class="eyebrow">GIFT RADAR</div><h2>Make your next move visible.</h2><p>Заявки хранятся на сервере и видны другим пользователям. TON и Stars — только обозначения тестовых цен.</p><div class="aside-stats"><div><strong>{orders.length}</strong><span>DEMO ORDERS</span></div><div><strong>{favorites.length}</strong><span>SAVED GIFTS</span></div></div></div></section>
+    {:else if view==='payments'}
+      <section class="page-heading">
+        <div class="eyebrow">TON TESTNET · PAYMENT CONSOLE</div>
+        <h1>{lang==='ru'?'Платежи и эскроу':'Payments & escrow'}</h1>
+        <p>{lang==='ru'?'Проверяемый тестовый маршрут сделки внутри GIFT RADAR. Здесь отображаются только реальные ответы backend, а не имитация оплаты.':'A verifiable test deal flow inside GIFT RADAR. This screen displays backend evidence, never simulated payment success.'}</p>
+      </section>
+      <section class="profile-card wallet-connect-card">
+        <div class="eyebrow">TESTNET ROUTE · tUSDT</div>
+        <h2>{lang==='ru'?'Тестовая оплата через TON escrow':'TON escrow test payment'}</h2>
+        <p>{lang==='ru'?'Используется только платформенный тестовый Jetton tUSDT в TON testnet. Это не настоящий USDT, не mainnet и не реальные деньги. Stars и реальные платежи здесь не активированы.':'Platform-issued test Jetton tUSDT on TON testnet only. This is not real USDT, not mainnet and not real money. Stars and real payments are not enabled here.'}</p>
+        <div class="account-stat-grid">
+          <div><strong>{walletVerified?'✓':'—'}</strong><span>{lang==='ru'?'TON Proof':'TON Proof'}</span></div>
+          <div><strong>{testnetListings.length}</strong><span>{lang==='ru'?'Доступные лоты':'Available listings'}</span></div>
+          <div><strong>{testnetDeal?.status || '—'}</strong><span>{lang==='ru'?'Статус сделки':'Deal status'}</span></div>
+        </div>
+        {#if !signedIn}
+          <div class="state-panel">{lang==='ru'?'Открой Mini App через Telegram, чтобы войти.':'Open the Mini App through Telegram to sign in.'}</div>
+        {:else if !walletVerified}
+          <div class="state-panel">{lang==='ru'?'Для создания тестовой сделки сначала подтверди кошелёк в разделе «Профиль».':'Verify your wallet in Profile before creating a test deal.'}<button class="publish-button" onclick={()=>view='profile'}>{lang==='ru'?'Открыть профиль':'Open profile'}</button></div>
+        {/if}
+      </section>
+      <section class="market-section">
+        <div class="section-title"><div><div class="eyebrow">ESCROW-BACKED INVENTORY</div><h2>{lang==='ru'?'Лоты, готовые к резервированию':'Listings ready to reserve'}</h2></div><button class="refresh-button" onclick={loadTestnetListings} disabled={testnetListingsBusy}>{testnetListingsBusy?'…':t.refresh}</button></div>
+        {#if testnetListingsBusy}
+          <div class="state-panel">{t.loading}</div>
+        {:else if testnetListings.length===0}
+          <div class="state-panel">{lang==='ru'?'Пока нет активных NFT-лотов, подтверждённых в эскроу. Лот появится здесь только после реального подтверждения депозита в блокчейне.':'No active NFT listings with confirmed escrow custody yet. A listing appears here only after an on-chain deposit is verified.'}</div>
+        {:else}
+          <div class="orders-list">
+            {#each testnetListings as listing (listing.listing_id)}
+              <article class="order-card">
+                <div class="order-icon">₮</div>
+                <div class="order-main"><div class="order-kind">{listing.asset_type}</div><h3>{listing.collection_address} · #{listing.token_id}</h3><p>{listing.listing_id}</p></div>
+                <div class="order-price"><strong>{(Number(listing.price_raw)/1000000).toFixed(2)} tUSDT</strong><span class="status-active">{lang==='ru'?'Эскроу подтверждён':'Escrow verified'}</span></div>
+                <div class="order-actions"><button class="match-button" onclick={()=>startTestnetPayment(listing.listing_id)} disabled={!signedIn || !walletVerified || testnetPaymentBusy}>{testnetPaymentBusy?(lang==='ru'?'Создаём…':'Creating…'):(lang==='ru'?'Купить через тестовый эскроу':'Buy via test escrow')}</button></div>
+              </article>
+            {/each}
+          </div>
+        {/if}
+      </section>
+      {#if testnetDeal}
+        <section class="profile-card seller-profile-editor">
+          <div class="notification-heading"><div><div class="eyebrow">DEAL TRACKING</div><h2>{lang==='ru'?'Тестовая сделка':'Test deal'}</h2></div><button class="refresh-button" onclick={refreshTestnetDeal}>{lang==='ru'?'Обновить статус':'Refresh status'}</button></div>
+          <div class="trait-row"><span>Deal ID</span><strong>{testnetDeal.deal_id}</strong></div>
+          <div class="trait-row"><span>{lang==='ru'?'Состояние':'State'}</span><strong>{testnetDeal.status}</strong></div>
+          {#if testnetIntent}
+            <div class="eyebrow">PAYMENT INTENT · {testnetIntent.network}</div>
+            <div class="trait-row"><span>{lang==='ru'?'Сумма':'Amount'}</span><strong>{(Number(testnetIntent.amount_raw)/1000000).toFixed(2)} tUSDT</strong></div>
+            <div class="trait-row"><span>{lang==='ru'?'Получатель escrow':'Escrow recipient'}</span><strong>{testnetIntent.escrow_address}</strong></div>
+            <div class="trait-row"><span>Jetton master</span><strong>{testnetIntent.jetton_master}</strong></div>
+            <div class="trait-row"><span>{lang==='ru'?'Комментарий':'Comment'}</span><strong>{testnetIntent.reference}</strong></div>
+            <div class="order-actions">
+              <button class="match-button" onclick={()=>copyTestnetValue(testnetIntent.escrow_address)}>{lang==='ru'?'Копировать адрес':'Copy address'}</button>
+              <button class="match-button" onclick={()=>copyTestnetValue(testnetIntent.reference)}>{lang==='ru'?'Копировать комментарий':'Copy comment'}</button>
+            </div>
+            <p class="safety-note">{lang==='ru'?'Для ручного теста отправляй только tUSDT в TON testnet на адрес эскроу с точным комментарием выше. Не отправляй реальные USDT или TON mainnet. Перевод пока не считается подтверждённым, пока backend не получит совпадающие финализированные данные от двух независимых провайдеров.':'For a manual test, send only tUSDT on TON testnet to the escrow address with the exact comment above. Never send real USDT or TON mainnet. The payment is not confirmed until the backend receives matching finalized evidence from two independent providers.'}</p>
+          {:else}
+            <div class="state-panel">{lang==='ru'?'Реквизиты платежа не получены. Backend мог отклонить маршрут или конфигурация тестовой сети не завершена.':'Payment intent was not returned. The backend may have rejected the route or testnet configuration is incomplete.'}</div>
+          {/if}
+          {#if isAdmin}
+            <button class="publish-button" onclick={verifyTestnetPayment} disabled={testnetVerifyBusy || !testnetIntent}>{testnetVerifyBusy?'…':lang==='ru'?'Проверить платёж двумя провайдерами':'Verify payment with two providers'}</button>
+            <small>{lang==='ru'?'Админская проверка только читает блокчейн. Она не подписывает и не отправляет транзакции.':'Admin verification is read-only. It does not sign or broadcast transactions.'}</small>
+          {/if}
+        </section>
+      {/if}
     {:else if view==='inventory'}
       <section class="page-heading"><div class="eyebrow">SELLER INVENTORY</div><h1>{lang==='ru'?'Мои NFT':'My NFTs'}</h1><p>{lang==='ru'?'Только твои реальные коллекционные активы. Сначала докажи владение, затем отправь NFT в эскроу.':'Only collectibles you actually own. Prove ownership first, then transfer the NFT to escrow.'}</p></section>
       <section class="profile-card wallet-connect-card">
@@ -1258,8 +1416,8 @@
 </div>
 
 <nav class="mobile-nav">
-  {#each [{id:'market',label:t.market,icon:'▦'},{id:'inventory',label:'NFT',icon:'◈'},{id:'orders',label:t.orders,icon:'⇄'},{id:'create',label:t.create,icon:'＋'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
-    <button class:active={view===item.id} onclick={()=>{view=item.id as View;notice='';}}><span>{item.icon}</span><small>{item.label}</small></button>
+  {#each [{id:'market',label:t.market,icon:'▦'},{id:'inventory',label:'NFT',icon:'◈'},{id:'payments',label:lang==='ru'?'Платежи':'Pay',icon:'₮'},{id:'orders',label:t.orders,icon:'⇄'},{id:'create',label:t.create,icon:'＋'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
+    <button class:active={view===item.id} onclick={()=>{view=item.id as View;notice='';if(item.id==='inventory')void loadMyInventory();if(item.id==='payments')void loadTestnetListings();}}><span>{item.icon}</span><small>{item.label}</small></button>
   {/each}
 </nav>
 
