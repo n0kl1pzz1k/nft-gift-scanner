@@ -19,6 +19,7 @@ def upgrade():
     with op.batch_alter_table("marketplace_assets") as batch:
         batch.add_column(sa.Column("escrow_contract_address", sa.String(128), nullable=True))
         batch.add_column(sa.Column("item_address", sa.String(128), nullable=True))
+        batch.add_column(sa.Column("seller_wallet_address", sa.String(128), nullable=True))
         batch.drop_constraint("ck_marketplace_assets_type", type_="check")
         batch.drop_constraint("ck_marketplace_assets_network", type_="check")
         batch.drop_constraint("ck_marketplace_assets_identity", type_="check")
@@ -78,6 +79,10 @@ def upgrade():
             "status IN ('reserved','payment_confirmed','nft_transfer_pending','payout_pending','refund_pending','settled','disputed','refunded','reconciliation_required','expired')",
         )
 
+    op.execute(
+        "UPDATE marketplace_assets SET seller_wallet_address = owner_wallet_address "
+        "WHERE seller_wallet_address IS NULL AND custody_state = 'wallet_owned'"
+    )
     op.execute(
         "UPDATE marketplace_assets SET item_address = ("
         "SELECT evidence_reference FROM marketplace_ownership_proofs "
@@ -149,6 +154,7 @@ def downgrade():
             "(asset_type IN ('ton_nft','collectible_username','collectible_phone_number') AND network='ton-mainnet' AND collection_address<>'' AND token_id<>'') "
             "OR (asset_type='telegram_gift' AND network='telegram' AND telegram_gift_id<>'')",
         )
+        batch.drop_column("seller_wallet_address")
         batch.drop_column("item_address")
         batch.drop_column("escrow_contract_address")
 
