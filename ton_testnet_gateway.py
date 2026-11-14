@@ -39,22 +39,7 @@ class TransferProvider(Protocol):
     provider_id: str
 
     async def get_jetton_wallet_address(self, *, owner_address: str,
-                                         jetton_master: str) -> str | None:
-        headers = {"X-API-Key": self.api_key} if self.api_key else {}
-        async with httpx.AsyncClient(timeout=self.timeout, headers=headers) as client:
-            response = await client.get(self.base_url + "/jetton/wallets", params={
-                "owner_address": owner_address,
-                "jetton_address": jetton_master,
-                "limit": 10,
-            })
-        response.raise_for_status()
-        for row in _rows(response.json(), "jetton_wallets"):
-            wallet = _pick(row, "address", "jetton_wallet_address")
-            owner = _pick(row, "owner", "owner_address")
-            master = _pick(row, "jetton", "jetton_master")
-            if wallet and _same_address(owner, owner_address) and _same_address(master, jetton_master):
-                return str(wallet)
-        return None
+                                         jetton_master: str) -> str | None: ...
 
     async def find_transfer(self, *, escrow_address: str, jetton_master: str,
                             reference: str) -> TestnetTransfer | None: ...
@@ -134,12 +119,30 @@ class TonCenterTestnetProvider:
 
     def __init__(self, *, base_url: str, api_key: str = "", timeout: float = 12.0):
         parsed = urlsplit(base_url)
-        hostname = (parsed.hostname or "").lower()
-        if parsed.scheme != "https" or not (hostname.startswith("testnet.") or ".testnet." in hostname):
-            raise PaymentRouteError("TON Center provider must use an HTTPS testnet hostname")
+        if (parsed.scheme != "https" or parsed.hostname != "testnet.toncenter.com"
+                or parsed.username or parsed.password or parsed.query or parsed.fragment):
+            raise PaymentRouteError("TON Center provider must use the official HTTPS testnet host")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+
+    async def get_jetton_wallet_address(self, *, owner_address: str,
+                                         jetton_master: str) -> str | None:
+        headers = {"X-API-Key": self.api_key} if self.api_key else {}
+        async with httpx.AsyncClient(timeout=self.timeout, headers=headers) as client:
+            response = await client.get(self.base_url + "/jetton/wallets", params={
+                "owner_address": owner_address,
+                "jetton_address": jetton_master,
+                "limit": 10,
+            })
+        response.raise_for_status()
+        for row in _rows(response.json(), "jetton_wallets"):
+            wallet = _pick(row, "address", "jetton_wallet_address")
+            owner = _pick(row, "owner", "owner_address")
+            master = _pick(row, "jetton", "jetton_master")
+            if wallet and _same_address(owner, owner_address) and _same_address(master, jetton_master):
+                return str(wallet)
+        return None
 
     async def find_transfer(self, *, escrow_address: str, jetton_master: str,
                             reference: str) -> TestnetTransfer | None:
@@ -241,9 +244,9 @@ class TonApiEmbedTestnetProvider:
 
     def __init__(self, *, base_url: str, api_key: str = "", timeout: float = 12.0):
         parsed = urlsplit(base_url)
-        hostname = (parsed.hostname or "").lower()
-        if parsed.scheme != "https" or not (hostname.startswith("testnet.") or ".testnet." in hostname):
-            raise PaymentRouteError("TonAPI Embed provider must use an HTTPS testnet hostname")
+        if (parsed.scheme != "https" or parsed.hostname != "testnet.tonapi.io"
+                or parsed.username or parsed.password or parsed.query or parsed.fragment):
+            raise PaymentRouteError("TonAPI Embed provider must use the official HTTPS testnet host")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
