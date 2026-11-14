@@ -81,7 +81,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Validate deployment configuration
-        run: python -m json.tool railway.json > /dev/null
+        run: python3 -m json.tool railway.json > /dev/null
 
   secret-scan:
     runs-on: [self-hosted, linux, x64]
@@ -99,26 +99,26 @@ jobs:
 
   postgres-integration:
     runs-on: [self-hosted, linux, x64]
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: gift_radar_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d gift_radar_ci"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
+    timeout-minutes: 20
     env:
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/gift_radar_ci
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/gift_radar_ci
       GIFT_RADAR_POSTGRES_CI: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Install and start local PostgreSQL (no Docker service required)
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql
+          PG_VERSION="$(pg_lsclusters --no-header | awk 'NR==1 {print $1}')"
+          test -n "$PG_VERSION"
+          pg_ctlcluster "$PG_VERSION" main start || pg_ctlcluster "$PG_VERSION" main status
+          runuser -u postgres -- psql -c "ALTER USER postgres WITH PASSWORD 'postgres';"
+          if ! runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_database WHERE datname='gift_radar_ci'" | grep -q 1; then
+            runuser -u postgres -- createdb gift_radar_ci
+          fi
+          pg_isready -h 127.0.0.1 -U postgres -d gift_radar_ci
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
