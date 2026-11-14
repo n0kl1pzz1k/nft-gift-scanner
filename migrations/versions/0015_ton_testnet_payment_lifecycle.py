@@ -86,12 +86,6 @@ def upgrade():
         "ORDER BY recorded_at DESC LIMIT 1) "
         "WHERE item_address IS NULL"
     )
-    op.execute(
-        "UPDATE marketplace_deals "
-        "SET seller_wallet_address = (SELECT owner_wallet_address FROM marketplace_assets "
-        "WHERE marketplace_assets.asset_id = marketplace_deals.asset_id) "
-        "WHERE status IN ('reserved','payment_confirmed','nft_transfer_pending','payout_pending','refund_pending')"
-    )
     op.create_index("uq_marketplace_deals_payment_reference", "marketplace_deals", ["payment_reference"], unique=True)
     op.create_index("uq_marketplace_deals_nft_return_tx_hash", "marketplace_deals", ["nft_return_tx_hash"], unique=True)
     op.create_index("uq_marketplace_deals_payout_tx_hash", "marketplace_deals", ["payout_tx_hash"], unique=True)
