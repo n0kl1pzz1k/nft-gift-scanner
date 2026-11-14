@@ -24,6 +24,8 @@ const V2_DISPUTE_DECISION_APPROVED = 8;
 const V2_PAYOUT_PENDING = 9;
 const V2_SETTLED = 10;
 const V2_DISPUTE_RESOLVED = 11;
+const V2_REFUND_PENDING = 12;
+const V2_REFUNDED = 13;
 
 const ASSET_TON = 0;
 const ASSET_TEST_USDT_JETTON = 1;
@@ -65,6 +67,11 @@ struct PaymentEscrowEvidence {
     payoutTxHash: uint256
 }
 
+struct PaymentEscrowRefundEvidence {
+    refundTxHash: uint256
+    sellerOwnershipProofHash: uint256
+}
+
 struct PaymentEscrowStorage {
     dealId: uint256
     expectedAmount: coins
@@ -74,6 +81,7 @@ struct PaymentEscrowStorage {
     assetKind: uint8
     initialized: bool
     state: uint8
+    preDisputeState: uint8
     paymentQueryId: uint64
     transferQueryId: uint64
     paymentApprovals: uint8
@@ -82,7 +90,10 @@ struct PaymentEscrowStorage {
     disputeDecision: uint8
     payoutQueryId: uint64
     payoutApprovals: uint8
+    refundQueryId: uint64
+    refundApprovals: uint8
     evidence: Cell<PaymentEscrowEvidence>
+    refundEvidence: Cell<PaymentEscrowRefundEvidence>
     parties: Cell<PaymentEscrowParties>
     authorities: Cell<PaymentEscrowAuthorityConfig>
 }
@@ -164,6 +175,22 @@ struct (0x47525609) ConfirmEscrowSellerPayout {
     payoutTxHash: uint256
 }
 
+struct (0x4752560a) ExecutePaymentEscrowDispute {
+    queryId: uint64
+    resolutionHash: uint256
+}
+
+struct (0x4752560b) ConfirmEscrowBuyerRefund {
+    queryId: uint64
+    refundTxHash: uint256
+    sellerOwnershipProofHash: uint256
+}
+
+struct (0x4752560c) BuyerRefundNotice {
+    queryId: uint64
+    amount: coins
+}
+
 type PaymentEscrowMessages =
     | InitializePaymentEscrow
     | PaymentEscrowNftDeposit
@@ -175,6 +202,8 @@ type PaymentEscrowMessages =
     | RaisePaymentEscrowDispute
     | ApprovePaymentEscrowDispute
     | ConfirmEscrowSellerPayout
+    | ExecutePaymentEscrowDispute
+    | ConfirmEscrowBuyerRefund
 
 struct PaymentEscrowStateReply {
     dealId: uint256
@@ -184,6 +213,7 @@ struct PaymentEscrowStateReply {
     assetKind: uint8
     initialized: bool
     state: uint8
+    preDisputeState: uint8
     paymentQueryId: uint64
     transferQueryId: uint64
     paymentApprovals: uint8
@@ -194,5 +224,9 @@ struct PaymentEscrowStateReply {
     disputeResolutionHash: uint256
     payoutQueryId: uint64
     payoutApprovals: uint8
+    refundQueryId: uint64
+    refundApprovals: uint8
     payoutTxHash: uint256
+    refundTxHash: uint256
+    sellerOwnershipProofHash: uint256
 }
