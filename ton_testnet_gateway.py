@@ -41,7 +41,7 @@ class TransferProvider(Protocol):
                             reference: str) -> TestnetTransfer | None: ...
 
     async def find_payout(self, *, escrow_address: str, jetton_master: str,
-                          seller_address: str, query_id: int, amount: int,
+                          recipient_address: str, query_id: int, amount: int,
                           reference: str) -> TestnetTransfer | None: ...
 
 
@@ -64,6 +64,13 @@ def _hash(value: Any) -> str:
         return ""
     return decoded.hex() if len(decoded) == 32 else ""
 
+
+def _deal_id_from_reference(reference: str) -> str {
+    parts = reference.split(":")
+    if len(parts) >= 2 and parts[0] in {"grpay", "grpayout", "grrefund"}:
+        return parts[1]
+    return ""
+}
 
 def _comment(value: Any) -> str:
     if isinstance(value, str):
@@ -150,7 +157,7 @@ class TonCenterTestnetProvider:
                 continue
             return TestnetTransfer(
                 provider_id=self.provider_id, transaction_id=tx,
-                deal_id=reference.removeprefix("grpay:"), reference=reference,
+                deal_id=_deal_id_from_reference(reference), reference=reference,
                 amount=amount, currency="tUSDT", network="testnet",
                 sender=str(_pick(row, "source_owner", "sender_owner", "source", "sender") or ""),
                 recipient=str(recipient),
@@ -160,7 +167,7 @@ class TonCenterTestnetProvider:
         return None
 
     async def find_payout(self, *, escrow_address: str, jetton_master: str,
-                          seller_address: str, query_id: int, amount: int,
+                          recipient_address: str, query_id: int, amount: int,
                           reference: str) -> TestnetTransfer | None:
         headers = {"X-API-Key": self.api_key} if self.api_key else {}
         async with httpx.AsyncClient(timeout=self.timeout, headers=headers) as client:
@@ -195,7 +202,7 @@ class TonCenterTestnetProvider:
             if (not tx or not lt or row_amount != amount or not master
                     or not _same_address(master, jetton_master)
                     or not _same_address(sender, escrow_address)
-                    or not _same_address(recipient, seller_address)):
+                    or not _same_address(recipient, recipient_address)):
                 continue
             return TestnetTransfer(
                 provider_id=self.provider_id, transaction_id=tx,
@@ -250,7 +257,7 @@ class TonApiEmbedTestnetProvider:
                 continue
             return TestnetTransfer(
                 provider_id=self.provider_id, transaction_id=tx,
-                deal_id=reference.removeprefix("grpay:"), reference=reference,
+                deal_id=_deal_id_from_reference(reference), reference=reference,
                 amount=amount, currency="tUSDT", network="testnet",
                 sender=str(_pick(row, "source_owner", "sender_owner", "source", "sender") or ""),
                 recipient=str(recipient),
@@ -260,7 +267,7 @@ class TonApiEmbedTestnetProvider:
         return None
 
     async def find_payout(self, *, escrow_address: str, jetton_master: str,
-                          seller_address: str, query_id: int, amount: int,
+                          recipient_address: str, query_id: int, amount: int,
                           reference: str) -> TestnetTransfer | None:
         headers = {"Authorization": "Bearer " + self.api_key} if self.api_key else {}
         root = self.base_url
@@ -294,7 +301,7 @@ class TonApiEmbedTestnetProvider:
             if (not tx or not lt or row_amount != amount or not master
                     or not _same_address(master, jetton_master)
                     or not _same_address(sender, escrow_address)
-                    or not _same_address(recipient, seller_address)):
+                    or not _same_address(recipient, recipient_address)):
                 continue
             return TestnetTransfer(
                 provider_id=self.provider_id, transaction_id=tx,
@@ -381,7 +388,7 @@ class TonTestnetPaymentGateway:
             provider.find_payout(
                 escrow_address=self.escrow_address,
                 jetton_master=self.jetton_master,
-                seller_address=seller_address,
+                recipient_address=seller_address,
                 query_id=query_id,
                 amount=intent.amount,
                 reference=reference,
@@ -406,6 +413,49 @@ class TonTestnetPaymentGateway:
                 or not _same_address(first.sender, self.escrow_address)):
             return None
         if not _same_address(first.recipient, seller_address):
+            return None
+        return PaymentEvidence(
+            deal_id=first.deal_id, reference=first.reference, amount=first.amount,
+            currency="tUSDT", transaction_id=first.transaction_id,
+            finalized=True, network="testnet", query_id=query_id,
+        )
+
+    async def verify_refund(self, intent: PaymentIntent, *, buyer_address: str,
+                            query_id: int) -> PaymentEvidence | None:
+        if intent.network != "testnet" or intent.currency != "tUSDT" or query_id <= 0:
+            raise PaymentRouteError("Only positive-query-id tUSDT testnet refunds can be verified")
+        reference = f"grrefund:{intent.deal_id}:{query_id}"
+        observations = await asyncio.gather(*[
+            provider.find_payout(
+                escrow_address=self.escrow_address,
+                jetton_master=self.jetton_master,
+                recipient_address=buyer_address,
+                query_id=query_id,
+                amount=intent.amount,
+                reference=reference,
+            )
+            for provider in self.providers
+        ])
+        if any(item is None for item in observations):
+            return None
+        first, second = observations
+        assert first is not None and second is not None
+
+        def comparable(item):
+            return (
+                item.transaction_id, item.deal_id, item.reference, item.amount,
+                item.currency, item.network, item.sender, item.recipient,
+                item.finalized, item.query_id,
+            )
+
+        if comparable(first) != comparable(second):
+            raise PaymentRouteError("TON testnet providers disagree on buyer refund evidence")
+        if (not first.finalized or first.amount != intent.amount
+                or first.deal_id != intent.deal_id or first.reference != reference
+                or first.query_id != query_id
+                or not _same_address(first.sender, self.escrow_address)):
+            return None
+        if not _same_address(first.recipient, buyer_address):
             return None
         return PaymentEvidence(
             deal_id=first.deal_id, reference=first.reference, amount=first.amount,
