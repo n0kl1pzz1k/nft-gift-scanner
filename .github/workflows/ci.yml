@@ -35,6 +35,10 @@ jobs:
         env:
           DATABASE_URL: sqlite:////tmp/gift-radar-ci-finance.sqlite3
         run: alembic upgrade head
+      - name: Verify Railway SQLite database-path fallback
+        env:
+          GIFT_RADAR_DB_PATH: /tmp/gift-radar-ci-fallback.sqlite3
+        run: alembic upgrade head
       - name: Run API and security regression tests
         run: python -m unittest discover -s tests -v
 
