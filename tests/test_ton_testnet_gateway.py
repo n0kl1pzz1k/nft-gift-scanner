@@ -143,6 +143,12 @@ class TonTestnetGatewayTests(unittest.TestCase):
             base_url="https://embed.testnet.example.org",
         )
         self.assertEqual(provider.provider_id, "tonapi")
+        for url in (
+            "https://testnet.evil.example/v2",
+            "https://evil.testnet.example.org/v2",
+        ):
+            with self.subTest(url=url), self.assertRaises(PaymentRouteError):
+                TonApiEmbedTestnetProvider(base_url=url)
 
     def test_providers_accept_https_testnet_hosts(self):
         center = TonCenterTestnetProvider(base_url="https://testnet.toncenter.com/api/v3")
