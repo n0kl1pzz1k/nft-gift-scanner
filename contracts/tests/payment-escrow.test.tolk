@@ -257,7 +257,7 @@ get fun `test TON payment enters escrow then requires two distinct signers befor
         body: ConfirmEscrowNftDelivery { queryId: 7005, buyerOwnershipProofHash: proof },
     }));
     expect(secondDelivery).toHaveSuccessfulTx<ConfirmEscrowNftDelivery>({ from: signer2, to: escrow.address });
-    expect(secondDelivery).toHaveTx<SellerPayoutNotice>({ from: escrow.address, to: seller });
+    expect(secondDelivery).toHaveSuccessfulTx<SellerPayoutNotice>({ from: escrow.address, to: seller });
     expect(readPaymentEscrowState(escrow).state).toEqual(V2_PAYOUT_PENDING);
     expect(readPaymentEscrowState(escrow).deliveryApprovals).toEqual(3);
     expect(readPaymentEscrowState(escrow).payoutQueryId).toEqual(7005);
@@ -269,6 +269,24 @@ get fun `test TON payment enters escrow then requires two distinct signers befor
     }));
     expect(payoutConfirmation1).toHaveSuccessfulTx<ConfirmEscrowSellerPayout>({ from: signer1, to: escrow.address });
     expect(readPaymentEscrowState(escrow).payoutApprovals).toEqual(1);
+    val duplicatePayoutVote = net.send(signer1, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ConfirmEscrowSellerPayout { queryId: 7005, payoutTxHash: 0x7005abc },
+    }));
+    expect(duplicatePayoutVote).toHaveSuccessfulTx<ConfirmEscrowSellerPayout>({ from: signer1, to: escrow.address });
+    expect(readPaymentEscrowState(escrow).payoutApprovals).toEqual(1);
+    val payoutOutsider = testing.treasury("payout-outsider");
+    val unauthorizedPayoutVote = net.send(payoutOutsider.address, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ConfirmEscrowSellerPayout { queryId: 7005, payoutTxHash: 0x7005abc },
+    }));
+    expect(unauthorizedPayoutVote).toHaveFailedTx<ConfirmEscrowSellerPayout>({
+        from: payoutOutsider.address, to: escrow.address, exitCode: 2101,
+    });
     val conflictingPayout = net.send(signer2, createMessage({
         bounce: true,
         value: grams("0.05"),
