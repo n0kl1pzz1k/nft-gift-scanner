@@ -39,19 +39,31 @@ marketplace_deals = Table(
     Column("buyer_user_id", String(64), nullable=False),
     Column("seller_user_id", String(64), nullable=False),
     Column("buyer_wallet_address", String(128), nullable=False),
+    Column("seller_wallet_address", String(128)),
+    Column("network", String(16), nullable=False, default="ton-mainnet"),
     Column("currency", String(8), nullable=False),
     Column("price_raw", BigInteger, nullable=False),
     Column("status", String(32), nullable=False),
     Column("payment_invoice_id", String(64), unique=True),
     Column("payment_event_id", String(64), unique=True),
+    Column("payment_query_id", BigInteger),
+    Column("payment_reference", String(128), unique=True),
+    Column("payment_network", String(16)),
     Column("nft_transfer_tx_hash", String(128), unique=True),
+    Column("payout_query_id", BigInteger),
+    Column("payout_tx_hash", String(128), unique=True),
+    Column("payout_verified_at", BigInteger),
+    Column("refund_query_id", BigInteger),
+    Column("refund_tx_hash", String(128), unique=True),
+    Column("refund_verified_at", BigInteger),
     Column("idempotency_key", String(128), nullable=False, unique=True),
     Column("created_at", BigInteger, nullable=False),
     Column("updated_at", BigInteger, nullable=False),
     CheckConstraint("price_raw > 0", name="ck_marketplace_deals_positive_price"),
-    CheckConstraint("currency IN ('GRAM','USDT','XTR')", name="ck_marketplace_deals_currency"),
+    CheckConstraint("currency IN ('GRAM','USDT','tUSDT','XTR')", name="ck_marketplace_deals_currency"),
+    CheckConstraint("network IN ('ton-mainnet','ton-testnet')", name="ck_marketplace_deals_network"),
     CheckConstraint(
-        "status IN ('reserved','payment_confirmed','nft_transfer_pending','settled','disputed','refunded','reconciliation_required','expired')",
+        "status IN ('reserved','payment_confirmed','nft_transfer_pending','payout_pending','refund_pending','settled','disputed','refunded','reconciliation_required','expired')",
         name="ck_marketplace_deals_status",
     ),
 )
@@ -80,8 +92,8 @@ def init_marketplace_settlement_schema(engine: Engine | None = None) -> None:
                 "SELECT version_num FROM alembic_version"
             )).scalar_one_or_none()
         from financial_ledger import migration_revision_number
-        if migration_revision_number(version) < 14:
-            raise RuntimeError("Marketplace settlement and inventory migrations through 0014 are required")
+        if migration_revision_number(version) < 15:
+            raise RuntimeError("Marketplace settlement and inventory migrations through 0015 are required")
         return
     metadata.create_all(db)
     if db.dialect.name == "sqlite":
