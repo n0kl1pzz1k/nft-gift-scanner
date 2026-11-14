@@ -83,6 +83,11 @@ marketplace_deal_events = Table(
 Index("idx_marketplace_deals_status_updated", marketplace_deals.c.status, marketplace_deals.c.updated_at)
 Index("idx_marketplace_deal_events_deal_created", marketplace_deal_events.c.deal_id, marketplace_deal_events.c.created_at)
 
+def _configured_admin_user_ids() -> set[str]:
+    raw = os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", ""))
+    return {part.strip() for part in raw.split(",") if part.strip().isdigit()}
+
+
 
 def init_marketplace_settlement_schema(engine: Engine | None = None) -> None:
     db = engine or get_engine()
@@ -269,10 +274,10 @@ async def confirm_deal_payment_via_route(*, deal_id: str, intent: Any, route: An
     """Confirm a direct escrow payment from independent chain evidence, never via Ledger."""
     if not getattr(route, "enabled", False) or route.route_id != "ton_usdt_testnet":
         raise PermissionError("The selected payment route is not enabled for testnet deals")
+    if str(actor_user_id) not in _configured_admin_user_ids():
+        raise PermissionError("Only a configured platform administrator can confirm a testnet payment")
     if intent.deal_id != deal_id or intent.network != "testnet" or intent.currency != "tUSDT":
         raise ValueError("Payment intent does not match the TON testnet deal")
-    if not getattr(route, "enabled", False) or route.route_id != "ton_usdt_testnet":
-        raise PermissionError("The selected payment route is not enabled for testnet deals")
     evidence = await route.verify_payment(intent)
     if evidence is None:
         return {"confirmed": False, "status": "reserved", "reason": "payment_not_finalized"}
