@@ -415,12 +415,12 @@ fun onInternalMessage(in: InMessage) {
             assert (storage.state == V2_DISPUTED) throw PaymentEscrowErrors.BadState;
             assert ((msg.decision == 1) | (msg.decision == 2)) throw PaymentEscrowErrors.BadProof;
             assert (msg.resolutionHash != 0) throw PaymentEscrowErrors.BadProof;
-            if (msg.decision == 2) {
-                assert (storage.preDisputeState == V2_PAID) throw PaymentEscrowErrors.BadState;
-            }
             val bit = arbitratorBit(in.senderAddress, arbitrators);
             assert (bit != 0) throw PaymentEscrowErrors.Unauthorized;
             if (storage.disputeApprovals == 0) {
+                if (msg.decision == 2) {
+                    assert (storage.preDisputeState == V2_PAID) throw PaymentEscrowErrors.BadState;
+                }
                 storage.disputeDecision = msg.decision;
                 evidence.disputeResolutionHash = msg.resolutionHash;
             } else {
