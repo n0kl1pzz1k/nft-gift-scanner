@@ -61,6 +61,37 @@ class TonNftProviderTests(unittest.TestCase):
         ToncenterNftProvider(api_key="test-key", base_url="https://toncenter.com")
 
 
+    def test_tonapi_rejects_transfer_without_explicit_previous_owner(self):
+        import asyncio
+        item = "0:" + "11" * 32
+        owner = "0:" + "22" * 32
+
+        class Response:
+            status_code = 200
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {"operations": [{
+                    "operation": "transfer",
+                    "item": {"address": item, "owner": {"address": owner}},
+                    "transaction_hash": "ab" * 32,
+                }]}
+
+        class Client:
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return False
+            async def get(self, *args, **kwargs):
+                return Response()
+
+        provider = TonApiNftProvider(api_key="test-key", base_url="https://testnet.tonapi.io")
+        with patch("ton_nft_providers.httpx.AsyncClient", return_value=Client()):
+            result = asyncio.run(provider.get_nft_transfer(
+                item, "0:" + "33" * 32, owner,
+            ))
+        self.assertIsNone(result)
+
     def test_tonapi_rejects_state_for_a_different_nft_item(self):
         import asyncio
         requested = "0:" + "11" * 32
