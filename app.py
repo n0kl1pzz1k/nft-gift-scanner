@@ -732,7 +732,8 @@ async def list_verified_inventory_listings(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     search: str | None = Query(default=None, min_length=1, max_length=80),
-    currency: str | None = Query(default=None, pattern="^(XTR|GRAM|USDT)$"),
+    currency: str | None = Query(default=None, pattern="^(XTR|GRAM|USDT|tUSDT)$"),
+    network: str | None = Query(default=None, pattern="^(ton-mainnet|ton-testnet)$"),
     asset_type: str | None = Query(default=None, max_length=40),
 ):
     db = get_engine()
@@ -743,6 +744,8 @@ async def list_verified_inventory_listings(
     ]
     if currency:
         filters.append(marketplace_listings.c.currency == currency)
+    if network:
+        filters.append(marketplace_assets.c.network == network)
     if asset_type:
         filters.append(marketplace_assets.c.asset_type == asset_type)
     if search:
@@ -760,8 +763,9 @@ async def list_verified_inventory_listings(
         rows = conn.execute(select(
             marketplace_listings.c.listing_id, marketplace_listings.c.price_raw,
             marketplace_listings.c.currency, marketplace_listings.c.created_at,
-            marketplace_assets.c.asset_type, marketplace_assets.c.collection_address,
-            marketplace_assets.c.token_id,
+            marketplace_assets.c.asset_type, marketplace_assets.c.network,
+            marketplace_assets.c.collection_address, marketplace_assets.c.token_id,
+            marketplace_assets.c.item_address,
         ).select_from(join_from).where(*filters)
           .order_by(marketplace_listings.c.created_at.desc(), marketplace_listings.c.listing_id)
           .limit(limit).offset(offset)).mappings().all()
@@ -846,7 +850,29 @@ async def create_native_marketplace_deal(
 ):
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
     try:
-        wallet = get_active_verified_wallet(user_id=str(user["id"]), engine=get_engine())
+        from marketplace_inventory import marketplace_reservations
+        reservation_query = select(
+            marketplace_assets.c.network
+        ).select_from(
+            marketplace_reservations.join(
+                marketplace_listings,
+                marketplace_listings.c.listing_id == marketplace_reservations.c.listing_id,
+            ).join(
+                marketplace_assets,
+                marketplace_assets.c.asset_id == marketplace_listings.c.asset_id,
+            )
+        ).where(
+            marketplace_reservations.c.reservation_id == reservation_id,
+            marketplace_reservations.c.buyer_user_id == str(user["id"]),
+        )
+        with get_engine().connect() as conn:
+            reservation_network = conn.execute(reservation_query).scalar_one_or_none()
+        if reservation_network is None:
+            raise PermissionError("Active reservation not found")
+        wallet_network = "ton-testnet" if reservation_network == "ton-testnet" else "ton-mainnet"
+        wallet = get_active_verified_wallet(
+            user_id=str(user["id"]), network=wallet_network, engine=get_engine(),
+        )
         from marketplace_settlement import create_deal_from_reservation
         return create_deal_from_reservation(
             reservation_id=reservation_id, buyer_user_id=str(user["id"]),
@@ -871,6 +897,13 @@ async def get_native_marketplace_deal(
             marketplace_deals.c.deal_id, marketplace_deals.c.listing_id,
             marketplace_deals.c.asset_id, marketplace_deals.c.buyer_user_id,
             marketplace_deals.c.seller_user_id, marketplace_deals.c.currency,
+            marketplace_deals.c.network, marketplace_deals.c.buyer_wallet_address,
+            marketplace_deals.c.seller_wallet_address, marketplace_deals.c.escrow_contract_address,
+            marketplace_deals.c.payment_reference, marketplace_deals.c.payment_query_id,
+            marketplace_deals.c.payment_event_id, marketplace_deals.c.nft_transfer_tx_hash,
+            marketplace_deals.c.payout_query_id, marketplace_deals.c.payout_tx_hash,
+            marketplace_deals.c.refund_query_id, marketplace_deals.c.refund_tx_hash,
+            marketplace_deals.c.nft_return_tx_hash,
             marketplace_deals.c.price_raw, marketplace_deals.c.status,
             marketplace_deals.c.created_at, marketplace_deals.c.updated_at,
         ).where(marketplace_deals.c.deal_id == deal_id)).mappings().first()
