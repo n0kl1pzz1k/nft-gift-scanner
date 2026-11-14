@@ -813,8 +813,11 @@ def get_deal_testnet_dispute_query_id(*, deal_id: str, decision: str,
     if (deal["network"] != "ton-testnet" or deal["currency"] != "tUSDT"
             or deal["status"] != "disputed" or not deal["payment_query_id"]):
         raise PermissionError("Only a paid disputed testnet tUSDT deal has a resolver query ID")
-    query_id = int.from_bytes(
-        hashlib.sha256(f"{deal_id}:{decision}".encode()).digest()[:8], "big"
+    # SQL BigInteger is signed 64-bit; keep the TON uint64 query ID in
+    # its positive signed-safe range so SQLite and PostgreSQL store it identically.
+    query_id = (
+        int.from_bytes(hashlib.sha256(f"{deal_id}:{decision}".encode()).digest()[:8], "big")
+        & ((1 << 63) - 1)
     ) or 1
     return {"deal_id": deal_id, "decision": decision, "query_id": query_id}
 
