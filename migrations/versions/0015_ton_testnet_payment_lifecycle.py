@@ -79,6 +79,14 @@ def upgrade():
         )
 
     op.execute(
+        "UPDATE marketplace_assets SET item_address = ("
+        "SELECT evidence_reference FROM marketplace_ownership_proofs "
+        "WHERE marketplace_ownership_proofs.asset_id = marketplace_assets.asset_id "
+        "AND marketplace_ownership_proofs.verification_status = 'verified' "
+        "ORDER BY recorded_at DESC LIMIT 1) "
+        "WHERE item_address IS NULL"
+    )
+    op.execute(
         "UPDATE marketplace_deals "
         "SET seller_wallet_address = (SELECT owner_wallet_address FROM marketplace_assets "
         "WHERE marketplace_assets.asset_id = marketplace_deals.asset_id) "
