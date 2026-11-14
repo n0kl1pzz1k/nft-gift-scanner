@@ -44,6 +44,8 @@ marketplace_assets = Table(
     Column("telegram_gift_id", String(128), nullable=False, default=""),
     Column("owner_user_id", String(64), nullable=False),
     Column("owner_wallet_address", String(128)),
+    Column("seller_wallet_address", String(128)),
+    Column("item_address", String(128)),
     Column("ownership_state", String(16), nullable=False, default="unverified"),
     Column("ownership_checked_at", BigInteger),
     Column("ownership_expires_at", BigInteger),
