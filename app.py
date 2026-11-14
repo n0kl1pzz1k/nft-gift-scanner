@@ -1233,7 +1233,7 @@ async def confirm_testnet_deal_payment(
     deal_id: str,
     x_telegram_init_data: str | None = Header(default=None),
 ):
-    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    admin = _require_admin(x_telegram_init_data)
     from marketplace_settlement import (
         create_deal_payment_intent_via_route, confirm_deal_payment_via_route,
         marketplace_deals,
@@ -1247,15 +1247,13 @@ async def confirm_testnet_deal_payment(
             )).mappings().first()
         if deal is None:
             raise ValueError("Unknown marketplace deal")
-        if str(user["id"]) != str(deal["buyer_user_id"]):
-            _require_admin(x_telegram_init_data)
         intent = await create_deal_payment_intent_via_route(
             deal_id=deal_id, route=route, actor_user_id=str(deal["buyer_user_id"]),
             engine=get_engine(),
         )
         return await confirm_deal_payment_via_route(
             deal_id=deal_id, intent=intent, route=route,
-            actor_user_id=str(user["id"]), engine=get_engine(),
+            actor_user_id=str(admin["id"]), engine=get_engine(),
         )
     except HTTPException:
         raise
