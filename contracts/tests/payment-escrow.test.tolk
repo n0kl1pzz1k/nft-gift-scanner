@@ -17,7 +17,7 @@ fun buildTestJettonMetadata(): cell {
     return metadata.toCell();
 }
 
-fun setupPaymentEscrow(assetKind: uint8, amount: coins): (GiftRadarPaymentEscrow, address, address, address, address, address, address, address, address, address, address) {
+fun setupPaymentEscrow(assetKind: uint8, amount: coins): (GiftRadarPaymentEscrow, address, address, address, address, address, address, address, address, address, address, address, address, address, address) {
     val platformAdmin = testing.treasury("platform-config-admin");
     val seller = testing.treasury("payment-seller");
     val buyer = testing.treasury("payment-buyer");
@@ -134,7 +134,8 @@ fun setupPaymentEscrow(assetKind: uint8, amount: coins): (GiftRadarPaymentEscrow
     expect(mint).toHaveSuccessfulTx<MintNewJettons>({ from: platformAdmin.address, to: minter.address });
     return (escrow, seller.address, buyer.address, nftItem.address,
         signer1.address, signer2.address, signer3.address,
-        escrowUsdtWallet, buyerUsdtWallet, platformAdmin.address, minter.getWalletAddress(seller.address));
+        escrowUsdtWallet, buyerUsdtWallet, platformAdmin.address, minter.getWalletAddress(seller.address),
+        arb1.address, arb2.address, arb3.address, resolver.address);
 }
 
 fun depositPaymentNft(escrow: GiftRadarPaymentEscrow, seller: address, nftItem: address) {
@@ -194,7 +195,7 @@ fun confirmPaymentTwice(escrow: GiftRadarPaymentEscrow, signer1: address, signer
 }
 
 get fun `test TON payment enters escrow then requires two distinct signers before NFT release`() {
-    val (escrow, seller, buyer, nftItem, signer1, signer2, _, _, _, _platformAdmin, _) =
+    val (escrow, seller, buyer, nftItem, signer1, signer2, _, _, _, _platformAdmin, _, _, _, _, _) =
         setupPaymentEscrow(ASSET_TON, 250000000);
     depositPaymentNft(escrow, seller, nftItem);
 
@@ -316,7 +317,7 @@ get fun `test TON payment enters escrow then requires two distinct signers befor
 }
 
 get fun `test standard TEP-74 test Jetton transfers into escrow and needs two signers`() {
-    val (escrow, seller, buyer, nftItem, signer1, signer2, _, usdtWallet, buyerUsdtWallet, _, sellerUsdtWallet) =
+    val (escrow, seller, buyer, nftItem, signer1, signer2, _, usdtWallet, buyerUsdtWallet, _, sellerUsdtWallet, _, _, _, _) =
         setupPaymentEscrow(ASSET_TEST_USDT_JETTON, 1000000);
     depositPaymentNft(escrow, seller, nftItem);
 
@@ -412,7 +413,7 @@ get fun `test standard TEP-74 test Jetton transfers into escrow and needs two si
 
 
 get fun `test dispute decision requires two distinct arbitrators and matching resolution evidence`() {
-    val (escrow, seller, buyer, nftItem, signer1, signer2, signer3, arb1, arb2, arb3, resolver) =
+    val (escrow, seller, buyer, nftItem, signer1, signer2, signer3, _, _, _, _, arb1, arb2, arb3, resolver) =
         setupPaymentEscrow(ASSET_TON, 250000000);
     depositPaymentNft(escrow, seller, nftItem);
 
