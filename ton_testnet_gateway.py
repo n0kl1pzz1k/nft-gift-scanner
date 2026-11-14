@@ -367,6 +367,7 @@ class TonTestnetPaymentGateway:
             raise PaymentRouteError("TON testnet providers disagree on payment evidence")
         if (not center.finalized or not embed.finalized
                 or center.amount != intent.amount or center.deal_id != intent.deal_id
+                or center.currency != "tUSDT" or center.network != "testnet"
                 or center.query_id <= 0):
             return None
         if center.reference != intent.reference:
@@ -408,6 +409,7 @@ class TonTestnetPaymentGateway:
         if comparable(first) != comparable(second):
             raise PaymentRouteError("TON testnet providers disagree on seller payout evidence")
         if (not first.finalized or first.amount != intent.amount
+                or first.currency != "tUSDT" or first.network != "testnet"
                 or first.deal_id != intent.deal_id or first.reference != reference
                 or first.query_id != query_id
                 or not _same_address(first.sender, self.escrow_address)):
@@ -451,6 +453,7 @@ class TonTestnetPaymentGateway:
         if comparable(first) != comparable(second):
             raise PaymentRouteError("TON testnet providers disagree on buyer refund evidence")
         if (not first.finalized or first.amount != intent.amount
+                or first.currency != "tUSDT" or first.network != "testnet"
                 or first.deal_id != intent.deal_id or first.reference != reference
                 or first.query_id != query_id
                 or not _same_address(first.sender, self.escrow_address)):
