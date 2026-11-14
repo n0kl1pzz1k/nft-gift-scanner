@@ -50,6 +50,7 @@ fun setupPaymentEscrow(assetKind: uint8, amount: coins): (GiftRadarPaymentEscrow
         expectedAmount: amount,
         deadline: testing.getNow() + 2592000,
         releaseAfter: 0,
+        releaseDelaySeconds: 86400,
         assetKind,
         initialized: false,
         state: V2_CREATED,
