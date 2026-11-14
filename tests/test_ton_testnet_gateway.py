@@ -14,7 +14,7 @@ class Provider:
     async def find_transfer(self, *, escrow_address, jetton_master, reference):
         return self.transfer
 
-    async def find_payout(self, *, escrow_address, jetton_master, seller_address, query_id, amount, reference):
+    async def find_payout(self, *, escrow_address, jetton_master, recipient_address, query_id, amount, reference):
         return self.payout
 
 
@@ -25,6 +25,7 @@ class TonTestnetGatewayTests(unittest.TestCase):
             reference="grpay:deal-123", network="testnet",
         )
         self.seller_address = "0:" + "44" * 32
+        self.buyer_address = "0:" + "66" * 32
         self.transfer = TestnetTransfer(
             provider_id="toncenter", transaction_id="ab" * 32,
             deal_id="deal-123", reference="grpay:deal-123",
@@ -40,6 +41,15 @@ class TonTestnetGatewayTests(unittest.TestCase):
             amount=2500000, currency="tUSDT", network="testnet",
             sender="0:" + "22" * 32, recipient=self.seller_address,
             finalized=True, query_id=992,
+        )
+
+    def refund_transfer(self, provider_id):
+        return TestnetTransfer(
+            provider_id=provider_id, transaction_id="cd" * 32,
+            deal_id="deal-123", reference="grrefund:deal-123:993",
+            amount=2500000, currency="tUSDT", network="testnet",
+            sender="0:" + "22" * 32, recipient=self.buyer_address,
+            finalized=True, query_id=993,
         )
 
     def gateway(self, first=None, second=None, payout1=None, payout2=None):
@@ -90,6 +100,38 @@ class TonTestnetGatewayTests(unittest.TestCase):
         })
         self.assertIsNone(asyncio.run(self.gateway(payout1=wrong, payout2=wrong).verify_payout(
             self.intent, seller_address=self.seller_address, query_id=992,
+        )))
+
+    def test_matching_finalized_buyer_refund_requires_two_providers(self):
+        result = asyncio.run(self.gateway(
+            payout1=self.refund_transfer("toncenter"),
+            payout2=self.refund_transfer("tonapi"),
+        ).verify_refund(
+            self.intent, buyer_address=self.buyer_address, query_id=993,
+        ))
+        self.assertIsInstance(result, PaymentEvidence)
+        self.assertEqual(result.reference, "grrefund:deal-123:993")
+        self.assertEqual(result.query_id, 993)
+
+    def test_buyer_refund_disagreement_or_wrong_recipient_fails_closed(self):
+        other = TestnetTransfer(**{
+            **self.refund_transfer("tonapi").__dict__,
+            "transaction_id": "aa" * 32,
+        })
+        with self.assertRaises(PaymentRouteError):
+            asyncio.run(self.gateway(
+                payout1=self.refund_transfer("toncenter"), payout2=other,
+            ).verify_refund(
+                self.intent, buyer_address=self.buyer_address, query_id=993,
+            ))
+        wrong = TestnetTransfer(**{
+            **self.refund_transfer("tonapi").__dict__,
+            "recipient": self.seller_address,
+        })
+        self.assertIsNone(asyncio.run(self.gateway(
+            payout1=wrong, payout2=wrong,
+        ).verify_refund(
+            self.intent, buyer_address=self.buyer_address, query_id=993,
         )))
 
     def test_payment_from_wrong_buyer_wallet_does_not_confirm(self):
