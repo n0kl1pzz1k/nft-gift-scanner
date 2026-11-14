@@ -150,7 +150,7 @@ def init_inventory_schema(engine: Engine | None = None) -> None:
 
 def save_verified_wallet(*, user_id: str, address: str, network: str,
                          engine: Engine | None = None, now: int | None = None) -> None:
-    if not str(user_id).isdigit() or network != "ton-mainnet" or not address or len(address) > 128:
+    if not str(user_id).isdigit() or network not in {"ton-mainnet", "ton-testnet"} or not address or len(address) > 128:
         raise ValueError("Invalid verified wallet binding")
     db = engine or get_engine()
     init_inventory_schema(db)
@@ -179,7 +179,7 @@ def revoke_verified_wallet(*, user_id: str, address: str | None = None,
     current = int(now or time.time())
     statement = update(verified_wallets).where(
         verified_wallets.c.user_id == str(user_id),
-        verified_wallets.c.network == "ton-mainnet",
+        verified_wallets.c.network == network,
         verified_wallets.c.revoked_at.is_(None),
     )
     if address:
@@ -189,27 +189,30 @@ def revoke_verified_wallet(*, user_id: str, address: str | None = None,
         return int(result.rowcount or 0)
 
 
-def get_active_verified_wallet(*, user_id: str, engine: Engine | None = None) -> str:
+def get_active_verified_wallet(*, user_id: str, network: str = "ton-mainnet",
+                               engine: Engine | None = None) -> str:
     db = engine or get_engine()
     init_inventory_schema(db)
     with db.connect() as conn:
         row = conn.execute(select(verified_wallets.c.address).where(
             verified_wallets.c.user_id == str(user_id),
-            verified_wallets.c.network == "ton-mainnet",
+            verified_wallets.c.network == network,
             verified_wallets.c.revoked_at.is_(None),
         ).order_by(verified_wallets.c.verified_at.desc())).first()
     if not row:
-        raise PermissionError("Connect and verify a TON mainnet wallet before importing an NFT")
+        raise PermissionError(f"Connect and verify a {network} wallet before importing an NFT")
     return str(row.address)
 
 
 def record_wallet_owned_nft(*, user_id: str, wallet_address: str, asset_type: str,
                             collection_address: str, token_id: str, item_address: str,
-                            evidence: dict[str, Any], proof_ttl_seconds: int = 300,
+                            evidence: dict[str, Any], network: str = "ton-mainnet",
+                            proof_ttl_seconds: int = 300,
                             engine: Engine | None = None, now: int | None = None) -> dict[str, Any]:
     """Persist a dual-provider-verified wallet-owned NFT; it is not yet a listing."""
-    allowed = {"ton_nft", "collectible_username", "collectible_phone_number"}
-    if asset_type not in allowed or not evidence.get("verified"):
+    allowed = ({"ton_nft", "collectible_username", "collectible_phone_number"}
+               if network == "ton-mainnet" else {"testnet_mock_nft"})
+    if network not in {"ton-mainnet", "ton-testnet"} or asset_type not in allowed or not evidence.get("verified"):
         raise PermissionError("A successful dual-provider NFT ownership proof is required")
     if evidence.get("owner_wallet_address") != wallet_address:
         raise PermissionError("NFT owner does not match the user's verified wallet")
@@ -220,7 +223,7 @@ def record_wallet_owned_nft(*, user_id: str, wallet_address: str, asset_type: st
     db = engine or get_engine()
     init_inventory_schema(db)
     current = int(now or time.time())
-    canonical = f"ton-mainnet:{collection_address}:{int(token_id)}"
+    canonical = f"{network}:{collection_address}:{int(token_id)}"
     asset_id = "gra_" + uuid.uuid4().hex
     with db.begin() as conn:
         existing = conn.execute(select(marketplace_assets).where(
@@ -241,7 +244,7 @@ def record_wallet_owned_nft(*, user_id: str, wallet_address: str, asset_type: st
                      custody_state="wallet_owned", updated_at=current))
         else:
             conn.execute(insert(marketplace_assets).values(
-                asset_id=asset_id, asset_type=asset_type, network="ton-mainnet",
+                asset_id=asset_id, asset_type=asset_type, network=network,
                 canonical_asset_id=canonical, collection_address=collection_address,
                 token_id=str(int(token_id)), telegram_gift_id="", owner_user_id=str(user_id),
                 owner_wallet_address=wallet_address, ownership_state="verified",
