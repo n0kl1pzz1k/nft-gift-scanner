@@ -673,13 +673,13 @@ def confirm_deal_nft_transfer(*, deal_id: str, transfer_proofs: list[dict[str, A
 
 
 
-def _build_testnet_deal_intent(deal: Any, route: Any) -> Any:
+async def _build_testnet_deal_intent(deal: Any, route: Any) -> Any:
     if (deal["network"] != "ton-testnet" or deal["currency"] != "tUSDT"
             or not getattr(route, "enabled", False) or route.route_id != "ton_usdt_testnet"):
         raise PermissionError("Deal is not eligible for the enabled TON testnet tUSDT route")
     if canonical_ton_address(deal["escrow_contract_address"] or "") != canonical_ton_address(route.escrow_address):
         raise PermissionError("Payment route escrow does not match the deal escrow snapshot")
-    return route.create_intent(
+    return await route.create_intent(
         deal_id=str(deal["deal_id"]), amount=int(deal["price_raw"]), currency="tUSDT",
         escrow_address=route.escrow_address, jetton_master=route.jetton_master,
         payer_address=str(deal["buyer_wallet_address"]),
@@ -688,6 +688,7 @@ def _build_testnet_deal_intent(deal: Any, route: Any) -> Any:
 
 async def confirm_deal_testnet_payout(*, deal_id: str, route: Any,
                                       actor_user_id: str,
+                                      current_owner_addresses: list[str],
                                       engine: Engine | None = None,
                                       now: int | None = None) -> dict[str, Any]:
     """Settle a tUSDT deal only after two independent providers verify seller payout."""
@@ -706,6 +707,9 @@ async def confirm_deal_testnet_payout(*, deal_id: str, route: Any,
                 "payout_tx_hash": deal["payout_tx_hash"]}
     if deal["status"] != "payout_pending" or not deal["seller_wallet_address"]:
         raise ValueError("Deal is not awaiting a verifiable seller payout")
+    owners = {canonical_ton_address(value) for value in current_owner_addresses}
+    if len(current_owner_addresses) < 2 or owners != {canonical_ton_address(deal["buyer_wallet_address"])}:
+        raise PermissionError("Two independent live owner checks must still show the buyer owns the NFT")
     query_id = int(deal["payout_query_id"] or 0)
     if query_id <= 0:
         raise ValueError("Payout query ID is missing")
@@ -804,6 +808,8 @@ def mark_deal_testnet_refund_pending(*, deal_id: str, actor_user_id: str,
 
 async def confirm_deal_testnet_refund(*, deal_id: str, route: Any,
                                       actor_user_id: str,
+                                      nft_return_proofs: list[dict[str, Any]],
+                                      current_owner_addresses: list[str],
                                       engine: Engine | None = None,
                                       now: int | None = None) -> dict[str, Any]:
     """Close a paid dispute only after two providers verify the on-chain buyer refund."""
@@ -825,6 +831,41 @@ async def confirm_deal_testnet_refund(*, deal_id: str, route: Any,
     query_id = int(deal["refund_query_id"] or 0)
     if query_id <= 0:
         raise ValueError("Refund query ID is missing")
+    if len(nft_return_proofs) < 2:
+        raise PermissionError("Two independent NFT return proofs are required")
+    normalized = []
+    for proof in nft_return_proofs:
+        if proof.get("provider_id") not in {"tonapi", "toncenter"}:
+            raise PermissionError("Untrusted NFT return provider")
+        if proof.get("successful") is not True or proof.get("finalized") is not True:
+            raise ValueError("NFT return is not successful and finalized")
+        normalized.append({
+            "provider_id": proof["provider_id"],
+            "tx_hash": str(proof.get("tx_hash") or "").lower().removeprefix("0x"),
+            "item_address": canonical_ton_address(proof.get("item_address") or ""),
+            "old_owner": canonical_ton_address(proof.get("old_owner") or ""),
+            "new_owner": canonical_ton_address(proof.get("new_owner") or ""),
+            "evidence_hash": str(proof.get("evidence_hash") or ""),
+        })
+    if len({item["provider_id"] for item in normalized}) != 2:
+        raise PermissionError("Two distinct providers are required for NFT return")
+    if (len({item["tx_hash"] for item in normalized}) != 1
+            or len(normalized[0]["tx_hash"]) != 64
+            or any(ch not in "0123456789abcdef" for ch in normalized[0]["tx_hash"])):
+        raise ValueError("Providers disagree on NFT return transaction")
+    if (len({item["item_address"] for item in normalized}) != 1
+            or len({item["old_owner"] for item in normalized}) != 1
+            or len({item["new_owner"] for item in normalized}) != 1
+            or len({item["evidence_hash"] for item in normalized}) != 1
+            or not normalized[0]["evidence_hash"]):
+        raise ValueError("Providers disagree on NFT return evidence")
+    escrow = canonical_ton_address(deal["escrow_contract_address"] or "")
+    seller_wallet = canonical_ton_address(deal["seller_wallet_address"])
+    if normalized[0]["old_owner"] != escrow or normalized[0]["new_owner"] != seller_wallet:
+        raise PermissionError("NFT return did not move from this escrow to the snapshotted seller")
+    owners = {canonical_ton_address(value) for value in current_owner_addresses}
+    if len(current_owner_addresses) < 2 or owners != {seller_wallet}:
+        raise PermissionError("Two independent live owner checks must show the seller owns the returned NFT")
     intent = await _build_testnet_deal_intent(deal, route)
     evidence = await route.verify_refund(
         intent, buyer_address=str(deal["buyer_wallet_address"]), query_id=query_id,
@@ -845,6 +886,21 @@ async def confirm_deal_testnet_refund(*, deal_id: str, route: Any,
         current_deal = conn.execute(query).mappings().first()
         if current_deal is None:
             raise ValueError("Unknown marketplace deal")
+        asset = conn.execute(select(marketplace_assets).where(
+            marketplace_assets.c.asset_id == current_deal["asset_id"]
+        )).mappings().one()
+        proof_row = conn.execute(select(
+            marketplace_ownership_proofs.c.evidence_reference,
+            marketplace_ownership_proofs.c.expires_at,
+        ).where(
+            marketplace_ownership_proofs.c.asset_id == current_deal["asset_id"],
+            marketplace_ownership_proofs.c.owner_user_id == current_deal["seller_user_id"],
+            marketplace_ownership_proofs.c.proof_source == "ton_dual_provider",
+            marketplace_ownership_proofs.c.verification_status == "verified",
+        ).order_by(marketplace_ownership_proofs.c.recorded_at.desc()).limit(1)).mappings().first()
+        if (proof_row is None or int(proof_row["expires_at"] or 0) <= current
+                or normalized[0]["item_address"] != canonical_ton_address(proof_row["evidence_reference"])):
+            raise ValueError("NFT return item does not match a fresh seller ownership proof")
         if current_deal["status"] == "refunded":
             if current_deal["refund_tx_hash"] == evidence.transaction_id:
                 return {"confirmed": True, "duplicate": True, "status": "refunded",
