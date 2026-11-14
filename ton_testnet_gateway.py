@@ -252,7 +252,7 @@ class TonApiEmbedTestnetProvider:
                 provider_id=self.provider_id, transaction_id=tx,
                 deal_id=reference.removeprefix("grpay:"), reference=reference,
                 amount=amount, currency="tUSDT", network="testnet",
-                sender=str(_pick(row, "source", "sender") or ""),
+                sender=str(_pick(row, "source_owner", "sender_owner", "source", "sender") or ""),
                 recipient=str(recipient),
                 finalized=bool(mc_seqno > 0 and last_lt >= lt),
                 query_id=int(_pick(row, "query_id") or 0),
@@ -353,7 +353,8 @@ class TonTestnetPaymentGateway:
         def comparable(item):
             return (
                 item.transaction_id, item.deal_id, item.reference, item.amount,
-                item.currency, item.network, item.finalized,
+                item.currency, item.network, item.sender, item.recipient,
+                item.finalized,
             )
         if comparable(first) != comparable(second):
             raise PaymentRouteError("TON testnet providers disagree on payment evidence")
