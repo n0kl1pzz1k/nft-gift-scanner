@@ -2,6 +2,17 @@ import "@contracts/payment-escrow-types"
 
 struct MockNftItemStorage {
     ownerAddress: address
+    collectionAddress: address
+    index: uint256
+    content: cell
+}
+
+struct MockNftDataReply {
+    init: int
+    index: uint256
+    collectionAddress: address
+    ownerAddress: address
+    content: cell
 }
 
 struct (0x5fcc3d14) MockNftTransfer {
@@ -57,4 +68,15 @@ fun onInternalMessage(in: InMessage) {
 get fun get_nft_owner(): address {
     val storage = lazy MockNftItemStorage.load();
     return storage.ownerAddress;
+}
+
+get fun get_nft_data(): MockNftDataReply {
+    val storage = lazy MockNftItemStorage.load();
+    return MockNftDataReply {
+        init: 1,
+        index: storage.index,
+        collectionAddress: storage.collectionAddress,
+        ownerAddress: storage.ownerAddress,
+        content: storage.content,
+    };
 }
