@@ -552,23 +552,13 @@ def confirm_deal_nft_transfer(*, deal_id: str, transfer_proofs: list[dict[str, A
             raise PermissionError("NFT asset escrow address does not match the deal snapshot")
         if normalized[0]["new_owner"] != expected_buyer:
             raise PermissionError("NFT was not delivered to the buyer's verified wallet")
-        from marketplace_inventory import marketplace_ownership_proofs
-        proof_row = conn.execute(select(
-            marketplace_ownership_proofs.c.evidence_reference,
-            marketplace_ownership_proofs.c.owner_user_id,
-            marketplace_ownership_proofs.c.proof_source,
-            marketplace_ownership_proofs.c.expires_at,
-        ).where(
-            marketplace_ownership_proofs.c.asset_id == deal["asset_id"],
-            marketplace_ownership_proofs.c.owner_user_id == deal["seller_user_id"],
-            marketplace_ownership_proofs.c.proof_source == "ton_dual_provider",
-            marketplace_ownership_proofs.c.verification_status == "verified",
-        ).order_by(
-            marketplace_ownership_proofs.c.recorded_at.desc()
-        ).limit(1)).mappings().first()
-        if (proof_row is None or int(proof_row["expires_at"] or 0) <= current
-                or normalized[0]["item_address"] != canonical_ton_address(proof_row["evidence_reference"])):
-            raise ValueError("NFT item does not match a fresh seller ownership proof for the reserved listing")
+        if (not asset["item_address"]
+                or normalized[0]["item_address"] != canonical_ton_address(asset["item_address"])):
+            raise PermissionError("NFT transfer item does not match the immutable asset item address")
+        if (asset["seller_wallet_address"]
+                and canonical_ton_address(asset["seller_wallet_address"])
+                != canonical_ton_address(deal["seller_wallet_address"] or "")):
+            raise PermissionError("Deal seller wallet does not match the immutable asset seller snapshot")
         owner_addresses = {canonical_ton_address(value) for value in current_owner_addresses}
         if owner_addresses != {expected_buyer}:
             raise PermissionError("Live NFT state does not show the buyer as current owner")
