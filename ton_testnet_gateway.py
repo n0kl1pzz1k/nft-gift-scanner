@@ -12,7 +12,7 @@ import hashlib
 import os
 from dataclasses import dataclass
 from typing import Any, Protocol
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -133,8 +133,10 @@ class TonCenterTestnetProvider:
     provider_id = "toncenter"
 
     def __init__(self, *, base_url: str, api_key: str = "", timeout: float = 12.0):
-        if not base_url.startswith("https://") or "testnet" not in base_url:
-            raise PaymentRouteError("TON Center provider must use an HTTPS testnet endpoint")
+        parsed = urlsplit(base_url)
+        hostname = (parsed.hostname or "").lower()
+        if parsed.scheme != "https" or not (hostname.startswith("testnet.") or ".testnet." in hostname):
+            raise PaymentRouteError("TON Center provider must use an HTTPS testnet hostname")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
@@ -238,8 +240,10 @@ class TonApiEmbedTestnetProvider:
     provider_id = "tonapi"
 
     def __init__(self, *, base_url: str, api_key: str = "", timeout: float = 12.0):
-        if not base_url.startswith("https://"):
-            raise PaymentRouteError("TonAPI Embed provider must use HTTPS")
+        parsed = urlsplit(base_url)
+        hostname = (parsed.hostname or "").lower()
+        if parsed.scheme != "https" or not (hostname.startswith("testnet.") or ".testnet." in hostname):
+            raise PaymentRouteError("TonAPI Embed provider must use an HTTPS testnet hostname")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
