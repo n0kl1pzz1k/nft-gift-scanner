@@ -792,6 +792,28 @@ async def confirm_deal_testnet_payout(*, deal_id: str, route: Any,
 
 
 
+def get_deal_testnet_dispute_query_id(*, deal_id: str, decision: str,
+                                          engine: Engine | None = None) -> dict[str, Any]:
+    """Return the deterministic resolver query ID without changing deal state."""
+    if decision not in {"refund", "release"}:
+        raise ValueError("Dispute decision must be refund or release")
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    with db.connect() as conn:
+        deal = conn.execute(select(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id
+        )).mappings().first()
+    if deal is None:
+        raise ValueError("Unknown marketplace deal")
+    if (deal["network"] != "ton-testnet" or deal["currency"] != "tUSDT"
+            or deal["status"] != "disputed" or not deal["payment_query_id"]):
+        raise PermissionError("Only a paid disputed testnet tUSDT deal has a resolver query ID")
+    query_id = int.from_bytes(
+        hashlib.sha256(f"{deal_id}:{decision}".encode()).digest()[:8], "big"
+    ) or 1
+    return {"deal_id": deal_id, "decision": decision, "query_id": query_id}
+
+
 def mark_deal_testnet_dispute_release_pending(*, deal_id: str, actor_user_id: str,
                                               engine: Engine | None = None,
                                               now: int | None = None) -> dict[str, Any]:
@@ -832,7 +854,9 @@ def mark_deal_testnet_refund_pending(*, deal_id: str, actor_user_id: str,
     db = engine or get_engine()
     init_marketplace_settlement_schema(db)
     current = int(now or time.time())
-    query_id = int.from_bytes(hashlib.sha256(f"{deal_id}:refund".encode()).digest()[:8], "big") or 1
+    query_id = int(get_deal_testnet_dispute_query_id(
+        deal_id=deal_id, decision="refund", engine=db,
+    )["query_id"])
     lock = db.dialect.name == "postgresql"
     with db.begin() as conn:
         query = select(marketplace_deals).where(marketplace_deals.c.deal_id == deal_id)
