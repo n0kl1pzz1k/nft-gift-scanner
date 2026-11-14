@@ -17,7 +17,7 @@ fun buildTestJettonMetadata(): cell {
     return metadata.toCell();
 }
 
-fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscrow, address, address, address, address, address, address, address, address, address, address) {
+fun setupPaymentEscrow(assetKind: uint8, amount: coins): (GiftRadarPaymentEscrow, address, address, address, address, address, address, address, address, address, address) {
     val platformAdmin = testing.treasury("platform-config-admin");
     val seller = testing.treasury("payment-seller");
     val buyer = testing.treasury("payment-buyer");
@@ -158,7 +158,7 @@ fun readPaymentEscrowState(escrow: GiftRadarPaymentEscrow): PaymentEscrowStateRe
     );
 }
 
-fun confirmPaymentTwice(escrow: GiftRadarPaymentEscrow, signer1: address, signer2: address, queryId: uint64, amount: uint128) {
+fun confirmPaymentTwice(escrow: GiftRadarPaymentEscrow, signer1: address, signer2: address, queryId: uint64, amount: coins) {
     val first = net.send(signer1, createMessage({
         bounce: true,
         value: grams("0.05"),
