@@ -91,6 +91,7 @@ fun main() {
         assetKind: ASSET_TEST_USDT_JETTON,
         initialized: false,
         state: V2_CREATED,
+        preDisputeState: V2_CREATED,
         paymentQueryId: 0,
         transferQueryId: 0,
         paymentApprovals: 0,
@@ -99,10 +100,16 @@ fun main() {
         disputeDecision: 0,
         payoutQueryId: 0,
         payoutApprovals: 0,
+        refundQueryId: 0,
+        refundApprovals: 0,
         evidence: PaymentEscrowEvidence {
             deliveryProofHash: 0,
             disputeResolutionHash: 0,
             payoutTxHash: 0,
+        }.toCell(),
+        refundEvidence: PaymentEscrowRefundEvidence {
+            refundTxHash: 0,
+            sellerOwnershipProofHash: 0,
         }.toCell(),
         parties: PaymentEscrowParties {
             seller: seller.address,
