@@ -242,14 +242,15 @@ def record_wallet_owned_nft(*, user_id: str, wallet_address: str, asset_type: st
             asset_id = existing["asset_id"]
             conn.execute(update(marketplace_assets).where(
                 marketplace_assets.c.asset_id == asset_id
-            ).values(owner_wallet_address=wallet_address, ownership_state="verified",
+            ).values(owner_wallet_address=wallet_address, item_address=item_address, ownership_state="verified",
                      ownership_checked_at=current, ownership_expires_at=current + proof_ttl_seconds,
                      custody_state="wallet_owned", updated_at=current))
         else:
             conn.execute(insert(marketplace_assets).values(
                 asset_id=asset_id, asset_type=asset_type, network=network,
                 canonical_asset_id=canonical, collection_address=collection_address,
-                token_id=str(int(token_id)), telegram_gift_id="", owner_user_id=str(user_id),
+                token_id=str(int(token_id)), item_address=item_address,
+                telegram_gift_id="", owner_user_id=str(user_id),
                 owner_wallet_address=wallet_address, ownership_state="verified",
                 ownership_checked_at=current, ownership_expires_at=current + proof_ttl_seconds,
                 custody_state="wallet_owned", created_at=current, updated_at=current,
