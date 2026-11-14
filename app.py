@@ -1234,6 +1234,85 @@ async def confirm_testnet_deal_payment(
         raise HTTPException(status_code=503, detail="TON testnet payment verification is unavailable")
 
 
+@app.post("/api/inventory/deals/{deal_id}/nft-transfer-pending")
+async def mark_marketplace_nft_transfer_pending(
+    deal_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    admin = _require_admin(x_telegram_init_data)
+    from marketplace_settlement import marketplace_deals, mark_deal_nft_transfer_pending
+    with get_engine().connect() as conn:
+        deal = conn.execute(select(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id
+        )).mappings().first()
+    if deal is None:
+        raise HTTPException(status_code=404, detail="Marketplace deal not found")
+    try:
+        mark_deal_nft_transfer_pending(deal_id=deal_id, engine=get_engine())
+        return {"deal_id": deal_id, "status": "nft_transfer_pending",
+                "prepared_by": str(admin["id"])}
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/inventory/deals/{deal_id}/nft-transfer-confirmation")
+async def confirm_marketplace_nft_transfer(
+    deal_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    _require_admin(x_telegram_init_data)
+    from marketplace_settlement import marketplace_deals, confirm_deal_nft_transfer
+    engine = get_engine()
+    with engine.connect() as conn:
+        deal = conn.execute(select(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id
+        )).mappings().first()
+        asset = conn.execute(select(marketplace_assets).where(
+            marketplace_assets.c.asset_id == deal["asset_id"]
+        )).mappings().first() if deal else None
+    if deal is None or asset is None:
+        raise HTTPException(status_code=404, detail="Marketplace deal not found")
+    if not asset["item_address"] or not deal["escrow_contract_address"]:
+        raise HTTPException(status_code=409, detail="NFT item or escrow address snapshot is missing")
+    if deal["network"] == "ton-testnet":
+        providers = configured_testnet_nft_providers()
+    elif deal["network"] == "ton-mainnet":
+        providers = configured_nft_providers()
+    else:
+        raise HTTPException(status_code=409, detail="Unsupported deal network")
+    transfer_proofs = []
+    current_owner_addresses = []
+    escrow = canonical_ton_address(deal["escrow_contract_address"])
+    buyer = canonical_ton_address(deal["buyer_wallet_address"])
+    item_address = canonical_ton_address(asset["item_address"])
+    for provider in providers:
+        state = await provider.get_nft_state(item_address)
+        transfer = await provider.get_nft_transfer(item_address, escrow, buyer)
+        if not state or not transfer:
+            raise HTTPException(status_code=409, detail="NFT transfer is not finalized on both independent providers")
+        if (canonical_ton_address(state["collection_address"]) != canonical_ton_address(asset["collection_address"])
+                or str(state["token_id"]) != str(asset["token_id"])):
+            raise HTTPException(status_code=409, detail="NFT identity differs from the registered asset")
+        tx_hash = str(transfer["tx_hash"]).lower().removeprefix("0x")
+        evidence_hash = hashlib.sha256(json.dumps({
+            "tx_hash": tx_hash, "item_address": item_address,
+            "old_owner": escrow, "new_owner": buyer,
+        }, sort_keys=True).encode()).hexdigest()
+        transfer_proofs.append({
+            "provider_id": provider.provider_id, "tx_hash": tx_hash,
+            "item_address": item_address, "old_owner": escrow, "new_owner": buyer,
+            "evidence_hash": evidence_hash, "successful": True, "finalized": True,
+        })
+        current_owner_addresses.append(state["owner_address"])
+    try:
+        return confirm_deal_nft_transfer(
+            deal_id=deal_id, transfer_proofs=transfer_proofs,
+            current_owner_addresses=current_owner_addresses, engine=engine,
+        )
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.post("/api/inventory/deals/{deal_id}/testnet-payout-confirmation")
 async def confirm_testnet_deal_payout(
     deal_id: str,
