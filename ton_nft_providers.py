@@ -116,8 +116,11 @@ class TonApiNftProvider:
         data = response.json()
         collection = data.get("collection") or {}
         owner = data.get("owner")
+        resolved_item_address = canonical_ton_address(data.get("address", ""))
+        if resolved_item_address != canonical_ton_address(item_address):
+            raise ValueError("TonAPI returned a different NFT item than requested")
         return {
-            "item_address": canonical_ton_address(data.get("address", "")),
+            "item_address": resolved_item_address,
             "collection_address": canonical_ton_address(collection.get("address", "")),
             "token_id": str(data.get("index", "")),
             "owner_address": canonical_ton_address(owner.get("address", "")) if owner else "",
@@ -192,9 +195,15 @@ class ToncenterNftProvider:
         response.raise_for_status()
         data = response.json()
         items = data.get("nft_items") or data.get("items") or []
-        if not items:
+        requested_item = canonical_ton_address(item_address)
+        matching_items = [
+            item for item in items
+            if item.get("address")
+            and canonical_ton_address(item["address"]) == requested_item
+        ]
+        if len(matching_items) != 1:
             return None
-        item = items[0]
+        item = matching_items[0]
         owner = item.get("owner_address")
         collection = item.get("collection_address")
         address = item.get("address")
