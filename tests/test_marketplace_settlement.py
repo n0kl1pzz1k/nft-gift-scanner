@@ -22,6 +22,7 @@ from marketplace_settlement import (
     create_deal_payment_intent_via_route, confirm_deal_payment_via_route,
     mark_deal_nft_transfer_pending, reserve_verified_deal_payment,
     confirm_deal_nft_transfer, refund_unfulfilled_deal, expire_unpaid_marketplace_deals, open_deal_dispute, resolve_deal_dispute, list_reconciliation_required_deals, add_deal_reconciliation_note, marketplace_deal_events,
+    confirm_deal_testnet_payout, mark_deal_testnet_refund_pending, confirm_deal_testnet_refund,
 )
 
 
@@ -191,6 +192,144 @@ class MarketplaceSettlementTests(unittest.TestCase):
             actor_user_id="9001", engine=self.engine, now=151,
         ))
         self.assertTrue(duplicate["duplicate"])
+
+    def _prepare_testnet_tusdt_deal(self, status, *, owner_wallet=None, listing_status="reserved"):
+        with self.engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE marketplace_assets SET network='ton-testnet', asset_type='testnet_mock_nft', "
+                "canonical_asset_id=:canonical, owner_wallet_address=:owner, custody_state=:custody "
+                "WHERE asset_id=:asset_id"
+            ), {
+                "canonical": f"ton-testnet:{self.collection}:7",
+                "owner": owner_wallet or self.seller_wallet,
+                "custody": "transferred" if status == "payout_pending" else "escrowed",
+                "asset_id": self.asset_id,
+            })
+            conn.execute(text(
+                "UPDATE marketplace_listings SET currency='tUSDT', status=:status WHERE listing_id=:listing_id"
+            ), {"status": listing_status, "listing_id": self.listing_id})
+            conn.execute(text(
+                "UPDATE marketplace_deals SET currency='tUSDT', network='ton-testnet', "
+                "escrow_contract_address=:escrow, payment_query_id=777, "
+                "payment_reference=:reference, payment_network='testnet', status=:status "
+                "WHERE deal_id=:deal_id"
+            ), {
+                "escrow": self.escrow, "reference": "grpay:" + self.deal_id,
+                "status": status, "deal_id": self.deal_id,
+            })
+
+    def test_tusdt_payout_requires_dual_live_owner_and_two_provider_payout_evidence(self):
+        self._prepare_testnet_tusdt_deal("payout_pending", owner_wallet=self.buyer_wallet,
+                                         listing_status="payout_pending")
+        with self.engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE marketplace_deals SET payout_query_id=555 WHERE deal_id=:id"
+            ), {"id": self.deal_id})
+
+        class Route:
+            enabled = True
+            route_id = "ton_usdt_testnet"
+            escrow_address = self.escrow
+            jetton_master = "0:" + "66" * 32
+
+            async def create_intent(self, **kwargs):
+                return PaymentIntent(
+                    deal_id=kwargs["deal_id"], amount=kwargs["amount"], currency="tUSDT",
+                    reference="grpay:" + kwargs["deal_id"], network="testnet",
+                    payer_address=kwargs.get("payer_address"),
+                )
+
+            async def verify_payout(self, intent, *, seller_address, query_id):
+                return PaymentEvidence(
+                    deal_id=intent.deal_id, reference=f"grpayout:{intent.deal_id}:{query_id}",
+                    amount=intent.amount, currency="tUSDT", transaction_id="91" * 32,
+                    finalized=True, network="testnet", query_id=query_id,
+                )
+
+        owners = [
+            {"provider_id": "tonapi", "owner_address": self.buyer_wallet, "successful": True},
+            {"provider_id": "toncenter", "owner_address": self.buyer_wallet, "successful": True},
+        ]
+        result = asyncio.run(confirm_deal_testnet_payout(
+            deal_id=self.deal_id, route=Route(), actor_user_id="9001",
+            current_owner_proofs=owners, engine=self.engine, now=200,
+        ))
+        self.assertTrue(result["confirmed"])
+        self.assertEqual(result["status"], "settled")
+        with self.engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT status,payout_tx_hash,payout_query_id FROM marketplace_deals WHERE deal_id=:id"
+            ), {"id": self.deal_id}).one()
+            self.assertEqual(row.status, "settled")
+            self.assertEqual(row.payout_tx_hash, "91" * 32)
+            self.assertEqual(row.payout_query_id, 555)
+            self.assertEqual(conn.execute(text(
+                "SELECT status FROM marketplace_listings WHERE listing_id=:id"
+            ), {"id": self.listing_id}).scalar_one(), "sold")
+
+    def test_tusdt_refund_requires_dual_jetton_and_nft_return_evidence(self):
+        self._prepare_testnet_tusdt_deal("disputed", listing_status="reserved")
+        marked = mark_deal_testnet_refund_pending(
+            deal_id=self.deal_id, actor_user_id="9001", engine=self.engine, now=210,
+        )
+        query_id = marked["refund_query_id"]
+
+        class Route:
+            enabled = True
+            route_id = "ton_usdt_testnet"
+            escrow_address = self.escrow
+            jetton_master = "0:" + "66" * 32
+
+            async def create_intent(self, **kwargs):
+                return PaymentIntent(
+                    deal_id=kwargs["deal_id"], amount=kwargs["amount"], currency="tUSDT",
+                    reference="grpay:" + kwargs["deal_id"], network="testnet",
+                    payer_address=kwargs.get("payer_address"),
+                )
+
+            async def verify_refund(self, intent, *, buyer_address, query_id):
+                return PaymentEvidence(
+                    deal_id=intent.deal_id, reference=f"grrefund:{intent.deal_id}:{query_id}",
+                    amount=intent.amount, currency="tUSDT", transaction_id="92" * 32,
+                    finalized=True, network="testnet", query_id=query_id,
+                )
+
+        return_proofs = [
+            {"provider_id": provider, "tx_hash": "93" * 32, "item_address": self.item,
+             "old_owner": self.escrow, "new_owner": self.seller_wallet,
+             "evidence_hash": "94" * 32, "successful": True, "finalized": True}
+            for provider in ("tonapi", "toncenter")
+        ]
+        owner_proofs = [
+            {"provider_id": provider, "owner_address": self.seller_wallet, "successful": True}
+            for provider in ("tonapi", "toncenter")
+        ]
+        result = asyncio.run(confirm_deal_testnet_refund(
+            deal_id=self.deal_id, route=Route(), actor_user_id="9001",
+            nft_return_proofs=return_proofs, current_owner_proofs=owner_proofs,
+            engine=self.engine, now=220,
+        ))
+        self.assertTrue(result["confirmed"])
+        self.assertEqual(result["status"], "refunded")
+        with self.engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT status,refund_tx_hash,nft_return_tx_hash,refund_query_id "
+                "FROM marketplace_deals WHERE deal_id=:id"
+            ), {"id": self.deal_id}).one()
+            self.assertEqual(row.status, "refunded")
+            self.assertEqual(row.refund_tx_hash, "92" * 32)
+            self.assertEqual(row.nft_return_tx_hash, "93" * 32)
+            self.assertEqual(row.refund_query_id, query_id)
+            asset = conn.execute(text(
+                "SELECT owner_wallet_address,custody_state,escrow_contract_address "
+                "FROM marketplace_assets WHERE asset_id=:id"
+            ), {"id": self.asset_id}).one()
+            self.assertEqual(asset.owner_wallet_address, self.seller_wallet)
+            self.assertEqual(asset.custody_state, "wallet_owned")
+            self.assertIsNone(asset.escrow_contract_address)
+            self.assertEqual(conn.execute(text(
+                "SELECT status FROM marketplace_listings WHERE listing_id=:id"
+            ), {"id": self.listing_id}).scalar_one(), "cancelled")
 
     def test_buyer_can_open_dispute_before_transfer_and_duplicate_is_idempotent(self):
         reserve_verified_deal_payment(
