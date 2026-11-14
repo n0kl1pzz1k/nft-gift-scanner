@@ -8,6 +8,7 @@ import "@contracts/test-jetton/messages"
 import "@contracts/test-jetton/storage"
 import "@wrappers/GiftRadarPaymentEscrow.gen"
 import "@wrappers/MockNftItem.gen"
+import "@wrappers/MockNftCollection.gen"
 import "@wrappers/JettonMinter.gen"
 
 fun buildTestJettonMetadata(): cell {
@@ -76,10 +77,32 @@ fun main() {
     }));
     if (minterDeploy.waitForTrace() == null) { Assert.fail("Test Jetton minter deployment failed"); }
 
-    // Deploy the test NFT item with seller as its initial owner.
-    val nftItem = MockNftItem.fromStorage({ ownerAddress: seller.address });
+    // Deploy a minimal TEP-62 collection and item for the testnet demo.
+    val nftContent = beginCell().storeUint(1, 8)
+        .storeStringTail("https://example.com/gift-radar-testnet-nft.json").endCell();
+    val collection = MockNftCollection.fromStorage({
+        ownerAddress: seller.address,
+        itemAddress: null,
+        content: nftContent,
+    });
+    val collectionDeploy = collection.deploy(deployer.address, { value: grams("0.2") });
+    if (collectionDeploy.waitForTrace() == null) { Assert.fail("Test NFT collection deployment failed"); }
+
+    val nftItem = MockNftItem.fromStorage({
+        ownerAddress: seller.address,
+        collectionAddress: collection.address,
+        index: 0,
+        content: nftContent,
+    });
     val nftDeploy = nftItem.deploy(deployer.address, { value: grams("0.2") });
-    if (nftDeploy.waitForTrace() == null) { Assert.fail("Test NFT deployment failed"); }
+    if (nftDeploy.waitForTrace() == null) { Assert.fail("Test NFT item deployment failed"); }
+    val registerItem = net.send(seller.address, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: collection.address,
+        body: MockNftCollectionSetItem { itemAddress: nftItem.address },
+    }));
+    if (registerItem.waitForTrace() == null) { Assert.fail("Test NFT item registration failed"); }
 
     // Deploy one per-deal payment escrow. Zero release delay is testnet-demo only.
     val escrow = GiftRadarPaymentEscrow.fromStorage({
@@ -280,6 +303,7 @@ fun main() {
     println("TESTNET_E2E_STATUS=SETTLED");
     println("PAYMENT_ESCROW_ADDRESS={}", escrow.address);
     println("NFT_ITEM_ADDRESS={}", nftItem.address);
+    println("NFT_COLLECTION_ADDRESS={}", collection.address);
     println("JETTON_MASTER_ADDRESS={}", minter.address);
     println("ESCROW_JETTON_WALLET={}", escrowJettonWallet);
     println("BUYER_JETTON_WALLET={}", buyerJettonWallet);
