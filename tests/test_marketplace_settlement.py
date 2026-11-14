@@ -188,10 +188,11 @@ class MarketplaceSettlementTests(unittest.TestCase):
             self.assertEqual(conn.execute(text(
                 "SELECT COUNT(*) FROM marketplace_deal_events WHERE deal_id=:id AND event_type='payment_route_confirmed'"
             ), {"id": self.deal_id}).scalar_one(), 1)
-        duplicate = asyncio.run(confirm_deal_payment_via_route(
-            deal_id=self.deal_id, intent=intent, route=route,
-            actor_user_id="9001", engine=self.engine, now=151,
-        ))
+        with mock.patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "9001"}):
+            duplicate = asyncio.run(confirm_deal_payment_via_route(
+                deal_id=self.deal_id, intent=intent, route=route,
+                actor_user_id="9001", engine=self.engine, now=151,
+            ))
         self.assertTrue(duplicate["duplicate"])
 
     def _prepare_testnet_tusdt_deal(self, status, *, owner_wallet=None, listing_status="reserved"):
