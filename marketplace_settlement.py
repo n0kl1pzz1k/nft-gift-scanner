@@ -40,6 +40,7 @@ marketplace_deals = Table(
     Column("seller_user_id", String(64), nullable=False),
     Column("buyer_wallet_address", String(128), nullable=False),
     Column("seller_wallet_address", String(128)),
+    Column("escrow_contract_address", String(128)),
     Column("network", String(16), nullable=False, default="ton-mainnet"),
     Column("currency", String(8), nullable=False),
     Column("price_raw", BigInteger, nullable=False),
