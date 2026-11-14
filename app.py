@@ -1322,9 +1322,11 @@ async def confirm_marketplace_nft_transfer(
         transfer = await provider.get_nft_transfer(item_address, escrow, buyer)
         if not state or not transfer:
             raise HTTPException(status_code=409, detail="NFT transfer is not finalized on both independent providers")
-        if (canonical_ton_address(state["collection_address"]) != canonical_ton_address(asset["collection_address"])
-                or str(state["token_id"]) != str(asset["token_id"])):
-            raise HTTPException(status_code=409, detail="NFT identity differs from the registered asset")
+        if (not state.get("initialized")
+                or canonical_ton_address(state.get("item_address") or "") != item_address
+                or canonical_ton_address(state.get("collection_address") or "") != canonical_ton_address(asset["collection_address"])
+                or str(state.get("token_id") or "") != str(asset["token_id"])):
+            raise HTTPException(status_code=409, detail="NFT identity or initialization differs from the registered asset")
         tx_hash = str(transfer["tx_hash"]).lower().removeprefix("0x")
         evidence_hash = hashlib.sha256(json.dumps({
             "tx_hash": tx_hash, "item_address": item_address,
