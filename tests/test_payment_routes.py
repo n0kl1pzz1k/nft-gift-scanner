@@ -51,8 +51,12 @@ class PaymentRouteTests(unittest.IsolatedAsyncioTestCase):
             gateway, network="testnet", escrow_address="EQ_ESCROW_TEST",
             jetton_master="EQ_TEST_JETTON",
         )
-        intent = await route.create_intent(deal_id="deal-1", amount=500, currency="tUSDT")
+        payer = "0:" + "77" * 32
+        intent = await route.create_intent(
+            deal_id="deal-1", amount=500, currency="tUSDT", payer_address=payer,
+        )
         self.assertEqual(intent.network, "testnet")
+        self.assertEqual(intent.payer_address, payer)
         self.assertEqual(gateway.intent_args["escrow_address"], "EQ_ESCROW_TEST")
         self.assertEqual(gateway.intent_args["jetton_master"], "EQ_TEST_JETTON")
 

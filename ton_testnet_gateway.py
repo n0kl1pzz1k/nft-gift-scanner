@@ -137,8 +137,6 @@ class TonCenterTestnetProvider:
         for row in _rows(history.json(), "jetton_transfers", "transfers"):
             if row.get("transaction_aborted") is True:
                 continue
-            if row.get("aborted") is True or row.get("transaction_aborted") is True:
-                continue
             if _comment(_pick(row, "comment", "forward_payload", "payload")) != reference:
                 continue
             tx = _hash(_pick(row, "transaction_hash", "tx_hash", "hash"))
@@ -154,7 +152,7 @@ class TonCenterTestnetProvider:
                 provider_id=self.provider_id, transaction_id=tx,
                 deal_id=reference.removeprefix("grpay:"), reference=reference,
                 amount=amount, currency="tUSDT", network="testnet",
-                sender=str(_pick(row, "source", "sender") or ""),
+                sender=str(_pick(row, "source_owner", "sender_owner", "source", "sender") or ""),
                 recipient=str(recipient),
                 finalized=bool(mc_seqno > 0 and account_lt >= lt),
                 query_id=int(_pick(row, "query_id") or 0),
@@ -237,6 +235,8 @@ class TonApiEmbedTestnetProvider:
         last_lt = int(_pick(account.json(), "last_processed_tx_lt", "last_transaction_lt") or 0)
         mc_seqno = _seqno(status.json(), "mc_seqno", "last_mc_seqno")
         for row in _rows(history.json(), "transfers", "history", "items"):
+            if row.get("aborted") is True or row.get("transaction_aborted") is True:
+                continue
             if _comment(_pick(row, "comment", "forward_payload", "payload")) != reference:
                 continue
             tx = _hash(_pick(row, "hash", "transaction_hash", "tx_hash"))

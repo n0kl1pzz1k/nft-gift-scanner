@@ -44,7 +44,7 @@ class PaymentRoute(Protocol):
     @property
     def enabled(self) -> bool: ...
 
-    async def create_intent(self, *, deal_id: str, amount: int, currency: str) -> PaymentIntent: ...
+    async def create_intent(self, *, deal_id: str, amount: int, currency: str, payer_address: str | None = None) -> PaymentIntent: ...
 
     async def verify_payment(self, intent: PaymentIntent) -> PaymentEvidence | None: ...
 
@@ -111,7 +111,7 @@ class TonUsdtTestnetPaymentRoute:
             raise PaymentRouteError("Only the platform-issued tUSDT test Jetton is supported")
         if amount <= 0 or not deal_id:
             raise PaymentRouteError("A deal ID and positive amount are required")
-        return await self._gateway.create_intent(
+        intent = await self._gateway.create_intent(
             deal_id=deal_id, amount=amount, currency=currency,
             escrow_address=self._escrow_address, jetton_master=self._jetton_master,
             payer_address=payer_address,
