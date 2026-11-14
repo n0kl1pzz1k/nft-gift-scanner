@@ -48,6 +48,38 @@ fun sendSellerPayout(storage: PaymentEscrowStorage, parties: PaymentEscrowPartie
     }
 }
 
+fun sendBuyerRefund(storage: PaymentEscrowStorage, parties: PaymentEscrowParties, auth: PaymentEscrowAuthorityConfig, queryId: uint64) {
+    assert (queryId != 0) throw PaymentEscrowErrors.BadProof;
+    if (storage.assetKind == ASSET_TON) {
+        assert (contract.getOriginalBalance() >= grams("0.2") + storage.expectedAmount) throw PaymentEscrowErrors.NotEnoughGas;
+        val refund = createMessage({
+            bounce: BounceMode.Only256BitsOfBody,
+            dest: parties.buyer,
+            value: storage.expectedAmount,
+            body: BuyerRefundNotice { queryId, amount: storage.expectedAmount },
+        });
+        refund.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
+    } else {
+        val assets = auth.assets.load();
+        assert (assets.escrowUsdtJettonWallet != null) throw PaymentEscrowErrors.BadAsset;
+        val refund = createMessage({
+            bounce: BounceMode.Only256BitsOfBody,
+            dest: assets.escrowUsdtJettonWallet!,
+            value: grams("0.15"),
+            body: PaymentEscrowJettonTransfer {
+                queryId,
+                jettonAmount: storage.expectedAmount,
+                transferRecipient: parties.buyer,
+                sendExcessesTo: null,
+                customPayload: null,
+                forwardTonAmount: grams("0.05"),
+                forwardPayload: beginCell().storeUint(queryId, 64).toSlice(),
+            },
+        });
+        refund.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
+    }
+}
+
 fun sendEscrowNft(nftItem: address, recipient: address, queryId: uint64) {
     val transfer = createMessage({
         bounce: BounceMode.Only256BitsOfBody,
@@ -95,7 +127,7 @@ fun onBouncedMessage(in: InMessageBounced) {
         assert (in.senderAddress == parties.nftItem) throw PaymentEscrowErrors.BadAsset;
         assert (queryId != 0) throw PaymentEscrowErrors.BadProof;
         assert (queryId == storage.transferQueryId) throw PaymentEscrowErrors.BadProof;
-        if (storage.state == V2_TRANSFER_PENDING) {
+        if ((storage.state == V2_TRANSFER_PENDING) | (storage.state == V2_REFUND_PENDING)) {
             storage.state = V2_RECONCILIATION_REQUIRED;
             storage.save();
         }
@@ -111,8 +143,22 @@ fun onBouncedMessage(in: InMessageBounced) {
         val assets = auth.assets.load();
         assert (assets.escrowUsdtJettonWallet != null) throw PaymentEscrowErrors.BadAsset;
         assert (in.senderAddress == assets.escrowUsdtJettonWallet!) throw PaymentEscrowErrors.BadAsset;
-        assert (storage.state == V2_PAYOUT_PENDING) throw PaymentEscrowErrors.BadState;
-        assert (queryId == storage.payoutQueryId) throw PaymentEscrowErrors.BadProof;
+        if (storage.state == V2_PAYOUT_PENDING) {
+            assert (queryId == storage.payoutQueryId) throw PaymentEscrowErrors.BadProof;
+            storage.state = V2_RECONCILIATION_REQUIRED;
+            storage.save();
+        } else if (storage.state == V2_REFUND_PENDING) {
+            assert (queryId == storage.refundQueryId) throw PaymentEscrowErrors.BadProof;
+            storage.state = V2_RECONCILIATION_REQUIRED;
+            storage.save();
+        } else {
+            throw PaymentEscrowErrors.BadState;
+        }
+    } else if (opcode == 0x4752560c) {
+        val parties = storage.parties.load();
+        assert (in.senderAddress == parties.buyer) throw PaymentEscrowErrors.BadAsset;
+        assert (storage.state == V2_REFUND_PENDING) throw PaymentEscrowErrors.BadState;
+        assert (queryId == storage.refundQueryId) throw PaymentEscrowErrors.BadProof;
         storage.state = V2_RECONCILIATION_REQUIRED;
         storage.save();
     } else {
@@ -355,6 +401,7 @@ fun onInternalMessage(in: InMessage) {
             assert ((in.senderAddress == parties.buyer) | (in.senderAddress == parties.seller)) throw PaymentEscrowErrors.Unauthorized;
             assert (msg.reasonHash != 0) throw PaymentEscrowErrors.BadProof;
             assert ((storage.state == V2_DEPOSITED) | (storage.state == V2_PAYMENT_PENDING) | (storage.state == V2_PAID)) throw PaymentEscrowErrors.BadState;
+            storage.preDisputeState = storage.state;
             storage.state = V2_DISPUTED;
             storage.save();
         }
@@ -368,6 +415,9 @@ fun onInternalMessage(in: InMessage) {
             assert (storage.state == V2_DISPUTED) throw PaymentEscrowErrors.BadState;
             assert ((msg.decision == 1) | (msg.decision == 2)) throw PaymentEscrowErrors.BadProof;
             assert (msg.resolutionHash != 0) throw PaymentEscrowErrors.BadProof;
+            if (msg.decision == 2) {
+                assert (storage.preDisputeState == V2_PAID) throw PaymentEscrowErrors.BadState;
+            }
             val bit = arbitratorBit(in.senderAddress, arbitrators);
             assert (bit != 0) throw PaymentEscrowErrors.Unauthorized;
             if (storage.disputeApprovals == 0) {
@@ -388,6 +438,72 @@ fun onInternalMessage(in: InMessage) {
             storage.save();
         }
 
+        ExecutePaymentEscrowDispute => {
+            var storage = lazy PaymentEscrowStorage.load();
+            val parties = storage.parties.load();
+            val auth = storage.authorities.load();
+            val evidence = storage.evidence.load();
+            assert (in.senderAddress == auth.resolverMultisig) throw PaymentEscrowErrors.Unauthorized;
+            assert (storage.state == V2_DISPUTE_DECISION_APPROVED) throw PaymentEscrowErrors.BadState;
+            assert (msg.queryId != 0) throw PaymentEscrowErrors.BadProof;
+            assert (msg.resolutionHash == evidence.disputeResolutionHash) throw PaymentEscrowErrors.BadProof;
+            if (storage.disputeDecision == 1) {
+                storage.refundQueryId = msg.queryId;
+                storage.transferQueryId = msg.queryId;
+                storage.refundApprovals = 0;
+                storage.refundEvidence = PaymentEscrowRefundEvidence {
+                    refundTxHash: 0,
+                    sellerOwnershipProofHash: 0,
+                }.toCell();
+                storage.state = V2_REFUND_PENDING;
+                if ((storage.preDisputeState == V2_PAYMENT_PENDING) | (storage.preDisputeState == V2_PAID)) {
+                    sendBuyerRefund(storage, parties, auth, msg.queryId);
+                }
+                sendEscrowNft(parties.nftItem, parties.seller, msg.queryId);
+            } else {
+                assert (storage.disputeDecision == 2) throw PaymentEscrowErrors.BadProof;
+                assert (storage.preDisputeState == V2_PAID) throw PaymentEscrowErrors.BadState;
+                storage.transferQueryId = msg.queryId;
+                storage.deliveryApprovals = 0;
+                storage.state = V2_TRANSFER_PENDING;
+                sendEscrowNft(parties.nftItem, parties.buyer, msg.queryId);
+            }
+            storage.save();
+        }
+
+        ConfirmEscrowBuyerRefund => {
+            var storage = lazy PaymentEscrowStorage.load();
+            var refundEvidence = storage.refundEvidence.load();
+            val auth = storage.authorities.load();
+            val signers = auth.signers.load();
+            assert (storage.state == V2_REFUND_PENDING) throw PaymentEscrowErrors.BadState;
+            assert (msg.queryId == storage.refundQueryId) throw PaymentEscrowErrors.BadProof;
+            assert (msg.sellerOwnershipProofHash != 0) throw PaymentEscrowErrors.BadProof;
+            if (storage.preDisputeState == V2_DEPOSITED) {
+                assert (msg.refundTxHash == 0) throw PaymentEscrowErrors.BadProof;
+            } else {
+                assert (msg.refundTxHash != 0) throw PaymentEscrowErrors.BadProof;
+            }
+            val bit = signerBit(in.senderAddress, signers);
+            assert (bit != 0) throw PaymentEscrowErrors.Unauthorized;
+            if (storage.refundApprovals == 0) {
+                refundEvidence.refundTxHash = msg.refundTxHash;
+                refundEvidence.sellerOwnershipProofHash = msg.sellerOwnershipProofHash;
+            } else {
+                assert (refundEvidence.refundTxHash == msg.refundTxHash) throw PaymentEscrowErrors.BadProof;
+                assert (refundEvidence.sellerOwnershipProofHash == msg.sellerOwnershipProofHash) throw PaymentEscrowErrors.BadProof;
+            }
+            if ((storage.refundApprovals & bit) != 0) {
+                return;
+            }
+            storage.refundApprovals = storage.refundApprovals | bit;
+            if (isTwoOfThree(storage.refundApprovals)) {
+                storage.state = V2_REFUNDED;
+            }
+            storage.refundEvidence = refundEvidence.toCell();
+            storage.save();
+        }
+
         else => {
             assert (in.body.isEmpty()) throw PaymentEscrowErrors.BadState;
         }
@@ -405,6 +521,7 @@ get fun get_payment_escrow_state(): PaymentEscrowStateReply {
         assetKind: storage.assetKind,
         initialized: storage.initialized,
         state: storage.state,
+        preDisputeState: storage.preDisputeState,
         paymentQueryId: storage.paymentQueryId,
         transferQueryId: storage.transferQueryId,
         paymentApprovals: storage.paymentApprovals,
@@ -415,7 +532,11 @@ get fun get_payment_escrow_state(): PaymentEscrowStateReply {
         disputeResolutionHash: evidence.disputeResolutionHash,
         payoutQueryId: storage.payoutQueryId,
         payoutApprovals: storage.payoutApprovals,
+        refundQueryId: storage.refundQueryId,
+        refundApprovals: storage.refundApprovals,
         payoutTxHash: evidence.payoutTxHash,
+        refundTxHash: storage.refundEvidence.load().refundTxHash,
+        sellerOwnershipProofHash: storage.refundEvidence.load().sellerOwnershipProofHash,
     };
 }
 
