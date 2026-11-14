@@ -215,14 +215,38 @@ async def create_deal_payment_intent_via_route(*, deal_id: str, route: Any,
         raise ValueError("Unknown marketplace deal")
     if str(deal["buyer_user_id"]) != str(actor_user_id):
         raise PermissionError("Only the deal buyer can create its payment intent")
-    if deal["status"] not in {"reserved", "payment_confirmed"} or deal["currency"] != "USDT":
+    if (deal["network"] != "ton-testnet" or deal["currency"] != "tUSDT"
+            or deal["status"] not in {"reserved", "payment_confirmed"}):
         raise ValueError("Deal is not eligible for the TON testnet tUSDT route")
     if not getattr(route, "enabled", False) or route.route_id != "ton_usdt_testnet":
         raise PermissionError("The selected payment route is not enabled for testnet deals")
-    return await route.create_intent(
+    intent = await route.create_intent(
         deal_id=deal_id, amount=int(deal["price_raw"]), currency="tUSDT",
+        escrow_address=route.escrow_address,
+        jetton_master=route.jetton_master,
         payer_address=str(deal["buyer_wallet_address"]),
     )
+    current = int(time.time())
+    with db.begin() as conn:
+        query = select(marketplace_deals).where(marketplace_deals.c.deal_id == deal_id)
+        if db.dialect.name == "postgresql":
+            query = query.with_for_update()
+        current_deal = conn.execute(query).mappings().first()
+        if current_deal is None:
+            raise ValueError("Unknown marketplace deal")
+        if current_deal["payment_reference"] not in (None, intent.reference):
+            raise ValueError("Deal already has a different payment reference")
+        conn.execute(update(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id
+        ).values(
+            payment_invoice_id=intent.reference,
+            payment_reference=intent.reference,
+            payment_network="testnet",
+            updated_at=current,
+        ))
+        _event(conn, deal_id=deal_id, event_type="testnet_payment_intent_created",
+               actor_type="system", data={"reference": intent.reference, "network": "testnet"}, now=current)
+    return intent
 
 
 async def confirm_deal_payment_via_route(*, deal_id: str, intent: Any, route: Any,
@@ -258,10 +282,12 @@ async def confirm_deal_payment_via_route(*, deal_id: str, intent: Any, route: An
             raise PermissionError("Deal participants cannot independently confirm their own payment")
         if deal["status"] == "payment_confirmed":
             if (deal["payment_invoice_id"] == intent.reference
-                    and deal["payment_event_id"] == evidence.transaction_id):
+                    and deal["payment_event_id"] == evidence.transaction_id
+                    and int(deal["payment_query_id"] or 0) == int(evidence.query_id)):
                 return {"confirmed": True, "duplicate": True, "status": "payment_confirmed"}
             raise ValueError("Deal already has a different payment confirmation")
-        if deal["status"] != "reserved" or deal["currency"] != "USDT":
+        if (deal["status"] != "reserved" or deal["network"] != "ton-testnet"
+                or deal["currency"] != "tUSDT"):
             raise ValueError("Deal is not accepting TON testnet tUSDT payment")
         if int(deal["price_raw"]) != int(evidence.amount):
             raise ValueError("Payment amount does not match the reserved deal")
@@ -278,6 +304,9 @@ async def confirm_deal_payment_via_route(*, deal_id: str, intent: Any, route: An
             status="payment_confirmed",
             payment_invoice_id=intent.reference,
             payment_event_id=evidence.transaction_id,
+            payment_query_id=int(evidence.query_id),
+            payment_reference=evidence.reference,
+            payment_network="testnet",
             updated_at=current,
         ))
         _event(
@@ -294,6 +323,7 @@ async def confirm_deal_payment_via_route(*, deal_id: str, intent: Any, route: An
         "confirmed": True, "duplicate": False, "status": "payment_confirmed",
         "route_id": route.route_id, "network": "testnet",
         "transaction_id": evidence.transaction_id,
+        "payment_query_id": int(evidence.query_id),
     }
 
 
