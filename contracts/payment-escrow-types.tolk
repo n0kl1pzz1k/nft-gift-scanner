@@ -70,6 +70,7 @@ struct PaymentEscrowStorage {
     expectedAmount: coins
     deadline: uint64
     releaseAfter: uint64
+    releaseDelaySeconds: uint32
     assetKind: uint8
     initialized: bool
     state: uint8
