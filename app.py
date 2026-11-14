@@ -1180,8 +1180,8 @@ async def create_testnet_deal_payment_intent(
             "deal_id": intent.deal_id, "route_id": route.route_id,
             "network": intent.network, "currency": intent.currency,
             "amount_raw": intent.amount, "reference": intent.reference,
-            "escrow_address": os.getenv("TON_TESTNET_ESCROW_ADDRESS", "").strip(),
-            "jetton_master": os.getenv("TON_TESTNET_USDT_MASTER", "").strip(),
+            "escrow_address": route.escrow_address,
+            "jetton_master": route.jetton_master,
             "jetton_wallet": jetton_wallet,
             "note": "Platform-issued test Jetton only. Attach the reference as a text forward payload.",
         }
