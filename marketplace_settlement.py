@@ -533,9 +533,15 @@ def confirm_deal_nft_transfer(*, deal_id: str, transfer_proofs: list[dict[str, A
         )).mappings().one()
         if asset["custody_state"] != "escrowed" or int(asset["ownership_expires_at"] or 0) <= current:
             raise PermissionError("NFT is no longer verified in marketplace escrow")
-        escrow = canonical_ton_address(os.getenv("GIFT_RADAR_ESCROW_ADDRESS", ""))
+        escrow_fallback = os.getenv(
+            "TON_TESTNET_ESCROW_ADDRESS" if deal["network"] == "ton-testnet" else "GIFT_RADAR_ESCROW_ADDRESS",
+            "",
+        )
+        escrow = canonical_ton_address(deal["escrow_contract_address"] or escrow_fallback)
         if not escrow or normalized[0]["old_owner"] != escrow:
-            raise PermissionError("NFT transfer did not originate from the configured escrow")
+            raise PermissionError("NFT transfer did not originate from this deal's escrow contract")
+        if asset["escrow_contract_address"] and canonical_ton_address(asset["escrow_contract_address"]) != escrow:
+            raise PermissionError("NFT asset escrow address does not match the deal snapshot")
         if normalized[0]["new_owner"] != expected_buyer:
             raise PermissionError("NFT was not delivered to the buyer's verified wallet")
         from marketplace_inventory import marketplace_ownership_proofs
@@ -558,6 +564,54 @@ def confirm_deal_nft_transfer(*, deal_id: str, transfer_proofs: list[dict[str, A
         owner_addresses = {canonical_ton_address(value) for value in current_owner_addresses}
         if owner_addresses != {expected_buyer}:
             raise PermissionError("Live NFT state does not show the buyer as current owner")
+
+        if deal["network"] == "ton-testnet" and deal["currency"] == "tUSDT":
+            if not deal["seller_wallet_address"]:
+                raise ValueError("Immutable seller payout address snapshot is missing")
+            payout_query_id = int.from_bytes(
+                hashlib.sha256(f"{deal_id}:payout".encode()).digest()[:8], "big"
+            ) or 1
+            conn.execute(update(marketplace_deals).where(
+                marketplace_deals.c.deal_id == deal_id,
+                marketplace_deals.c.status == "nft_transfer_pending",
+            ).values(
+                status="payout_pending",
+                nft_transfer_tx_hash=normalized[0]["tx_hash"],
+                payout_query_id=payout_query_id,
+                updated_at=current,
+            ))
+            conn.execute(update(marketplace_reservations).where(
+                marketplace_reservations.c.reservation_id == deal["reservation_id"]
+            ).values(status="consumed"))
+            conn.execute(update(marketplace_listings).where(
+                marketplace_listings.c.listing_id == deal["listing_id"],
+                marketplace_listings.c.status == "reserved",
+            ).values(status="payout_pending", updated_at=current))
+            conn.execute(update(marketplace_assets).where(
+                marketplace_assets.c.asset_id == deal["asset_id"]
+            ).values(
+                owner_user_id=deal["buyer_user_id"], owner_wallet_address=expected_buyer,
+                custody_state="transferred", ownership_state="verified",
+                ownership_checked_at=current, ownership_expires_at=current + 300,
+                updated_at=current,
+            ))
+            conn.execute(insert(marketplace_listing_events).values(
+                event_id=uuid.uuid4().hex, listing_id=deal["listing_id"],
+                actor_user_id=deal["buyer_user_id"], event_type="payout_pending",
+                event_data=json.dumps({
+                    "deal_id": deal_id, "tx_hash": normalized[0]["tx_hash"],
+                    "payout_query_id": payout_query_id,
+                }),
+                created_at=current,
+            ))
+            _event(conn, deal_id=deal_id, event_type="nft_transfer_confirmed_payout_pending",
+                   data={"tx_hash": normalized[0]["tx_hash"], "payout_query_id": payout_query_id},
+                   now=current)
+            return {
+                "settled": False, "duplicate": False, "status": "payout_pending",
+                "payout_query_id": payout_query_id, "tx_hash": normalized[0]["tx_hash"],
+            }
+
         total = int(deal["price_raw"])
         journal = _post(conn,
             idempotency_key="marketplace-deal-payout:" + deal_id,
