@@ -426,9 +426,6 @@ get fun `test dispute decision requires two distinct arbitrators and matching re
     expect(raised).toHaveSuccessfulTx<RaisePaymentEscrowDispute>({ from: buyer, to: escrow.address });
     expect(readPaymentEscrowState(escrow).state).toEqual(V2_DISPUTED);
 
-    val arb1 = testing.treasury("payment-arb-1");
-    val arb2 = testing.treasury("payment-arb-2");
-    val arb3 = testing.treasury("payment-arb-3");
     val first = net.send(arb1, createMessage({
         bounce: true,
         value: grams("0.05"),
