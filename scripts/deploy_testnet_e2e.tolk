@@ -11,6 +11,14 @@ import "@wrappers/MockNftItem.gen"
 import "@wrappers/MockNftCollection.gen"
 import "@wrappers/JettonMinter.gen"
 
+fun buildTestNftContent(): cell {
+    var metadata: OnchainMetadataReply = { contentDict: [] };
+    metadata.contentDict.set("name".sha256(), SnakeDataReply { string: "GIFT RADAR Test NFT #0" }.toCell());
+    metadata.contentDict.set("description".sha256(), SnakeDataReply { string: "Testnet-only TEP-62 NFT for escrow integration testing." }.toCell());
+    metadata.contentDict.set("image".sha256(), SnakeDataReply { string: "https://example.com/gift-radar-testnet-nft.png" }.toCell());
+    return metadata.toCell();
+}
+
 fun buildTestJettonMetadata(): cell {
     var metadata: OnchainMetadataReply = { contentDict: [] };
     metadata.contentDict.set("name".sha256(), SnakeDataReply { string: "GIFT RADAR Test USDT" }.toCell());
@@ -78,8 +86,7 @@ fun main() {
     if (minterDeploy.waitForTrace() == null) { Assert.fail("Test Jetton minter deployment failed"); }
 
     // Deploy a minimal TEP-62 collection and item for the testnet demo.
-    val nftContent = beginCell().storeUint(1, 8)
-        .storeStringTail("https://example.com/gift-radar-testnet-nft.json").endCell();
+    val nftContent = buildTestNftContent();
     val collection = MockNftCollection.fromStorage({
         ownerAddress: seller.address,
         itemAddress: null,
