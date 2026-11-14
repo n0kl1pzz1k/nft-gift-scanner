@@ -299,8 +299,6 @@ async def confirm_deal_payment_via_route(*, deal_id: str, intent: Any, route: An
             raise PermissionError("Deal network, currency or escrow does not match the payment route")
         if deal["payment_reference"] != intent.reference:
             raise ValueError("Payment intent reference does not match the stored deal reference")
-        if str(actor_user_id) in {str(deal["buyer_user_id"]), str(deal["seller_user_id"])}:
-            raise PermissionError("Deal participants cannot independently confirm their own payment")
         if deal["status"] == "payment_confirmed":
             if (deal["payment_invoice_id"] == intent.reference
                     and deal["payment_event_id"] == evidence.transaction_id
