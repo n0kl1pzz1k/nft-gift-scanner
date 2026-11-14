@@ -515,7 +515,7 @@ def configured_ton_testnet_gateway() -> TonTestnetPaymentGateway:
     escrow = os.getenv("TON_TESTNET_ESCROW_ADDRESS", "").strip()
     master = os.getenv("TON_TESTNET_USDT_MASTER", "").strip()
     center_url = os.getenv("TON_TESTNET_TONCENTER_URL", "https://testnet.toncenter.com/api/v3").strip()
-    embed_url = os.getenv("TON_TESTNET_TONAPI_EMBED_URL", "https://demo-embed.tonapi.io").strip()
+    embed_url = os.getenv("TON_TESTNET_TONAPI_EMBED_URL", "https://testnet.tonapi.io/v2").strip()
     return TonTestnetPaymentGateway(
         providers=[
             TonCenterTestnetProvider(
