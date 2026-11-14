@@ -8,6 +8,14 @@ import "@wrappers/JettonMinter.gen"
 import "@contracts/test-jetton/messages"
 import "@contracts/test-jetton/storage"
 
+fun buildTestNftContent(): cell {
+    var metadata: OnchainMetadataReply = { contentDict: [] };
+    metadata.contentDict.set("name".sha256(), SnakeDataReply { string: "GIFT RADAR Test NFT #0" }.toCell());
+    metadata.contentDict.set("description".sha256(), SnakeDataReply { string: "Testnet-only TEP-62 NFT for escrow integration testing." }.toCell());
+    metadata.contentDict.set("image".sha256(), SnakeDataReply { string: "https://example.com/gift-radar-testnet-nft.png" }.toCell());
+    return metadata.toCell();
+}
+
 fun buildTestJettonMetadata(): cell {
     var metadata: OnchainMetadataReply = { contentDict: [] };
     metadata.contentDict.set("name".sha256(), SnakeDataReply { string: "GIFT RADAR Test USDT" }.toCell());
