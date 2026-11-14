@@ -32,7 +32,10 @@ class TonNftVerifierTests(unittest.IsolatedAsyncioTestCase):
             "allowed_collections": {"collectible_username": {"0:2222222222222222222222222222222222222222222222222222222222222222"}},
             "providers": self.providers,
         }
-        self.env = patch.dict(os.environ, {"TON_NFT_PROVIDER_IDS": "toncenter,tonapi"})
+        self.env = patch.dict(os.environ, {
+            "TON_NFT_PROVIDER_IDS": "toncenter,tonapi",
+            "TON_TESTNET_NFT_PROVIDER_IDS": "toncenter,tonapi",
+        })
         self.env.start()
 
     def tearDown(self):
@@ -43,6 +46,22 @@ class TonNftVerifierTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["verified"])
         self.assertEqual(result["owner_wallet_address"], "0:1111111111111111111111111111111111111111111111111111111111111111")
         self.assertEqual(result["provider_ids"], ["tonapi", "toncenter"])
+
+    async def test_testnet_mock_nft_requires_testnet_provider_quorum(self):
+        result = await verify_seller_nft_ownership_async(
+            **{
+                **self.common,
+                "asset_type": "testnet_mock_nft",
+                "network": "ton-testnet",
+                "allowed_collections": {
+                    "testnet_mock_nft": {
+                        "0:2222222222222222222222222222222222222222222222222222222222222222"
+                    }
+                },
+            }
+        )
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["network"], "ton-testnet")
 
     async def test_wallet_proof_does_not_override_different_nft_owner(self):
         self.providers[1].state = {**self.state, "owner_address": "0:4444444444444444444444444444444444444444444444444444444444444444"}
