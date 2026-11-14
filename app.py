@@ -1367,7 +1367,7 @@ async def get_testnet_dispute_query(
     decision: str = Query(..., pattern="^(refund|release)$"),
     x_telegram_init_data: str | None = Header(default=None),
 ):
-    admin = _require_admin(x_telegram_init_data)
+    _require_admin(x_telegram_init_data)
     from marketplace_settlement import get_deal_testnet_dispute_query_id
     try:
         result = get_deal_testnet_dispute_query_id(
