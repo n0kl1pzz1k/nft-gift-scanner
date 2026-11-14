@@ -1,0 +1,67 @@
+# TESTNET DEMO ONLY.
+# All roles below derive distinct wallet IDs from one dedicated, disposable
+# testnet mnemonic. This is NOT an independent 2-of-3 key arrangement and
+# must never be reused for mainnet or production custody.
+#
+# Set TON_TESTNET_DEMO_MNEMONIC in the GitHub Actions environment, then copy
+# this file to wallets.toml. Acton ignores wallets.toml by default.
+
+[wallets.deployer]
+kind = "v5r1"
+workchain = 0
+wallet-id = 0
+keys = { mnemonic-env = "TON_TESTNET_DEMO_MNEMONIC" }
+
+[wallets.seller]
+kind = "v5r1"
+workchain = 0
+wallet-id = 1
+keys = { mnemonic-env = "TON_TESTNET_DEMO_MNEMONIC" }
+
+[wallets.buyer]
+kind = "v5r1"
+workchain = 0
+wallet-id = 2
+keys = { mnemonic-env = "TON_TESTNET_DEMO_MNEMONIC" }
+
+[wallets.signer1]
+kind = "v5r1"
+workchain = 0
+wallet-id = 3
+keys = { mnemonic-env = "TON_TESTNET_DEMO_MNEMONIC" }
+
+[wallets.signer2]
+kind = "v5r1"
+workchain = 0
+wallet-id = 4
+keys = { mnemonic-env = "TON_TESTNET_DEMO_MNEMONIC" }
+
+[wallets.signer3]
+kind = "v5r1"
+workchain = 0
+wallet-id = 5
+keys = { mnemonic-env = "TON_TESTNET_DEMO_MNEMONIC" }
+
+[wallets.arb1]
+kind = "v5r1"
+workchain = 0
+wallet-id = 6
+keys = { mnemonic-env = "TON_TESTNET_DEMO_MNEMONIC" }
+
+[wallets.arb2]
+kind = "v5r1"
+workchain = 0
+wallet-id = 7
+keys = { mnemonic-env = "TON_TESTNET_DEMO_MNEMONIC" }
+
+[wallets.arb3]
+kind = "v5r1"
+workchain = 0
+wallet-id = 8
+keys = { mnemonic-env = "TON_TESTNET_DEMO_MNEMONIC" }
+
+[wallets.resolver]
+kind = "v5r1"
+workchain = 0
+wallet-id = 9
+keys = { mnemonic-env = "TON_TESTNET_DEMO_MNEMONIC" }
