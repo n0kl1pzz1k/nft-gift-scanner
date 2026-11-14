@@ -173,7 +173,10 @@ def save_verified_wallet(*, user_id: str, address: str, network: str,
 
 
 def revoke_verified_wallet(*, user_id: str, address: str | None = None,
+                         network: str = "ton-mainnet",
                          engine: Engine | None = None, now: int | None = None) -> int:
+    if network not in {"ton-mainnet", "ton-testnet"}:
+        raise ValueError("Unsupported TON wallet network")
     db = engine or get_engine()
     init_inventory_schema(db)
     current = int(now or time.time())
@@ -270,7 +273,7 @@ def create_escrow_pending_listing(*, user_id: str, asset_id: str, price_raw: int
     """Create a private pending listing. It cannot appear publicly before escrow."""
     db = engine or get_engine()
     init_inventory_schema(db)
-    if int(price_raw) <= 0 or currency not in {"XTR", "GRAM", "USDT"}:
+    if int(price_raw) <= 0 or currency not in {"XTR", "GRAM", "USDT", "tUSDT"}:
         raise ValueError("Invalid listing price or currency")
     if not idempotency_key or len(idempotency_key) > 128:
         raise ValueError("A bounded listing idempotency key is required")
