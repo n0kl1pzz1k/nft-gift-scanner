@@ -2,7 +2,10 @@ import asyncio
 import unittest
 
 from payment_routes import PaymentEvidence, PaymentIntent, PaymentRouteError
-from ton_testnet_gateway import (\n    TestnetTransfer, TonApiEmbedTestnetProvider, TonCenterTestnetProvider,\n    TonTestnetPaymentGateway,\n)
+from ton_testnet_gateway import (
+    TestnetTransfer, TonApiEmbedTestnetProvider, TonCenterTestnetProvider,
+    TonTestnetPaymentGateway,
+)
 
 
 class Provider:
