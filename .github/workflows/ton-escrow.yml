@@ -41,8 +41,10 @@ jobs:
         run: acton build GiftRadarEscrow
       - name: Build payment escrow contract
         run: acton build GiftRadarPaymentEscrow
-      - name: Build TEP-62 test NFT contract
-        run: acton build MockNftItem
+      - name: Build TEP-62 test NFT collection and item
+        run: |
+          acton build MockNftCollection
+          acton build MockNftItem
       - name: Build TEP-74 reference Jetton wallet
         run: acton build JettonWallet
       - name: Build TEP-74 reference Jetton minter
@@ -51,6 +53,7 @@ jobs:
         run: |
           acton wrapper GiftRadarEscrow
           acton wrapper GiftRadarPaymentEscrow
+          acton wrapper MockNftCollection
           acton wrapper MockNftItem
           acton wrapper JettonWallet
           acton wrapper JettonMinter
