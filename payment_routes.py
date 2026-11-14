@@ -23,6 +23,8 @@ class PaymentIntent:
     reference: str
     network: str
     payer_address: str | None = None
+    query_id: int | None = None
+    payer_jetton_wallet_address: str | None = None
 
 
 @dataclass(frozen=True)
