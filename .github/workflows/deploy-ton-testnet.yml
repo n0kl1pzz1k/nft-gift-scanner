@@ -57,10 +57,12 @@ jobs:
         run: |
           set -euo pipefail
           acton build GiftRadarPaymentEscrow
+          acton build MockNftCollection
           acton build MockNftItem
           acton build JettonWallet
           acton build JettonMinter
           acton wrapper GiftRadarPaymentEscrow
+          acton wrapper MockNftCollection
           acton wrapper MockNftItem
           acton wrapper JettonWallet
           acton wrapper JettonMinter
