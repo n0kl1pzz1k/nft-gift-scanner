@@ -50,6 +50,8 @@ class PaymentRoute(Protocol):
 
     async def verify_payout(self, intent: PaymentIntent, *, seller_address: str, query_id: int) -> PaymentEvidence | None: ...
 
+    async def verify_refund(self, intent: PaymentIntent, *, buyer_address: str, query_id: int) -> PaymentEvidence | None: ...
+
     async def refund(self, evidence: PaymentEvidence) -> str: ...
 
 
@@ -86,6 +88,9 @@ class TestnetTonUsdtGateway(Protocol):
     async def verify_payout(self, intent: PaymentIntent, *, seller_address: str,
                             query_id: int) -> PaymentEvidence | None: ...
 
+    async def verify_refund(self, intent: PaymentIntent, *, buyer_address: str,
+                            query_id: int) -> PaymentEvidence | None: ...
+
     async def refund(self, evidence: PaymentEvidence) -> str: ...
 
 
@@ -111,6 +116,14 @@ class TonUsdtTestnetPaymentRoute:
     @property
     def enabled(self) -> bool:
         return True
+
+    @property
+    def escrow_address(self) -> str:
+        return self._escrow_address
+
+    @property
+    def jetton_master(self) -> str:
+        return self._jetton_master
 
     async def create_intent(self, *, deal_id: str, amount: int, currency: str,
                             payer_address: str | None = None) -> PaymentIntent:
@@ -155,6 +168,23 @@ class TonUsdtTestnetPaymentRoute:
                 or evidence.network != "testnet" or not evidence.finalized
                 or evidence.query_id != query_id or not evidence.transaction_id):
             raise PaymentRouteError("Gateway returned incomplete or mismatched seller payout evidence")
+        return evidence
+
+    async def verify_refund(self, intent: PaymentIntent, *, buyer_address: str,
+                            query_id: int) -> PaymentEvidence | None:
+        if intent.network != "testnet" or intent.currency != "tUSDT" or query_id <= 0:
+            raise PaymentRouteError("Only testnet tUSDT refund intents with a positive query ID are supported")
+        evidence = await self._gateway.verify_refund(
+            intent, buyer_address=buyer_address, query_id=query_id,
+        )
+        if evidence is None:
+            return None
+        expected_reference = f"grrefund:{intent.deal_id}:{query_id}"
+        if (evidence.deal_id != intent.deal_id or evidence.reference != expected_reference
+                or evidence.amount != intent.amount or evidence.currency != "tUSDT"
+                or evidence.network != "testnet" or not evidence.finalized
+                or evidence.query_id != query_id or not evidence.transaction_id):
+            raise PaymentRouteError("Gateway returned incomplete or mismatched buyer refund evidence")
         return evidence
 
     async def refund(self, evidence: PaymentEvidence) -> str:
