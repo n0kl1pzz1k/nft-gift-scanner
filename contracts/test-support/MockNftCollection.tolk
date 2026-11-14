@@ -53,5 +53,5 @@ get fun get_nft_address_by_index(index: uint256): address {
     val storage = lazy MockNftCollectionStorage.load();
     assert (index == 0) throw 404;
     assert (storage.itemAddress != null) throw 404;
-    return storage.itemAddress!;
+    return storage.itemAddress;
 }
