@@ -17,7 +17,7 @@ fun buildTestJettonMetadata(): cell {
     return metadata.toCell();
 }
 
-fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscrow, address, address, address, address, address, address, address, address, address) {
+fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscrow, address, address, address, address, address, address, address, address, address, address) {
     val platformAdmin = testing.treasury("platform-config-admin");
     val seller = testing.treasury("payment-seller");
     val buyer = testing.treasury("payment-buyer");
@@ -269,6 +269,16 @@ get fun `test TON payment enters escrow then requires two distinct signers befor
     }));
     expect(payoutConfirmation1).toHaveSuccessfulTx<ConfirmEscrowSellerPayout>({ from: signer1, to: escrow.address });
     expect(readPaymentEscrowState(escrow).payoutApprovals).toEqual(1);
+    val conflictingPayout = net.send(signer2, createMessage({
+        bounce: true,
+        value: grams("0.05"),
+        dest: escrow.address,
+        body: ConfirmEscrowSellerPayout { queryId: 7005, payoutTxHash: 0x7005bad },
+    }));
+    expect(conflictingPayout).toHaveFailedTx<ConfirmEscrowSellerPayout>({
+        from: signer2, to: escrow.address, exitCode: 2106,
+    });
+    expect(readPaymentEscrowState(escrow).state).toEqual(V2_PAYOUT_PENDING);
     val payoutConfirmation2 = net.send(signer2, createMessage({
         bounce: true,
         value: grams("0.05"),

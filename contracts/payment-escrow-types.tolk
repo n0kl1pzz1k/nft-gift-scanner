@@ -157,8 +157,6 @@ struct (0x47525609) ConfirmEscrowSellerPayout {
     payoutTxHash: uint256
 }
 
-type PaymentEscrowBounceMessages = AskToChangeOwnership | SellerPayoutNotice | PaymentEscrowJettonTransfer
-
 type PaymentEscrowMessages =
     | InitializePaymentEscrow
     | PaymentEscrowNftDeposit
