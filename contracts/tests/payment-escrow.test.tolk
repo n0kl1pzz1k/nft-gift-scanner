@@ -57,13 +57,15 @@ fun setupPaymentEscrow(assetKind: uint8, amount: uint128): (GiftRadarPaymentEscr
         transferQueryId: 0,
         paymentApprovals: 0,
         deliveryApprovals: 0,
-        deliveryProofHash: 0,
         disputeApprovals: 0,
         disputeDecision: 0,
-        disputeResolutionHash: 0,
         payoutQueryId: 0,
         payoutApprovals: 0,
-        payoutTxHash: 0,
+        evidence: PaymentEscrowEvidence {
+            deliveryProofHash: 0,
+            disputeResolutionHash: 0,
+            payoutTxHash: 0,
+        }.toCell(),
         parties: PaymentEscrowParties {
             seller: seller.address,
             buyer: buyer.address,
