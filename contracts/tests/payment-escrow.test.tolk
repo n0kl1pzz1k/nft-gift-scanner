@@ -21,7 +21,12 @@ fun setupPaymentEscrow(assetKind: uint8, amount: coins): (GiftRadarPaymentEscrow
     val platformAdmin = testing.treasury("platform-config-admin");
     val seller = testing.treasury("payment-seller");
     val buyer = testing.treasury("payment-buyer");
-    val nftItem = MockNftItem.fromStorage({ ownerAddress: seller.address });
+    val nftItem = MockNftItem.fromStorage({
+        ownerAddress: seller.address,
+        collectionAddress: testing.treasury("mock-nft-collection").address,
+        index: 0,
+        content: beginCell().storeUint(1, 8).storeStringTail("https://example.com/gift-radar-testnet-nft.json").endCell(),
+    });
     val nftDeploy = nftItem.deploy(seller.address, { value: grams("1") });
     expect(nftDeploy).toHaveSuccessfulDeploy({ to: nftItem.address });
     val signer1 = testing.treasury("payment-signer-1");
