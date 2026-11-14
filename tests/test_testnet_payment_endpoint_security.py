@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -23,12 +23,19 @@ class TestnetPaymentEndpointSecurityTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_payment_confirmation_requires_platform_admin_authentication(self):
+        engine = MagicMock()
+        connection = engine.connect.return_value.__enter__.return_value
+        connection.execute.return_value.mappings.return_value.first.return_value = {
+            "buyer_user_id": "101",
+        }
         with patch.object(
             app_module, "_authenticate_telegram_credential",
             return_value={"id": "202"},
         ), patch.object(
             app_module, "_require_admin",
             side_effect=HTTPException(status_code=403, detail="Forbidden"),
+        ), patch.object(
+            app_module, "get_engine", return_value=engine,
         ):
             response = self.client.post(
                 "/api/inventory/deals/deal-test/testnet-payment-confirmation"
