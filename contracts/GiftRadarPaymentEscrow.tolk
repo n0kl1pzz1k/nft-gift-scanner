@@ -84,40 +84,39 @@ fun arbitratorBit(sender: address, arbitrators: PaymentEscrowArbitratorSet): uin
 }
 
 fun onBouncedMessage(in: InMessageBounced) {
-    in.bouncedBody.skipBouncedPrefix();
-    val bounced = lazy PaymentEscrowBounceMessages.fromSlice(in.bouncedBody);
-    match (bounced) {
-        AskToChangeOwnership => {
-            var storage = lazy PaymentEscrowStorage.load();
-            val parties = storage.parties.load();
-            assert (in.senderAddress == parties.nftItem) throw PaymentEscrowErrors.BadAsset;
-            assert (bounced.queryId == storage.transferQueryId) throw PaymentEscrowErrors.BadProof;
-            assert (bounced.queryId != 0) throw PaymentEscrowErrors.BadProof;
-            if (storage.state == V2_TRANSFER_PENDING) {
-                storage.state = V2_RECONCILIATION_REQUIRED;
-                storage.save();
-            }
-        }
-        SellerPayoutNotice => {
-            var storage = lazy PaymentEscrowStorage.load();
-            val parties = storage.parties.load();
-            assert (in.senderAddress == parties.seller) throw PaymentEscrowErrors.BadAsset;
-            assert (storage.state == V2_PAYOUT_PENDING) throw PaymentEscrowErrors.BadState;
-            assert (bounced.queryId == storage.payoutQueryId) throw PaymentEscrowErrors.BadProof;
+    var bouncedBody = in.bouncedBody;
+    bouncedBody.skipBouncedPrefix();
+    val opcode = bouncedBody.loadUint(32);
+    val queryId = bouncedBody.loadUint(64);
+    var storage = lazy PaymentEscrowStorage.load();
+
+    if (opcode == 0x5fcc3d14) {
+        val parties = storage.parties.load();
+        assert (in.senderAddress == parties.nftItem) throw PaymentEscrowErrors.BadAsset;
+        assert (queryId != 0) throw PaymentEscrowErrors.BadProof;
+        assert (queryId == storage.transferQueryId) throw PaymentEscrowErrors.BadProof;
+        if (storage.state == V2_TRANSFER_PENDING) {
             storage.state = V2_RECONCILIATION_REQUIRED;
             storage.save();
         }
-        PaymentEscrowJettonTransfer => {
-            var storage = lazy PaymentEscrowStorage.load();
-            val auth = storage.authorities.load();
-            val assets = auth.assets.load();
-            assert (assets.escrowUsdtJettonWallet != null) throw PaymentEscrowErrors.BadAsset;
-            assert (in.senderAddress == assets.escrowUsdtJettonWallet!) throw PaymentEscrowErrors.BadAsset;
-            assert (storage.state == V2_PAYOUT_PENDING) throw PaymentEscrowErrors.BadState;
-            assert (bounced.queryId == storage.payoutQueryId) throw PaymentEscrowErrors.BadProof;
-            storage.state = V2_RECONCILIATION_REQUIRED;
-            storage.save();
-        }
+    } else if (opcode == 0x47525608) {
+        val parties = storage.parties.load();
+        assert (in.senderAddress == parties.seller) throw PaymentEscrowErrors.BadAsset;
+        assert (storage.state == V2_PAYOUT_PENDING) throw PaymentEscrowErrors.BadState;
+        assert (queryId == storage.payoutQueryId) throw PaymentEscrowErrors.BadProof;
+        storage.state = V2_RECONCILIATION_REQUIRED;
+        storage.save();
+    } else if (opcode == 0x0f8a7ea5) {
+        val auth = storage.authorities.load();
+        val assets = auth.assets.load();
+        assert (assets.escrowUsdtJettonWallet != null) throw PaymentEscrowErrors.BadAsset;
+        assert (in.senderAddress == assets.escrowUsdtJettonWallet!) throw PaymentEscrowErrors.BadAsset;
+        assert (storage.state == V2_PAYOUT_PENDING) throw PaymentEscrowErrors.BadState;
+        assert (queryId == storage.payoutQueryId) throw PaymentEscrowErrors.BadProof;
+        storage.state = V2_RECONCILIATION_REQUIRED;
+        storage.save();
+    } else {
+        throw PaymentEscrowErrors.BadProof;
     }
 }
 
