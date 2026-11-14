@@ -292,6 +292,12 @@ async def confirm_deal_payment_via_route(*, deal_id: str, intent: Any, route: An
         deal = conn.execute(query).mappings().first()
         if deal is None:
             raise ValueError("Unknown marketplace deal")
+        if (deal["network"] != "ton-testnet" or deal["currency"] != "tUSDT"
+                or canonical_ton_address(deal["escrow_contract_address"] or "")
+                != canonical_ton_address(route.escrow_address)):
+            raise PermissionError("Deal network, currency or escrow does not match the payment route")
+        if deal["payment_reference"] != intent.reference:
+            raise ValueError("Payment intent reference does not match the stored deal reference")
         if str(actor_user_id) in {str(deal["buyer_user_id"]), str(deal["seller_user_id"])}:
             raise PermissionError("Deal participants cannot independently confirm their own payment")
         if deal["status"] == "payment_confirmed":
