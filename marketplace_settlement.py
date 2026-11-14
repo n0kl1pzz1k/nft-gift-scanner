@@ -672,6 +672,225 @@ def confirm_deal_nft_transfer(*, deal_id: str, transfer_proofs: list[dict[str, A
 
 
 
+
+def _build_testnet_deal_intent(deal: Any, route: Any) -> Any:
+    if (deal["network"] != "ton-testnet" or deal["currency"] != "tUSDT"
+            or not getattr(route, "enabled", False) or route.route_id != "ton_usdt_testnet"):
+        raise PermissionError("Deal is not eligible for the enabled TON testnet tUSDT route")
+    if canonical_ton_address(deal["escrow_contract_address"] or "") != canonical_ton_address(route.escrow_address):
+        raise PermissionError("Payment route escrow does not match the deal escrow snapshot")
+    return route.create_intent(
+        deal_id=str(deal["deal_id"]), amount=int(deal["price_raw"]), currency="tUSDT",
+        escrow_address=route.escrow_address, jetton_master=route.jetton_master,
+        payer_address=str(deal["buyer_wallet_address"]),
+    )
+
+
+async def confirm_deal_testnet_payout(*, deal_id: str, route: Any,
+                                      actor_user_id: str,
+                                      engine: Engine | None = None,
+                                      now: int | None = None) -> dict[str, Any]:
+    """Settle a tUSDT deal only after two independent providers verify seller payout."""
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    with db.connect() as conn:
+        deal = conn.execute(select(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id
+        )).mappings().first()
+    if deal is None:
+        raise ValueError("Unknown marketplace deal")
+    if str(actor_user_id) in {str(deal["buyer_user_id"]), str(deal["seller_user_id"])}:
+        raise PermissionError("Deal participants cannot independently confirm seller payout")
+    if deal["status"] == "settled" and deal["payout_tx_hash"]:
+        return {"confirmed": True, "duplicate": True, "status": "settled",
+                "payout_tx_hash": deal["payout_tx_hash"]}
+    if deal["status"] != "payout_pending" or not deal["seller_wallet_address"]:
+        raise ValueError("Deal is not awaiting a verifiable seller payout")
+    query_id = int(deal["payout_query_id"] or 0)
+    if query_id <= 0:
+        raise ValueError("Payout query ID is missing")
+    intent = await _build_testnet_deal_intent(deal, route)
+    evidence = await route.verify_payout(
+        intent, seller_address=str(deal["seller_wallet_address"]), query_id=query_id,
+    )
+    if evidence is None:
+        return {"confirmed": False, "status": "payout_pending", "reason": "payout_not_finalized"}
+    if (evidence.deal_id != deal_id or evidence.amount != int(deal["price_raw"])
+            or evidence.currency != "tUSDT" or evidence.network != "testnet"
+            or evidence.query_id != query_id or not evidence.finalized
+            or not evidence.transaction_id):
+        raise ValueError("Independent providers returned mismatched seller payout evidence")
+    current = int(now or time.time())
+    lock = db.dialect.name == "postgresql"
+    with db.begin() as conn:
+        query = select(marketplace_deals).where(marketplace_deals.c.deal_id == deal_id)
+        if lock:
+            query = query.with_for_update()
+        current_deal = conn.execute(query).mappings().first()
+        if current_deal is None:
+            raise ValueError("Unknown marketplace deal")
+        if current_deal["status"] == "settled":
+            if current_deal["payout_tx_hash"] == evidence.transaction_id:
+                return {"confirmed": True, "duplicate": True, "status": "settled",
+                        "payout_tx_hash": evidence.transaction_id}
+            raise ValueError("Deal already has a different payout confirmation")
+        if (current_deal["status"] != "payout_pending"
+                or int(current_deal["payout_query_id"] or 0) != query_id):
+            raise ValueError("Deal payout state changed during independent verification")
+        conn.execute(update(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id,
+            marketplace_deals.c.status == "payout_pending",
+        ).values(
+            status="settled", payout_tx_hash=evidence.transaction_id,
+            payout_verified_at=current, updated_at=current,
+        ))
+        conn.execute(update(marketplace_listings).where(
+            marketplace_listings.c.listing_id == current_deal["listing_id"],
+            marketplace_listings.c.status == "payout_pending",
+        ).values(status="sold", updated_at=current))
+        conn.execute(insert(marketplace_listing_events).values(
+            event_id=uuid.uuid4().hex, listing_id=current_deal["listing_id"],
+            actor_user_id=current_deal["buyer_user_id"], event_type="sold",
+            event_data=json.dumps({
+                "deal_id": deal_id, "payout_tx_hash": evidence.transaction_id,
+            }),
+            created_at=current,
+        ))
+        _event(conn, deal_id=deal_id, event_type="testnet_payout_verified",
+               actor_type="admin", actor_id=str(actor_user_id),
+               data={"payout_tx_hash": evidence.transaction_id, "query_id": query_id},
+               now=current)
+    return {"confirmed": True, "duplicate": False, "status": "settled",
+            "payout_tx_hash": evidence.transaction_id, "query_id": query_id}
+
+
+def mark_deal_testnet_refund_pending(*, deal_id: str, actor_user_id: str,
+                                     engine: Engine | None = None,
+                                     now: int | None = None) -> dict[str, Any]:
+    """Record that the approved on-chain dispute resolver has initiated a paid refund."""
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    current = int(now or time.time())
+    query_id = int.from_bytes(hashlib.sha256(f"{deal_id}:refund".encode()).digest()[:8], "big") or 1
+    lock = db.dialect.name == "postgresql"
+    with db.begin() as conn:
+        query = select(marketplace_deals).where(marketplace_deals.c.deal_id == deal_id)
+        if lock:
+            query = query.with_for_update()
+        deal = conn.execute(query).mappings().first()
+        if deal is None:
+            raise ValueError("Unknown marketplace deal")
+        if str(actor_user_id) in {str(deal["buyer_user_id"]), str(deal["seller_user_id"])}:
+            raise PermissionError("Deal participants cannot mark their own refund as initiated")
+        if (deal["network"] != "ton-testnet" or deal["currency"] != "tUSDT"
+                or deal["status"] not in {"disputed", "refund_pending"}
+                or not deal["payment_query_id"]):
+            raise ValueError("Only a paid disputed testnet tUSDT deal can enter refund pending")
+        if deal["status"] == "refund_pending":
+            if int(deal["refund_query_id"] or 0) != query_id:
+                raise ValueError("Deal already has a different refund query")
+            return {"marked": False, "duplicate": True, "status": "refund_pending",
+                    "refund_query_id": query_id}
+        conn.execute(update(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id,
+            marketplace_deals.c.status == "disputed",
+        ).values(status="refund_pending", refund_query_id=query_id, updated_at=current))
+        _event(conn, deal_id=deal_id, event_type="testnet_refund_pending",
+               actor_type="admin", actor_id=str(actor_user_id),
+               data={"refund_query_id": query_id}, now=current)
+    return {"marked": True, "duplicate": False, "status": "refund_pending",
+            "refund_query_id": query_id}
+
+
+async def confirm_deal_testnet_refund(*, deal_id: str, route: Any,
+                                      actor_user_id: str,
+                                      engine: Engine | None = None,
+                                      now: int | None = None) -> dict[str, Any]:
+    """Close a paid dispute only after two providers verify the on-chain buyer refund."""
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    with db.connect() as conn:
+        deal = conn.execute(select(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id
+        )).mappings().first()
+    if deal is None:
+        raise ValueError("Unknown marketplace deal")
+    if str(actor_user_id) in {str(deal["buyer_user_id"]), str(deal["seller_user_id"])}:
+        raise PermissionError("Deal participants cannot independently confirm their own refund")
+    if deal["status"] == "refunded" and deal["refund_tx_hash"]:
+        return {"confirmed": True, "duplicate": True, "status": "refunded",
+                "refund_tx_hash": deal["refund_tx_hash"]}
+    if deal["status"] != "refund_pending" or not deal["seller_wallet_address"]:
+        raise ValueError("Deal is not awaiting a verifiable buyer refund")
+    query_id = int(deal["refund_query_id"] or 0)
+    if query_id <= 0:
+        raise ValueError("Refund query ID is missing")
+    intent = await _build_testnet_deal_intent(deal, route)
+    evidence = await route.verify_refund(
+        intent, buyer_address=str(deal["buyer_wallet_address"]), query_id=query_id,
+    )
+    if evidence is None:
+        return {"confirmed": False, "status": "refund_pending", "reason": "refund_not_finalized"}
+    if (evidence.deal_id != deal_id or evidence.amount != int(deal["price_raw"])
+            or evidence.currency != "tUSDT" or evidence.network != "testnet"
+            or evidence.query_id != query_id or not evidence.finalized
+            or not evidence.transaction_id):
+        raise ValueError("Independent providers returned mismatched buyer refund evidence")
+    current = int(now or time.time())
+    lock = db.dialect.name == "postgresql"
+    with db.begin() as conn:
+        query = select(marketplace_deals).where(marketplace_deals.c.deal_id == deal_id)
+        if lock:
+            query = query.with_for_update()
+        current_deal = conn.execute(query).mappings().first()
+        if current_deal is None:
+            raise ValueError("Unknown marketplace deal")
+        if current_deal["status"] == "refunded":
+            if current_deal["refund_tx_hash"] == evidence.transaction_id:
+                return {"confirmed": True, "duplicate": True, "status": "refunded",
+                        "refund_tx_hash": evidence.transaction_id}
+            raise ValueError("Deal already has a different refund confirmation")
+        if (current_deal["status"] != "refund_pending"
+                or int(current_deal["refund_query_id"] or 0) != query_id):
+            raise ValueError("Deal refund state changed during independent verification")
+        conn.execute(update(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id,
+            marketplace_deals.c.status == "refund_pending",
+        ).values(
+            status="refunded", refund_tx_hash=evidence.transaction_id,
+            refund_verified_at=current, updated_at=current,
+        ))
+        conn.execute(update(marketplace_assets).where(
+            marketplace_assets.c.asset_id == current_deal["asset_id"]
+        ).values(
+            owner_user_id=current_deal["seller_user_id"],
+            owner_wallet_address=current_deal["seller_wallet_address"],
+            custody_state="wallet_owned", ownership_state="verified",
+            ownership_checked_at=current, ownership_expires_at=current + 300,
+            escrow_contract_address=None, updated_at=current,
+        ))
+        conn.execute(update(marketplace_listings).where(
+            marketplace_listings.c.listing_id == current_deal["listing_id"]
+        ).values(status="cancelled", updated_at=current))
+        conn.execute(update(marketplace_reservations).where(
+            marketplace_reservations.c.reservation_id == current_deal["reservation_id"]
+        ).values(status="cancelled"))
+        conn.execute(insert(marketplace_listing_events).values(
+            event_id=uuid.uuid4().hex, listing_id=current_deal["listing_id"],
+            actor_user_id=current_deal["seller_user_id"], event_type="cancelled",
+            event_data=json.dumps({
+                "deal_id": deal_id, "refund_tx_hash": evidence.transaction_id,
+            }),
+            created_at=current,
+        ))
+        _event(conn, deal_id=deal_id, event_type="testnet_refund_verified",
+               actor_type="admin", actor_id=str(actor_user_id),
+               data={"refund_tx_hash": evidence.transaction_id, "query_id": query_id},
+               now=current)
+    return {"confirmed": True, "duplicate": False, "status": "refunded",
+            "refund_tx_hash": evidence.transaction_id, "query_id": query_id}
+
+
 def open_deal_dispute(*, deal_id: str, actor_user_id: str, reason: str,
                       engine: Engine | None = None,
                       now: int | None = None) -> dict[str, Any]:
