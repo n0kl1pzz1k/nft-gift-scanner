@@ -1234,6 +1234,137 @@ async def confirm_testnet_deal_payment(
         raise HTTPException(status_code=503, detail="TON testnet payment verification is unavailable")
 
 
+@app.post("/api/inventory/deals/{deal_id}/testnet-payout-confirmation")
+async def confirm_testnet_deal_payout(
+    deal_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    admin = _require_admin(x_telegram_init_data)
+    from marketplace_settlement import marketplace_deals, confirm_deal_testnet_payout
+    engine = get_engine()
+    with engine.connect() as conn:
+        deal = conn.execute(select(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id
+        )).mappings().first()
+        asset = conn.execute(select(marketplace_assets).where(
+            marketplace_assets.c.asset_id == deal["asset_id"]
+        )).mappings().first() if deal else None
+    if deal is None or asset is None or deal["network"] != "ton-testnet":
+        raise HTTPException(status_code=404, detail="Testnet deal not found")
+    if not asset["item_address"]:
+        raise HTTPException(status_code=409, detail="NFT item address is missing")
+    try:
+        owner_proofs = []
+        for provider in configured_testnet_nft_providers():
+            state = await provider.get_nft_state(str(asset["item_address"]))
+            if not state:
+                raise HTTPException(status_code=503, detail="Independent NFT owner lookup is unavailable")
+            if (canonical_ton_address(state["collection_address"]) != canonical_ton_address(asset["collection_address"])
+                    or str(state["token_id"]) != str(asset["token_id"])):
+                raise HTTPException(status_code=409, detail="NFT identity differs from the registered asset")
+            owner_proofs.append({
+                "provider_id": provider.provider_id,
+                "owner_address": state["owner_address"],
+                "successful": True,
+            })
+        from payment_routes import configured_payment_route
+        return await confirm_deal_testnet_payout(
+            deal_id=deal_id, route=configured_payment_route(),
+            actor_user_id=str(admin["id"]), current_owner_proofs=owner_proofs,
+            engine=engine,
+        )
+    except HTTPException:
+        raise
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        logging.warning("TON testnet payout verification unavailable (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="TON testnet payout verification is unavailable")
+
+
+@app.post("/api/inventory/deals/{deal_id}/testnet-refund-pending")
+async def mark_testnet_deal_refund_pending(
+    deal_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    admin = _require_admin(x_telegram_init_data)
+    from marketplace_settlement import mark_deal_testnet_refund_pending
+    try:
+        return mark_deal_testnet_refund_pending(
+            deal_id=deal_id, actor_user_id=str(admin["id"]), engine=get_engine(),
+        )
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/inventory/deals/{deal_id}/testnet-refund-confirmation")
+async def confirm_testnet_deal_refund(
+    deal_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    admin = _require_admin(x_telegram_init_data)
+    from marketplace_settlement import marketplace_deals, confirm_deal_testnet_refund
+    engine = get_engine()
+    with engine.connect() as conn:
+        deal = conn.execute(select(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id
+        )).mappings().first()
+        asset = conn.execute(select(marketplace_assets).where(
+            marketplace_assets.c.asset_id == deal["asset_id"]
+        )).mappings().first() if deal else None
+    if deal is None or asset is None or deal["network"] != "ton-testnet":
+        raise HTTPException(status_code=404, detail="Testnet deal not found")
+    if (not asset["item_address"] or not deal["escrow_contract_address"]
+            or not deal["seller_wallet_address"]):
+        raise HTTPException(status_code=409, detail="NFT return verification configuration is incomplete")
+    try:
+        owner_proofs = []
+        return_proofs = []
+        for provider in configured_testnet_nft_providers():
+            state = await provider.get_nft_state(str(asset["item_address"]))
+            transfer = await provider.get_nft_transfer(
+                str(asset["item_address"]), str(deal["escrow_contract_address"]),
+                str(deal["seller_wallet_address"]),
+            )
+            if not state or not transfer:
+                raise HTTPException(status_code=409, detail="NFT return is not finalized on both independent providers")
+            if (canonical_ton_address(state["collection_address"]) != canonical_ton_address(asset["collection_address"])
+                    or str(state["token_id"]) != str(asset["token_id"])):
+                raise HTTPException(status_code=409, detail="NFT identity differs from the registered asset")
+            tx_hash = str(transfer["tx_hash"]).lower().removeprefix("0x")
+            evidence_hash = hashlib.sha256(json.dumps({
+                "provider_id": provider.provider_id, "tx_hash": tx_hash,
+                "item_address": asset["item_address"],
+                "old_owner": deal["escrow_contract_address"],
+                "new_owner": deal["seller_wallet_address"],
+                "event_index": transfer.get("event_index"),
+            }, sort_keys=True).encode()).hexdigest()
+            return_proofs.append({
+                "provider_id": provider.provider_id, "tx_hash": tx_hash,
+                "item_address": asset["item_address"],
+                "old_owner": deal["escrow_contract_address"],
+                "new_owner": deal["seller_wallet_address"],
+                "evidence_hash": evidence_hash, "successful": True, "finalized": True,
+            })
+            owner_proofs.append({
+                "provider_id": provider.provider_id,
+                "owner_address": state["owner_address"], "successful": True,
+            })
+        from payment_routes import configured_payment_route
+        return await confirm_deal_testnet_refund(
+            deal_id=deal_id, route=configured_payment_route(),
+            actor_user_id=str(admin["id"]), nft_return_proofs=return_proofs,
+            current_owner_proofs=owner_proofs, engine=engine,
+        )
+    except HTTPException:
+        raise
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        logging.warning("TON testnet refund verification unavailable (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="TON testnet refund verification is unavailable")
+
+
 @app.post("/api/inventory/deals/{deal_id}/pay-from-invoice")
 async def pay_marketplace_deal_from_invoice(
     deal_id: str,
