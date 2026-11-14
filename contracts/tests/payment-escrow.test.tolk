@@ -556,3 +556,101 @@ get fun `test dispute decision requires two distinct arbitrators and matching re
     expect(readPaymentEscrowState(escrow).sellerOwnershipProofHash).toEqual(refundProof);
     expect(readPaymentEscrowState(escrow).state).toEqual(V2_REFUNDED);
 }
+
+
+get fun `test paid tUSDT dispute refunds buyer and returns NFT to seller after two approvals`() {
+    val (escrow, seller, buyer, nftItem, signer1, signer2, _signer3,
+        escrowUsdtWallet, buyerUsdtWallet, _platformAdmin, sellerUsdtWallet,
+        arb1, arb2, _arb3, resolver) =
+        setupPaymentEscrow(ASSET_TEST_USDT_JETTON, 1000000);
+    depositPaymentNft(escrow, seller, nftItem);
+
+    val payment = net.send(buyer, createMessage({
+        bounce: true,
+        value: grams("0.2"),
+        dest: buyerUsdtWallet,
+        body: AskToTransfer {
+            queryId: 9201,
+            jettonAmount: 1000000,
+            transferRecipient: escrow.address,
+            sendExcessesTo: buyer,
+            customPayload: null,
+            forwardTonAmount: grams("0.05"),
+            forwardPayload: beginCell().storeUint(0, 1).toSlice(),
+        },
+    }));
+    expect(payment).toHaveSuccessfulTx<AskToTransfer>({ from: buyer, to: buyerUsdtWallet });
+    expect(readPaymentEscrowState(escrow).state).toEqual(V2_PAYMENT_PENDING);
+
+    val paymentApproval1 = net.send(signer1, createMessage({
+        bounce: true, value: grams("0.05"), dest: escrow.address,
+        body: ConfirmEscrowPayment { queryId: 9201, amount: 1000000 },
+    }));
+    expect(paymentApproval1).toHaveSuccessfulTx<ConfirmEscrowPayment>({ from: signer1, to: escrow.address });
+    val paymentApproval2 = net.send(signer2, createMessage({
+        bounce: true, value: grams("0.05"), dest: escrow.address,
+        body: ConfirmEscrowPayment { queryId: 9201, amount: 1000000 },
+    }));
+    expect(paymentApproval2).toHaveSuccessfulTx<ConfirmEscrowPayment>({ from: signer2, to: escrow.address });
+    expect(readPaymentEscrowState(escrow).state).toEqual(V2_PAID);
+
+    val raised = net.send(buyer, createMessage({
+        bounce: true, value: grams("0.05"), dest: escrow.address,
+        body: RaisePaymentEscrowDispute { queryId: 9202, reasonHash: 0x9202abc },
+    }));
+    expect(raised).toHaveSuccessfulTx<RaisePaymentEscrowDispute>({ from: buyer, to: escrow.address });
+
+    val resolutionHash: uint256 = 0x9203abc;
+    val arbitration1 = net.send(arb1, createMessage({
+        bounce: true, value: grams("0.05"), dest: escrow.address,
+        body: ApprovePaymentEscrowDispute {
+            queryId: 9203, decision: 1, resolutionHash,
+        },
+    }));
+    expect(arbitration1).toHaveSuccessfulTx<ApprovePaymentEscrowDispute>({ from: arb1, to: escrow.address });
+    val arbitration2 = net.send(arb2, createMessage({
+        bounce: true, value: grams("0.05"), dest: escrow.address,
+        body: ApprovePaymentEscrowDispute {
+            queryId: 9204, decision: 1, resolutionHash,
+        },
+    }));
+    expect(arbitration2).toHaveSuccessfulTx<ApprovePaymentEscrowDispute>({ from: arb2, to: escrow.address });
+    expect(readPaymentEscrowState(escrow).state).toEqual(V2_DISPUTE_DECISION_APPROVED);
+
+    val execute = net.send(resolver, createMessage({
+        bounce: true, value: grams("0.05"), dest: escrow.address,
+        body: ExecutePaymentEscrowDispute { queryId: 9205, resolutionHash },
+    }));
+    expect(execute).toHaveSuccessfulTx<ExecutePaymentEscrowDispute>({ from: resolver, to: escrow.address });
+    expect(readPaymentEscrowState(escrow).state).toEqual(V2_REFUND_PENDING);
+    expect(net.runGetMethod<address>(nftItem, "get_nft_owner")).toEqual(seller);
+
+    val buyerBalance = net.runGetMethod<JettonWalletDataReply>(buyerUsdtWallet, "get_wallet_data");
+    val escrowBalance = net.runGetMethod<JettonWalletDataReply>(escrowUsdtWallet, "get_wallet_data");
+    val sellerBalance = net.runGetMethod<JettonWalletDataReply>(sellerUsdtWallet, "get_wallet_data");
+    expect(buyerBalance.jettonBalance).toEqual(1000000);
+    expect(escrowBalance.jettonBalance).toEqual(0);
+    expect(sellerBalance.jettonBalance).toEqual(0);
+
+    val sellerOwnerProof: uint256 = 0x9206abc;
+    val refundTxHash: uint256 = 0x9207abc;
+    val refundApproval1 = net.send(signer1, createMessage({
+        bounce: true, value: grams("0.05"), dest: escrow.address,
+        body: ConfirmEscrowBuyerRefund {
+            queryId: 9205,
+            refundTxHash,
+            sellerOwnershipProofHash: sellerOwnerProof,
+        },
+    }));
+    expect(refundApproval1).toHaveSuccessfulTx<ConfirmEscrowBuyerRefund>({ from: signer1, to: escrow.address });
+    val refundApproval2 = net.send(signer2, createMessage({
+        bounce: true, value: grams("0.05"), dest: escrow.address,
+        body: ConfirmEscrowBuyerRefund {
+            queryId: 9205,
+            refundTxHash,
+            sellerOwnershipProofHash: sellerOwnerProof,
+        },
+    }));
+    expect(refundApproval2).toHaveSuccessfulTx<ConfirmEscrowBuyerRefund>({ from: signer2, to: escrow.address });
+    expect(readPaymentEscrowState(escrow).state).toEqual(V2_REFUNDED);
+}
