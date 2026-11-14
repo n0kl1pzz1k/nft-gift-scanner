@@ -358,6 +358,7 @@ def confirm_nft_escrow_deposit(*, listing_id: str, tx_hash: str, event_index: in
         conn.execute(update(marketplace_assets).where(
             marketplace_assets.c.asset_id == asset["asset_id"]
         ).values(custody_state="escrowed",
+                 owner_wallet_address=verified_escrow_owner,
                  escrow_contract_address=verified_escrow_owner, deposit_tx_hash=tx_hash,
                  deposit_event_index=event_index, custody_verified_at=current,
                  ownership_state="verified", ownership_checked_at=current,
