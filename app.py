@@ -261,6 +261,7 @@ async def payment_capabilities():
 _CORS_DEFAULT_ORIGINS = [
     "https://nft-gift-scanner.fj7kmzkhn9.workers.dev",
     "https://nft-gift-scanner.pages.dev",
+    "https://feat-testnet-ton-usdt-escrow.nft-gift-scanner.pages.dev",
 ]
 _CORS_ALLOWED_ORIGINS = [
     origin.strip().rstrip("/")
