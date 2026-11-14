@@ -2,7 +2,9 @@ import os
 import unittest
 from unittest.mock import patch
 
-from ton_nft_providers import canonical_ton_address, configured_nft_providers
+from ton_nft_providers import (
+    canonical_ton_address, configured_nft_providers, configured_testnet_nft_providers,
+)
 
 
 class TonNftProviderTests(unittest.TestCase):
@@ -16,16 +18,26 @@ class TonNftProviderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             canonical_ton_address("EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDt")
 
-    def test_test_only_friendly_address_is_rejected_on_mainnet(self):
-        test_only = "kQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"
-        with self.assertRaises(ValueError):
-            canonical_ton_address(test_only)
+    def test_valid_test_only_friendly_address_normalizes_to_raw_identity(self):
+        test_only = "kQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_ntm"
+        raw = "0:b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621dfe"
+        self.assertEqual(canonical_ton_address(test_only), raw)
 
     def test_raw_address_rejects_invalid_length_and_workchain(self):
         with self.assertRaises(ValueError):
             canonical_ton_address("0:abcd")
         with self.assertRaises(ValueError):
             canonical_ton_address("128:" + "11" * 32)
+
+    def test_testnet_providers_use_testnet_hosts_and_scoped_keys(self):
+        with patch.dict(os.environ, {
+            "TON_TESTNET_NFT_PROVIDER_IDS": "tonapi,toncenter",
+            "TON_TESTNET_TONAPI_KEY": "test-testnet-tonapi-key",
+            "TON_TESTNET_TONCENTER_API_KEY": "test-testnet-toncenter-key",
+        }):
+            providers = configured_testnet_nft_providers()
+        self.assertEqual({provider.provider_id for provider in providers}, {"tonapi", "toncenter"})
+        self.assertTrue(all("testnet" in provider.base_url for provider in providers))
 
     def test_provider_quorum_requires_two_named_independent_operators_and_keys(self):
         with patch.dict(os.environ, {
