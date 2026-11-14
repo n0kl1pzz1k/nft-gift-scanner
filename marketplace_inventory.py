@@ -48,6 +48,7 @@ marketplace_assets = Table(
     Column("ownership_checked_at", BigInteger),
     Column("ownership_expires_at", BigInteger),
     Column("custody_state", String(24), nullable=False, default="wallet_owned"),
+    Column("escrow_contract_address", String(128)),
     Column("deposit_tx_hash", String(128)),
     Column("deposit_event_index", BigInteger),
     Column("custody_verified_at", BigInteger),
