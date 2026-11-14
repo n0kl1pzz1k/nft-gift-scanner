@@ -6,13 +6,18 @@ from financial_ledger import metadata
 config = context.config
 if config.config_file_name:
     fileConfig(config.config_file_name)
-url = os.getenv("DATABASE_URL")
-if url:
-    if url.startswith("postgres://"):
-        url = "postgresql+psycopg://" + url[len("postgres://"):]
-    elif url.startswith("postgresql://"):
-        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
-    config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
+url = os.getenv("DATABASE_URL", "").strip()
+if not url:
+    storage_backend = os.getenv("GIFT_RADAR_STORAGE_BACKEND", "sqlite").strip().lower()
+    if os.getenv("ENVIRONMENT", "development").lower() == "production" or storage_backend == "postgres":
+        raise RuntimeError("DATABASE_URL is required for production/shared financial storage")
+    database_path = os.getenv("GIFT_RADAR_DB_PATH", "./data/gift-radar.sqlite3").strip()
+    url = "sqlite:///" + database_path
+if url.startswith("postgres://"):
+    url = "postgresql+psycopg://" + url[len("postgres://"):]
+elif url.startswith("postgresql://"):
+    url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
 target_metadata = metadata
 
 def run_migrations_offline():
