@@ -1,11 +1,12 @@
 import asyncio
+import os
 import unittest
 from unittest.mock import patch
 
 from payment_routes import PaymentEvidence, PaymentIntent, PaymentRouteError
 from ton_testnet_gateway import (
     TestnetTransfer, TonApiEmbedTestnetProvider, TonCenterTestnetProvider,
-    TonTestnetPaymentGateway,
+    TonTestnetPaymentGateway, configured_ton_testnet_gateway,
 )
 
 
@@ -127,6 +128,16 @@ class TonTestnetGatewayTests(unittest.TestCase):
                 )
 
         self.assertEqual(asyncio.run(run()), "0:" + "55" * 32)
+
+    def test_default_gateway_configuration_uses_official_testnet_hosts(self):
+        env = {
+            "TON_TESTNET_ESCROW_ADDRESS": "0:" + "22" * 32,
+            "TON_TESTNET_USDT_MASTER": "0:" + "33" * 32,
+        }
+        with patch.dict(os.environ, env, clear=True):
+            gateway = configured_ton_testnet_gateway()
+        self.assertEqual(gateway.providers[0].base_url, "https://testnet.toncenter.com/api/v3")
+        self.assertEqual(gateway.providers[1].base_url, "https://testnet.tonapi.io/v2")
 
     def test_providers_accept_https_testnet_hosts(self):
         center = TonCenterTestnetProvider(base_url="https://testnet.toncenter.com/api/v3")
