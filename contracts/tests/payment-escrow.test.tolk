@@ -450,7 +450,7 @@ get fun `test dispute decision requires two distinct arbitrators and matching re
     expect(readPaymentEscrowState(escrow).disputeApprovals).toEqual(3);
     expect(readPaymentEscrowState(escrow).disputeDecision).toEqual(1);
     expect(readPaymentEscrowState(escrow).disputeResolutionHash).toEqual(0xfeed01);
-    expect(readPaymentEscrowState(escrow).state).toEqual(V2_DISPUTE_RESOLVED);
+    expect(readPaymentEscrowState(escrow).state).toEqual(V2_DISPUTE_DECISION_APPROVED);
 
     val lateVote = net.send(arb3.address, createMessage({
         bounce: true,

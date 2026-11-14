@@ -38,7 +38,7 @@ fun sendSellerPayout(storage: PaymentEscrowStorage, parties: PaymentEscrowPartie
                 queryId,
                 jettonAmount: storage.expectedAmount,
                 transferRecipient: parties.seller,
-                sendExcessesTo: contract.getAddress(),
+                sendExcessesTo: null,
                 customPayload: null,
                 forwardTonAmount: grams("0.05"),
                 forwardPayload: beginCell().storeUint(queryId, 64).toSlice(),
