@@ -155,20 +155,21 @@ class MarketplaceSettlementTests(unittest.TestCase):
             deal_id=self.deal_id, route=route, actor_user_id="202",
             engine=self.engine,
         ))
-        with self.assertRaises(PermissionError):
-            asyncio.run(confirm_deal_payment_via_route(
+        with mock.patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "9001"}):
+            with self.assertRaises(PermissionError):
+                asyncio.run(confirm_deal_payment_via_route(
+                    deal_id=self.deal_id, intent=intent, route=route,
+                    actor_user_id="202", engine=self.engine, now=150,
+                ))
+            with self.assertRaises(PermissionError):
+                asyncio.run(confirm_deal_payment_via_route(
+                    deal_id=self.deal_id, intent=intent, route=route,
+                    actor_user_id="101", engine=self.engine, now=150,
+                ))
+            result = asyncio.run(confirm_deal_payment_via_route(
                 deal_id=self.deal_id, intent=intent, route=route,
-                actor_user_id="202", engine=self.engine, now=150,
+                actor_user_id="9001", engine=self.engine, now=150,
             ))
-        with self.assertRaises(PermissionError):
-            asyncio.run(confirm_deal_payment_via_route(
-                deal_id=self.deal_id, intent=intent, route=route,
-                actor_user_id="101", engine=self.engine, now=150,
-            ))
-        result = asyncio.run(confirm_deal_payment_via_route(
-            deal_id=self.deal_id, intent=intent, route=route,
-            actor_user_id="9001", engine=self.engine, now=150,
-        ))
         self.assertTrue(result["confirmed"])
         self.assertEqual(result["status"], "payment_confirmed")
         self.assertEqual(buyer_before, get_account_balance(
