@@ -790,6 +790,40 @@ async def confirm_deal_testnet_payout(*, deal_id: str, route: Any,
             "payout_tx_hash": evidence.transaction_id, "query_id": query_id}
 
 
+
+def mark_deal_testnet_dispute_release_pending(*, deal_id: str, actor_user_id: str,
+                                              engine: Engine | None = None,
+                                              now: int | None = None) -> dict[str, Any]:
+    """Move a dismissed paid testnet dispute back to NFT delivery after resolver execution."""
+    db = engine or get_engine()
+    init_marketplace_settlement_schema(db)
+    current = int(now or time.time())
+    lock = db.dialect.name == "postgresql"
+    with db.begin() as conn:
+        query = select(marketplace_deals).where(marketplace_deals.c.deal_id == deal_id)
+        if lock:
+            query = query.with_for_update()
+        deal = conn.execute(query).mappings().first()
+        if deal is None:
+            raise ValueError("Unknown marketplace deal")
+        if str(actor_user_id) in {str(deal["buyer_user_id"]), str(deal["seller_user_id"])}:
+            raise PermissionError("Deal participants cannot mark their own dispute resolution")
+        if (deal["network"] != "ton-testnet" or deal["currency"] != "tUSDT"
+                or deal["status"] not in {"disputed", "nft_transfer_pending"}
+                or not deal["payment_query_id"]):
+            raise ValueError("Only a paid disputed testnet tUSDT deal can return to delivery")
+        if deal["status"] == "nft_transfer_pending":
+            return {"marked": False, "duplicate": True, "status": "nft_transfer_pending"}
+        conn.execute(update(marketplace_deals).where(
+            marketplace_deals.c.deal_id == deal_id,
+            marketplace_deals.c.status == "disputed",
+        ).values(status="nft_transfer_pending", updated_at=current))
+        _event(conn, deal_id=deal_id, event_type="testnet_dispute_release_pending",
+               actor_type="admin", actor_id=str(actor_user_id),
+               data={"decision": "release_to_buyer"}, now=current)
+    return {"marked": True, "duplicate": False, "status": "nft_transfer_pending"}
+
+
 def mark_deal_testnet_refund_pending(*, deal_id: str, actor_user_id: str,
                                      engine: Engine | None = None,
                                      now: int | None = None) -> dict[str, Any]:
@@ -1000,7 +1034,7 @@ def open_deal_dispute(*, deal_id: str, actor_user_id: str, reason: str,
         if deal["status"] == "payment_confirmed":
             next_status = "disputed"
             event_type = "dispute_opened"
-        elif deal["status"] == "nft_transfer_pending":
+        elif deal["status"] in {"nft_transfer_pending", "payout_pending"}:
             next_status = "reconciliation_required"
             event_type = "dispute_requires_reconciliation"
         else:
@@ -1033,6 +1067,12 @@ def resolve_deal_dispute(*, deal_id: str, decision: str, reason: str,
         raise ValueError("A valid admin and resolution reason of 8-500 characters are required")
     if decision not in {"refund", "dismiss"}:
         raise ValueError("Unsupported dispute decision")
+    with db.connect() as conn:
+        network_currency = conn.execute(select(
+            marketplace_deals.c.network, marketplace_deals.c.currency
+        ).where(marketplace_deals.c.deal_id == deal_id)).first()
+    if network_currency and network_currency.network == "ton-testnet" and network_currency.currency == "tUSDT":
+        raise PermissionError("Testnet tUSDT disputes must be resolved by the on-chain 2-of-3 escrow resolver")
     current = int(now or time.time())
     lock = db.dialect.name == "postgresql"
     if decision == "refund":
@@ -1108,6 +1148,8 @@ def refund_unfulfilled_deal(*, deal_id: str, reason: str, admin_user_id: str,
             return {"refunded": False, "duplicate": True}
         if deal["status"] == "reconciliation_required":
             raise PermissionError("Deal requires manual chain reconciliation; automatic refund is blocked")
+        if deal["network"] == "ton-testnet" or deal["currency"] == "tUSDT":
+            raise PermissionError("Testnet tUSDT refunds must be verified from the on-chain escrow contract")
         if deal["currency"] == "XTR":
             if deal["status"] not in {"payment_confirmed", "disputed"}:
                 raise PermissionError("A Stars deal can only be refunded before NFT transfer starts")
