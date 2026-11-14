@@ -912,18 +912,9 @@ async def confirm_deal_testnet_refund(*, deal_id: str, route: Any,
         if (asset["escrow_contract_address"]
                 and canonical_ton_address(asset["escrow_contract_address"]) != escrow):
             raise PermissionError("Asset escrow address does not match the deal refund escrow")
-        proof_row = conn.execute(select(
-            marketplace_ownership_proofs.c.evidence_reference,
-            marketplace_ownership_proofs.c.expires_at,
-        ).where(
-            marketplace_ownership_proofs.c.asset_id == current_deal["asset_id"],
-            marketplace_ownership_proofs.c.owner_user_id == current_deal["seller_user_id"],
-            marketplace_ownership_proofs.c.proof_source == "ton_dual_provider",
-            marketplace_ownership_proofs.c.verification_status == "verified",
-        ).order_by(marketplace_ownership_proofs.c.recorded_at.desc()).limit(1)).mappings().first()
-        if (proof_row is None or int(proof_row["expires_at"] or 0) <= current
-                or normalized[0]["item_address"] != canonical_ton_address(proof_row["evidence_reference"])):
-            raise ValueError("NFT return item does not match a fresh seller ownership proof")
+        if (not asset["item_address"]
+                or normalized[0]["item_address"] != canonical_ton_address(asset["item_address"])):
+            raise ValueError("NFT return item does not match the immutable asset item address")
         if current_deal["status"] == "refunded":
             if current_deal["refund_tx_hash"] == evidence.transaction_id:
                 return {"confirmed": True, "duplicate": True, "status": "refunded",
