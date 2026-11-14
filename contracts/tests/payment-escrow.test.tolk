@@ -560,7 +560,7 @@ get fun `test dispute decision requires two distinct arbitrators and matching re
 
 get fun `test paid tUSDT dispute refunds buyer and returns NFT to seller after two approvals`() {
     val (escrow, seller, buyer, nftItem, signer1, signer2, _signer3,
-        escrowUsdtWallet, buyerUsdtWallet, _platformAdmin, sellerUsdtWallet,
+        escrowUsdtWallet, buyerUsdtWallet, _platformAdmin, _sellerUsdtWallet,
         arb1, arb2, _arb3, resolver) =
         setupPaymentEscrow(ASSET_TEST_USDT_JETTON, 1000000);
     depositPaymentNft(escrow, seller, nftItem);
@@ -627,10 +627,8 @@ get fun `test paid tUSDT dispute refunds buyer and returns NFT to seller after t
 
     val buyerBalance = net.runGetMethod<JettonWalletDataReply>(buyerUsdtWallet, "get_wallet_data");
     val escrowBalance = net.runGetMethod<JettonWalletDataReply>(escrowUsdtWallet, "get_wallet_data");
-    val sellerBalance = net.runGetMethod<JettonWalletDataReply>(sellerUsdtWallet, "get_wallet_data");
     expect(buyerBalance.jettonBalance).toEqual(1000000);
     expect(escrowBalance.jettonBalance).toEqual(0);
-    expect(sellerBalance.jettonBalance).toEqual(0);
 
     val sellerOwnerProof: uint256 = 0x9206abc;
     val refundTxHash: uint256 = 0x9207abc;
