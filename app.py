@@ -1257,6 +1257,8 @@ async def confirm_testnet_deal_payment(
             deal_id=deal_id, intent=intent, route=route,
             actor_user_id=str(user["id"]), engine=get_engine(),
         )
+    except HTTPException:
+        raise
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
     except ValueError as exc:
