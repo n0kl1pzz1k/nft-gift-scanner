@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from unittest.mock import patch
 
 from payment_routes import PaymentEvidence, PaymentIntent, PaymentRouteError
 from ton_testnet_gateway import (
@@ -76,6 +77,56 @@ class TonTestnetGatewayTests(unittest.TestCase):
             TonApiEmbedTestnetProvider(base_url="https://tonapi.io/v2")
         with self.assertRaises(PaymentRouteError):
             TonApiEmbedTestnetProvider(base_url="http://testnet.tonapi.io/v2")
+
+    def test_provider_rejects_lookalike_testnet_domains(self):
+        for url in (
+            "https://testnet.toncenter.com.evil.example/api/v3",
+            "https://testnet.evil.example/api/v3",
+            "https://evil.testnet.toncenter.com/api/v3",
+            "https://testnet.tonapi.io.evil.example/v2",
+            "https://testnet.evil.example/v2",
+            "https://evil.testnet.tonapi.io/v2",
+        ):
+            with self.subTest(url=url):
+                provider = TonCenterTestnetProvider if "toncenter" in url else TonApiEmbedTestnetProvider
+                with self.assertRaises(PaymentRouteError):
+                    provider(base_url=url)
+
+    def test_toncenter_resolves_only_matching_jetton_wallet(self):
+        owner = "0:" + "11" * 32
+        master = "0:" + "22" * 32
+
+        class Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"jetton_wallets": [
+                    {"address": "0:" + "33" * 32, "owner": "0:" + "44" * 32, "jetton": master},
+                    {"address": "0:" + "55" * 32, "owner": owner, "jetton": master},
+                ]}
+
+        class Client:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def get(self, *args, **kwargs):
+                return Response()
+
+        async def run():
+            provider = TonCenterTestnetProvider(base_url="https://testnet.toncenter.com/api/v3")
+            with patch("ton_testnet_gateway.httpx.AsyncClient", Client):
+                return await provider.get_jetton_wallet_address(
+                    owner_address=owner, jetton_master=master,
+                )
+
+        self.assertEqual(asyncio.run(run()), "0:" + "55" * 32)
 
     def test_providers_accept_https_testnet_hosts(self):
         center = TonCenterTestnetProvider(base_url="https://testnet.toncenter.com/api/v3")
