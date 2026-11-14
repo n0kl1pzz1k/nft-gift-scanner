@@ -58,3 +58,5 @@ jobs:
         run: acton check
       - name: Run local emulator tests
         run: acton test
+      - name: Run deployment and full payment E2E script in local emulator
+        run: acton script scripts/deploy_testnet_e2e.tolk
