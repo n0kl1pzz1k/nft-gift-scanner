@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feat/testnet-ton-usdt-escrow-e2e
   pull_request:
     branches:
       - main
