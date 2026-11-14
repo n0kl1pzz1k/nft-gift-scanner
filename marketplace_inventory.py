@@ -29,7 +29,7 @@ verified_wallets = Table(
     Column("verified_at", BigInteger, nullable=False),
     Column("revoked_at", BigInteger),
     UniqueConstraint("user_id", "network", "address", name="uq_verified_wallet_user_address"),
-    CheckConstraint("network='ton-mainnet'", name="ck_verified_wallet_network"),
+    CheckConstraint("network IN ('ton-mainnet','ton-testnet')", name="ck_verified_wallet_network"),
 )
 Index("idx_verified_wallet_active", verified_wallets.c.user_id, verified_wallets.c.revoked_at)
 
@@ -53,11 +53,11 @@ marketplace_assets = Table(
     Column("custody_verified_at", BigInteger),
     Column("created_at", BigInteger, nullable=False),
     Column("updated_at", BigInteger, nullable=False),
-    CheckConstraint("asset_type IN ('ton_nft','telegram_gift','collectible_username','collectible_phone_number')", name="ck_marketplace_assets_type"),
-    CheckConstraint("network IN ('ton-mainnet','telegram')", name="ck_marketplace_assets_network"),
+    CheckConstraint("asset_type IN ('ton_nft','testnet_mock_nft','telegram_gift','collectible_username','collectible_phone_number')", name="ck_marketplace_assets_type"),
+    CheckConstraint("network IN ('ton-mainnet','ton-testnet','telegram')", name="ck_marketplace_assets_network"),
     CheckConstraint("ownership_state IN ('unverified','verified','stale','revoked')", name="ck_marketplace_assets_ownership"),
     CheckConstraint("custody_state IN ('wallet_owned','escrow_pending','escrowed','transferred','telegram_profile_only','reconciliation_required')", name="ck_marketplace_assets_custody_state"),
-    CheckConstraint("(asset_type IN ('ton_nft','collectible_username','collectible_phone_number') AND network='ton-mainnet' AND collection_address<>'' AND token_id<>'') OR (asset_type='telegram_gift' AND network='telegram' AND telegram_gift_id<>'')", name="ck_marketplace_assets_identity"),
+    CheckConstraint("(asset_type IN ('ton_nft','collectible_username','collectible_phone_number') AND network='ton-mainnet' AND collection_address<>'' AND token_id<>'') OR (asset_type='testnet_mock_nft' AND network='ton-testnet' AND collection_address<>'' AND token_id<>'') OR (asset_type='telegram_gift' AND network='telegram' AND telegram_gift_id<>'')", name="ck_marketplace_assets_identity"),
 )
 Index("idx_marketplace_assets_owner", marketplace_assets.c.owner_user_id, marketplace_assets.c.ownership_state)
 
@@ -90,8 +90,8 @@ marketplace_listings = Table(
     Column("created_at", BigInteger, nullable=False),
     Column("updated_at", BigInteger, nullable=False),
     CheckConstraint("price_raw>0", name="ck_marketplace_listings_positive_price"),
-    CheckConstraint("currency IN ('XTR','GRAM','USDT')", name="ck_marketplace_listings_currency"),
-    CheckConstraint("status IN ('draft','pending_verification','active','reserved','sold','cancelled','expired','rejected')", name="ck_marketplace_listings_status"),
+    CheckConstraint("currency IN ('XTR','GRAM','USDT','tUSDT')", name="ck_marketplace_listings_currency"),
+    CheckConstraint("status IN ('draft','pending_verification','active','reserved','payout_pending','sold','cancelled','expired','rejected')", name="ck_marketplace_listings_status"),
 )
 Index("idx_marketplace_listings_status_created", marketplace_listings.c.status, marketplace_listings.c.created_at)
 Index("uq_marketplace_listings_one_open_asset", marketplace_listings.c.asset_id, unique=True,
@@ -130,8 +130,8 @@ def init_inventory_schema(engine: Engine | None = None) -> None:
         with db.connect() as conn:
             version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
         from financial_ledger import migration_revision_number
-        if migration_revision_number(version) < 14:
-            raise RuntimeError("Seller inventory migrations through 0014 are required")
+        if migration_revision_number(version) < 15:
+            raise RuntimeError("Seller inventory migrations through 0015 are required")
         return
     metadata.create_all(db)
     if db.dialect.name == "sqlite":
