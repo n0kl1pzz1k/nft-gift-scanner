@@ -37,6 +37,24 @@ class TestnetTransfer:
 class TransferProvider(Protocol):
     provider_id: str
 
+    async def get_jetton_wallet_address(self, *, owner_address: str,
+                                         jetton_master: str) -> str | None:
+        headers = {"X-API-Key": self.api_key} if self.api_key else {}
+        async with httpx.AsyncClient(timeout=self.timeout, headers=headers) as client:
+            response = await client.get(self.base_url + "/jetton/wallets", params={
+                "owner_address": owner_address,
+                "jetton_address": jetton_master,
+                "limit": 10,
+            })
+        response.raise_for_status()
+        for row in _rows(response.json(), "jetton_wallets"):
+            wallet = _pick(row, "address", "jetton_wallet_address")
+            owner = _pick(row, "owner", "owner_address")
+            master = _pick(row, "jetton", "jetton_master")
+            if wallet and _same_address(owner, owner_address) and _same_address(master, jetton_master):
+                return str(wallet)
+        return None
+
     async def find_transfer(self, *, escrow_address: str, jetton_master: str,
                             reference: str) -> TestnetTransfer | None: ...
 
@@ -335,9 +353,21 @@ class TonTestnetPaymentGateway:
             raise PaymentRouteError("Payment intent does not match platform testnet registry")
         if not deal_id or amount <= 0 or currency != "tUSDT":
             raise PaymentRouteError("Only positive tUSDT testnet deal intents are supported")
+        query_id = int.from_bytes(
+            hashlib.sha256(f"{deal_id}:payment".encode()).digest()[:8], "big"
+        ) or 1
+        payer_jetton_wallet = None
+        if payer_address:
+            center = next(provider for provider in self.providers if provider.provider_id == "toncenter")
+            payer_jetton_wallet = await center.get_jetton_wallet_address(
+                owner_address=payer_address, jetton_master=self.jetton_master,
+            )
+            if not payer_jetton_wallet:
+                raise PaymentRouteError("Buyer tUSDT Jetton wallet is not indexed on TON testnet")
         return PaymentIntent(
             deal_id=deal_id, amount=amount, currency="tUSDT",
             reference="grpay:" + deal_id, network="testnet", payer_address=payer_address,
+            query_id=query_id, payer_jetton_wallet_address=payer_jetton_wallet,
         )
 
     async def verify_payment(self, intent: PaymentIntent) -> PaymentEvidence | None:
@@ -368,7 +398,8 @@ class TonTestnetPaymentGateway:
         if (not center.finalized or not embed.finalized
                 or center.amount != intent.amount or center.deal_id != intent.deal_id
                 or center.currency != "tUSDT" or center.network != "testnet"
-                or center.query_id <= 0):
+                or center.query_id <= 0
+                or (intent.query_id is not None and center.query_id != intent.query_id)):
             return None
         if center.reference != intent.reference:
             return None
