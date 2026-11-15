@@ -1299,7 +1299,9 @@
           <article class="order-card"><div class="order-icon">◈</div><div class="order-main"><div class="order-kind">{item.asset_type}</div><h3>{item.collection_address} · #{item.token_id}</h3><p>{item.custody_state} · {item.ownership_state}</p>
             {#if item.status==='active'}<span class="status-active">{lang==='ru'?'Опубликован':'Active listing'}</span>
               {#if item.listing_id}<button class="cancel-button" onclick={()=>cancelInventoryListing(item.listing_id)} disabled={inventoryCancelBusy===item.listing_id}>{inventoryCancelBusy===item.listing_id?'…':lang==='ru'?'Снять объявление':'Cancel listing'}</button>{/if}
-            {:else if item.status==='pending_verification'}<span class="status-payment-disabled">{lang==='ru'?'Ожидает эскроу':'Awaiting escrow'}</span>
+            {:else if item.status==='draft'}<span class="status-payment-disabled">{lang==='ru'?'Черновик · NFT в твоём кошельке':'Draft · NFT remains in your wallet'}</span>
+              {#if item.listing_id}<button class="cancel-button" onclick={()=>cancelInventoryListing(item.listing_id)} disabled={inventoryCancelBusy===item.listing_id}>{inventoryCancelBusy===item.listing_id?'…':lang==='ru'?'Удалить черновик':'Delete draft'}</button>{/if}
+            {:else if item.status==='pending_verification'}<span class="status-payment-disabled">{lang==='ru'?'Ожидает проверки эскроу':'Awaiting escrow verification'}</span>
             {:else if !item.listing_id}
               <div class="order-edit-form">
                 <label>{lang==='ru'?'Цена':'Price'}<input class="form-input" type="number" min="0.000000001" step="0.000000001" bind:value={inventoryPrices[item.asset_id]} placeholder="1"/></label>
