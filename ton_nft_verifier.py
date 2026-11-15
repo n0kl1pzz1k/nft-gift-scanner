@@ -70,8 +70,8 @@ def _validate_seller_nft_request(
 
     trusted = _configured_providers(network)
     by_id = {provider.provider_id: provider for provider in providers}
-    if len(by_id) < 2 or not set(by_id).issubset(trusted):
-        raise PermissionError("Two configured independent TON NFT providers are required")
+    if len(providers) != 2 or set(by_id) != trusted:
+        raise PermissionError("Exactly one TonAPI and one Toncenter NFT provider are required")
     return {
         "status": "verification_required",
         "reason": "Use verify_seller_nft_ownership_async with live provider responses",
