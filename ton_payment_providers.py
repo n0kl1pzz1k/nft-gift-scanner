@@ -166,11 +166,16 @@ class ToncenterV3PaymentProvider:
                 if not expected_wallet or expected_wallet != source_wallet:
                     continue
                 recipient_owner = canonical_ton_address(invoice["recipient_address"])
-                destination_wallet = canonical_ton_address(transfer.get("destination_wallet") or "")
                 expected_destination_wallet = await self._expected_source_wallet(
                     invoice["master_address"], recipient_owner,
                 )
-                if not expected_destination_wallet or destination_wallet != expected_destination_wallet:
+                in_msg = tx.get("in_msg") or {}
+                tx_source_wallet = canonical_ton_address(in_msg.get("source") or "")
+                destination_wallet = canonical_ton_address(
+                    tx.get("account") or in_msg.get("destination") or ""
+                )
+                if (not expected_destination_wallet or destination_wallet != expected_destination_wallet
+                        or tx_source_wallet != source_wallet):
                     continue
                 query_id = int(transfer.get("query_id") or 0)
                 event_index = _stable_event_index(transfer.get("transaction_lt"), query_id,
