@@ -74,7 +74,7 @@ jobs:
           path: |
             artifacts/GiftRadarEscrow.boc
             artifacts/GiftRadarPaymentEscrow.boc
-            wrappers/GiftRadarEscrow.gen
-            wrappers/GiftRadarPaymentEscrow.gen
+            wrappers/GiftRadarEscrow.gen.tolk
+            wrappers/GiftRadarPaymentEscrow.gen.tolk
           if-no-files-found: error
           retention-days: 7
