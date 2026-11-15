@@ -27,7 +27,7 @@ const pool = databaseUrl ? new Pool({
 }) : null;
 
 const proofSchema = z.object({
-  timestamp: z.union([z.number().int(), z.string().regex(/^\\d+$/)]).transform(Number),
+  timestamp: z.union([z.number().int(), z.string().regex(/^\d+$/)]).transform(Number),
   domain: z.object({
     lengthBytes: z.number().int().nonnegative().max(128),
     value: z.string().min(1).max(128)
@@ -36,7 +36,7 @@ const proofSchema = z.object({
   payload: z.string().min(1).max(128)
 });
 const verifySchema = z.object({
-  userId: z.string().regex(/^\\d{1,24}$/),
+  userId: z.string().regex(/^\d{1,24}$/),
   address: z.string().min(3).max(128),
   network: z.enum(["-239", "-3"]),
   public_key: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(),
