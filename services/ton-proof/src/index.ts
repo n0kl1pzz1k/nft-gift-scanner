@@ -1,5 +1,4 @@
 import Fastify from "fastify";
-import { Pool } from "pg";
 import nacl from "tweetnacl";
 import { getSecureRandomBytes, sha256 } from "@ton/crypto";
 import {
@@ -11,20 +10,17 @@ import { z } from "zod";
 import { extractKnownWalletPublicKey, WALLET_TG_CODE_HASH } from "./wallets.js";
 
 const app = Fastify({ logger: true, bodyLimit: 16 * 1024 });
-const databaseUrl = process.env.DATABASE_URL;
 const internalToken = process.env.TON_PROOF_INTERNAL_TOKEN ?? "";
 const allowedDomains = new Set(
   (process.env.TON_PROOF_ALLOWED_DOMAINS ?? "")
     .split(",").map((value) => value.trim().toLowerCase()).filter(Boolean)
 );
+
+// One-use challenges live only in this private, single-replica sidecar process.
+// A restart invalidates every outstanding challenge, so replay fails closed.
+const challenges = new Map<string, { userId: string; expiresAt: number }>();
 const mainnetEndpoint = process.env.TON_MAINNET_ENDPOINT ?? "https://mainnet-v4.tonhubapi.com";
 const testnetEndpoint = process.env.TON_TESTNET_ENDPOINT ?? "https://testnet-v4.tonhubapi.com";
-const postgresCa = process.env.PGSSLROOTCERT_PEM;
-const pool = databaseUrl ? new Pool({
-  connectionString: databaseUrl,
-  max: 5,
-  ssl: { rejectUnauthorized: true, ...(postgresCa ? { ca: postgresCa } : {}) }
-}) : null;
 
 const proofSchema = z.object({
   timestamp: z.union([z.number().int(), z.string().regex(/^\d+$/)]).transform(Number),
@@ -132,20 +128,24 @@ async function verifyProof(input: z.infer<typeof verifySchema>): Promise<Buffer 
 app.get("/health", async () => ({ status: "ok", service: "gift-radar-ton-proof" }));
 
 app.post("/v1/challenges", async (request, reply) => {
-  if (!pool) return reply.code(503).send({ error: "database_not_configured" });
-  const body = z.object({ userId: z.string().regex(/^\d{1,24}$/) }).safeParse(request.body);
+  const body = z.object({ userId: z.string().regex(/^\\d{1,24}$/) }).safeParse(request.body);
   if (!body.success) return reply.code(400).send({ error: "invalid_request" });
+  const now = Math.floor(Date.now() / 1000);
+  for (const [payload, challenge] of challenges) {
+    if (challenge.expiresAt <= now) challenges.delete(payload);
+  }
+  while (challenges.size >= 10000) {
+    const oldest = challenges.keys().next().value;
+    if (oldest === undefined) break;
+    challenges.delete(oldest);
+  }
   const payload = Buffer.from(await getSecureRandomBytes(32)).toString("hex");
-  const expiresAt = Math.floor(Date.now() / 1000) + 600;
-  await pool.query(
-    "INSERT INTO ton_proof_challenges(payload,user_id,expires_at) VALUES($1,$2,$3)",
-    [payload, body.data.userId, expiresAt]
-  );
+  const expiresAt = now + 600;
+  challenges.set(payload, { userId: body.data.userId, expiresAt });
   return { payload, expiresAt };
 });
 
 app.post("/v1/verify", async (request, reply) => {
-  if (!pool) return reply.code(503).send({ error: "database_not_configured" });
   const parsed = verifySchema.safeParse(request.body);
   if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
   let publicKey: Buffer | null = null;
@@ -154,46 +154,22 @@ app.post("/v1/verify", async (request, reply) => {
   }
   if (!publicKey) return reply.code(401).send({ error: "invalid_proof" });
 
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const consumed = await client.query(
-      "DELETE FROM ton_proof_challenges WHERE payload=$1 AND user_id=$2 AND expires_at>$3 RETURNING payload",
-      [parsed.data.proof.payload, parsed.data.userId, Math.floor(Date.now() / 1000)]
-    );
-    if (consumed.rowCount !== 1) {
-      await client.query("ROLLBACK");
-      return reply.code(409).send({ error: "challenge_expired_or_replayed" });
-    }
-    await client.query(
-      `INSERT INTO ton_verified_wallets(user_id,address,network,public_key,verified_at)
-       VALUES($1,$2,$3,$4,$5)
-       ON CONFLICT(user_id,address) DO UPDATE SET network=EXCLUDED.network,
-       public_key=EXCLUDED.public_key, verified_at=EXCLUDED.verified_at`,
-      [parsed.data.userId, Address.parse(parsed.data.address).toRawString(), parsed.data.network,
-       publicKey.toString("hex"), Math.floor(Date.now() / 1000)]
-    );
-    await client.query("COMMIT");
-    return { verified: true, address: Address.parse(parsed.data.address).toRawString(), network: parsed.data.network };
-  } catch (error) {
-    await client.query("ROLLBACK");
-    request.log.error({ error }, "TON wallet binding failed");
-    return reply.code(409).send({ error: "wallet_binding_conflict" });
-  } finally {
-    client.release();
+  const challenge = challenges.get(parsed.data.proof.payload);
+  const now = Math.floor(Date.now() / 1000);
+  if (!challenge || challenge.userId !== parsed.data.userId || challenge.expiresAt <= now) {
+    return reply.code(409).send({ error: "challenge_expired_or_already_used" });
   }
+  // Delete synchronously after all cryptographic checks. A challenge can be consumed once.
+  challenges.delete(parsed.data.proof.payload);
+  return {
+    verified: true,
+    address: Address.parse(parsed.data.address).toRawString(),
+    network: parsed.data.network
+  };
 });
 
-if (!databaseUrl || !internalToken || allowedDomains.size === 0) {
-  app.log.error("DATABASE_URL, TON_PROOF_INTERNAL_TOKEN and TON_PROOF_ALLOWED_DOMAINS are required");
+if (!internalToken || allowedDomains.size === 0) {
+  app.log.error("TON_PROOF_INTERNAL_TOKEN and TON_PROOF_ALLOWED_DOMAINS are required");
   process.exit(1);
 }
-await pool!.query(`CREATE TABLE IF NOT EXISTS ton_proof_challenges (
-  payload TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at BIGINT NOT NULL
-)`);
-await pool!.query(`CREATE INDEX IF NOT EXISTS idx_ton_proof_challenges_expiry ON ton_proof_challenges(expires_at)`);
-await pool!.query(`CREATE TABLE IF NOT EXISTS ton_verified_wallets (
-  user_id TEXT NOT NULL, address TEXT NOT NULL UNIQUE, network TEXT NOT NULL,
-  public_key TEXT, verified_at BIGINT NOT NULL, PRIMARY KEY(user_id,address)
-)`);
-await app.listen({ port: Number(process.env.TON_PROOF_PORT ?? 8081), host: "0.0.0.0" });
+await app.listen({ port: Number(process.env.TON_PROOF_PORT ?? 8081), host: "127.0.0.1" });
