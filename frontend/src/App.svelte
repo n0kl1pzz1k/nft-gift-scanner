@@ -34,7 +34,7 @@
   };
   type View = 'market' | 'orders' | 'offers' | 'create' | 'favorites' | 'profile' | 'seller';
 
-  const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://nft-gift-scanner-production.up.railway.app').replace(/\/$/, '');
+  const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://hassle-nft-market.up.railway.app').replace(/\/$/, '');
   let lang = $state<'ru' | 'en'>('ru');
   let view = $state<View>('orders');
   let gifts = $state<Gift[]>([]);
@@ -117,9 +117,9 @@
   let orderKindFilter = $state<'all' | 'listing' | 'buy-order'>('all');
 
   const ru = {
-    market: 'Каталог', orders: 'Маркет', offersTitle: 'Офферы', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'GIFT RADAR', catalogOnly: 'Каталог подарков. Собственные объявления GIFT RADAR отображаются в разделе «Маркет».',
+    market: 'Каталог', orders: 'Маркет', offersTitle: 'Офферы', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'HASSLE NFT', catalogOnly: 'Маркетплейс Telegram NFT-подарков. Размещай объявления, отправляй офферы и находи подарки.',
     headline: 'Подарки, которые находят своих владельцев', subtitle: 'Маркетплейс Telegram NFT-подарков от n0kl1pzz1k.',
-    brandEyebrow: 'ОТКРЫВАЙ РЕДКОЕ · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Открой редкие подарки.', heroDescription: 'Исследуй коллекции Telegram-подарков, объявления и историю характеристик в одном месте.', openCatalogue: 'Открыть каталог', connectedLabel: 'GIFT RADAR · NFT GIFT MARKETPLACE', exploreMarket: 'ИССЛЕДУЙ МАРКЕТ', collectionsTitle: 'Коллекции', collectionsCount: 'коллекций в каталоге', discoverLabel: 'ОТКРЫВАЙ', portals: 'Каталог подарков', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
+    brandEyebrow: 'ОТКРЫВАЙ РЕДКОЕ · HASSLE NFT', heroLine1: 'Telegram Gifts.', heroLine2: 'Открой редкие подарки.', heroDescription: 'Исследуй коллекции Telegram-подарков, объявления и историю характеристик в одном месте.', openCatalogue: 'Открыть каталог', connectedLabel: 'HASSLE NFT · HASSLE NFT MARKET', exploreMarket: 'ИССЛЕДУЙ МАРКЕТ', collectionsTitle: 'Коллекции', collectionsCount: 'коллекций в каталоге', discoverLabel: 'ОТКРЫВАЙ', portals: 'Каталог подарков', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
     listings: 'Каталог подарков', results: 'найдено', loading: 'Загружаем каталог…', loadMore: 'Показать ещё',
     empty: 'По этому запросу ничего не найдено.', failed: 'Не удалось загрузить каталог.',
     details: 'О подарке', floor: 'Флор', price: 'Цена', traits: 'Характеристики',
@@ -131,19 +131,19 @@
     offersTitle: 'Офферы', dealsTitle: 'История сделок', sendOffer: 'Отправить оффер', offerAmount: 'Сумма оффера', acceptOffer: 'Принять', declineOffer: 'Отклонить', withdrawOffer: 'Отозвать', noOffers: 'Офферов пока нет.', noDeals: 'История сделок пока пуста.', incoming: 'Входящий', outgoing: 'Исходящий', offerStatusFilter: 'Статус оффера', offerPending: 'Ожидает ответа', offerAccepted: 'Принят', offerDeclined: 'Отклонён', offerWithdrawn: 'Отозван',
     accountStatsTitle: 'Статистика аккаунта', activeOrdersStat: 'Активные заявки', completedOrdersStat: 'Завершённые', sentOffersStat: 'Мои офферы', receivedOffersStat: 'Входящие офферы', notificationsTitle: 'Уведомления', markAllRead: 'Прочитать все', noNotifications: 'Новых уведомлений нет.', offerReceivedNotice: 'отправил(а) оффер', offerAcceptedNotice: 'принят оффер по', offerDeclinedNotice: 'отклонил(а) оффер по', offerWithdrawnNotice: 'отозвал(а) оффер по', activityTitle: 'История активности', noActivity: 'Активность пока не появилась.', loadMoreActivity: 'Показать ещё', orderCreatedActivity: 'Создана заявка', orderUpdatedActivity: 'Заявка изменена', orderFilledActivity: 'Заявка исполнена', orderCancelledActivity: 'Заявка снята', offerReceivedActivity: 'Получен оффер', offerAcceptedActivity: 'Оффер принят', offerDeclinedActivity: 'Оффер отклонён', offerWithdrawnActivity: 'Оффер отозван', dealCreatedActivity: 'Создана сделка',
     active: 'Активен', matched: 'Закрыт', cancelled: 'Отменён', cancel: 'Снять', match: 'Исполнить', editOrder: 'Изменить', saveOrder: 'Сохранить', cancelEdit: 'Отмена', editTitle: 'Название', editPrice: 'Цена', editNote: 'Комментарий', orderUpdated: 'Объявление обновлено.',
-    demo: 'GIFT RADAR MARKETPLACE', demoWallet: 'Подключение кошелька', demoWalletText: 'Подключение TON-кошелька появится в следующем этапе.',
+    demo: 'HASSLE NFT MARKETPLACE', demoWallet: 'Подключение кошелька', demoWalletText: 'Подключение TON-кошелька появится в следующем этапе.',
     signIn: 'Подтвердить Telegram', guest: 'Гость', authHint: 'Открой Mini App через Telegram, чтобы подтвердить профиль.',
     signed: 'Telegram подтверждён', profileText: 'Профиль Telegram и управление публичной карточкой продавца.', sellerCardTitle: 'Публичная карточка продавца', sellerDisplayName: 'Отображаемое имя', sellerBio: 'О себе', sellerSave: 'Сохранить профиль', sellerSaved: 'Профиль продавца обновлён.', sellerProfileId: 'Публичный ID',
     favoritesTitle: 'Избранные подарки', noFavorites: 'Добавьте подарки в избранное из каталога.',
     save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Объявление опубликовано.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Оборот', statsVolumeHint: 'По данным маркетплейса', statsCatalog: 'Подарков в каталоге', stars: 'Stars', ton: 'TON',
-    noImage: 'GIFT', online: 'Каталог Portals', refresh: 'Обновить', all: 'Все', orderStatus: 'Статус', orderKind: 'Тип заявки', activeOrders: 'Активные', matchedOrders: 'Закрытые', cancelledOrders: 'Снятые', listingsOnly: 'Предложения', buyRequestsOnly: 'Заявки на поиск', invalidPrice: 'Проверь диапазон цены: значения должны быть неотрицательными, а минимальная цена — не выше максимальной.',
-    sourceStatusTitle: 'СОСТОЯНИЕ ИСТОЧНИКОВ', sourceStatusSubtitle: 'Что подключено к приложению', sourcePortals: 'Внешний каталог', sourceChanges: 'Изменения подарков', sourceDailyFloors: 'История floor-цен', sourceStatusChecked: 'Проверено', sourceStatusChecking: 'Проверяем статус…', sourceStatusUnavailable: 'Не удалось получить статус API.', sourceRefreshInterval: 'Интервал фонового обновления', sourceConfigured: 'Настроен · только чтение', sourceNeedsKey: 'Требуется API-ключ', sourcePublic: 'Публичный источник', sourceDaily: 'Публичная ежедневная история', sourceUnknown: 'Нет данных',
+    noImage: 'GIFT', online: 'Каталог подарков', refresh: 'Обновить', all: 'Все', orderStatus: 'Статус', orderKind: 'Тип заявки', activeOrders: 'Активные', matchedOrders: 'Закрытые', cancelledOrders: 'Снятые', listingsOnly: 'Предложения', buyRequestsOnly: 'Заявки на поиск', invalidPrice: 'Проверь диапазон цены: значения должны быть неотрицательными, а минимальная цена — не выше максимальной.',
+    sourceStatusTitle: 'СОСТОЯНИЕ ИСТОЧНИКОВ', sourceStatusSubtitle: 'Что подключено к приложению', sourceGift Market: 'Внешний каталог', sourceChanges: 'Изменения подарков', sourceDailyFloors: 'История floor-цен', sourceStatusChecked: 'Проверено', sourceStatusChecking: 'Проверяем статус…', sourceStatusUnavailable: 'Не удалось получить статус API.', sourceRefreshInterval: 'Интервал фонового обновления', sourceConfigured: 'Настроен · только чтение', sourceNeedsKey: 'Требуется API-ключ', sourcePublic: 'Публичный источник', sourceDaily: 'Публичная ежедневная история', sourceUnknown: 'Нет данных',
   };
   const en = {
-    market: 'Catalogue', orders: 'Market', offersTitle: 'Offers', create: 'Create listing', favorites: 'Favorites', profile: 'Profile', readonly: 'GIFT RADAR', catalogOnly: 'Live Portals listings. Browse and search are available; trade execution is not enabled in GIFT RADAR.',
-    headline: 'Discover gifts worth keeping', subtitle: 'A unified Telegram gifts experience powered by the Portals catalogue.',
-    brandEyebrow: 'DISCOVER THE RARE · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Discover rare finds.', heroDescription: 'Explore Telegram gift collections, marketplace listings and item history in one place.', openCatalogue: 'Explore catalogue', connectedLabel: 'PORTALS CATALOGUE · READ ONLY', exploreMarket: 'EXPLORE THE MARKET', collectionsTitle: 'Collections', collectionsCount: 'collections in catalogue', discoverLabel: 'DISCOVER', portals: 'Single catalogue source · Portals', search: 'Gift name or number', min: 'Min price', max: 'Max price',
-    listings: 'Portals listings', results: 'found', loading: 'Loading catalogue…', loadMore: 'Load more',
+    market: 'Catalogue', orders: 'Market', offersTitle: 'Offers', create: 'Create listing', favorites: 'Favorites', profile: 'Profile', readonly: 'HASSLE NFT', catalogOnly: 'Telegram NFT gift marketplace. Browse listings and manage your offers in one place.',
+    headline: 'Discover gifts worth keeping', subtitle: 'HASSLE NFT is a Telegram NFT gift marketplace.',
+    brandEyebrow: 'DISCOVER THE RARE · HASSLE NFT', heroLine1: 'Telegram Gifts.', heroLine2: 'Discover rare finds.', heroDescription: 'Explore Telegram gift collections, marketplace listings and item history in one place.', openCatalogue: 'Explore catalogue', connectedLabel: 'HASSLE NFT MARKETPLACE', exploreMarket: 'EXPLORE THE MARKET', collectionsTitle: 'Collections', collectionsCount: 'collections in catalogue', discoverLabel: 'DISCOVER', portals: 'Single catalogue source · Gift Market', search: 'Gift name or number', min: 'Min price', max: 'Max price',
+    listings: 'Marketplace gifts', results: 'found', loading: 'Loading catalogue…', loadMore: 'Load more',
     empty: 'No gifts match this search.', failed: 'Could not load the catalogue.',
     details: 'Gift details', floor: 'Floor', price: 'Price', traits: 'Attributes',
     createTitle: 'Create an order', sell: 'Sell listing', buy: 'Buy request', titleLabel: 'Gift name',
@@ -154,13 +154,13 @@
     offersTitle: 'Offers', dealsTitle: 'Trade history', sendOffer: 'Send offer', offerAmount: 'Offer amount', acceptOffer: 'Accept', declineOffer: 'Decline', withdrawOffer: 'Withdraw', noOffers: 'No offers yet.', noDeals: 'No trade history yet.', incoming: 'Incoming', outgoing: 'Outgoing', offerStatusFilter: 'Offer status', offerPending: 'Awaiting response', offerAccepted: 'Accepted', offerDeclined: 'Declined', offerWithdrawn: 'Withdrawn',
     accountStatsTitle: 'Account stats', activeOrdersStat: 'Active orders', completedOrdersStat: 'Completed', sentOffersStat: 'Offers sent', receivedOffersStat: 'Offers received', notificationsTitle: 'Notifications', markAllRead: 'Mark all read', noNotifications: 'No notifications yet.', offerReceivedNotice: 'sent you an offer for', offerAcceptedNotice: 'accepted your offer for', offerDeclinedNotice: 'declined your offer for', offerWithdrawnNotice: 'withdrew an offer for', activityTitle: 'Activity history', noActivity: 'No activity yet.', loadMoreActivity: 'Load more', orderCreatedActivity: 'Order created', orderUpdatedActivity: 'Order updated', orderFilledActivity: 'Order filled', orderCancelledActivity: 'Order cancelled', offerReceivedActivity: 'Offer received', offerAcceptedActivity: 'Offer accepted', offerDeclinedActivity: 'Offer declined', offerWithdrawnActivity: 'Offer withdrawn', dealCreatedActivity: 'Trade created',
     active: 'Active', matched: 'Closed', cancelled: 'Cancelled', cancel: 'Cancel', match: 'Complete', editOrder: 'Edit', saveOrder: 'Save changes', cancelEdit: 'Discard', editTitle: 'Title', editPrice: 'Price', editNote: 'Note', orderUpdated: 'Order updated.',
-    demo: 'GIFT RADAR MARKETPLACE', demoWallet: 'Wallet connection', demoWalletText: 'TON wallet connection will be available in the next release.',
+    demo: 'HASSLE NFT MARKETPLACE', demoWallet: 'Wallet connection', demoWalletText: 'TON wallet connection will be available in the next release.',
     signIn: 'Verify Telegram', guest: 'Guest', authHint: 'Open the Mini App in Telegram to verify your profile.',
     signed: 'Telegram verified', profileText: 'Your Telegram account and public seller card.', sellerCardTitle: 'Public seller card', sellerDisplayName: 'Display name', sellerBio: 'About', sellerSave: 'Save profile', sellerSaved: 'Seller profile updated.', sellerProfileId: 'Public ID',
     favoritesTitle: 'Saved gifts', noFavorites: 'Save gifts from the catalogue to see them here.',
     save: 'Save', saved: 'Saved', currency: 'TON', success: 'Listing published.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Volume', statsVolumeHint: 'Marketplace records', statsCatalog: 'Catalogue gifts', stars: 'Stars', ton: 'TON',
-    noImage: 'GIFT', online: 'Portals catalogue', refresh: 'Refresh', all: 'All', orderStatus: 'Status', orderKind: 'Order type', activeOrders: 'Active', matchedOrders: 'Closed', cancelledOrders: 'Cancelled', listingsOnly: 'Listings', buyRequestsOnly: 'Buy requests', invalidPrice: 'Check the price range: values must be non-negative and the minimum cannot exceed the maximum.',
-    sourceStatusTitle: 'SOURCE STATUS', sourceStatusSubtitle: 'Connected data sources', sourcePortals: 'Marketplace catalogue', sourceChanges: 'Gift metadata changes', sourceDailyFloors: 'Floor price history', sourceStatusChecked: 'Checked', sourceStatusChecking: 'Checking status…', sourceStatusUnavailable: 'Could not load API status.', sourceRefreshInterval: 'Background refresh interval', sourceConfigured: 'Configured · read-only', sourceNeedsKey: 'API key required', sourcePublic: 'Public source', sourceDaily: 'Public daily history', sourceUnknown: 'No data',
+    noImage: 'GIFT', online: 'Gift marketplace', refresh: 'Refresh', all: 'All', orderStatus: 'Status', orderKind: 'Order type', activeOrders: 'Active', matchedOrders: 'Closed', cancelledOrders: 'Cancelled', listingsOnly: 'Listings', buyRequestsOnly: 'Buy requests', invalidPrice: 'Check the price range: values must be non-negative and the minimum cannot exceed the maximum.',
+    sourceStatusTitle: 'SOURCE STATUS', sourceStatusSubtitle: 'Connected data sources', sourceGift Market: 'Marketplace catalogue', sourceChanges: 'Gift metadata changes', sourceDailyFloors: 'Floor price history', sourceStatusChecked: 'Checked', sourceStatusChecking: 'Checking status…', sourceStatusUnavailable: 'Could not load API status.', sourceRefreshInterval: 'Background refresh interval', sourceConfigured: 'Configured · read-only', sourceNeedsKey: 'API key required', sourcePublic: 'Public source', sourceDaily: 'Public daily history', sourceUnknown: 'No data',
   };
   const t = $derived(lang === 'ru' ? ru : en);
   const keyOf = (g: Gift) => String(g.id ?? g.number ?? g.name ?? 'gift');
@@ -696,8 +696,8 @@
       });
       adminMarketplaceEnabled = data.enabled === true;
       notice = lang === 'ru'
-        ? (adminMarketplaceEnabled ? 'Каталог Portals включён.' : 'Каталог Portals выключен.')
-        : (adminMarketplaceEnabled ? 'Portals catalogue enabled.' : 'Portals catalogue disabled.');
+        ? (adminMarketplaceEnabled ? 'Каталог подарков включён.' : 'Каталог подарков выключен.')
+        : (adminMarketplaceEnabled ? 'Gift marketplace enabled.' : 'Gift marketplace disabled.');
     } catch (e) {
       notice = e instanceof Error ? e.message : String(e);
     } finally {
@@ -771,14 +771,14 @@
 </script>
 
 <svelte:head>
-  <title>GIFT RADAR — Marketplace</title>
+  <title>HASSLE NFT — Marketplace</title>
   <meta name="theme-color" content="#090B18" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 </svelte:head>
 
 <div class="market-app">
   <aside class="sidebar">
-    <a class="brand" href="#marketplace"><span class="brand-symbol">✳</span><span>GIFT RADAR<small>THE GIFT MARKET</small></span></a>
+    <a class="brand" href="#marketplace"><span class="brand-symbol">✳</span><span>HASSLE NFT<small>THE GIFT MARKET</small></span></a>
     <div class="nav-caption">MENU</div>
     <nav class="side-nav">
       {#each [{id:'orders',label:t.orders,icon:'▦'},{id:'offers',label:t.offersTitle,icon:'↗'},{id:'create',label:t.create,icon:'＋'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
@@ -790,7 +790,7 @@
 
   <main class="main-content">
     <header class="topbar">
-      <div class="crumb"><span>GIFT RADAR</span><b>/</b><span>{view==='orders'?t.orders:view==='offers'?t.offersTitle:view==='create'?t.create:view==='favorites'?t.favorites:t.profile}</span></div>
+      <div class="crumb"><span>HASSLE NFT</span><b>/</b><span>{view==='orders'?t.orders:view==='offers'?t.offersTitle:view==='create'?t.create:view==='favorites'?t.favorites:t.profile}</span></div>
       <div class="top-actions"><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>view='profile'}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
     </header>
 
@@ -806,7 +806,7 @@
           {#each collections.slice(0,3) as collection, index}
             <div class={'collection-orb orb-'+index}>{#if collection.image}<img src={collection.image} alt=""/>{:else}<span>✳</span>{/if}</div>
           {/each}
-          <span class="float-chip chip-a">TELEGRAM GIFTS</span><span class="float-chip chip-b">GIFT RADAR MARKET</span><span class="float-chip chip-c">COLLECT · DISCOVER</span>
+          <span class="float-chip chip-a">TELEGRAM GIFTS</span><span class="float-chip chip-b">HASSLE NFT MARKET</span><span class="float-chip chip-c">COLLECT · DISCOVER</span>
         </div>
       </section>
       {#if collections.length}
@@ -816,7 +816,7 @@
             {#each collections.slice(0,8) as collection (String(collection.id ?? collection.short_name ?? collection.name))}
               <button class:chosen={collectionFilter===String(collection.id ?? collection.short_name ?? '')} class="collection-tile" onclick={()=>{collectionFilter=String(collection.id ?? collection.short_name ?? 'all');loadCatalogue();}}>
                 <span class="collection-image">{#if collection.image}<img src={collection.image} alt="" loading="lazy"/>{:else}<span>✳</span>{/if}</span>
-                <span class="collection-info"><strong>{collection.name || collection.short_name || 'Telegram Gifts'}</strong><small>{collection.short_name || 'PORTALS COLLECTION'}</small></span>
+                <span class="collection-info"><strong>{collection.name || collection.short_name || 'Telegram Gifts'}</strong><small>{collection.short_name || 'HASSLE NFT COLLECTION'}</small></span>
                 <span class="collection-arrow">↗</span>
               </button>
             {/each}
@@ -834,7 +834,7 @@
         </div>
         {#if apiStatus?.sources}
           <div class="source-status-grid">
-            <article class="source-status-item"><div><strong>{t.sourcePortals}</strong><span class={'source-status-dot '+sourceStatusClass(apiStatus.sources.portals)}></span></div><small>Portals</small><b>{sourceStatusText(apiStatus.sources.portals)}</b></article>
+            <article class="source-status-item"><div><strong>{t.sourceGift Market}</strong><span class={'source-status-dot '+sourceStatusClass(apiStatus.sources.portals)}></span></div><small>Gift Market</small><b>{sourceStatusText(apiStatus.sources.portals)}</b></article>
             <article class="source-status-item"><div><strong>{t.sourceChanges}</strong><span class={'source-status-dot '+sourceStatusClass(apiStatus.sources.gift_changes)}></span></div><small>Gift Changes API</small><b>{sourceStatusText(apiStatus.sources.gift_changes)}</b></article>
             <article class="source-status-item"><div><strong>{t.sourceDailyFloors}</strong><span class={'source-status-dot '+sourceStatusClass(apiStatus.sources.tg_gifts_daily)}></span></div><small>TG Gifts</small><b>{sourceStatusText(apiStatus.sources.tg_gifts_daily)}</b></article>
           </div>
@@ -885,13 +885,13 @@
         {/if}
       </section>
     {:else if view==='seller'}
-      <section class="page-heading"><div class="eyebrow">GIFT RADAR · SELLER</div><h1>{lang==='ru'?'Профиль продавца':'Seller profile'}</h1><p>{lang==='ru'?'Публичная информация и активные объявления':'Public information and active listings'}</p></section>
+      <section class="page-heading"><div class="eyebrow">HASSLE NFT · SELLER</div><h1>{lang==='ru'?'Профиль продавца':'Seller profile'}</h1><p>{lang==='ru'?'Публичная информация и активные объявления':'Public information and active listings'}</p></section>
       {#if publicSellerBusy}<div class="state-panel">{t.loading}</div>
       {:else if publicSellerProfile}
         <section class="public-seller-layout">
           <article class="profile-card public-seller-card">
             <div class="profile-avatar"><span>{publicSellerProfile.display_name.slice(0,1).toUpperCase()}</span></div>
-            <div class="public-seller-identity"><h2>{publicSellerProfile.display_name}</h2>{#if publicSellerProfile.username}<p>@{publicSellerProfile.username}</p>{/if}<p>{publicSellerProfile.bio || (lang==='ru'?'Продавец GIFT RADAR':'GIFT RADAR seller')}</p><small>{lang==='ru'?'На платформе с':'Member since'} {new Date(publicSellerProfile.created_at*1000).toLocaleDateString(lang==='ru'?'ru-RU':'en-US')}</small></div>
+            <div class="public-seller-identity"><h2>{publicSellerProfile.display_name}</h2>{#if publicSellerProfile.username}<p>@{publicSellerProfile.username}</p>{/if}<p>{publicSellerProfile.bio || (lang==='ru'?'Продавец HASSLE NFT':'HASSLE NFT seller')}</p><small>{lang==='ru'?'На платформе с':'Member since'} {new Date(publicSellerProfile.created_at*1000).toLocaleDateString(lang==='ru'?'ru-RU':'en-US')}</small></div>
             <div class="public-seller-stats"><div><strong>{publicSellerProfile.active_listings}</strong><span>{lang==='ru'?'Активные объявления':'Active listings'}</span></div><div><strong>{publicSellerProfile.completed_trades}</strong><span>{lang==='ru'?'Завершённые сделки':'Completed trades'}</span></div></div>
             <small class="seller-reputation-note">{lang==='ru'?'Рейтинг появится после запуска проверяемых завершённых сделок.':'Ratings will appear after verified completed trades are supported.'}</small>
           </article>
@@ -904,7 +904,7 @@
         </section>
       {:else}<div class="state-panel">{lang==='ru'?'Профиль не найден.':'Seller profile not found.'}</div>{/if}
     {:else if view==='orders'}
-      <section class="page-heading compact-heading" id="marketplace"><div class="eyebrow">GIFT RADAR</div><h1>{t.ordersTitle}</h1></section>
+      <section class="page-heading compact-heading" id="marketplace"><div class="eyebrow">HASSLE NFT</div><h1>{t.ordersTitle}</h1></section>
       <div class="order-filter-bar"><label>{t.orderStatus}<select class="filter-input" bind:value={orderStatusFilter} onchange={changeOrderFilters}><option value="all">{t.all}</option><option value="active">{t.activeOrders}</option><option value="matched">{t.matchedOrders}</option><option value="cancelled">{t.cancelledOrders}</option></select></label><label>{t.orderKind}<select class="filter-input" bind:value={orderKindFilter} onchange={changeOrderFilters}><option value="all">{t.all}</option><option value="listing">{t.listingsOnly}</option><option value="buy-order">{t.buyRequestsOnly}</option></select></label></div>{#if visibleOrders.length===0}<div class="state-panel">{t.noOrders}</div>{:else}<div class="orders-list">{#each visibleOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {'· '+order.owner} {order.note?'· '+order.note:''} {order.events?.length?'· '+order.events.map(event=>event.type==='created'?(lang==='ru'?'создан':'created'):event.type==='updated'?(lang==='ru'?'изменено':'updated'):(lang==='ru'?'снят':'cancelled')).join(' → '):''}</p>{#if order.seller_profile_id}<button class="seller-link" onclick={()=>openSellerProfile(order.seller_profile_id!)}>{lang==='ru'?'Профиль продавца':'Seller profile'} ↗</button>{/if}</div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active' && order.isMine}
                   <div class="order-actions"><button class="match-button" onclick={()=>startEditOrder(order)}>{t.editOrder}</button><button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button></div>
                   {#if editingOrderId===order.id}
@@ -930,7 +930,7 @@
        </section>
     
      {:else if view==='create'}
-      <section class="page-heading compact-heading"><div class="eyebrow">GIFT RADAR</div><h1>{t.createTitle}</h1></section>
+      <section class="page-heading compact-heading"><div class="eyebrow">HASSLE NFT</div><h1>{t.createTitle}</h1></section>
       <section class="create-layout"><div class="create-form">
         <div class="segmented"><button class:chosen={createKind==='listing'} onclick={()=>createKind='listing'}>{t.sell}</button><button class:chosen={createKind==='buy-order'} onclick={()=>createKind='buy-order'}>{t.buy}</button></div>
         <label>{t.titleLabel}<input class="form-input" bind:value={createTitle} placeholder="Plush Pepe #042"/></label>
@@ -940,7 +940,7 @@
         
       </div></section>
     {:else if view==='favorites'}
-      <section class="page-heading compact-heading"><div class="eyebrow">GIFT RADAR</div><h1>{t.favoritesTitle}</h1></section>
+      <section class="page-heading compact-heading"><div class="eyebrow">HASSLE NFT</div><h1>{t.favoritesTitle}</h1></section>
       {#if shownGifts.length}<div class="gift-grid">{#each shownGifts as gift (keyOf(gift))}<article class="gift-card"><button class="gift-visual" onclick={()=>void openGift(gift)}><GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/></button><div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'}</div><div class="gift-card-bottom"><strong>{fmt(gift.price,gift.currency||'TON')}</strong><button class="heart-button hearted" onclick={()=>toggleFavorite(gift)}>♥</button></div></div></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='orders'}>{t.market}</button></div>{/if}
     {:else}
       <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.profile}</h1></section>
@@ -995,7 +995,7 @@
           {#if notifications.length < notificationTotal}<button class="refresh-button activity-more" onclick={loadMoreNotifications} disabled={notificationsLoadingMore}>{notificationsLoadingMore?'…':t.loadMoreActivity}</button>{/if}
         {:else}<div class="state-panel">{t.noNotifications}</div>{/if}
       </article>
-      <article class="profile-card preferences-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang==='ru'?'Язык интерфейса':'Interface language'} · {lang.toUpperCase()}</button></article>{#if isAdmin}
+      <article class="profile-card preferences-card"><div class="eyebrow">PREFERENCES</div><h2>HASSLE NFT</h2><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang==='ru'?'Язык интерфейса':'Interface language'} · {lang.toUpperCase()}</button></article>{#if isAdmin}
         <article class="profile-card moderation-card">
           <div class="notification-heading">
             <div><div class="eyebrow">MODERATION</div><h2>{t.adminReports}</h2></div>
@@ -1028,7 +1028,7 @@
     {/if}
 
     {#if notice}<div class="toast" role="status">{notice}<button onclick={()=>notice=''}>×</button></div>{/if}
-    <footer class="footer"><span>✳ GIFT RADAR</span><span>Telegram NFT Gift Marketplace · n0kl1pzz1k</span><span>© 2026</span></footer>
+    <footer class="footer"><span>✳ HASSLE NFT</span><span>Telegram NFT Gift Marketplace · n0kl1pzz1k</span><span>© 2026</span></footer>
   </main>
 </div>
 
