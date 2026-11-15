@@ -15,6 +15,17 @@ const allowedDomains = new Set(
   (process.env.TON_PROOF_ALLOWED_DOMAINS ?? "")
     .split(",").map((value) => value.trim().toLowerCase()).filter(Boolean)
 );
+const allowedDomainSuffixes = (process.env.TON_PROOF_ALLOWED_DOMAIN_SUFFIXES ?? "")
+  .split(",")
+  .map((value) => value.trim().toLowerCase())
+  .filter((value) => /^-[a-z0-9.-]{1,120}$/.test(value));
+
+function isAllowedProofDomain(domain: string): boolean {
+  if (allowedDomains.has(domain)) return true;
+  return allowedDomainSuffixes.some(
+    (suffix) => domain.length > suffix.length && domain.endsWith(suffix),
+  );
+}
 
 // One-use challenges live only in this private, single-replica sidecar process.
 // A restart invalidates every outstanding challenge, so replay fails closed.
@@ -78,7 +89,7 @@ async function verifyProof(input: z.infer<typeof verifySchema>): Promise<Buffer 
   const proof = input.proof;
   if (Math.abs(now - proof.timestamp) > 600) return null;
   const domain = proof.domain.value.toLowerCase();
-  if (!allowedDomains.has(domain) || !domain.includes(".")) return null;
+  if (!isAllowedProofDomain(domain) || !domain.includes(".")) return null;
   const domainBytes = Buffer.from(proof.domain.value, "utf8");
   if (domainBytes.length !== proof.domain.lengthBytes) return null;
 
