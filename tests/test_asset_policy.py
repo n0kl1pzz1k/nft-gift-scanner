@@ -12,9 +12,9 @@ class TonOnlyAssetPolicyTests(unittest.TestCase):
 
     def test_jettons_and_other_networks_are_rejected(self):
         for asset_id, chain, master in (
-            ("USDT", "ton-mainnet", "EQ" + "1" * 46),
-            ("GRAM", "ton-mainnet", "EQ" + "2" * 46),
-            ("TON", "tron-mainnet", ""),
+            ("UNSUPPORTED_TOKEN", "ton-mainnet", "EQ" + "1" * 46),
+            ("UNSUPPORTED_NATIVE_ALIAS", "ton-mainnet", "EQ" + "2" * 46),
+            ("TON", "non-ton-network", ""),
             ("TON", "ton-mainnet", "EQ" + "3" * 46),
         ):
             with self.subTest(asset_id=asset_id, chain=chain):
@@ -27,7 +27,7 @@ class TonOnlyAssetPolicyTests(unittest.TestCase):
             with self.subTest(amount=amount), self.assertRaises(AssetRejected):
                 validate_payment_amount("TON", amount)
         with self.assertRaises(AssetRejected):
-            validate_payment_amount("GRAM", 1)
+            validate_payment_amount("UNSUPPORTED_NATIVE_ALIAS", 1)
 
 
 if __name__ == "__main__":
