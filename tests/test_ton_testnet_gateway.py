@@ -15,6 +15,10 @@ class Provider:
         self.provider_id = provider_id
         self.transfer = transfer
         self.payout = payout
+        self.wallet_addresses = {}
+
+    async def get_jetton_wallet_address(self, *, owner_address, jetton_master):
+        return self.wallet_addresses.get(owner_address)
 
     async def find_transfer(self, *, escrow_address, jetton_master, reference):
         return self.transfer
@@ -69,6 +73,31 @@ class TonTestnetGatewayTests(unittest.TestCase):
             escrow_jetton_wallet_address="0:" + "55" * 32,
         )
 
+
+    def test_create_intent_requires_the_configured_escrow_jetton_wallet(self):
+        gateway = self.gateway()
+        center = gateway.providers[0]
+        center.wallet_addresses = {
+            gateway.escrow_address: "0:" + "55" * 32,
+            self.buyer_address: "0:" + "77" * 32,
+        }
+        intent = asyncio.run(gateway.create_intent(
+            deal_id="deal-123", amount=2500000, currency="tUSDT",
+            escrow_address=gateway.escrow_address,
+            jetton_master=gateway.jetton_master,
+            payer_address=self.buyer_address,
+        ))
+        self.assertEqual(intent.escrow_jetton_wallet_address, "0:" + "55" * 32)
+        self.assertEqual(intent.payer_jetton_wallet_address, "0:" + "77" * 32)
+
+        center.wallet_addresses[gateway.escrow_address] = "0:" + "88" * 32
+        with self.assertRaises(PaymentRouteError):
+            asyncio.run(gateway.create_intent(
+                deal_id="deal-123", amount=2500000, currency="tUSDT",
+                escrow_address=gateway.escrow_address,
+                jetton_master=gateway.jetton_master,
+                payer_address=self.buyer_address,
+            ))
 
     def test_providers_reject_mainnet_and_non_testnet_hosts(self):
         with self.assertRaises(PaymentRouteError):
