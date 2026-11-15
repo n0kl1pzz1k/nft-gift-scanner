@@ -21,7 +21,7 @@ from sqlalchemy.engine import Engine
 
 from financial_ledger import (
     _post, _account_balance_in_connection, get_engine, init_financial_schema,
-    accounts, invoices, payment_events, stars_invoices, stars_payments, metadata,
+    accounts, stars_invoices, stars_payments, metadata,
 )
 from marketplace_inventory import (
     init_inventory_schema, marketplace_assets, marketplace_listings,
@@ -292,51 +292,7 @@ def reserve_verified_deal_payment(*, deal_id: str, invoice_id: str,
                          "journal_id": journal["entry_id"]}, now=current)
             return {"reserved": True, "duplicate": False, "status": "payment_confirmed",
                     "journal_id": journal["entry_id"]}
-        invoice = conn.execute(select(invoices).where(
-            invoices.c.invoice_id == invoice_id
-        )).mappings().first()
-        if invoice is None or invoice["status"] != "paid":
-            raise PermissionError("Only a finalized, paid invoice can fund a deal")
-        if (invoice["user_id"] != deal["buyer_user_id"]
-                or invoice["asset_id"] != deal["currency"]
-                or int(invoice["amount_raw"]) != int(deal["price_raw"])):
-            raise ValueError("Paid invoice does not match deal buyer, asset and exact amount")
-        payment = conn.execute(select(payment_events).where(
-            payment_events.c.invoice_id == invoice_id
-        )).mappings().first()
-        if payment is None:
-            raise PermissionError("Invoice has no unique settled chain payment event")
-        if (payment["asset_id"] != deal["currency"]
-                or int(payment["amount_raw"]) != int(deal["price_raw"])):
-            raise ValueError("Payment event does not match the agreed deal amount")
-        user_account = f"liability:user:{deal['buyer_user_id']}:{deal['currency']}"
-        if lock:
-            conn.execute(select(accounts.c.account_id).where(
-                accounts.c.account_id == user_account,
-                accounts.c.currency == deal["currency"],
-            ).with_for_update()).first()
-        available = -_account_balance_in_connection(conn, user_account, deal["currency"])
-        if available < int(deal["price_raw"]):
-            raise RuntimeError("Buyer ledger balance is not backed by the paid invoice")
-        journal = _post(conn,
-            idempotency_key="marketplace-deal-reserve:" + deal_id,
-            source_type="marketplace_deal_reserve", source_reference=deal_id,
-            postings=[
-                {"account_id": user_account, "account_type": "liability",
-                 "currency": deal["currency"], "amount_raw": int(deal["price_raw"])},
-                {"account_id": f"liability:deal_hold:{deal_id}:{deal['currency']}",
-                 "account_type": "liability", "currency": deal["currency"],
-                 "amount_raw": -int(deal["price_raw"])},
-            ], now=current)
-        conn.execute(update(marketplace_deals).where(
-            marketplace_deals.c.deal_id == deal_id
-        ).values(status="payment_confirmed", payment_invoice_id=invoice_id,
-                 payment_event_id=payment["payment_event_id"], updated_at=current))
-        _event(conn, deal_id=deal_id, event_type="payment_confirmed",
-               data={"invoice_id": invoice_id, "payment_event_id": payment["payment_event_id"],
-                     "journal_id": journal["entry_id"]}, now=current)
-        return {"reserved": True, "duplicate": False, "status": "payment_confirmed",
-                "journal_id": journal["entry_id"]}
+        raise PermissionError("Only a successfully paid Telegram Stars invoice can fund a marketplace deal")
 
 
 def mark_deal_nft_transfer_pending(*, deal_id: str, engine: Engine | None = None,
@@ -354,9 +310,6 @@ def mark_deal_nft_transfer_pending(*, deal_id: str, engine: Engine | None = None
             raise ValueError("Unknown marketplace deal")
         if deal["status"] != "payment_confirmed":
             raise ValueError("Only a paid deal can enter NFT transfer")
-        if (deal["network"] == "ton-testnet" and deal["currency"] == "tUSDT"
-                and (not deal["payment_query_id"] or not deal["escrow_contract_address"])):
-            raise PermissionError("Testnet NFT release requires verified payment and escrow snapshots")
         changed = conn.execute(update(marketplace_deals).where(
             marketplace_deals.c.deal_id == deal_id,
             marketplace_deals.c.status == "payment_confirmed",
@@ -441,53 +394,6 @@ def confirm_deal_nft_transfer(*, deal_id: str, transfer_proofs: list[dict[str, A
         owner_addresses = {canonical_ton_address(value) for value in current_owner_addresses}
         if owner_addresses != {expected_buyer}:
             raise PermissionError("Live NFT state does not show the buyer as current owner")
-
-        if deal["network"] == "ton-testnet" and deal["currency"] == "tUSDT":
-            if not deal["seller_wallet_address"]:
-                raise ValueError("Immutable seller payout address snapshot is missing")
-            payout_query_id = int.from_bytes(
-                hashlib.sha256(f"{deal_id}:payout".encode()).digest()[:8], "big"
-            ) or 1
-            conn.execute(update(marketplace_deals).where(
-                marketplace_deals.c.deal_id == deal_id,
-                marketplace_deals.c.status == "nft_transfer_pending",
-            ).values(
-                status="payout_pending",
-                nft_transfer_tx_hash=normalized[0]["tx_hash"],
-                payout_query_id=payout_query_id,
-                updated_at=current,
-            ))
-            conn.execute(update(marketplace_reservations).where(
-                marketplace_reservations.c.reservation_id == deal["reservation_id"]
-            ).values(status="consumed"))
-            conn.execute(update(marketplace_listings).where(
-                marketplace_listings.c.listing_id == deal["listing_id"],
-                marketplace_listings.c.status == "reserved",
-            ).values(status="payout_pending", updated_at=current))
-            conn.execute(update(marketplace_assets).where(
-                marketplace_assets.c.asset_id == deal["asset_id"]
-            ).values(
-                owner_user_id=deal["buyer_user_id"], owner_wallet_address=expected_buyer,
-                custody_state="transferred", ownership_state="verified",
-                ownership_checked_at=current, ownership_expires_at=current + 300,
-                updated_at=current,
-            ))
-            conn.execute(insert(marketplace_listing_events).values(
-                event_id=uuid.uuid4().hex, listing_id=deal["listing_id"],
-                actor_user_id=deal["buyer_user_id"], event_type="payout_pending",
-                event_data=json.dumps({
-                    "deal_id": deal_id, "tx_hash": normalized[0]["tx_hash"],
-                    "payout_query_id": payout_query_id,
-                }),
-                created_at=current,
-            ))
-            _event(conn, deal_id=deal_id, event_type="nft_transfer_confirmed_payout_pending",
-                   data={"tx_hash": normalized[0]["tx_hash"], "payout_query_id": payout_query_id},
-                   now=current)
-            return {
-                "settled": False, "duplicate": False, "status": "payout_pending",
-                "payout_query_id": payout_query_id, "tx_hash": normalized[0]["tx_hash"],
-            }
 
         total = int(deal["price_raw"])
         journal = _post(conn,
