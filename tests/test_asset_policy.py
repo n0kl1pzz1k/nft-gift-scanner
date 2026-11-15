@@ -32,6 +32,7 @@ class AssetPolicyTests(unittest.TestCase):
             "TON_DEPOSIT_PROVIDER_IDS": "tonapi,toncenter",
             "TONCENTER_API_KEY": "test-key",
             "TONAPI_API_KEY": "test-tonapi-key",
+            "TON_CRYPTO_EXTERNAL_CHECKOUT_APPROVED": "true",
             "TON_DEPOSIT_ADDRESS": "0:" + "11" * 32,
             "KZ_LEGAL_REVIEW_APPROVED": "true",
             "KZ_DATA_RESIDENCY_VERIFIED": "true",
@@ -39,12 +40,14 @@ class AssetPolicyTests(unittest.TestCase):
             "KZ_SECURITY_REVIEW_APPROVED": "true",
         }
         with patch.dict("os.environ", ready, clear=True):
-            self.assertTrue(is_crypto_payment_enabled("GRAM"))
-            self.assertTrue(is_crypto_payment_enabled("usdt-ton"))
+            self.assertFalse(is_crypto_payment_enabled("GRAM"))
+            self.assertFalse(is_crypto_payment_enabled("usdt-ton"))
+            self.assertTrue(is_crypto_payment_enabled("GRAM", surface="external"))
+            self.assertTrue(is_crypto_payment_enabled("usdt-ton", surface="external"))
             self.assertFalse(is_crypto_payment_enabled("usdt-tron"))
         ready["KZ_DATA_RESIDENCY_VERIFIED"] = "false"
         with patch.dict("os.environ", ready, clear=True):
-            self.assertFalse(is_crypto_payment_enabled("GRAM"))
+            self.assertFalse(is_crypto_payment_enabled("GRAM", surface="external"))
 
     def test_lookalike_contract_with_same_ticker_is_rejected(self):
         with self.assertRaises(AssetRejected):
