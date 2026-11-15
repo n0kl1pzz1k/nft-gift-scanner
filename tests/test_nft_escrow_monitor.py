@@ -54,6 +54,12 @@ class NftEscrowMonitorTests(unittest.IsolatedAsyncioTestCase):
             engine=self.engine, now=110,
         )
         self.listing_id = listing["listing_id"]
+        # Monitor tests start after the wallet has submitted the NFT transfer.
+        with self.engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE marketplace_listings SET status='pending_verification' "
+                "WHERE listing_id=:id AND status='draft'"
+            ), {"id": self.listing_id})
         self.state = {
             "item_address": self.item, "collection_address": self.collection,
             "token_id": "7", "owner_address": self.escrow, "initialized": True,
