@@ -3,10 +3,18 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/tonconnect-manifest.json") {
+      const corsHeaders = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+        "Access-Control-Max-Age": "300",
+      };
+      if (request.method === "OPTIONS") {
+        return new Response(null, { status: 204, headers: corsHeaders });
+      }
       if (request.method !== "GET" && request.method !== "HEAD") {
         return new Response("Method Not Allowed", {
           status: 405,
-          headers: { "Allow": "GET, HEAD, OPTIONS" },
+          headers: { ...corsHeaders, "Allow": "GET, HEAD, OPTIONS" },
         });
       }
 
@@ -22,8 +30,7 @@ export default {
         headers: {
           "Content-Type": "application/json; charset=utf-8",
           "Cache-Control": "public, max-age=300",
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+          ...corsHeaders,
         },
       });
     }
