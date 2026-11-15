@@ -179,7 +179,7 @@ fun onInternalMessage(in: InMessage) {
             val signers = auth.signers.load();
             val arbitrators = auth.arbitrators.load();
             var assets = auth.assets.load();
-            assert (in.senderAddress == auth.platformConfigAuthority) throw PaymentEscrowErrors.Unauthorized;
+            assert ((in.senderAddress == auth.platformConfigAuthority) | (in.senderAddress == parties.seller)) throw PaymentEscrowErrors.Unauthorized;
             assert (!storage.initialized) throw PaymentEscrowErrors.BadState;
             assert (storage.state == V2_CREATED) throw PaymentEscrowErrors.BadState;
             assert (storage.expectedAmount > 0) throw PaymentEscrowErrors.BadAmount;
