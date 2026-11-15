@@ -25,6 +25,7 @@ class PaymentIntent:
     payer_address: str | None = None
     query_id: int | None = None
     payer_jetton_wallet_address: str | None = None
+    escrow_jetton_wallet_address: str | None = None
 
 
 @dataclass(frozen=True)
