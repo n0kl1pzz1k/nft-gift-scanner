@@ -32,7 +32,7 @@
     data_pipeline?: { refresh_interval_seconds?: number };
     note?: string;
   };
-  type View = 'market' | 'orders' | 'create' | 'favorites' | 'profile' | 'seller';
+  type View = 'market' | 'orders' | 'offers' | 'create' | 'favorites' | 'profile' | 'seller';
 
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://nft-gift-scanner-production.up.railway.app').replace(/\/$/, '');
   let lang = $state<'ru' | 'en'>('ru');
