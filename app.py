@@ -1235,29 +1235,32 @@ async def wallet_balances(x_telegram_init_data: str | None = Header(default=None
 
 @app.get("/api/wallet/policy")
 async def wallet_policy():
-    """Disclose TON wallet proof and gated payment capabilities without enabling signing."""
+    """Expose the single supported wallet protocol and payment currency."""
     withdrawal_requests_enabled = bool(
         os.getenv("TON_WITHDRAWAL_REQUESTS_ENABLED", "false").strip().lower() == "true"
+        and os.getenv("TON_WITHDRAWALS_ENABLED", "false").strip().lower() == "true"
+        and os.getenv("TON_WITHDRAWAL_EXECUTOR_ENABLED", "false").strip().lower() == "true"
+        and os.getenv("TON_SIGNER_SERVICE_URL", "").strip().startswith("https://")
+        and bool(os.getenv("TON_SIGNER_SERVICE_TOKEN", "").strip())
+        and bool(os.getenv("TON_SIGNER_WALLET_ID", "").strip())
+        and bool(os.getenv("TONCENTER_API_KEY", "").strip())
+        and len({part.strip() for part in os.getenv("WITHDRAWAL_APPROVER_IDS", "").split(",")
+                 if part.strip().isdigit()}) >= 2
+    )
     return {
-        "wallet_connect": "ton_connect_with_server_verified_ton_proof",
-        "supported_network": "ton-mainnet",
+        "wallet_connect": "ton-connect",
+        "supported_network": "TON",
         "supported_assets": ["TON"],
         "payment_currency": "XTR",
-        "stores": ["public_wallet_address_only_after_verified_wallet_proof"],
+        "crypto_payments_enabled": False,
+        "telegram_stars_payments_enabled": _stars_payment_enabled(),
         "requests_seed_phrase": False,
         "requests_private_key": False,
         "signing_enabled": False,
         "transfers_enabled": False,
-        "crypto_payments_enabled": any(crypto_enabled.values()),
-        "crypto_assets": crypto_enabled,
-        "telegram_stars_payments_enabled": _stars_payment_enabled(),
         "withdrawal_requests_enabled": withdrawal_requests_enabled,
         "withdrawals_enabled": withdrawal_requests_enabled,
-        "payment_note": (
-            "TON deposits are available only when all independent-provider and Kazakhstan release gates pass."
-            if any(crypto_enabled.values())
-            else "Crypto deposits remain disabled pending operational and compliance release gates."
-        ),
+        "payment_note": "Digital goods inside Telegram are purchased only with Telegram Stars. TON Connect is used for TON wallet and NFT interactions.",
     }
 
 
