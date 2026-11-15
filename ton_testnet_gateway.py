@@ -376,9 +376,15 @@ class TonTestnetPaymentGateway:
         query_id = int.from_bytes(
             hashlib.sha256(f"{deal_id}:payment".encode()).digest()[:8], "big"
         ) or 1
+        center = next(provider for provider in self.providers if provider.provider_id == "toncenter")
+        observed_escrow_jetton_wallet = await center.get_jetton_wallet_address(
+            owner_address=self.escrow_address, jetton_master=self.jetton_master,
+        )
+        if (not observed_escrow_jetton_wallet
+                or not _same_address(observed_escrow_jetton_wallet, self.escrow_jetton_wallet_address)):
+            raise PaymentRouteError("Configured escrow Jetton wallet does not match TON Center testnet state")
         payer_jetton_wallet = None
         if payer_address:
-            center = next(provider for provider in self.providers if provider.provider_id == "toncenter")
             payer_jetton_wallet = await center.get_jetton_wallet_address(
                 owner_address=payer_address, jetton_master=self.jetton_master,
             )
