@@ -8,7 +8,8 @@ The repository root Nixpacks build installs Node.js and compiles this TypeScript
 
 Required process variables:
 - `TON_PROOF_INTERNAL_TOKEN`: generated at process start when the local sidecar is used; can be supplied explicitly.
-- `TON_PROOF_ALLOWED_DOMAINS`: exact comma-separated dApp hostnames. The startup script supplies the current Workers and Pages preview hosts by default.
+- `TON_PROOF_ALLOWED_DOMAINS`: exact comma-separated dApp hostnames. The startup script includes the current Cloudflare production hostname and legacy Pages preview hostnames by default.
+- `TON_PROOF_ALLOWED_DOMAIN_SUFFIXES`: comma-separated project-scoped preview suffixes. The startup script defaults to `-nft-gift-scanner.fj7kmzkhn9.workers.dev`, which permits only preview hosts for this Worker project, not arbitrary `workers.dev` domains.
 - `TON_PROOF_PORT`: optional private port, default `8081`.
 - `TON_MAINNET_ENDPOINT` and `TON_TESTNET_ENDPOINT`: optional TON v4 RPC endpoints used only for the reviewed WalletTg public-key getter fallback.
 
