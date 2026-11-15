@@ -250,7 +250,7 @@ def init_demo_offers_db() -> None:
 
 def _require_user(init_data: str | None, verify: Callable[[str], dict]) -> dict:
     if not init_data:
-        raise HTTPException(status_code=401, detail="Open GIFT RADAR from Telegram to manage demo offers")
+        raise HTTPException(status_code=401, detail="Open GIFT RADAR from Telegram to manage offers")
     return verify(init_data)
 
 
@@ -300,7 +300,7 @@ class DealAction(BaseModel):
 
 
 def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) -> APIRouter:
-    router = APIRouter(prefix="/api/marketplace", tags=["demo-offers"])
+    router = APIRouter(prefix="/api/marketplace", tags=["marketplace-offers"])
 
     @router.post("/offers", status_code=201)
     async def create_offer(payload: CreateOffer, x_telegram_init_data: str | None = Header(default=None)):
@@ -313,10 +313,10 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             order = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (payload.order_id,)).fetchone()
             if order is None:
                 conn.rollback()
-                raise HTTPException(status_code=404, detail="Demo order not found")
+                raise HTTPException(status_code=404, detail="Marketplace listing not found")
             if order["status"] != "active":
                 conn.rollback()
-                raise HTTPException(status_code=409, detail="This demo order is no longer active")
+                raise HTTPException(status_code=409, detail="This marketplace listing is no longer active")
             if order["user_id"] == actor_id:
                 conn.rollback()
                 raise HTTPException(status_code=403, detail="You cannot make an offer on your own order")
@@ -330,7 +330,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             total = conn.execute("SELECT COUNT(*) FROM demo_offers WHERE order_id = ?", (payload.order_id,)).fetchone()[0]
             if total >= 100:
                 conn.rollback()
-                raise HTTPException(status_code=409, detail="This order has reached its demo offer limit")
+                raise HTTPException(status_code=409, detail="This listing has reached its offer limit")
             offer_id = "of-" + uuid.uuid4().hex[:16]
             sender_name = (user.get("first_name") or user.get("username") or "Telegram user")[:64]
             conn.execute("""
@@ -345,7 +345,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                        o.owner_name AS order_owner_name, o.status AS order_status
                 FROM demo_offers f JOIN demo_orders o ON o.id = f.order_id WHERE f.id = ?
             """, (offer_id,)).fetchone()
-        return {"item": _offer_dict(row, actor_id), "simulation_only": True}
+        return {"item": _offer_dict(row, actor_id)}
 
     @router.get("/offers")
     async def list_offers(
@@ -391,7 +391,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             """, (offer_id,)).fetchone()
             if row is None:
                 conn.rollback()
-                raise HTTPException(status_code=404, detail="Demo offer not found")
+                raise HTTPException(status_code=404, detail="Offer not found")
             if row["status"] != "pending":
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="This offer is no longer pending")
@@ -403,41 +403,11 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 conn.rollback()
                 raise HTTPException(status_code=403, detail="Only the offer author can withdraw it")
             if action == "accept":
-                if row["order_status"] != "active":
-                    conn.rollback()
-                    raise HTTPException(status_code=409, detail="The demo order is no longer active")
-                reserved = conn.execute(
-                    "UPDATE demo_orders SET status='matched', updated_at=? WHERE id=? AND status='active'",
-                    (now, row["order_id"]),
+                conn.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail="Offer acceptance is disabled until TON/Stars escrow and NFT transfer are live.",
                 )
-                if reserved.rowcount != 1:
-                    conn.rollback()
-                    raise HTTPException(status_code=409, detail="This listing has already been reserved")
-                conn.execute(
-                    "UPDATE demo_offers SET status='declined', updated_at=? WHERE order_id=? AND id<>? AND status='pending'",
-                    (now, row["order_id"], offer_id),
-                )
-                deal_id = "deal-" + uuid.uuid4().hex[:16]
-                conn.execute("""
-                    INSERT INTO demo_deals
-                    (id, order_id, offer_id, listing_owner_id, offer_sender_id, agreed_amount, currency, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (deal_id, row["order_id"], offer_id,
-                      actor_id, row["sender_user_id"], row["amount"], row["currency"], now))
-                # Immutable audit trail: this is an agreement/reservation only.
-                # Payment and asset delivery are deliberately not started here.
-                for event_type, event_actor, event_data in (
-                    ("deal_created", actor_id, {"simulation_only": True}),
-                    ("listing_reserved", actor_id, {"reservation": "exclusive"}),
-                    ("payment_not_enabled", "system", {"reason": "payment_integration_not_live"}),
-                ):
-                    conn.execute(
-                        """INSERT INTO demo_deal_events
-                           (id, deal_id, order_id, actor_user_id, event_type, event_data, created_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        ("de-" + uuid.uuid4().hex[:20], deal_id, row["order_id"],
-                         event_actor, event_type, json.dumps(event_data, separators=(",", ":")), now),
-                    )
             new_status = {"accept": "accepted", "decline": "declined", "withdraw": "withdrawn"}[action]
             conn.execute("UPDATE demo_offers SET status=?, updated_at=? WHERE id=? AND status='pending'",
                          (new_status, now, offer_id))
@@ -447,8 +417,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                        o.owner_name AS order_owner_name, o.status AS order_status
                 FROM demo_offers f JOIN demo_orders o ON o.id = f.order_id WHERE f.id = ?
             """, (offer_id,)).fetchone()
-        return {"item": _offer_dict(updated, actor_id), "simulation_only": True,
-                "deal_created": action == "accept"}
+        return {"item": _offer_dict(updated, actor_id)}
 
     @router.post("/deals/{deal_id}/actions")
     async def act_on_deal(
