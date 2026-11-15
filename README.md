@@ -1,54 +1,48 @@
 # GIFT RADAR
 
-**GIFT RADAR is an independent Telegram-gift marketplace.** It is not a Portals, Tonnel, MRKT or third-party marketplace frontend, and it does not aggregate their listings.
+**GIFT RADAR** is an independent Telegram NFT-gift marketplace. It owns its catalogue, listings, offers, orders and deal lifecycle. It is not a frontend or catalogue mirror for Portals, Tonnel, MRKT or another marketplace.
 
-## Product boundary
+## Product and technology boundary
 
-- Users create and manage listings inside GIFT RADAR.
-- Search, collections, offers, orders, seller reputation, notifications and deal lifecycle belong to GIFT RADAR.
-- Third-party marketplace APIs, listing feeds, aggregators, cross-market matching and external-market price ingestion are disabled.
-- TON RPC/indexing services may be used only as technical infrastructure to verify chain facts such as NFT ownership. They are not sources of marketplace listings.
-- A wallet connection proves control of a wallet, not ownership of a specific gift.
-- No wallet seed phrase, private key, exchange API key or wallet password is requested or stored.
+- The marketplace catalogue and listing records belong to GIFT RADAR.
+- External marketplace APIs, listing feeds, aggregators and cross-market price ingestion are not part of the product.
+- Telegram Stars (XTR) is the only purchase currency inside the Telegram Mini App.
+- TON is the only supported blockchain network. TON Connect is the only wallet connection protocol.
+- TON wallet addresses and chain evidence are used for wallet proof and NFT ownership/transfer verification. Wallet connection alone is never treated as proof of NFT ownership.
+- No seed phrase, private key, wallet password or exchange API key is requested or stored.
 
-## Current implementation status
+## Implemented foundations
 
-The repository contains Telegram authentication/session infrastructure, user profiles, internal demo order/offer flows, moderation/reporting, PostgreSQL migration foundations, append-only financial ledger foundations, a TON Proof service foundation, and Telegram Stars payment foundations behind fail-closed gates.
+The repository includes Telegram Mini App authentication and session infrastructure, user profiles, bot/webhook processing, a Svelte 5 + Vite frontend, catalogue and collection interfaces, internal demo order/offer flows, moderation/reporting foundations, PostgreSQL/Alembic migration foundations, append-only double-entry ledger foundations, Telegram Stars invoice/refund handling, TON Connect integration, server-side TON Proof verification, dual-provider TON NFT state verification, seller-owned inventory records, private listing drafts, reservation/deal lifecycle foundations, dispute/reconciliation records, and a TON NFT escrow contract prototype with local tests.
 
-The native inventory migration adds canonical asset records, immutable ownership evidence, native listings, reservation leases and append-only listing events. The Telegram Stars foundation now includes terms acceptance, idempotent invoice creation, pre-checkout validation, authenticated successful-payment settlement, buyer refund requests, an admin-claimed Telegram refund call and a compensating ledger reversal. The production ownership verifier, public listing publication, reservation-to-real-deal transition, delivery confirmation, disputes, full refund reconciliation and seller settlement remain release-gated. Existing demo orders are not real trades and must never be charged.
+The Stars backend validates invoice payload, buyer, XTR currency and amount; accepts payment only from Telegram's authenticated successful-payment update; records the unique Telegram charge ID; and includes refund request, admin execution and reconciliation handling.
 
-The catalogue endpoints currently return an honest empty native catalogue while the native inventory query and trusted ownership verification are completed. They do not fall back to external marketplaces or invent listings.
+## Payments and wallets
 
-## Payments and custody
+- **Checkout:** Telegram Stars (XTR) only.
+- **Blockchain:** TON only.
+- **Wallet protocol:** TON Connect only.
+- **Wallets:** TON Connect-compatible wallets such as Telegram Wallet, Tonkeeper and MyTonWallet.
+- **TON is used for blockchain operations**, including wallet proof, NFT ownership and user-approved NFT transactions. It is not an alternative in-Mini-App checkout for digital goods.
+- No other token, stablecoin or blockchain payment route is supported.
 
-- Payment execution is behind the pluggable `PaymentRoute` interface. The deal core selects a route through configuration and does not contain provider-specific payment logic.
-- `ton_usdt_testnet` is the enabled engineering route for TON testnet and the platform-issued `tUSDT` test Jetton only. It is not genuine Tether USDT and cannot select mainnet.
-- `stars` is a separate adapter and remains hard-disabled. No Stars checkout or payout is activated by selecting a config value.
-- **Legal status:** the payment route for sales inside the Telegram Mini App has not been determined. The open questions for counsel are collected in [docs/TELEGRAM_COMPLIANCE.md](docs/TELEGRAM_COMPLIANCE.md). This code-level testnet route is not authorization to accept crypto payments inside a Mini App.
-- Mainnet, real funds and production payment activation remain prohibited until separate legal, security and owner approvals.
-- GIFT RADAR does not request wallet seed phrases/private keys or store user wallet credentials. Transaction signing must remain in an explicitly user-approved wallet or external signing system.
-- A seller listing must be backed by fresh, independently verifiable ownership evidence and a reservation lock before a real deal can be created.
+## Security foundations
 
-## Security and operations
-
-- Telegram Mini App initData is signature- and freshness-checked before exchanging it for a short-lived opaque session.
+- Telegram initData is signature- and freshness-checked before it is exchanged for a short-lived opaque session.
 - Session tokens are stored hashed and can be revoked.
 - Telegram webhook requests require the configured secret header and use a durable idempotent update inbox.
-- Financial records use append-only double-entry ledger foundations; no mutable balance-editing interface exists.
-- PostgreSQL migration/cutover and production deployment are separate controlled release steps. CI success does not mean production is deployed.
-- Keep real-deal and Stars feature flags disabled until all release gates pass.
+- Financial records use append-only double-entry ledger foundations. There is no user-facing mutable balance setter.
+- TON Proof is verified server-side. A connected wallet is not treated as proof of a specific NFT.
+- Production database cutover and deployment are controlled release steps. CI success does not mean production is deployed.
 
-## Local development
+## Development
 
-The frontend is in frontend/ and uses Svelte 5 + Vite.
+Frontend:
+```bash
+cd frontend
+npm install
+npm run check
+npm run build
+```
 
-    cd frontend
-    npm install
-    npm run check
-    npm run build
-
-Backend dependencies are listed in requirements.txt. The API is FastAPI; use a local environment and never copy production secrets into source control.
-
-## Retired integrations
-
-External marketplace adapters and public reference-feed routes have been removed from the active backend. GIFT RADAR owns its own catalogue, listings, orders and deal lifecycle. TON RPC/indexers may be used only for technical chain-state verification, not as sources of third-party listings. No Portals, Swift Gifts, Tonnel or MRKT credentials are required or should be configured.
+Backend dependencies are listed in `requirements.txt`. Never place production secrets or wallet credentials in source control or chat.
