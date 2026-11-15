@@ -589,7 +589,7 @@
 
 <div class="market-app">
   <aside class="sidebar">
-    <a class="brand" href="#marketplace"><span class="brand-symbol">✳</span><span>HASSLE NFT<small>THE GIFT MARKET</small></span></a>
+    <a class="brand" href="#marketplace"><span class="brand-symbol">H</span><span>HASSLE NFT<small>THE GIFT MARKET</small></span></a>
     <div class="nav-caption">MENU</div>
     <nav class="side-nav">
       {#each [{id:'orders',label:t.orders,icon:'▦'},{id:'offers',label:t.offersTitle,icon:'↗'},{id:'create',label:t.create,icon:'＋'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
