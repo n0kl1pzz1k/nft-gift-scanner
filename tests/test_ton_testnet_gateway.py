@@ -6,7 +6,7 @@ from unittest.mock import patch
 from payment_routes import PaymentEvidence, PaymentIntent, PaymentRouteError
 from ton_testnet_gateway import (
     TestnetTransfer, TonApiTestnetProvider, TonCenterTestnetProvider,
-    TonApiTestnetProvider, TonTestnetPaymentGateway, configured_ton_testnet_gateway,
+    TonTestnetPaymentGateway, configured_ton_testnet_gateway,
 )
 
 
@@ -190,9 +190,9 @@ class TonTestnetGatewayTests(unittest.TestCase):
         with self.assertRaises(PaymentRouteError):
             TonCenterTestnetProvider(base_url="https://example.com/testnet")
         with self.assertRaises(PaymentRouteError):
-            TonApiEmbedTestnetProvider(base_url="https://tonapi.io/v2")
+            TonApiTestnetProvider(base_url="https://tonapi.io/v2")
         with self.assertRaises(PaymentRouteError):
-            TonApiEmbedTestnetProvider(base_url="http://testnet.tonapi.io/v2")
+            TonApiTestnetProvider(base_url="http://testnet.tonapi.io/v2")
 
     def test_provider_rejects_lookalike_testnet_domains(self):
         for url in (
@@ -204,7 +204,7 @@ class TonTestnetGatewayTests(unittest.TestCase):
             "https://evil.testnet.tonapi.io/v2",
         ):
             with self.subTest(url=url):
-                provider = TonCenterTestnetProvider if "toncenter" in url else TonApiEmbedTestnetProvider
+                provider = TonCenterTestnetProvider if "toncenter" in url else TonApiTestnetProvider
                 with self.assertRaises(PaymentRouteError):
                     provider(base_url=url)
 
@@ -259,7 +259,7 @@ class TonTestnetGatewayTests(unittest.TestCase):
         self.assertEqual(tonapi.api_key, "test-tonapi-key")
 
     def test_tonapi_provider_accepts_only_the_official_testnet_api(self):
-        provider = TonApiEmbedTestnetProvider(
+        provider = TonApiTestnetProvider(
             base_url="https://testnet.tonapi.io/v2",
         )
         self.assertEqual(provider.provider_id, "tonapi")
@@ -269,11 +269,11 @@ class TonTestnetGatewayTests(unittest.TestCase):
             "https://tonapi.io/v2",
         ):
             with self.subTest(url=url), self.assertRaises(PaymentRouteError):
-                TonApiEmbedTestnetProvider(base_url=url)
+                TonApiTestnetProvider(base_url=url)
 
     def test_providers_accept_https_testnet_hosts(self):
         center = TonCenterTestnetProvider(base_url="https://testnet.toncenter.com/api/v3")
-        tonapi = TonApiEmbedTestnetProvider(base_url="https://testnet.tonapi.io/v2")
+        tonapi = TonApiTestnetProvider(base_url="https://testnet.tonapi.io/v2")
         self.assertEqual(center.provider_id, "toncenter")
         self.assertEqual(tonapi.provider_id, "tonapi")
 
