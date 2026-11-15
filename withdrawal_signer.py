@@ -24,7 +24,7 @@ from financial_ledger import (
     advance_withdrawal_to_processing, mark_withdrawal_submitted,
     confirm_ton_withdrawal, quarantine_ton_withdrawal,
 )
-from asset_policy import ASSETS, validate_payment_amount, is_crypto_payment_enabled
+from asset_policy import ASSETS, validate_payment_amount
 from ton_nft_providers import canonical_ton_address
 
 
