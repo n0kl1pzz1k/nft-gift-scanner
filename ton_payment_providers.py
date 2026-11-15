@@ -172,7 +172,7 @@ class ToncenterV3PaymentProvider:
                 )
                 if not expected_destination_wallet or destination_wallet != expected_destination_wallet:
                     continue
-                query_id = transfer.get("query_id")
+                query_id = int(transfer.get("query_id") or 0)
                 event_index = _stable_event_index(transfer.get("transaction_lt"), query_id,
                                                   source_wallet, transfer.get("amount"))
                 mc_seqno = int(tx.get("mc_block_seqno") or 0)
@@ -186,6 +186,7 @@ class ToncenterV3PaymentProvider:
                     "sender_address": source_owner,
                     "recipient_address": canonical_ton_address(transfer["destination"]),
                     "amount_raw": int(transfer.get("amount") or 0),
+                    "query_id": query_id,
                     "payload": comment, "opcode": JETTON_TRANSFER_NOTIFICATION,
                     "successful": _tx_success(tx) and transfer.get("transaction_aborted") is False,
                     "bounced": bool(transfer.get("transaction_aborted")),
@@ -356,7 +357,7 @@ class TonApiPaymentProvider:
                     continue
                 amount = int(row.get("amount") or 0)
                 query_id = int(row.get("query_id") or 0)
-                if amount <= 0 or query_id <= 0:
+                if amount <= 0 or query_id < 0:
                     continue
                 expected_query_id = invoice.get("query_id")
                 if expected_query_id is not None and query_id != int(expected_query_id):
@@ -370,7 +371,9 @@ class TonApiPaymentProvider:
                 if tx is None or not self._transaction_successful(tx):
                     continue
                 msg = tx.get("in_msg") or {}
-                if msg.get("bounced") is True or str(msg.get("op_code") or "").lower() != JETTON_TRANSFER_NOTIFICATION:
+                if msg.get("bounced") is True or str(msg.get("op_code") or "").lower() not in {
+                    JETTON_TRANSFER_NOTIFICATION, "1935855772",
+                }:
                     continue
                 if self._address(tx.get("account")) != expected_destination_wallet:
                     continue
@@ -397,7 +400,7 @@ class TonApiPaymentProvider:
                     "destination_jetton_wallet": expected_destination_wallet,
                     "expected_destination_jetton_wallet": expected_destination_wallet,
                     "sender_address": source_owner, "recipient_address": recipient,
-                    "amount_raw": amount, "payload": comment,
+                    "amount_raw": amount, "query_id": query_id, "payload": comment,
                     "opcode": JETTON_TRANSFER_NOTIFICATION,
                     "successful": True, "bounced": False,
                     "finalized": bool(tx.get("block")) and int(status["last_known_masterchain_seqno"]) > 0,
