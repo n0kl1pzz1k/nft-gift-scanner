@@ -6,7 +6,7 @@ from unittest.mock import patch
 from payment_routes import PaymentEvidence, PaymentIntent, PaymentRouteError
 from ton_testnet_gateway import (
     TestnetTransfer, TonApiEmbedTestnetProvider, TonCenterTestnetProvider,
-    TonTestnetPaymentGateway, configured_ton_testnet_gateway,
+    TonApiTestnetProvider, TonTestnetPaymentGateway, configured_ton_testnet_gateway,
 )
 
 
@@ -98,6 +98,91 @@ class TonTestnetGatewayTests(unittest.TestCase):
                 jetton_master=gateway.jetton_master,
                 payer_address=self.buyer_address,
             ))
+
+    def test_tonapi_payment_history_matches_exact_transfer_identity(self):
+        deal_id = "deal-123"
+        reference = "grpay:" + deal_id
+        query_id = int.from_bytes(
+            __import__("hashlib").sha256(f"{deal_id}:payment".encode()).digest()[:8], "big"
+        ) or 1
+        escrow = "0:" + "22" * 32
+        master = "0:" + "33" * 32
+        sender = "0:" + "66" * 32
+
+        class Response:
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {"operations": [{
+                    "operation": "transfer",
+                    "query_id": str(query_id),
+                    "amount": "2500000",
+                    "lt": 123456789,
+                    "transaction_hash": "ab" * 32,
+                    "jetton": {"address": master},
+                    "source": {"address": sender},
+                    "destination": {"address": escrow},
+                }]}
+
+        class Client:
+            def __init__(self, *args, **kwargs):
+                pass
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return None
+            async def get(self, *args, **kwargs):
+                self.url = args[0]
+                return Response()
+
+        async def run():
+            provider = TonApiTestnetProvider(api_key="test-key")
+            with patch("ton_testnet_gateway.httpx.AsyncClient", Client):
+                return await provider.find_transfer(
+                    escrow_address=escrow, jetton_master=master, reference=reference,
+                )
+        result = asyncio.run(run())
+        self.assertIsNotNone(result)
+        self.assertEqual(result.transaction_id, "ab" * 32)
+        self.assertEqual(result.query_id, query_id)
+        self.assertEqual(result.sender, sender)
+        self.assertEqual(result.recipient, escrow)
+
+    def test_tonapi_payment_history_rejects_wrong_query_id(self):
+        deal_id = "deal-123"
+        reference = "grpay:" + deal_id
+        escrow = "0:" + "22" * 32
+        master = "0:" + "33" * 32
+
+        class Response:
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {"operations": [{
+                    "operation": "transfer", "query_id": "1", "amount": "2500000",
+                    "lt": 123456789, "transaction_hash": "ab" * 32,
+                    "jetton": {"address": master},
+                    "source": {"address": "0:" + "66" * 32},
+                    "destination": {"address": escrow},
+                }]}
+
+        class Client:
+            def __init__(self, *args, **kwargs):
+                pass
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return None
+            async def get(self, *args, **kwargs):
+                return Response()
+
+        async def run():
+            provider = TonApiTestnetProvider()
+            with patch("ton_testnet_gateway.httpx.AsyncClient", Client):
+                return await provider.find_transfer(
+                    escrow_address=escrow, jetton_master=master, reference=reference,
+                )
+        self.assertIsNone(asyncio.run(run()))
 
     def test_providers_reject_mainnet_and_non_testnet_hosts(self):
         with self.assertRaises(PaymentRouteError):
