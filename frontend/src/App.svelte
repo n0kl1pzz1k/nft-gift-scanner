@@ -143,7 +143,6 @@
   let collectionFilter = $state('all');
   let statusFilter = $state('listed');
   let sortBy = $state('listed_at desc');
-  let catalogueRequestId = 0;
   let orderStatusFilter = $state<'all' | 'active' | 'matched' | 'cancelled'>('active');
   let orderKindFilter = $state<'all' | 'listing' | 'buy-order'>('all');
 
@@ -505,31 +504,13 @@
     }
   }
 
-  async function loadCollections() {
-    try {
-      const data = await request('/api/collections');
-      collections = Array.isArray(data.items) ? data.items : [];
-    } catch {
-      collections = [];
-    }
-  }
-
   async function openGift(gift: Gift) {
     selected = gift;
     selectedHistory = [];
     historyLoading = true;
     const giftId = keyOf(gift);
-    try {
-      const data = await request('/api/catalog/items/' + encodeURIComponent(giftId) + '/history?limit=5');
-      if (selected && keyOf(selected) === giftId) {
-        selectedHistory = Array.isArray(data.history) ? data.history : [];
-      }
-    } catch {
-      // Ignore stale responses when the user has opened a different gift.
-      if (selected && keyOf(selected) === giftId) selectedHistory = [];
-    } finally {
-      if (selected && keyOf(selected) === giftId) historyLoading = false;
-    }
+    selectedHistory = [];
+    historyLoading = false;
   }
 
   async function loadNativeListings() {
@@ -559,44 +540,6 @@
 
   function shortAddress(value:string) {
     return value && value.length > 18 ? value.slice(0,8) + '…' + value.slice(-6) : value || '—';
-  }
-
-  async function loadCatalogue(append = false) {
-    if (append && (loadingMore || busy)) return;
-    const requestId = ++catalogueRequestId;
-    if (append) loadingMore = true; else { busy = true; error = ''; offset = 0; }
-    const minValue = minPrice.trim() === '' ? null : Number(minPrice);
-    const maxValue = maxPrice.trim() === '' ? null : Number(maxPrice);
-    if ((minValue !== null && (!Number.isFinite(minValue) || minValue < 0)) ||
-        (maxValue !== null && (!Number.isFinite(maxValue) || maxValue < 0)) ||
-        (minValue !== null && maxValue !== null && minValue > maxValue)) {
-      error = t.invalidPrice;
-      busy = false;
-      loadingMore = false;
-      return;
-    }
-    try {
-      const nextOffset = append ? offset : 0;
-      const params = new URLSearchParams({ limit: '40', offset: String(nextOffset), search: search.trim() });
-      if (minValue !== null) params.set('min_price', String(minValue));
-      if (maxValue !== null) params.set('max_price', String(maxValue));
-      if (collectionFilter !== 'all') params.set('collection_id', collectionFilter);
-      if (statusFilter !== 'all') params.set('status', statusFilter);
-      if (sortBy) params.set('sort_by', sortBy);
-      const data = await request('/api/gifts?' + params.toString());
-      if (requestId !== catalogueRequestId) return;
-      const items = Array.isArray(data.items) ? data.items : [];
-      gifts = append ? [...gifts, ...items] : items;
-      total = Math.max(Number(data.total_count) || 0, gifts.length);
-      offset = nextOffset + items.length;
-    } catch (e) {
-      if (requestId === catalogueRequestId) error = e instanceof Error ? e.message : String(e);
-    } finally {
-      if (requestId === catalogueRequestId) {
-        busy = false;
-        loadingMore = false;
-      }
-    }
   }
 
   function toggleFavorite(gift: Gift) {
@@ -1144,20 +1087,7 @@
           <span class="float-chip chip-a">TELEGRAM GIFTS</span><span class="float-chip chip-b">NATIVE MARKET</span><span class="float-chip chip-c">COLLECT · DISCOVER</span>
         </div>
       </section>
-      {#if collections.length}
-        <section class="collection-shelf">
-          <div class="shelf-heading"><div><div class="eyebrow">{t.exploreMarket}</div><h2>{t.collectionsTitle}</h2></div><span>{collections.length} {t.collectionsCount}</span></div>
-          <div class="collection-rail">
-            {#each collections.slice(0,8) as collection (String(collection.id ?? collection.short_name ?? collection.name))}
-              <button class:chosen={collectionFilter===String(collection.id ?? collection.short_name ?? '')} class="collection-tile" onclick={()=>{collectionFilter=String(collection.id ?? collection.short_name ?? 'all');loadCatalogue();}}>
-                <span class="collection-image">{#if collection.image}<img src={collection.image} alt="" loading="lazy"/>{:else}<span>✳</span>{/if}</span>
-                <span class="collection-info"><strong>{collection.name || collection.short_name || 'Telegram Gifts'}</strong><small>{collection.short_name || 'GIFT RADAR COLLECTION'}</small></span>
-                <span class="collection-arrow">↗</span>
-              </button>
-            {/each}
-          </div>
-        </section>
-      {/if}
+
       <section class="market-stats" aria-label="Catalogue overview"><article><span>▦</span><div><strong>{nativeListingsTotal.toLocaleString()}</strong><small>{t.statsCatalog}</small></div></article><p>{t.catalogOnly}</p></section>
       <section class="source-status-panel native-market-panel" aria-label="GIFT RADAR platform status">
         <div class="source-status-heading">
