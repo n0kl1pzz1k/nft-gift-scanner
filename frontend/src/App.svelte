@@ -504,11 +504,8 @@
     }
   }
 
-  async function openGift(gift: Gift) {
+  function openGift(gift: Gift) {
     selected = gift;
-    selectedHistory = [];
-    historyLoading = true;
-    const giftId = keyOf(gift);
     selectedHistory = [];
     historyLoading = false;
   }
