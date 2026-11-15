@@ -1041,6 +1041,8 @@ def verify_ton_payment_trace(trace: dict[str, Any], invoice: dict[str, Any]) -> 
         raise ValueError("Token master mismatch")
     if trace["source_jetton_wallet"] != trace["expected_source_jetton_wallet"]:
         raise ValueError("Sender is not the canonical Jetton wallet")
+    if invoice.get("query_id") is not None and int(trace.get("query_id") or -1) != int(invoice["query_id"]):
+        raise ValueError("Jetton query ID does not match the invoice")
     if trace["destination_jetton_wallet"] != trace["expected_destination_jetton_wallet"]:
         raise ValueError("Recipient is not the canonical Jetton wallet")
     if str(trace["opcode"]).lower() not in {"0x7362d09c", "1935855772"}:
