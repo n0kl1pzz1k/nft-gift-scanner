@@ -103,8 +103,6 @@ def create_withdrawal_request(*, user_id: str, asset_id: str,
     asset = ASSETS.get(asset_id)
     if asset is None or asset_id not in {"GRAM", "usdt-ton"}:
         raise ValueError("Unsupported TON withdrawal asset")
-    if not is_crypto_payment_enabled(asset_id):
-        raise PermissionError("The TON payment rail has not passed its operational release gates")
     try:
         amount = validate_payment_amount(asset_id, amount_raw)
         destination = canonical_ton_address(destination_address)
