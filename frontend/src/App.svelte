@@ -36,7 +36,7 @@
 
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://nft-gift-scanner-production.up.railway.app').replace(/\/$/, '');
   let lang = $state<'ru' | 'en'>('ru');
-  let view = $state<View>('market');
+  let view = $state<View>('orders');
   let gifts = $state<Gift[]>([]);
   let collections = $state<Collection[]>([]);
   let favorites = $state<string[]>([]);
@@ -117,10 +117,10 @@
   let orderKindFilter = $state<'all' | 'listing' | 'buy-order'>('all');
 
   const ru = {
-    market: 'Маркет', orders: 'Активность', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'ТОЛЬКО ПРОСМОТР', catalogOnly: 'Актуальные объявления Portals. Просмотр и поиск доступны; управление сделками в GIFT RADAR пока не включено.',
-    headline: 'Подарки, которые находят своих владельцев', subtitle: 'Единое пространство Telegram-подарков на базе каталога Portals.',
-    brandEyebrow: 'ОТКРЫВАЙ РЕДКОЕ · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Открой редкие подарки.', heroDescription: 'Исследуй коллекции Telegram-подарков, объявления и историю характеристик в одном месте.', openCatalogue: 'Открыть каталог', connectedLabel: 'КАТАЛОГ PORTALS · ТОЛЬКО ПРОСМОТР', exploreMarket: 'ИССЛЕДУЙ МАРКЕТ', collectionsTitle: 'Коллекции', collectionsCount: 'коллекций в каталоге', discoverLabel: 'ОТКРЫВАЙ', portals: 'Единственный источник каталога · Portals', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
-    listings: 'Предложения Portals', results: 'найдено', loading: 'Загружаем каталог…', loadMore: 'Показать ещё',
+    market: 'Каталог', orders: 'Маркет', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'ТОЛЬКО ПРОСМОТР', catalogOnly: 'Каталог подарков. Собственные объявления GIFT RADAR отображаются в разделе «Маркет».',
+    headline: 'Подарки, которые находят своих владельцев', subtitle: 'Маркетплейс Telegram NFT-подарков от n0kl1pzz1k.',
+    brandEyebrow: 'ОТКРЫВАЙ РЕДКОЕ · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Открой редкие подарки.', heroDescription: 'Исследуй коллекции Telegram-подарков, объявления и историю характеристик в одном месте.', openCatalogue: 'Открыть каталог', connectedLabel: 'GIFT RADAR · NFT GIFT MARKETPLACE', exploreMarket: 'ИССЛЕДУЙ МАРКЕТ', collectionsTitle: 'Коллекции', collectionsCount: 'коллекций в каталоге', discoverLabel: 'ОТКРЫВАЙ', portals: 'Каталог подарков', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
+    listings: 'Каталог подарков', results: 'найдено', loading: 'Загружаем каталог…', loadMore: 'Показать ещё',
     empty: 'По этому запросу ничего не найдено.', failed: 'Не удалось загрузить каталог.',
     details: 'О подарке', floor: 'Флор', price: 'Цена', traits: 'Характеристики',
     createTitle: 'Создать объявление', sell: 'Предложение', buy: 'Заявка на поиск', titleLabel: 'Название подарка',
@@ -130,17 +130,17 @@
     ordersTitle: 'Ордера маркетплейса', noOrders: 'Пока нет активных предложений или заявок.',
     offersTitle: 'Офферы', dealsTitle: 'История сделок', sendOffer: 'Отправить оффер', offerAmount: 'Сумма оффера', acceptOffer: 'Принять', declineOffer: 'Отклонить', withdrawOffer: 'Отозвать', noOffers: 'Офферов пока нет.', noDeals: 'История сделок пока пуста.', incoming: 'Входящий', outgoing: 'Исходящий', offerStatusFilter: 'Статус оффера', offerPending: 'Ожидает ответа', offerAccepted: 'Принят', offerDeclined: 'Отклонён', offerWithdrawn: 'Отозван',
     accountStatsTitle: 'Статистика аккаунта', activeOrdersStat: 'Активные заявки', completedOrdersStat: 'Завершённые', sentOffersStat: 'Мои офферы', receivedOffersStat: 'Входящие офферы', notificationsTitle: 'Уведомления', markAllRead: 'Прочитать все', noNotifications: 'Новых уведомлений нет.', offerReceivedNotice: 'отправил(а) оффер', offerAcceptedNotice: 'принят оффер по', offerDeclinedNotice: 'отклонил(а) оффер по', offerWithdrawnNotice: 'отозвал(а) оффер по', activityTitle: 'История активности', noActivity: 'Активность пока не появилась.', loadMoreActivity: 'Показать ещё', orderCreatedActivity: 'Создана заявка', orderUpdatedActivity: 'Заявка изменена', orderFilledActivity: 'Заявка исполнена', orderCancelledActivity: 'Заявка снята', offerReceivedActivity: 'Получен оффер', offerAcceptedActivity: 'Оффер принят', offerDeclinedActivity: 'Оффер отклонён', offerWithdrawnActivity: 'Оффер отозван', dealCreatedActivity: 'Создана сделка',
-    active: 'Активен', matched: 'Смоделирован', cancelled: 'Отменён', cancel: 'Снять', match: 'Исполнить', editOrder: 'Изменить', saveOrder: 'Сохранить', cancelEdit: 'Отмена', editTitle: 'Название', editPrice: 'Цена', editNote: 'Комментарий', orderUpdated: 'Объявление обновлено.',
-    demo: 'GIFT RADAR MARKETPLACE', demoWallet: 'Кошелёк не подключён', demoWalletText: 'Подключение кошельков и операции с активами пока не поддерживаются.',
+    active: 'Активен', matched: 'Закрыт', cancelled: 'Отменён', cancel: 'Снять', match: 'Исполнить', editOrder: 'Изменить', saveOrder: 'Сохранить', cancelEdit: 'Отмена', editTitle: 'Название', editPrice: 'Цена', editNote: 'Комментарий', orderUpdated: 'Объявление обновлено.',
+    demo: 'GIFT RADAR MARKETPLACE', demoWallet: 'TON-кошелёк', demoWalletText: 'Подключение кошельков и операции с активами пока не поддерживаются.',
     signIn: 'Подтвердить Telegram', guest: 'Гость', authHint: 'Открой Mini App через Telegram, чтобы подтвердить профиль.',
     signed: 'Telegram подтверждён', profileText: 'Профиль Telegram и управление публичной карточкой продавца.', sellerCardTitle: 'Публичная карточка продавца', sellerDisplayName: 'Отображаемое имя', sellerBio: 'О себе', sellerSave: 'Сохранить профиль', sellerSaved: 'Профиль продавца обновлён.', sellerProfileId: 'Публичный ID',
     favoritesTitle: 'Избранные подарки', noFavorites: 'Добавьте подарки в избранное из каталога.',
     save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Объявление опубликовано.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Оборот', statsVolumeHint: 'По данным маркетплейса', statsCatalog: 'Подарков в каталоге', stars: 'Stars', ton: 'TON',
-    noImage: 'GIFT', online: 'Каталог Portals', refresh: 'Обновить', all: 'Все', orderStatus: 'Статус', orderKind: 'Тип заявки', activeOrders: 'Активные', matchedOrders: 'Смоделированные', cancelledOrders: 'Снятые', listingsOnly: 'Предложения', buyRequestsOnly: 'Заявки на поиск', invalidPrice: 'Проверь диапазон цены: значения должны быть неотрицательными, а минимальная цена — не выше максимальной.',
-    sourceStatusTitle: 'СОСТОЯНИЕ ИСТОЧНИКОВ', sourceStatusSubtitle: 'Что подключено к приложению', sourcePortals: 'Каталог объявлений', sourceChanges: 'Изменения подарков', sourceDailyFloors: 'История floor-цен', sourceStatusChecked: 'Проверено', sourceStatusChecking: 'Проверяем статус…', sourceStatusUnavailable: 'Не удалось получить статус API.', sourceRefreshInterval: 'Интервал фонового обновления', sourceConfigured: 'Настроен · только чтение', sourceNeedsKey: 'Требуется API-ключ', sourcePublic: 'Публичный источник', sourceDaily: 'Публичная ежедневная история', sourceUnknown: 'Нет данных',
+    noImage: 'GIFT', online: 'Каталог Portals', refresh: 'Обновить', all: 'Все', orderStatus: 'Статус', orderKind: 'Тип заявки', activeOrders: 'Активные', matchedOrders: 'Закрытые', cancelledOrders: 'Снятые', listingsOnly: 'Предложения', buyRequestsOnly: 'Заявки на поиск', invalidPrice: 'Проверь диапазон цены: значения должны быть неотрицательными, а минимальная цена — не выше максимальной.',
+    sourceStatusTitle: 'СОСТОЯНИЕ ИСТОЧНИКОВ', sourceStatusSubtitle: 'Что подключено к приложению', sourcePortals: 'Внешний каталог', sourceChanges: 'Изменения подарков', sourceDailyFloors: 'История floor-цен', sourceStatusChecked: 'Проверено', sourceStatusChecking: 'Проверяем статус…', sourceStatusUnavailable: 'Не удалось получить статус API.', sourceRefreshInterval: 'Интервал фонового обновления', sourceConfigured: 'Настроен · только чтение', sourceNeedsKey: 'Требуется API-ключ', sourcePublic: 'Публичный источник', sourceDaily: 'Публичная ежедневная история', sourceUnknown: 'Нет данных',
   };
   const en = {
-    market: 'Market', orders: 'Activity', create: 'Create', favorites: 'Favorites', profile: 'Profile', readonly: 'READ ONLY', catalogOnly: 'Live Portals listings. Browse and search are available; trade execution is not enabled in GIFT RADAR.',
+    market: 'Catalogue', orders: 'Market', create: 'Create', favorites: 'Favorites', profile: 'Profile', readonly: 'READ ONLY', catalogOnly: 'Live Portals listings. Browse and search are available; trade execution is not enabled in GIFT RADAR.',
     headline: 'Discover gifts worth keeping', subtitle: 'A unified Telegram gifts experience powered by the Portals catalogue.',
     brandEyebrow: 'DISCOVER THE RARE · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Discover rare finds.', heroDescription: 'Explore Telegram gift collections, marketplace listings and item history in one place.', openCatalogue: 'Explore catalogue', connectedLabel: 'PORTALS CATALOGUE · READ ONLY', exploreMarket: 'EXPLORE THE MARKET', collectionsTitle: 'Collections', collectionsCount: 'collections in catalogue', discoverLabel: 'DISCOVER', portals: 'Single catalogue source · Portals', search: 'Gift name or number', min: 'Min price', max: 'Max price',
     listings: 'Portals listings', results: 'found', loading: 'Loading catalogue…', loadMore: 'Load more',
@@ -153,13 +153,13 @@
     ordersTitle: 'Marketplace orders', noOrders: 'No active listings or requests yet.',
     offersTitle: 'Offers', dealsTitle: 'Trade history', sendOffer: 'Send offer', offerAmount: 'Offer amount', acceptOffer: 'Accept', declineOffer: 'Decline', withdrawOffer: 'Withdraw', noOffers: 'No offers yet.', noDeals: 'No trade history yet.', incoming: 'Incoming', outgoing: 'Outgoing', offerStatusFilter: 'Offer status', offerPending: 'Awaiting response', offerAccepted: 'Accepted', offerDeclined: 'Declined', offerWithdrawn: 'Withdrawn',
     accountStatsTitle: 'Account stats', activeOrdersStat: 'Active orders', completedOrdersStat: 'Completed', sentOffersStat: 'Offers sent', receivedOffersStat: 'Offers received', notificationsTitle: 'Notifications', markAllRead: 'Mark all read', noNotifications: 'No notifications yet.', offerReceivedNotice: 'sent you an offer for', offerAcceptedNotice: 'accepted your offer for', offerDeclinedNotice: 'declined your offer for', offerWithdrawnNotice: 'withdrew an offer for', activityTitle: 'Activity history', noActivity: 'No activity yet.', loadMoreActivity: 'Load more', orderCreatedActivity: 'Order created', orderUpdatedActivity: 'Order updated', orderFilledActivity: 'Order filled', orderCancelledActivity: 'Order cancelled', offerReceivedActivity: 'Offer received', offerAcceptedActivity: 'Offer accepted', offerDeclinedActivity: 'Offer declined', offerWithdrawnActivity: 'Offer withdrawn', dealCreatedActivity: 'Trade created',
-    active: 'Active', matched: 'Simulated', cancelled: 'Cancelled', cancel: 'Cancel', match: 'Complete', editOrder: 'Edit', saveOrder: 'Save changes', cancelEdit: 'Discard', editTitle: 'Title', editPrice: 'Price', editNote: 'Note', orderUpdated: 'Order updated.',
-    demo: 'PORTALS LIVE · READ ONLY', demoWallet: 'Wallet not connected', demoWalletText: 'Wallet connections and asset operations are not supported yet.',
+    active: 'Active', matched: 'Closed', cancelled: 'Cancelled', cancel: 'Cancel', match: 'Complete', editOrder: 'Edit', saveOrder: 'Save changes', cancelEdit: 'Discard', editTitle: 'Title', editPrice: 'Price', editNote: 'Note', orderUpdated: 'Order updated.',
+    demo: 'GIFT RADAR MARKETPLACE', demoWallet: 'TON wallet', demoWalletText: 'Wallet connections and asset operations are not supported yet.',
     signIn: 'Verify Telegram', guest: 'Guest', authHint: 'Open the Mini App in Telegram to verify your profile.',
     signed: 'Telegram verified', profileText: 'Your Telegram account and public seller card.', sellerCardTitle: 'Public seller card', sellerDisplayName: 'Display name', sellerBio: 'About', sellerSave: 'Save profile', sellerSaved: 'Seller profile updated.', sellerProfileId: 'Public ID',
     favoritesTitle: 'Saved gifts', noFavorites: 'Save gifts from the catalogue to see them here.',
     save: 'Save', saved: 'Saved', currency: 'TON', success: 'Listing published.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Volume', statsVolumeHint: 'Marketplace records', statsCatalog: 'Catalogue gifts', stars: 'Stars', ton: 'TON',
-    noImage: 'GIFT', online: 'Portals catalogue', refresh: 'Refresh', all: 'All', orderStatus: 'Status', orderKind: 'Order type', activeOrders: 'Active', matchedOrders: 'Simulated', cancelledOrders: 'Cancelled', listingsOnly: 'Listings', buyRequestsOnly: 'Buy requests', invalidPrice: 'Check the price range: values must be non-negative and the minimum cannot exceed the maximum.',
+    noImage: 'GIFT', online: 'Portals catalogue', refresh: 'Refresh', all: 'All', orderStatus: 'Status', orderKind: 'Order type', activeOrders: 'Active', matchedOrders: 'Closed', cancelledOrders: 'Cancelled', listingsOnly: 'Listings', buyRequestsOnly: 'Buy requests', invalidPrice: 'Check the price range: values must be non-negative and the minimum cannot exceed the maximum.',
     sourceStatusTitle: 'SOURCE STATUS', sourceStatusSubtitle: 'Connected data sources', sourcePortals: 'Marketplace catalogue', sourceChanges: 'Gift metadata changes', sourceDailyFloors: 'Floor price history', sourceStatusChecked: 'Checked', sourceStatusChecking: 'Checking status…', sourceStatusUnavailable: 'Could not load API status.', sourceRefreshInterval: 'Background refresh interval', sourceConfigured: 'Configured · read-only', sourceNeedsKey: 'API key required', sourcePublic: 'Public source', sourceDaily: 'Public daily history', sourceUnknown: 'No data',
   };
   const t = $derived(lang === 'ru' ? ru : en);
@@ -181,7 +181,7 @@
     return labels[reason] || reason;
   }
 
-  function offerStatusLabel(status: DemoOffer['status']) {
+  function offerStatusLabel(status: MarketplaceOffer['status']) {
     return status === 'pending' ? t.offerPending : status === 'accepted' ? t.offerAccepted : status === 'declined' ? t.offerDeclined : t.offerWithdrawn;
   }
 
@@ -225,9 +225,9 @@
         window.Telegram?.WebApp?.initData ? request('/api/marketplace/mine') : Promise.resolve({items:[]}),
         request('/api/marketplace/stats'),
       ]);
-      const publicItems = Array.isArray(publicData.items) ? publicData.items as DemoOrder[] : [];
-      const mineItems = Array.isArray(mineData.items) ? mineData.items as DemoOrder[] : [];
-      const combined = new Map<string, DemoOrder>();
+      const publicItems = Array.isArray(publicData.items) ? publicData.items as MarketplaceOrder[] : [];
+      const mineItems = Array.isArray(mineData.items) ? mineData.items as MarketplaceOrder[] : [];
+      const combined = new Map<string, MarketplaceOrder>();
       for (const item of [...publicItems, ...mineItems]) combined.set(item.id, item);
       orders = [...combined.values()].sort((a,b) => b.createdAt - a.createdAt);
       publicOrdersTotal = Number(publicData.total) || publicItems.length;
@@ -249,8 +249,8 @@
       const params = new URLSearchParams({ status: orderStatusFilter, limit: '200', offset: String(publicOrdersOffset) });
       if (orderKindFilter !== 'all') params.set('kind', orderKindFilter);
       const data = await request('/api/marketplace/orders?' + params.toString());
-      const next = Array.isArray(data.items) ? data.items as DemoOrder[] : [];
-      const combined = new Map<string, DemoOrder>(orders.map(order => [order.id, order] as const));
+      const next = Array.isArray(data.items) ? data.items as MarketplaceOrder[] : [];
+      const combined = new Map<string, MarketplaceOrder>(orders.map(order => [order.id, order] as const));
       for (const item of next) combined.set(item.id, item);
       orders = [...combined.values()].sort((a,b) => b.createdAt - a.createdAt);
       publicOrdersOffset += next.length;
@@ -375,8 +375,8 @@
     try {
       const offerStatusQuery = offerStatusFilter === 'all' ? '' : '&status=' + encodeURIComponent(offerStatusFilter);
       const data = await request('/api/marketplace/offers?limit=100&offset=' + offers.length + offerStatusQuery);
-      const next = Array.isArray(data.items) ? data.items as DemoOffer[] : [];
-      const combined = new Map<string, DemoOffer>(offers.map(offer => [offer.id, offer] as const));
+      const next = Array.isArray(data.items) ? data.items as MarketplaceOffer[] : [];
+      const combined = new Map<string, MarketplaceOffer>(offers.map(offer => [offer.id, offer] as const));
       for (const offer of next) combined.set(offer.id, offer);
       offers = [...combined.values()];
       offersTotal = Number(data.total) || offersTotal;
@@ -592,7 +592,7 @@
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
-  function startEditOrder(order: DemoOrder) {
+  function startEditOrder(order: MarketplaceOrder) {
     editingOrderId = order.id;
     editTitle = order.title;
     editPrice = String(order.price);
