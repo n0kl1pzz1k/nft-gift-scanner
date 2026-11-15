@@ -275,7 +275,7 @@ def record_wallet_owned_nft(*, user_id: str, wallet_address: str, asset_type: st
 def create_escrow_pending_listing(*, user_id: str, asset_id: str, price_raw: int,
                                   currency: str, idempotency_key: str,
                                   engine: Engine | None = None, now: int | None = None) -> dict[str, Any]:
-    """Create a private pending listing. It cannot appear publicly before escrow."""
+    """Create a private seller draft without changing NFT custody or publishing it."""
     db = engine or get_engine()
     init_inventory_schema(db)
     if int(price_raw) <= 0 or currency not in {"XTR", "GRAM", "USDT"}:
