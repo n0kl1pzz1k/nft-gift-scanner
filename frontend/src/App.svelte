@@ -1158,7 +1158,7 @@
           </div>
         </section>
       {/if}
-      <section class="market-stats" aria-label="Catalogue overview"><article><span>▦</span><div><strong>{total.toLocaleString()}</strong><small>{t.statsCatalog}</small></div></article><p>{t.catalogOnly}</p></section>
+      <section class="market-stats" aria-label="Catalogue overview"><article><span>▦</span><div><strong>{nativeListingsTotal.toLocaleString()}</strong><small>{t.statsCatalog}</small></div></article><p>{t.catalogOnly}</p></section>
       <section class="source-status-panel native-market-panel" aria-label="GIFT RADAR platform status">
         <div class="source-status-heading">
           <div><div class="eyebrow">{lang==='ru'?'СВОЯ ИНФРАСТРУКТУРА':'OUR INFRASTRUCTURE'}</div><h2>{lang==='ru'?'Независимый маркетплейс':'Independent marketplace'}</h2></div>
