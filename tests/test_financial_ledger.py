@@ -175,6 +175,24 @@ class FinancialLedgerTests(unittest.TestCase):
                 recipient_address="wallet", amount_raw=100, payload="disabled",
                 expires_at=9999999999, engine=self.engine)
 
+    def test_jetton_trace_rejects_noncanonical_destination_wallet(self):
+        invoice = {
+            "chain": "ton-mainnet", "asset_id": "usdt-ton", "asset_kind": "jetton",
+            "master_address": "master", "recipient_address": "wallet",
+            "amount_raw": "100", "payload": "inv",
+        }
+        trace = {
+            "chain": "ton-mainnet", "asset_kind": "jetton", "master_address": "master",
+            "source_jetton_wallet": "source-jw", "expected_source_jetton_wallet": "source-jw",
+            "destination_jetton_wallet": "attacker-jw",
+            "expected_destination_jetton_wallet": "canonical-dest-jw",
+            "recipient_address": "wallet", "amount_raw": 100, "payload": "inv",
+            "opcode": "0x7362d09c", "successful": True, "bounced": False,
+            "finalized": True, "tx_hash": "ab" * 32, "event_index": 7,
+        }
+        with self.assertRaises(ValueError):
+            verify_ton_payment_trace(trace, invoice)
+
     def test_ton_trace_fails_closed(self):
         invoice = {"chain": "ton-mainnet", "master_address": "master", "recipient_address": "wallet",
                    "amount_raw": "100", "payload": "inv"}
