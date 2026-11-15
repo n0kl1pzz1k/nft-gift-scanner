@@ -63,7 +63,7 @@ class TonTestnetGatewayTests(unittest.TestCase):
 
     def gateway(self, first=None, second=None, payout1=None, payout2=None):
         second_transfer = second or TestnetTransfer(
-            **{**self.transfer.__dict__, "provider_id": "tonapi", "query_id": 0}
+            **{**self.transfer.__dict__, "provider_id": "tonapi"}
         )
         return TonTestnetPaymentGateway(
             providers=[Provider("toncenter", first or self.transfer, payout1 or self.payout_transfer("toncenter")),
@@ -281,7 +281,9 @@ class TonTestnetGatewayTests(unittest.TestCase):
         with self.assertRaises(PaymentRouteError):
             TonTestnetPaymentGateway(
                 providers=[Provider("toncenter", self.transfer)],
-                escrow_address="escrow", jetton_master="master",
+                escrow_address="0:" + "22" * 32,
+                jetton_master="0:" + "33" * 32,
+                escrow_jetton_wallet_address="0:" + "55" * 32,
             )
 
     def test_matching_finalized_provider_evidence_confirms_payment(self):
