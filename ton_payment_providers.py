@@ -161,6 +161,13 @@ class ToncenterV3PaymentProvider:
                 expected_wallet = await self._expected_source_wallet(invoice["master_address"], source_owner)
                 if not expected_wallet or expected_wallet != source_wallet:
                     continue
+                recipient_owner = canonical_ton_address(invoice["recipient_address"])
+                destination_wallet = canonical_ton_address(transfer.get("destination_wallet") or "")
+                expected_destination_wallet = await self._expected_source_wallet(
+                    invoice["master_address"], recipient_owner,
+                )
+                if not expected_destination_wallet or destination_wallet != expected_destination_wallet:
+                    continue
                 query_id = transfer.get("query_id")
                 event_index = _stable_event_index(transfer.get("transaction_lt"), query_id,
                                                   source_wallet, transfer.get("amount"))
@@ -170,6 +177,8 @@ class ToncenterV3PaymentProvider:
                     "master_address": canonical_ton_address(invoice["master_address"]),
                     "source_jetton_wallet": source_wallet,
                     "expected_source_jetton_wallet": expected_wallet,
+                    "destination_jetton_wallet": destination_wallet,
+                    "expected_destination_jetton_wallet": expected_destination_wallet,
                     "sender_address": source_owner,
                     "recipient_address": canonical_ton_address(transfer["destination"]),
                     "amount_raw": int(transfer.get("amount") or 0),
