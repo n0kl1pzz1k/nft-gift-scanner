@@ -32,7 +32,7 @@
     data_pipeline?: { refresh_interval_seconds?: number };
     note?: string;
   };
-  type View = 'market' | 'orders' | 'offers' | 'create' | 'favorites' | 'profile' | 'seller';
+  type View = 'orders' | 'offers' | 'create' | 'favorites' | 'profile' | 'seller';
 
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://hassle-nft-market.up.railway.app').replace(/\/$/, '');
   let lang = $state<'ru' | 'en'>('ru');
@@ -527,7 +527,7 @@
     favoriteItems = exists
       ? favoriteItems.filter(item => keyOf(item) !== id)
       : [gift, ...favoriteItems.filter(item => keyOf(item) !== id)];
-    try { localStorage.setItem('gift-radar-favorites-v2', JSON.stringify(favoriteItems)); } catch {}
+    try { localStorage.setItem('hassle-nft-favorites-v1', JSON.stringify(favoriteItems)); } catch {}
     if (signedIn) void persistFavorite(gift, !exists);
   }
 
@@ -762,17 +762,14 @@
         }
       }
     } catch {}
-    void loadCatalogue();
-    void loadCollections();
     void loadMarketplace();
-    void loadApiStatus();
     if (window.Telegram?.WebApp?.initData) void telegramLogin(false);
   });
 </script>
 
 <svelte:head>
   <title>HASSLE NFT — Marketplace</title>
-  <meta name="theme-color" content="#090B18" />
+  <meta name="theme-color" content="#f3f1e9" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 </svelte:head>
 
@@ -794,97 +791,7 @@
       <div class="top-actions"><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>view='profile'}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
     </header>
 
-    {#if view==='market'}
-      <section class="hero hero-market">
-        <div class="hero-copy">
-          <div class="eyebrow"><span class="spark"></span> {t.brandEyebrow}</div>
-          <h1>{t.heroLine1}<br/><span>{t.heroLine2}</span></h1>
-          <p>{t.heroDescription}</p>
-          <div class="hero-actions"><button class="search-button" onclick={()=>document.getElementById('catalogue')?.scrollIntoView({behavior:'smooth',block:'start'})}>{t.openCatalogue} <span>↘</span></button><span class="hero-live"><i></i> {t.connectedLabel}</span></div>
-        </div>
-        <div class="hero-art" aria-hidden="true">
-          {#each collections.slice(0,3) as collection, index}
-            <div class={'collection-orb orb-'+index}>{#if collection.image}<img src={collection.image} alt=""/>{:else}<span>✳</span>{/if}</div>
-          {/each}
-          <span class="float-chip chip-a">TELEGRAM GIFTS</span><span class="float-chip chip-b">HASSLE NFT MARKET</span><span class="float-chip chip-c">COLLECT · DISCOVER</span>
-        </div>
-      </section>
-      {#if collections.length}
-        <section class="collection-shelf">
-          <div class="shelf-heading"><div><div class="eyebrow">{t.exploreMarket}</div><h2>{t.collectionsTitle}</h2></div><span>{collections.length} {t.collectionsCount}</span></div>
-          <div class="collection-rail">
-            {#each collections.slice(0,8) as collection (String(collection.id ?? collection.short_name ?? collection.name))}
-              <button class:chosen={collectionFilter===String(collection.id ?? collection.short_name ?? '')} class="collection-tile" onclick={()=>{collectionFilter=String(collection.id ?? collection.short_name ?? 'all');loadCatalogue();}}>
-                <span class="collection-image">{#if collection.image}<img src={collection.image} alt="" loading="lazy"/>{:else}<span>✳</span>{/if}</span>
-                <span class="collection-info"><strong>{collection.name || collection.short_name || 'Telegram Gifts'}</strong><small>{collection.short_name || 'HASSLE NFT COLLECTION'}</small></span>
-                <span class="collection-arrow">↗</span>
-              </button>
-            {/each}
-          </div>
-        </section>
-      {/if}
-      <section class="market-stats" aria-label="Catalogue overview"><article><span>▦</span><div><strong>{total.toLocaleString()}</strong><small>{t.statsCatalog}</small></div></article><p>{t.catalogOnly}</p></section>
-      <section class="source-status-panel" aria-label={t.sourceStatusTitle}>
-        <div class="source-status-heading">
-          <div><div class="eyebrow">{t.sourceStatusTitle}</div><h2>{t.sourceStatusSubtitle}</h2></div>
-          <div class="source-status-actions">
-            {#if statusCheckedAt}<span>{t.sourceStatusChecked} {new Date(statusCheckedAt).toLocaleTimeString(lang==='ru'?'ru-RU':'en-US')}</span>{/if}
-            <button class="refresh-button" onclick={loadApiStatus} disabled={statusBusy}>{statusBusy?'…':t.refresh}</button>
-          </div>
-        </div>
-        {#if apiStatus?.sources}
-          <div class="source-status-grid">
-            <article class="source-status-item"><div><strong>{t.sourceCatalogue}</strong><span class={'source-status-dot '+sourceStatusClass(apiStatus.sources.portals)}></span></div><small>Gift Market</small><b>{sourceStatusText(apiStatus.sources.portals)}</b></article>
-            <article class="source-status-item"><div><strong>{t.sourceChanges}</strong><span class={'source-status-dot '+sourceStatusClass(apiStatus.sources.gift_changes)}></span></div><small>Gift Changes API</small><b>{sourceStatusText(apiStatus.sources.gift_changes)}</b></article>
-            <article class="source-status-item"><div><strong>{t.sourceDailyFloors}</strong><span class={'source-status-dot '+sourceStatusClass(apiStatus.sources.tg_gifts_daily)}></span></div><small>TG Gifts</small><b>{sourceStatusText(apiStatus.sources.tg_gifts_daily)}</b></article>
-          </div>
-          {#if apiStatus.data_pipeline?.refresh_interval_seconds}<p class="source-status-footnote">{t.sourceRefreshInterval}: {apiStatus.data_pipeline.refresh_interval_seconds}s</p>{/if}
-        {:else if statusError}
-          <p class="source-status-message">{t.sourceStatusUnavailable}</p>
-        {:else}
-          <p class="source-status-message">{t.sourceStatusChecking}</p>
-        {/if}
-      </section>
-      <section class="market-section" id="catalogue">
-        <div class="section-title"><div><div class="eyebrow">{t.discoverLabel}</div><h2>{t.listings}</h2><p>{total.toLocaleString()} {t.results}</p></div><button class="refresh-button" onclick={()=>loadCatalogue()} disabled={busy}>↻ {t.refresh}</button></div>
-        <div class="filter-bar">
-          <div class="search-field"><span>⌕</span><input bind:value={search} placeholder={t.search} onkeydown={e=>e.key==="Enter"&&loadCatalogue()}/></div>
-          <select class="filter-input" bind:value={collectionFilter} aria-label="Collection">
-            <option value="all">Все коллекции</option>
-            {#each collections as collection}
-              <option value={String(collection.id ?? collection.short_name ?? "")}>{collection.name || collection.short_name || "Collection"}</option>
-            {/each}
-          </select>
-          <select class="filter-input" bind:value={statusFilter} aria-label="Listing status">
-            <option value="listed">В продаже</option><option value="unlisted">Не выставлены</option><option value="all">Все статусы</option>
-          </select>
-          <input class="filter-input" type="number" min="0" bind:value={minPrice} placeholder={t.min}/>
-          <input class="filter-input" type="number" min="0" bind:value={maxPrice} placeholder={t.max}/>
-          <select class="filter-input" bind:value={sortBy} aria-label="Sort listings">
-            <option value="listed_at desc">Сначала новые</option><option value="price asc">Сначала дешевле</option><option value="price desc">Сначала дороже</option>
-            <option value="model_rarity asc">Редкость модели ↑</option><option value="model_rarity desc">Редкость модели ↓</option>
-          </select>
-          <button class="search-button" onclick={()=>loadCatalogue()}>Применить</button>
-        </div>
-        {#if busy}<div class="state-panel"><div class="loader"></div>{t.loading}</div>
-        {:else if error}<div class="state-panel error-state">{t.failed}<small>{error}</small><button class="search-button" onclick={()=>loadCatalogue()}>{t.refresh}</button></div>
-        {:else if gifts.length===0}<div class="state-panel">{t.empty}</div>
-        {:else}
-          <div class="gift-grid">
-            {#each gifts as gift (keyOf(gift))}
-              <article class="gift-card">
-                <button class="gift-visual" onclick={()=>void openGift(gift)} aria-label={t.details}>
-                  <GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/>
-                  
-                </button>
-                <div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'} <span>{gift.number?'#'+gift.number:''}</span></div><div class="gift-card-meta">Telegram collectible · {gift.status||'Listed'}</div><div class="gift-card-bottom"><div><small>{t.price}</small><strong>{fmt(gift.price,gift.currency||'TON')}</strong></div><button class:hearted={favorites.includes(keyOf(gift))} class="heart-button" onclick={()=>toggleFavorite(gift)}>{favorites.includes(keyOf(gift))?'♥':'♡'}</button></div><button class="card-details" onclick={()=>void openGift(gift)}>{t.details} <span>↗</span></button></div>
-              </article>
-            {/each}
-          </div>
-          {#if gifts.length<total}<div class="load-more-wrap"><button class="load-more" onclick={()=>loadCatalogue(true)} disabled={loadingMore}>{loadingMore?'…':t.loadMore}</button></div>{/if}
-        {/if}
-      </section>
-    {:else if view==='seller'}
+    {#if view==='seller'}
       <section class="page-heading"><div class="eyebrow">HASSLE NFT · SELLER</div><h1>{lang==='ru'?'Профиль продавца':'Seller profile'}</h1><p>{lang==='ru'?'Публичная информация и активные объявления':'Public information and active listings'}</p></section>
       {#if publicSellerBusy}<div class="state-panel">{t.loading}</div>
       {:else if publicSellerProfile}
