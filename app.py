@@ -138,7 +138,10 @@ async def create_crypto_payment_invoice(
 
     asset = ASSETS[payload.asset_id]
     if not is_crypto_payment_enabled(payload.asset_id):
-        raise HTTPException(status_code=503, detail="Crypto deposits are disabled until all release gates pass")
+        raise HTTPException(
+            status_code=503,
+            detail="Crypto checkout is disabled inside Telegram Mini Apps; use Telegram Stars for digital goods",
+        )
     configured_address = os.getenv("TON_DEPOSIT_ADDRESS", "").strip()
     try:
         recipient = canonical_ton_address(configured_address)
