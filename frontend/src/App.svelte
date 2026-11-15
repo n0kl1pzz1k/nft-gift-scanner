@@ -884,16 +884,26 @@
 
   async function cancelInventoryListing(listingId: string) {
     if (!signedIn || inventoryCancelBusy || !listingId) return;
+    const item = inventoryItems.find((entry:any) => entry.listing_id === listingId);
+    const isDraft = item?.status === 'draft';
     const confirmed = window.confirm(lang==='ru'
-      ? 'Снять объявление? NFT останется на адресе эскроу, перевод обратно здесь не выполняется.'
-      : 'Cancel this listing? The NFT remains in escrow; this action does not transfer it back.');
+      ? (isDraft
+          ? 'Удалить черновик? NFT останется в твоём TON-кошельке, блокчейн-перевод не выполняется.'
+          : 'Снять объявление? NFT останется в эскроу. Для возврата потребуется отдельная безопасная транзакция.')
+      : (isDraft
+          ? 'Delete this draft? The NFT stays in your TON wallet; no blockchain transfer is made.'
+          : 'Cancel this listing? The NFT remains in escrow and requires a separate safe return transaction.'));
     if (!confirmed) return;
     inventoryCancelBusy = listingId;
     try {
       await request('/api/inventory/listings/' + encodeURIComponent(listingId) + '/cancel', undefined, {method:'POST'});
       notice = lang==='ru'
-        ? 'Объявление снято. NFT остаётся в эскроу до отдельной безопасной процедуры возврата.'
-        : 'Listing cancelled. The NFT remains in escrow pending a separate safe return process.';
+        ? (isDraft
+            ? 'Черновик удалён. NFT остался в твоём кошельке.'
+            : 'Объявление снято. NFT остаётся в эскроу до отдельной безопасной процедуры возврата.')
+        : (isDraft
+            ? 'Draft deleted. The NFT remains in your wallet.'
+            : 'Listing cancelled. The NFT remains in escrow pending a separate safe return process.');
       await loadMyInventory();
     } catch (e) {
       notice = e instanceof Error ? e.message : String(e);
