@@ -351,15 +351,20 @@ class TonTestnetPaymentGateway:
     """Read-only independent-provider gateway for the platform test Jetton."""
 
     def __init__(self, *, providers: list[TransferProvider], escrow_address: str,
-                 jetton_master: str):
+                 jetton_master: str, escrow_jetton_wallet_address: str):
         provider_ids = {provider.provider_id for provider in providers}
         if provider_ids != {"toncenter", "tonapi"} or len(providers) != 2:
             raise PaymentRouteError("Exactly two independent testnet providers are required")
-        if not escrow_address or not jetton_master:
-            raise PaymentRouteError("Testnet escrow and test Jetton master are required")
+        if not escrow_address or not jetton_master or not escrow_jetton_wallet_address:
+            raise PaymentRouteError("Testnet escrow, test Jetton master and escrow Jetton wallet are required")
         self.providers = providers
-        self.escrow_address = escrow_address
-        self.jetton_master = jetton_master
+        self.escrow_address = canonical_ton_address(escrow_address)
+        self.jetton_master = canonical_ton_address(jetton_master)
+        self.escrow_jetton_wallet_address = canonical_ton_address(escrow_jetton_wallet_address)
+        if not all(value.startswith("0:") for value in (
+            self.escrow_address, self.jetton_master, self.escrow_jetton_wallet_address,
+        )):
+            raise PaymentRouteError("Testnet Jetton escrow addresses must be basechain addresses")
 
     async def create_intent(self, *, deal_id: str, amount: int, currency: str,
                             escrow_address: str, jetton_master: str,
@@ -383,6 +388,7 @@ class TonTestnetPaymentGateway:
             deal_id=deal_id, amount=amount, currency="tUSDT",
             reference="grpay:" + deal_id, network="testnet", payer_address=payer_address,
             query_id=query_id, payer_jetton_wallet_address=payer_jetton_wallet,
+            escrow_jetton_wallet_address=self.escrow_jetton_wallet_address,
         )
 
     async def verify_payment(self, intent: PaymentIntent) -> PaymentEvidence | None:
@@ -521,6 +527,7 @@ class TonTestnetPaymentGateway:
 def configured_ton_testnet_gateway() -> TonTestnetPaymentGateway:
     escrow = os.getenv("TON_TESTNET_ESCROW_ADDRESS", "").strip()
     master = os.getenv("TON_TESTNET_USDT_MASTER", "").strip()
+    escrow_jetton_wallet = os.getenv("TON_TESTNET_ESCROW_JETTON_WALLET", "").strip()
     center_url = os.getenv("TON_TESTNET_TONCENTER_URL", "https://testnet.toncenter.com/api/v3").strip()
     embed_url = os.getenv("TON_TESTNET_TONAPI_EMBED_URL", "").strip()
     if not embed_url:
@@ -535,4 +542,5 @@ def configured_ton_testnet_gateway() -> TonTestnetPaymentGateway:
             ),
         ],
         escrow_address=escrow, jetton_master=master,
+        escrow_jetton_wallet_address=escrow_jetton_wallet,
     )
