@@ -48,6 +48,16 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+      - name: Deploy HASSLE NFT Worker when free Cloudflare credentials are configured
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "Cloudflare deploy skipped: add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets to enable automatic deployment."
+            exit 0
+          fi
+          npx wrangler deploy
 
   deployment-config:
     runs-on: ubuntu-latest
