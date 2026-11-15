@@ -1,6 +1,6 @@
-"""Simulation-only offers and deal history for GIFT RADAR.
+"""HASSLE NFT marketplace offers.
 
-Offers never trigger payments, wallet actions, asset transfers or blockchain calls.
+Offer acceptance stays disabled until production escrow, verified TON/Stars settlement and NFT transfer are implemented. No simulated deals are created.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from marketplace import _enforce_user_rate_limit
 from pydantic import BaseModel, Field, field_validator
 
-DB_PATH = os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3"))
+DB_PATH = os.getenv("HASSLE_NFT_DB_PATH", os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_URL", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3"))))
 
 
 def _connect() -> sqlite3.Connection:
@@ -250,7 +250,7 @@ def init_demo_offers_db() -> None:
 
 def _require_user(init_data: str | None, verify: Callable[[str], dict]) -> dict:
     if not init_data:
-        raise HTTPException(status_code=401, detail="Open GIFT RADAR from Telegram to manage offers")
+        raise HTTPException(status_code=401, detail="Open HASSLE NFT from Telegram to manage offers")
     return verify(init_data)
 
 
