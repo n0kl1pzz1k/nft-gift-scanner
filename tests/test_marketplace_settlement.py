@@ -249,8 +249,10 @@ class MarketplaceSettlementTests(unittest.TestCase):
                 )
 
         owners = [
-            {"provider_id": "tonapi", "owner_address": self.buyer_wallet, "successful": True},
-            {"provider_id": "toncenter", "owner_address": self.buyer_wallet, "successful": True},
+            {"provider_id": provider, "owner_address": self.buyer_wallet,
+             "item_address": self.item, "collection_address": self.collection,
+             "token_id": "7", "initialized": True, "successful": True}
+            for provider in ("tonapi", "toncenter")
         ]
         result = asyncio.run(confirm_deal_testnet_payout(
             deal_id=self.deal_id, route=Route(), actor_user_id="9001",
@@ -258,6 +260,31 @@ class MarketplaceSettlementTests(unittest.TestCase):
         ))
         self.assertTrue(result["confirmed"])
         self.assertEqual(result["status"], "settled")
+
+    def test_tusdt_payout_rejects_owner_proofs_for_another_nft(self):
+        self._prepare_testnet_tusdt_deal("payout_pending", owner_wallet=self.buyer_wallet,
+                                         listing_status="payout_pending")
+        with self.engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE marketplace_deals SET payout_query_id=555 WHERE deal_id=:id"
+            ), {"id": self.deal_id})
+        class Route:
+            enabled = True
+            route_id = "ton_usdt_testnet"
+            escrow_address = self.escrow
+            jetton_master = "0:" + "66" * 32
+        wrong_item_proofs = [
+            {"provider_id": provider, "owner_address": self.buyer_wallet,
+             "item_address": "0:" + "99" * 32,
+             "collection_address": self.collection, "token_id": "7",
+             "initialized": True, "successful": True}
+            for provider in ("tonapi", "toncenter")
+        ]
+        with self.assertRaises(PermissionError):
+            asyncio.run(confirm_deal_testnet_payout(
+                deal_id=self.deal_id, route=Route(), actor_user_id="9001",
+                current_owner_proofs=wrong_item_proofs, engine=self.engine, now=200,
+            ))
         with self.engine.connect() as conn:
             row = conn.execute(text(
                 "SELECT status,payout_tx_hash,payout_query_id FROM marketplace_deals WHERE deal_id=:id"
@@ -303,7 +330,9 @@ class MarketplaceSettlementTests(unittest.TestCase):
             for provider in ("tonapi", "toncenter")
         ]
         owner_proofs = [
-            {"provider_id": provider, "owner_address": self.seller_wallet, "successful": True}
+            {"provider_id": provider, "owner_address": self.seller_wallet,
+             "item_address": self.item, "collection_address": self.collection,
+             "token_id": "7", "initialized": True, "successful": True}
             for provider in ("tonapi", "toncenter")
         ]
         result = asyncio.run(confirm_deal_testnet_refund(
