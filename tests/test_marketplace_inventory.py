@@ -38,7 +38,7 @@ class SellerInventoryTests(unittest.TestCase):
     def listing(self):
         return create_escrow_pending_listing(
             user_id="101", asset_id=self.asset["asset_id"], price_raw=250,
-            currency="GRAM", idempotency_key="seller-listing-key-0001",
+            currency="TON", idempotency_key="seller-listing-key-0001",
             engine=self.engine, now=110,
         )
 
@@ -109,7 +109,7 @@ class SellerInventoryTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             create_escrow_pending_listing(
                 user_id="202", asset_id=self.asset["asset_id"], price_raw=250,
-                currency="GRAM", idempotency_key="other-listing-key-0001",
+                currency="TON", idempotency_key="other-listing-key-0001",
                 engine=self.engine,
             )
 
