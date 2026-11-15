@@ -78,6 +78,16 @@ class TonNftVerifierTests(unittest.IsolatedAsyncioTestCase):
                 **{**self.common, "wallet_user_id": "701"}
             )
 
+    async def test_duplicate_provider_identity_cannot_fake_independent_quorum(self):
+        duplicate_providers = [
+            FakeProvider("tonapi", self.state),
+            FakeProvider("tonapi", self.state),
+        ]
+        with self.assertRaises(PermissionError):
+            await verify_seller_nft_ownership_async(
+                **{**self.common, "providers": duplicate_providers}
+            )
+
     async def test_provider_mismatch_blocks_listing_verification(self):
         self.providers[1].state = {**self.state, "token_id": "43"}
         with self.assertRaises(ValueError):
