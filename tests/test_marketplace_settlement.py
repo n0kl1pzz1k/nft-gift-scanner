@@ -260,6 +260,16 @@ class MarketplaceSettlementTests(unittest.TestCase):
         ))
         self.assertTrue(result["confirmed"])
         self.assertEqual(result["status"], "settled")
+        with self.engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT status,payout_tx_hash,payout_query_id FROM marketplace_deals WHERE deal_id=:id"
+            ), {"id": self.deal_id}).one()
+            self.assertEqual(row.status, "settled")
+            self.assertEqual(row.payout_tx_hash, "91" * 32)
+            self.assertEqual(row.payout_query_id, 555)
+            self.assertEqual(conn.execute(text(
+                "SELECT status FROM marketplace_listings WHERE listing_id=:id"
+            ), {"id": self.listing_id}).scalar_one(), "sold")
 
     def test_tusdt_payout_rejects_owner_proofs_for_another_nft(self):
         self._prepare_testnet_tusdt_deal("payout_pending", owner_wallet=self.buyer_wallet,
@@ -289,12 +299,12 @@ class MarketplaceSettlementTests(unittest.TestCase):
             row = conn.execute(text(
                 "SELECT status,payout_tx_hash,payout_query_id FROM marketplace_deals WHERE deal_id=:id"
             ), {"id": self.deal_id}).one()
-            self.assertEqual(row.status, "settled")
-            self.assertEqual(row.payout_tx_hash, "91" * 32)
+            self.assertEqual(row.status, "payout_pending")
+            self.assertIsNone(row.payout_tx_hash)
             self.assertEqual(row.payout_query_id, 555)
             self.assertEqual(conn.execute(text(
                 "SELECT status FROM marketplace_listings WHERE listing_id=:id"
-            ), {"id": self.listing_id}).scalar_one(), "sold")
+            ), {"id": self.listing_id}).scalar_one(), "payout_pending")
 
     def test_tusdt_refund_requires_dual_jetton_and_nft_return_evidence(self):
         self._prepare_testnet_tusdt_deal("disputed", listing_status="reserved")
