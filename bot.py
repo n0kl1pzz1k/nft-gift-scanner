@@ -19,12 +19,12 @@ load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
 APP_URL = os.getenv(
     "PUBLIC_APP_URL",
-    "https://nft-gift-scanner.fj7kmzkhn9.workers.dev",
+    "https://hassle-nft-market.fj7kmzkhn9.workers.dev",
 ).strip()
 WELCOME_IMAGE_URL = os.getenv("WELCOME_IMAGE_URL", "").strip()
 API_BASE = os.getenv(
     "API_BASE_URL",
-    "https://nft-gift-scanner-production.up.railway.app",
+    "https://hassle-nft-market.up.railway.app",
 ).rstrip("/")
 ADMIN_TELEGRAM_IDS = {
     part.strip()
@@ -61,10 +61,10 @@ def create_dispatcher() -> Dispatcher:
         raw_name = message.from_user.first_name if message.from_user else "друг"
         first_name = html.escape(raw_name)
         text = (
-            f"✨ <b>GIFT RADAR</b> — привет, {first_name}!\n\n"
+            f"✨ <b>HASSLE NFT</b> — привет, {first_name}!\n\n"
             "🎁 <b>Маркетплейс NFT-подарков Telegram от n0kl1pzz1k.</b>\n"
-            "Находи редкие подарки, смотри предложения и открывай маркет.\n\n"
-            "<b>Жми кнопку ниже, чтобы перейти в GIFT RADAR.</b>"
+            "Покупай, продавай и размещай Telegram NFT-подарки.\n\n"
+            "<b>Жми кнопку ниже, чтобы открыть HASSLE NFT Market.</b>"
         )
         buttons = []
         if APP_URL.startswith("https://"):
@@ -92,7 +92,7 @@ def create_dispatcher() -> Dispatcher:
     @dp.message(Command("help"))
     async def help_command(message: Message):
         await message.answer(
-            "🤖 <b>GIFT RADAR — помощь</b>\n\n"
+            "🤖 <b>HASSLE NFT — помощь</b>\n\n"
             "/start — приветствие и запуск Mini App\n"
             "/help — эта справка\n"
             "/myid — показать твой Telegram ID\n\n"
@@ -107,7 +107,7 @@ def create_dispatcher() -> Dispatcher:
         portals = "настроен" if os.getenv("PORTALS_API_KEY", "").strip() else "не настроен"
         app_ready = "настроен" if APP_URL.startswith("https://") else "не настроен"
         await message.answer(
-            "🔐 <b>GIFT RADAR — админ-панель</b>\n\n"
+            "🔐 <b>HASSLE NFT — админ-панель</b>\n\n"
             f"Mini App: {app_ready}\n"
             f"Portals: {portals}\n"
             "<b>Команды:</b>\n"
@@ -133,7 +133,7 @@ def create_dispatcher() -> Dispatcher:
             portals = sources.get("portals", "unknown")
             stats = marketplace_response.json()
             await message.answer(
-                "📊 <b>Статус GIFT RADAR</b>\n\n"
+                "📊 <b>Статус HASSLE NFT</b>\n\n"
                 "Backend: 🟢 онлайн\n"
                 f"Portals: <code>{portals}</code>\n"
                 f"Демо-ордера: <code>{stats.get('total_orders', 0)}</code>\n"
