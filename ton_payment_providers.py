@@ -1,7 +1,7 @@
 """Fail-closed TON mainnet payment observations from independent indexers.
 
-Toncenter v3 supplies raw/indexed transaction data. TonAPI Embed supplies a
-separately indexed transfer history. Neither provider can settle an invoice:
+Toncenter v3 supplies indexed transaction data. The official TonAPI REST API
+supplies a separately indexed transfer history and raw transaction details. Neither provider can settle an invoice:
 the monitor requires matching finalized observations from both providers.
 """
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import os
 from typing import Any, Protocol
+from urllib.parse import quote
 
 import httpx
 
@@ -32,7 +33,10 @@ def _comment(value: Any) -> str | None:
             candidate = value.get(key)
             if isinstance(candidate, str) and candidate.startswith(("gri_", "grpay_", "gr_")):
                 return candidate
-        for key in ("decoded", "message_content", "decoded_forward_payload", "forward_payload"):
+        for key in (
+            "decoded", "decoded_body", "decodedBody", "message_content",
+            "decoded_forward_payload", "forward_payload", "forwardPayload", "payload",
+        ):
             found = _comment(value.get(key))
             if found:
                 return found
