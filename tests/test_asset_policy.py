@@ -31,7 +31,7 @@ class AssetPolicyTests(unittest.TestCase):
             "DATABASE_URL": "postgresql://user:pass@db.example/giftradar",
             "TON_DEPOSIT_PROVIDER_IDS": "tonapi,toncenter",
             "TONCENTER_API_KEY": "test-key",
-            "TONAPI_EMBED_URL": "https://tonapi.example",
+            "TONAPI_API_KEY": "test-tonapi-key",
             "TON_DEPOSIT_ADDRESS": "0:" + "11" * 32,
             "KZ_LEGAL_REVIEW_APPROVED": "true",
             "KZ_DATA_RESIDENCY_VERIFIED": "true",
