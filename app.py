@@ -1380,6 +1380,10 @@ async def confirm_testnet_deal_payout(
             owner_proofs.append({
                 "provider_id": provider.provider_id,
                 "owner_address": state["owner_address"],
+                "item_address": state["item_address"],
+                "collection_address": state["collection_address"],
+                "token_id": str(state["token_id"]),
+                "initialized": state["initialized"],
                 "successful": True,
             })
         from payment_routes import configured_payment_route
@@ -1496,7 +1500,12 @@ async def confirm_testnet_deal_refund(
             })
             owner_proofs.append({
                 "provider_id": provider.provider_id,
-                "owner_address": state["owner_address"], "successful": True,
+                "owner_address": state["owner_address"],
+                "item_address": state["item_address"],
+                "collection_address": state["collection_address"],
+                "token_id": str(state["token_id"]),
+                "initialized": state["initialized"],
+                "successful": True,
             })
         from payment_routes import configured_payment_route
         return await confirm_deal_testnet_refund(
