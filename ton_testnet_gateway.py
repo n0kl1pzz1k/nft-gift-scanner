@@ -107,6 +107,12 @@ def _seqno(payload: dict[str, Any], *keys: str) -> int:
         return 0
 
 
+def _account_address(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(_pick(value, "address", "account_id") or "")
+    return str(value or "")
+
+
 def _same_address(left: Any, right: Any) -> bool:
     try:
         return canonical_ton_address(str(left)) == canonical_ton_address(str(right))
@@ -239,112 +245,108 @@ class TonCenterTestnetProvider:
         return None
 
 
-class TonApiEmbedTestnetProvider:
+class TonApiTestnetProvider:
+    """Read-only provider using the official public TonAPI testnet REST API."""
+
     provider_id = "tonapi"
 
-    def __init__(self, *, base_url: str, api_key: str = "", timeout: float = 12.0):
+    def __init__(self, *, base_url: str = "https://testnet.tonapi.io/v2",
+                 api_key: str = "", timeout: float = 12.0):
         parsed = urlsplit(base_url)
-        hostname = (parsed.hostname or "").lower()
-        approved_host = (
-            hostname == "testnet.tonapi.io"
-            or hostname.startswith("embed.testnet.")
-        )
-        if (parsed.scheme != "https" or not approved_host
+        if (parsed.scheme != "https" or parsed.hostname != "testnet.tonapi.io"
+                or parsed.path.rstrip("/") != "/v2"
                 or parsed.username or parsed.password or parsed.query or parsed.fragment):
-            raise PaymentRouteError(
-                "TonAPI Embed must use an explicitly configured HTTPS host with a dedicated testnet label"
-            )
+            raise PaymentRouteError("TonAPI must use the official HTTPS testnet API endpoint")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
 
+    async def _history(self, *, escrow_address: str, jetton_master: str) -> list[dict[str, Any]]:
+        headers = {"Authorization": "Bearer " + self.api_key} if self.api_key else {}
+        master = quote(jetton_master, safe=":")
+        owner = quote(escrow_address, safe=":")
+        async with httpx.AsyncClient(timeout=self.timeout, headers=headers) as client:
+            response = await client.get(
+                f"{self.base_url}/jettons/{master}/accounts/{owner}/history",
+                params={"limit": 1000},
+            )
+        response.raise_for_status()
+        return _rows(response.json(), "operations")
+
     async def find_transfer(self, *, escrow_address: str, jetton_master: str,
                             reference: str) -> TestnetTransfer | None:
-        headers = {"Authorization": "Bearer " + self.api_key} if self.api_key else {}
-        root = self.base_url
-        encoded_master = quote(jetton_master, safe=":")
-        encoded_owner = quote(escrow_address, safe=":")
-        async with httpx.AsyncClient(timeout=self.timeout, headers=headers) as client:
-            history, account, status = await asyncio.gather(
-                client.get(f"{root}/jetton/{encoded_master}/{encoded_owner}/history"),
-                client.get(f"{root}/jetton/{encoded_master}/{encoded_owner}"),
-                client.get(f"{root}/status"),
-            )
-        for response in (history, account, status):
-            response.raise_for_status()
-        last_lt = int(_pick(account.json(), "last_processed_tx_lt", "last_transaction_lt") or 0)
-        mc_seqno = _seqno(status.json(), "mc_seqno", "last_mc_seqno")
-        for row in _rows(history.json(), "transfers", "history", "items"):
-            if row.get("aborted") is True or row.get("transaction_aborted") is True:
+        deal_id = _deal_id_from_reference(reference)
+        if not deal_id or not reference.startswith("grpay:"):
+            return None
+        expected_query_id = int.from_bytes(
+            hashlib.sha256(f"{deal_id}:payment".encode()).digest()[:8], "big"
+        ) or 1
+        rows = await self._history(escrow_address=escrow_address, jetton_master=jetton_master)
+        matches = []
+        for row in rows:
+            if row.get("operation") != "transfer":
                 continue
-            if _comment(_pick(row, "comment", "forward_payload", "payload")) != reference:
+            try:
+                query_id = int(row.get("query_id") or 0)
+                amount = int(row.get("amount") or 0)
+                lt = int(row.get("lt") or 0)
+            except (TypeError, ValueError):
                 continue
-            tx = _hash(_pick(row, "hash", "transaction_hash", "tx_hash"))
-            lt = int(_pick(row, "lt", "transaction_lt") or 0)
-            amount = int(_pick(row, "amount") or 0)
-            master = _pick(row, "jetton_master", "jetton")
-            recipient = _pick(row, "destination", "recipient") or escrow_address
-            if (not tx or not lt or amount <= 0 or not master
+            tx = _hash(row.get("transaction_hash"))
+            master = _account_address(row.get("jetton"))
+            sender = _account_address(row.get("source"))
+            recipient = _account_address(row.get("destination"))
+            if (query_id != expected_query_id or amount <= 0 or lt <= 0 or not tx
                     or not _same_address(master, jetton_master)
-                    or not _same_address(recipient, escrow_address)):
+                    or not _same_address(recipient, escrow_address) or not sender):
                 continue
-            return TestnetTransfer(
+            matches.append(TestnetTransfer(
                 provider_id=self.provider_id, transaction_id=tx,
-                deal_id=_deal_id_from_reference(reference), reference=reference,
-                amount=amount, currency="tUSDT", network="testnet",
-                sender=str(_pick(row, "source_owner", "sender_owner", "source", "sender") or ""),
-                recipient=str(recipient),
-                finalized=bool(mc_seqno > 0 and last_lt >= lt),
-                query_id=int(_pick(row, "query_id") or 0),
-            )
-        return None
+                deal_id=deal_id, reference=reference, amount=amount,
+                currency="tUSDT", network="testnet", sender=sender,
+                recipient=recipient, finalized=True, query_id=query_id,
+            ))
+        if len(matches) > 1:
+            raise PaymentRouteError("TonAPI returned multiple transfers for one payment query ID")
+        return matches[0] if matches else None
 
     async def find_payout(self, *, escrow_address: str, jetton_master: str,
                           recipient_address: str, query_id: int, amount: int,
                           reference: str) -> TestnetTransfer | None:
-        headers = {"Authorization": "Bearer " + self.api_key} if self.api_key else {}
-        root = self.base_url
-        encoded_master = quote(jetton_master, safe=":")
-        encoded_owner = quote(escrow_address, safe=":")
-        async with httpx.AsyncClient(timeout=self.timeout, headers=headers) as client:
-            history, account, status = await asyncio.gather(
-                client.get(f"{root}/jetton/{encoded_master}/{encoded_owner}/history"),
-                client.get(f"{root}/jetton/{encoded_master}/{encoded_owner}"),
-                client.get(f"{root}/status"),
-            )
-        for response in (history, account, status):
-            response.raise_for_status()
-        last_lt = int(_pick(account.json(), "last_processed_tx_lt", "last_transaction_lt") or 0)
-        mc_seqno = _seqno(status.json(), "mc_seqno", "last_mc_seqno")
-        for row in _rows(history.json(), "transfers", "history", "items"):
-            # TonAPI Embed's documented transfer history does not guarantee a
-            # query_id field. If present, it must match; otherwise the gateway
-            # anchors the same transaction hash against TON Center's exact query_id.
-            if row.get("aborted") is True or row.get("transaction_aborted") is True:
+        rows = await self._history(escrow_address=escrow_address, jetton_master=jetton_master)
+        matches = []
+        for row in rows:
+            if row.get("operation") != "transfer":
                 continue
-            reported_query_id = _pick(row, "query_id")
-            if reported_query_id not in (None, "", 0, "0") and int(reported_query_id) != query_id:
+            try:
+                row_query_id = int(row.get("query_id") or 0)
+                row_amount = int(row.get("amount") or 0)
+                lt = int(row.get("lt") or 0)
+            except (TypeError, ValueError):
                 continue
-            tx = _hash(_pick(row, "hash", "transaction_hash", "tx_hash"))
-            lt = int(_pick(row, "lt", "transaction_lt") or 0)
-            row_amount = int(_pick(row, "amount") or 0)
-            master = _pick(row, "jetton_master", "jetton")
-            sender = _pick(row, "source_owner", "sender_owner", "source", "sender")
-            recipient = _pick(row, "destination_owner", "recipient_owner", "destination", "recipient")
-            if (not tx or not lt or row_amount != amount or not master
+            tx = _hash(row.get("transaction_hash"))
+            master = _account_address(row.get("jetton"))
+            sender = _account_address(row.get("source"))
+            recipient = _account_address(row.get("destination"))
+            if (row_query_id != query_id or row_amount != amount or lt <= 0 or not tx
                     or not _same_address(master, jetton_master)
                     or not _same_address(sender, escrow_address)
                     or not _same_address(recipient, recipient_address)):
                 continue
-            return TestnetTransfer(
+            matches.append(TestnetTransfer(
                 provider_id=self.provider_id, transaction_id=tx,
                 deal_id=_deal_id_from_reference(reference), reference=reference,
                 amount=row_amount, currency="tUSDT", network="testnet",
-                sender=str(sender), recipient=str(recipient),
-                finalized=bool(mc_seqno > 0 and last_lt >= lt),
-                query_id=query_id,
-            )
-        return None
+                sender=sender, recipient=recipient, finalized=True,
+                query_id=row_query_id,
+            ))
+        if len(matches) > 1:
+            raise PaymentRouteError("TonAPI returned multiple transfers for one payout query ID")
+        return matches[0] if matches else None
+
+
+# Backwards-compatible import name for older tests and integrations.
+TonApiEmbedTestnetProvider = TonApiTestnetProvider
 
 
 class TonTestnetPaymentGateway:
@@ -535,17 +537,14 @@ def configured_ton_testnet_gateway() -> TonTestnetPaymentGateway:
     master = os.getenv("TON_TESTNET_USDT_MASTER", "").strip()
     escrow_jetton_wallet = os.getenv("TON_TESTNET_ESCROW_JETTON_WALLET", "").strip()
     center_url = os.getenv("TON_TESTNET_TONCENTER_URL", "https://testnet.toncenter.com/api/v3").strip()
-    embed_url = os.getenv("TON_TESTNET_TONAPI_EMBED_URL", "").strip()
-    if not embed_url:
-        raise PaymentRouteError("TON_TESTNET_TONAPI_EMBED_URL must point to a self-hosted testnet TonAPI Embed instance")
+    tonapi_url = os.getenv("TON_TESTNET_TONAPI_URL", "https://testnet.tonapi.io/v2").strip()
+    tonapi_key = os.getenv("TON_TESTNET_TONAPI_KEY", "").strip()
     return TonTestnetPaymentGateway(
         providers=[
             TonCenterTestnetProvider(
                 base_url=center_url, api_key=os.getenv("TON_TESTNET_TONCENTER_API_KEY", "").strip(),
             ),
-            TonApiEmbedTestnetProvider(
-                base_url=embed_url, api_key=os.getenv("TON_TESTNET_TONAPI_EMBED_API_KEY", "").strip(),
-            ),
+            TonApiTestnetProvider(base_url=tonapi_url, api_key=tonapi_key),
         ],
         escrow_address=escrow, jetton_master=master,
         escrow_jetton_wallet_address=escrow_jetton_wallet,
