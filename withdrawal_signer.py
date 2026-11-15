@@ -101,7 +101,7 @@ def create_withdrawal_request(*, user_id: str, asset_id: str,
     if not idempotency_key or len(idempotency_key) < 16 or len(idempotency_key) > 200:
         raise ValueError("A bounded withdrawal idempotency key is required")
     asset = ASSETS.get(asset_id)
-    if asset is None or asset_id not in {"GRAM", "usdt-ton"}:
+    if asset is None or asset_id != "TON":
         raise ValueError("Unsupported TON withdrawal asset")
     try:
         amount = validate_payment_amount(asset_id, amount_raw)
@@ -110,7 +110,7 @@ def create_withdrawal_request(*, user_id: str, asset_id: str,
         raise ValueError(str(exc)) from exc
     if not destination.startswith("0:"):
         raise ValueError("Only TON mainnet basechain withdrawal addresses are supported")
-    fee_name = "TON_WITHDRAWAL_FEE_GRAM_RAW" if asset_id == "GRAM" else "TON_WITHDRAWAL_FEE_USDT_RAW"
+    fee_name = "TON_WITHDRAWAL_FEE_RAW"
     try:
         fee = int(os.getenv(fee_name, "0"))
     except ValueError:
