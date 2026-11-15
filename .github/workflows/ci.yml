@@ -84,8 +84,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
       - name: Validate deployment configuration
-        run: python3 -m json.tool railway.json > /dev/null
+        run: |
+          python3 -m json.tool railway.json > /dev/null
+          node --test worker/index.test.js
+      - name: Build frontend and validate Cloudflare Worker bundle
+        run: |
+          npm --prefix frontend install --no-audit --no-fund
+          npm --prefix frontend run build
+          npx --yes wrangler@4 deploy --dry-run --outdir /tmp/gift-radar-worker
 
   secret-scan:
     runs-on: [self-hosted, linux, x64]
