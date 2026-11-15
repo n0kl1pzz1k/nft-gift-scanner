@@ -1,7 +1,7 @@
 """Independent TON testnet observation for platform-issued tUSDT deposits.
 
 Read-only: this module never signs, broadcasts, or accepts wallet secrets.
-A payment is returned only when TON Center v3 and TonAPI Embed independently
+A payment is returned only when TON Center v3 and the official TonAPI testnet API independently
 report the same finalized Jetton transfer with the exact deal reference/amount.
 """
 from __future__ import annotations
@@ -345,10 +345,6 @@ class TonApiTestnetProvider:
         return matches[0] if matches else None
 
 
-# Backwards-compatible import name for older tests and integrations.
-TonApiEmbedTestnetProvider = TonApiTestnetProvider
-
-
 class TonTestnetPaymentGateway:
     """Read-only independent-provider gateway for the platform test Jetton."""
 
@@ -415,7 +411,7 @@ class TonTestnetPaymentGateway:
         first, second = observations
         assert first is not None and second is not None
         center = first if first.provider_id == "toncenter" else second
-        embed = second if second.provider_id == "tonapi" else first
+        tonapi = second if second.provider_id == "tonapi" else first
         def comparable(item):
             return (
                 item.transaction_id, item.deal_id, item.reference, item.amount,
@@ -424,7 +420,7 @@ class TonTestnetPaymentGateway:
             )
         if comparable(first) != comparable(second):
             raise PaymentRouteError("TON testnet providers disagree on payment evidence")
-        if (not center.finalized or not embed.finalized
+        if (not center.finalized or not tonapi.finalized
                 or center.amount != intent.amount or center.deal_id != intent.deal_id
                 or center.currency != "tUSDT" or center.network != "testnet"
                 or center.query_id <= 0
