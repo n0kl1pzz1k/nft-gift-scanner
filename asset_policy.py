@@ -126,8 +126,14 @@ def validate_payment_amount(asset_id: str, amount_raw: int) -> int:
     return amount
 
 
-def is_crypto_payment_enabled(asset_id: str) -> bool:
-    """Enable only reviewed TON assets after every operational and Kazakhstan release gate."""
+def is_crypto_payment_enabled(asset_id: str, *, surface: str = "telegram-mini-app") -> bool:
+    """Enable reviewed TON deposits only on an explicitly approved external checkout surface.
+
+    Telegram Mini Apps must use Stars for digital-goods checkout. TON Connect wallet
+    interactions remain available, but this crypto-payment gate is external-only.
+    """
+    if surface != "external":
+        return False
     asset = ASSETS.get(asset_id)
     if asset is None or not asset.payment_enabled or asset.chain is not Chain.TON:
         return False
@@ -153,6 +159,7 @@ def is_crypto_payment_enabled(asset_id: str) -> bool:
         provider_ids == {"tonapi", "toncenter"},
         bool(os.getenv("TONCENTER_API_KEY", "").strip()),
         bool(os.getenv("TONAPI_API_KEY", "").strip()),
+        os.getenv("TON_CRYPTO_EXTERNAL_CHECKOUT_APPROVED", "false").strip().lower() == "true",
         bool(os.getenv("TON_DEPOSIT_ADDRESS", "").strip()),
         os.getenv("KZ_LEGAL_REVIEW_APPROVED", "false").strip().lower() == "true",
         os.getenv("KZ_DATA_RESIDENCY_VERIFIED", "false").strip().lower() == "true",
