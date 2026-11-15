@@ -1031,14 +1031,18 @@ def verify_ton_payment_trace(trace: dict[str, Any], invoice: dict[str, Any]) -> 
             raise ValueError("Native GRAM must not be represented as a Jetton transfer")
         return
 
-    jetton_required = ("master_address", "source_jetton_wallet",
-                       "expected_source_jetton_wallet", "opcode")
+    jetton_required = (
+        "master_address", "source_jetton_wallet", "expected_source_jetton_wallet",
+        "destination_jetton_wallet", "expected_destination_jetton_wallet", "opcode",
+    )
     if any(key not in trace for key in jetton_required):
         raise ValueError("Incomplete Jetton transfer evidence")
     if trace["master_address"] != invoice["master_address"]:
         raise ValueError("Token master mismatch")
     if trace["source_jetton_wallet"] != trace["expected_source_jetton_wallet"]:
         raise ValueError("Sender is not the canonical Jetton wallet")
+    if trace["destination_jetton_wallet"] != trace["expected_destination_jetton_wallet"]:
+        raise ValueError("Recipient is not the canonical Jetton wallet")
     if str(trace["opcode"]).lower() not in {"0x7362d09c", "1935855772"}:
         raise ValueError("Unexpected Jetton transfer notification opcode")
 
