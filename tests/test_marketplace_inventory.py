@@ -42,6 +42,15 @@ class SellerInventoryTests(unittest.TestCase):
             engine=self.engine, now=110,
         )
 
+    def mark_deposit_pending(self, listing):
+        # Test fixture: model the state after the seller has submitted the NFT transfer.
+        with self.engine.begin() as conn:
+            result = conn.execute(text(
+                "UPDATE marketplace_listings SET status='pending_verification' "
+                "WHERE listing_id=:id AND status='draft'"
+            ), {"id": listing["listing_id"]})
+            self.assertEqual(result.rowcount, 1)
+
     def test_verified_wallet_binding_can_be_revoked(self):
         address = "0:" + "55" * 32
         save_verified_wallet(user_id="101", address=address,
@@ -54,13 +63,14 @@ class SellerInventoryTests(unittest.TestCase):
 
     def test_listing_is_private_until_escrow_owner_is_confirmed(self):
         listing = self.listing()
-        self.assertEqual(listing["status"], "pending_verification")
+        self.assertEqual(listing["status"], "draft")
         self.assertFalse(listing.get("public", True))
         with self.assertRaises(ValueError):
             reserve_verified_listing(
                 listing_id=listing["listing_id"], buyer_user_id="202",
                 engine=self.engine, now=120,
             )
+        self.mark_deposit_pending(listing)
         active = confirm_nft_escrow_deposit(
             listing_id=listing["listing_id"], tx_hash="ab" * 32,
             event_index=0, verified_escrow_owner="EQescrow",
@@ -105,6 +115,7 @@ class SellerInventoryTests(unittest.TestCase):
 
     def test_reservation_is_atomic_and_buyer_can_cancel(self):
         listing = self.listing()
+        self.mark_deposit_pending(listing)
         confirm_nft_escrow_deposit(
             listing_id=listing["listing_id"], tx_hash="ab" * 32,
             event_index=0, verified_escrow_owner="EQescrow",
@@ -141,6 +152,7 @@ class SellerInventoryTests(unittest.TestCase):
 
     def test_buyer_cancel_requires_fresh_escrow_proof_before_relisting(self):
         listing = self.listing()
+        self.mark_deposit_pending(listing)
         confirm_nft_escrow_deposit(
             listing_id=listing["listing_id"], tx_hash="ab" * 32,
             event_index=0, verified_escrow_owner="EQescrow",
@@ -173,6 +185,7 @@ class SellerInventoryTests(unittest.TestCase):
 
     def test_seller_can_cancel_active_listing_before_reservation(self):
         listing = self.listing()
+        self.mark_deposit_pending(listing)
         confirm_nft_escrow_deposit(
             listing_id=listing["listing_id"], tx_hash="ab" * 32,
             event_index=0, verified_escrow_owner="EQescrow",
@@ -193,6 +206,7 @@ class SellerInventoryTests(unittest.TestCase):
 
     def test_seller_cannot_cancel_reserved_listing_or_another_sellers_listing(self):
         listing = self.listing()
+        self.mark_deposit_pending(listing)
         confirm_nft_escrow_deposit(
             listing_id=listing["listing_id"], tx_hash="ab" * 32,
             event_index=0, verified_escrow_owner="EQescrow",
