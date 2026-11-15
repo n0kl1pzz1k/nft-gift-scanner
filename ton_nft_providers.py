@@ -205,7 +205,8 @@ class ToncenterNftProvider:
         owner = item.get("owner_address")
         collection = item.get("collection_address")
         address = item.get("address")
-        initialized = bool(item.get("init", item.get("initialized", owner is not None)))
+        initialized_value = item.get("init", item.get("initialized", owner is not None))
+        initialized = initialized_value is True
         return {
             "item_address": canonical_ton_address(address or ""),
             "collection_address": canonical_ton_address(collection or ""),
