@@ -196,4 +196,4 @@ await pool!.query(`CREATE TABLE IF NOT EXISTS ton_verified_wallets (
   user_id TEXT NOT NULL, address TEXT NOT NULL UNIQUE, network TEXT NOT NULL,
   public_key TEXT, verified_at BIGINT NOT NULL, PRIMARY KEY(user_id,address)
 )`);
-await app.listen({ port: Number(process.env.PORT ?? 8080), host: "0.0.0.0" });
+await app.listen({ port: Number(process.env.TON_PROOF_PORT ?? 8081), host: "0.0.0.0" });
