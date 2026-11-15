@@ -66,6 +66,7 @@ class TonTestnetGatewayTests(unittest.TestCase):
                        Provider("tonapi", second_transfer, payout2 or self.payout_transfer("tonapi"))],
             escrow_address="0:" + "22" * 32,
             jetton_master="0:" + "33" * 32,
+            escrow_jetton_wallet_address="0:" + "55" * 32,
         )
 
 
