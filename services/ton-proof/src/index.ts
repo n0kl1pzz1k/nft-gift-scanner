@@ -128,7 +128,7 @@ async function verifyProof(input: z.infer<typeof verifySchema>): Promise<Buffer 
 app.get("/health", async () => ({ status: "ok", service: "gift-radar-ton-proof" }));
 
 app.post("/v1/challenges", async (request, reply) => {
-  const body = z.object({ userId: z.string().regex(/^\\d{1,24}$/) }).safeParse(request.body);
+  const body = z.object({ userId: z.string().regex(/^\d{1,24}$/) }).safeParse(request.body);
   if (!body.success) return reply.code(400).send({ error: "invalid_request" });
   const now = Math.floor(Date.now() / 1000);
   for (const [payload, challenge] of challenges) {
