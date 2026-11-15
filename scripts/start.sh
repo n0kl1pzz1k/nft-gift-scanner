@@ -37,8 +37,6 @@ for _ in range(40):
 else:
     raise SystemExit("TON Proof sidecar failed its private health check")
 PY
-elif [[ -z "${TON_PROOF_SERVICE_URL:-}" ]]; then
-  echo "TON Proof uses the configured private service URL."
 fi
 
 uvicorn app:app --host 0.0.0.0 --port "${PORT:-8080}" &
