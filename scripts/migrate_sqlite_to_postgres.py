@@ -13,6 +13,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import MetaData, create_engine, text
 
 TABLES = (
@@ -70,9 +72,13 @@ def migrate(source_path: Path, apply: bool, source_quiesced: bool = False, batch
     engine = create_engine(database_url, pool_pre_ping=True, future=True)
     try:
         with engine.connect() as connection:
-            revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-            if revision != "0006_stars_refunds":
-                raise RuntimeError("Target must be migrated to Alembic revision 0006_stars_refunds")
+            revisions = set(connection.execute(text("SELECT version_num FROM alembic_version")).scalars())
+            expected_heads = set(ScriptDirectory.from_config(Config("alembic.ini")).get_heads())
+            if revisions != expected_heads:
+                raise RuntimeError(
+                    "Target must be migrated to the current Alembic head before data import; "
+                    f"expected {sorted(expected_heads)}, found {sorted(revisions)}"
+                )
             metadata = MetaData()
             metadata.reflect(bind=connection, only=list(TARGET_GUARD_TABLES))
             missing_targets = sorted(set(TARGET_GUARD_TABLES) - set(metadata.tables))
@@ -89,6 +95,20 @@ def migrate(source_path: Path, apply: bool, source_quiesced: bool = False, batch
                     rows = source.execute('SELECT COUNT(*) FROM "' + stars_table + '"').fetchone()[0]
                     if rows:
                         raise RuntimeError("SQLite contains Telegram Stars records; reconcile them separately before cutover")
+
+            marketplace_source_tables = (
+                "marketplace_assets", "marketplace_ownership_proofs", "marketplace_listings",
+                "marketplace_listing_events", "marketplace_reservations", "marketplace_deals",
+                "marketplace_deal_events", "marketplace_deal_lifecycle_events",
+            )
+            for marketplace_table in marketplace_source_tables:
+                if marketplace_table in source_tables:
+                    rows = source.execute('SELECT COUNT(*) FROM "' + marketplace_table + '"').fetchone()[0]
+                    if rows:
+                        raise RuntimeError(
+                            "SQLite contains native marketplace records; reconcile them separately "
+                            "before this legacy-data cutover"
+                        )
 
             missing_required = sorted((set(TABLES) - OPTIONAL_SOURCE_TABLES) - source_tables)
             if missing_required:
@@ -191,7 +211,10 @@ def migrate(source_path: Path, apply: bool, source_quiesced: bool = False, batch
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Migrate GIFT RADAR SQLite marketplace data to PostgreSQL")
-    parser.add_argument("--source", default=os.getenv("GIFT_RADAR_SQLITE_PATH", "./data/gift-radar.sqlite3"))
+    parser.add_argument(
+        "--source",
+        default=os.getenv("GIFT_RADAR_SQLITE_PATH") or os.getenv("GIFT_RADAR_DB_PATH") or "./data/gift-radar.sqlite3",
+    )
     parser.add_argument("--apply", action="store_true", help="commit migration; without this flag only validate")
     parser.add_argument("--source-quiesced", action="store_true", help="confirm all SQLite writers are stopped for the cutover window")
     parser.add_argument("--batch-size", type=int, default=500)
