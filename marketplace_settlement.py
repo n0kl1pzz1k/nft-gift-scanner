@@ -698,21 +698,39 @@ async def _build_testnet_deal_intent(deal: Any, route: Any) -> Any:
     )
 
 
-def _validate_dual_owner_proofs(proofs: list[dict[str, Any]], expected_owner: str) -> None:
-    if len(proofs) < 2:
-        raise PermissionError("Two independent live NFT owner proofs are required")
+def _validate_dual_owner_proofs(
+    proofs: list[dict[str, Any]],
+    expected_owner: str,
+    *,
+    expected_item_address: str,
+    expected_collection_address: str,
+    expected_token_id: str,
+) -> None:
+    """Require two providers to agree on both current owner and exact NFT identity."""
+    if len(proofs) != 2:
+        raise PermissionError("Exactly two independent live NFT owner proofs are required")
     provider_ids = set()
     owners = set()
+    item_addresses = set()
+    collection_addresses = set()
+    token_ids = set()
     for proof in proofs:
         provider_id = str(proof.get("provider_id") or "")
         if provider_id not in {"tonapi", "toncenter"} or provider_id in provider_ids:
             raise PermissionError("Two distinct trusted NFT providers are required")
-        if proof.get("successful") is not True:
-            raise ValueError("NFT owner lookup did not succeed")
+        if proof.get("successful") is not True or proof.get("initialized") is not True:
+            raise ValueError("NFT owner lookup or item initialization was not verified")
         provider_ids.add(provider_id)
         owners.add(canonical_ton_address(proof.get("owner_address") or ""))
+        item_addresses.add(canonical_ton_address(proof.get("item_address") or ""))
+        collection_addresses.add(canonical_ton_address(proof.get("collection_address") or ""))
+        token_ids.add(str(proof.get("token_id") or ""))
     if len(provider_ids) != 2 or owners != {canonical_ton_address(expected_owner)}:
         raise PermissionError("Independent NFT owner providers do not agree with the expected owner")
+    if (item_addresses != {canonical_ton_address(expected_item_address)}
+            or collection_addresses != {canonical_ton_address(expected_collection_address)}
+            or token_ids != {str(expected_token_id)}):
+        raise PermissionError("Independent providers do not agree on the registered NFT identity")
 
 
 async def confirm_deal_testnet_payout(*, deal_id: str, route: Any,
@@ -736,7 +754,18 @@ async def confirm_deal_testnet_payout(*, deal_id: str, route: Any,
                 "payout_tx_hash": deal["payout_tx_hash"]}
     if deal["status"] != "payout_pending" or not deal["seller_wallet_address"]:
         raise ValueError("Deal is not awaiting a verifiable seller payout")
-    _validate_dual_owner_proofs(current_owner_proofs, str(deal["buyer_wallet_address"]))
+    with db.connect() as conn:
+        asset = conn.execute(select(marketplace_assets).where(
+            marketplace_assets.c.asset_id == deal["asset_id"]
+        )).mappings().first()
+    if asset is None or not asset["item_address"] or not asset["collection_address"]:
+        raise ValueError("Registered NFT identity is incomplete")
+    _validate_dual_owner_proofs(
+        current_owner_proofs, str(deal["buyer_wallet_address"]),
+        expected_item_address=str(asset["item_address"]),
+        expected_collection_address=str(asset["collection_address"]),
+        expected_token_id=str(asset["token_id"]),
+    )
     query_id = int(deal["payout_query_id"] or 0)
     if query_id <= 0:
         raise ValueError("Payout query ID is missing")
@@ -952,7 +981,19 @@ async def confirm_deal_testnet_refund(*, deal_id: str, route: Any,
     seller_wallet = canonical_ton_address(deal["seller_wallet_address"])
     if normalized[0]["old_owner"] != escrow or normalized[0]["new_owner"] != seller_wallet:
         raise PermissionError("NFT return did not move from this escrow to the snapshotted seller")
-    _validate_dual_owner_proofs(current_owner_proofs, seller_wallet)
+    asset_identity = None
+    with db.connect() as conn:
+        asset_identity = conn.execute(select(marketplace_assets).where(
+            marketplace_assets.c.asset_id == deal["asset_id"]
+        )).mappings().first()
+    if asset_identity is None or not asset_identity["item_address"] or not asset_identity["collection_address"]:
+        raise ValueError("Registered NFT identity is incomplete")
+    _validate_dual_owner_proofs(
+        current_owner_proofs, seller_wallet,
+        expected_item_address=str(asset_identity["item_address"]),
+        expected_collection_address=str(asset_identity["collection_address"]),
+        expected_token_id=str(asset_identity["token_id"]),
+    )
     intent = await _build_testnet_deal_intent(deal, route)
     evidence = await route.verify_refund(
         intent, buyer_address=str(deal["buyer_wallet_address"]), query_id=query_id,
