@@ -50,7 +50,7 @@ class NftEscrowMonitorTests(unittest.IsolatedAsyncioTestCase):
         self.asset_id = asset["asset_id"]
         listing = create_escrow_pending_listing(
             user_id="101", asset_id=self.asset_id, price_raw=100,
-            currency="GRAM", idempotency_key="escrow-listing-test-0001",
+            currency="TON", idempotency_key="escrow-listing-test-0001",
             engine=self.engine, now=110,
         )
         self.listing_id = listing["listing_id"]
