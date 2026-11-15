@@ -319,3 +319,25 @@ body{background:radial-gradient(ellipse at 92% 0%,#d9e4ff 0%,transparent 34%),ra
 .notification-dot{background:#aab0ad}.notification-item.unread .notification-dot{background:#315cff;box-shadow:0 0 8px #315cff55}.notification-copy strong{color:#30383a}.notification-copy small{color:#858c8d}.notification-new{color:#315cff}
 .activity-demo-tag{color:#315cff;border-color:#cbd5ff}.activity-row{border-color:#e3e4dd}.activity-marker{background:#315cff;box-shadow:0 0 8px #315cff55}.activity-row-main strong{color:#202729}.activity-row-main>span{color:#5f686a}.activity-row-main small,.activity-row-value small{color:#858c8d}.activity-row-value strong{color:#315cff}
 .source-status-panel{background:#fff;border-color:#e0e1da}@media(max-width:900px){.mobile-nav{box-shadow:0 -6px 25px #171a1d0a}}
+
+
+
+/* Compact interaction rhythm across every HASSLE NFT section. */
+.page-heading{margin:30px 0 18px}
+.page-heading h1{font-size:clamp(25px,3vw,30px);letter-spacing:-.045em}
+.page-heading p{font-size:10px;line-height:1.55}
+.profile-card,.create-form,.create-aside{padding:18px}
+.profile-card h2{font-size:16px}
+.order-card{gap:12px;padding:13px;border-radius:13px}
+.order-main h3{font-size:12px}
+.order-main p{font-size:9px;line-height:1.45}
+.order-icon{width:36px;height:36px;flex-basis:36px;border-radius:10px}
+.search-button,.publish-button,.load-more{min-height:36px;padding:9px 14px;border-radius:10px;font-size:10px}
+.order-actions button,.cancel-button,.match-button{padding:7px 9px;font-size:9px}
+.heart-button{width:30px;height:30px;flex:0 0 30px;border-radius:9px;font-size:15px}
+.filter-input,.form-input{padding:10px 12px;border-radius:10px;font-size:11px}
+.create-form label{margin-bottom:14px;font-size:10px}
+.segmented{margin-bottom:18px}
+.segmented button{padding:9px;font-size:10px}
+.mobile-nav button{padding:6px 2px}
+@media(max-width:520px){.page-heading{margin:24px 0 15px}.page-heading h1{font-size:25px}.order-card{gap:8px;padding:10px}.order-main h3{font-size:11px}.profile-card,.create-form,.create-aside{padding:15px}.search-button,.publish-button,.load-more{min-height:34px;padding:8px 11px;font-size:9px}}
