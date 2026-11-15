@@ -3,8 +3,7 @@ providers = ["python"]
 [phases.setup]
 nixPkgs = ["...", "nodejs_20"]
 
-[phases.ton-proof]
-dependsOn = ["install"]
+[phases.build]
 cmds = [
   "npm --prefix services/ton-proof install --no-audit --no-fund",
   "npm --prefix services/ton-proof run build"
