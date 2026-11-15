@@ -22,7 +22,7 @@ concurrency:
 jobs:
   escrow-contract:
     name: Build and test Tolk escrow (local emulator only)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
