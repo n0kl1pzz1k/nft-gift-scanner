@@ -625,6 +625,24 @@
         </section>
       {:else}<div class="state-panel">{lang==='ru'?'Профиль не найден.':'Seller profile not found.'}</div>{/if}
     {:else if view==='orders'}
+      <section class="ton-hero">
+        <div class="ton-hero-copy">
+          <div class="ton-kicker"><span class="ton-live-dot"></span> HASSLE NFT MARKET <i>·</i> TON ECOSYSTEM</div>
+          <h1>{lang==='ru'?'ТВОИ NFT. ТВОЯ СДЕЛКА.':'YOUR NFT. YOUR DEAL.'}</h1>
+          <p>{lang==='ru'?'Маркетплейс Telegram-подарков. Покупай, продавай и находи редкое в одном месте.':'The Telegram gift marketplace. Buy, sell and discover rare finds in one place.'}</p>
+          <div class="ton-hero-actions">
+            <button class="ton-primary" onclick={()=>view='create'}>{lang==='ru'?'＋ Разместить объявление':'＋ Create listing'}</button>
+            <span class="ton-network"><b></b> TON NETWORK</span>
+          </div>
+        </div>
+        <div class="ton-stage" aria-hidden="true">
+          <div class="ton-aura"></div><div class="ton-orbit ton-orbit-a"></div><div class="ton-orbit ton-orbit-b"></div>
+          <div class="ton-coin"><div class="ton-coin-rim"></div><div class="ton-coin-face"><span class="ton-mark">T</span></div></div>
+          <span class="ton-float-tag tag-ton">TON <b>◆</b></span><span class="ton-float-tag tag-nft">NFT <b>✦</b></span>
+          <span class="ton-particle particle-a"></span><span class="ton-particle particle-b"></span><span class="ton-particle particle-c"></span>
+        </div>
+        <div class="ton-hero-foot"><span>01 / MARKETPLACE</span><span>POWERED BY TON</span><span>HASSLE NFT © 2026</span></div>
+      </section>
       <section class="page-heading compact-heading" id="marketplace"><div class="eyebrow">HASSLE NFT</div><h1>{t.ordersTitle}</h1></section>
       <div class="order-filter-bar"><label>{t.orderStatus}<select class="filter-input" bind:value={orderStatusFilter} onchange={changeOrderFilters}><option value="all">{t.all}</option><option value="active">{t.activeOrders}</option><option value="matched">{t.matchedOrders}</option><option value="cancelled">{t.cancelledOrders}</option></select></label><label>{t.orderKind}<select class="filter-input" bind:value={orderKindFilter} onchange={changeOrderFilters}><option value="all">{t.all}</option><option value="listing">{t.listingsOnly}</option><option value="buy-order">{t.buyRequestsOnly}</option></select></label></div>{#if visibleOrders.length===0}<div class="state-panel">{t.noOrders}</div>{:else}<div class="orders-list">{#each visibleOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {'· '+order.owner} {order.note?'· '+order.note:''} {order.events?.length?'· '+order.events.map(event=>event.type==='created'?(lang==='ru'?'создан':'created'):event.type==='updated'?(lang==='ru'?'изменено':'updated'):(lang==='ru'?'снят':'cancelled')).join(' → '):''}</p>{#if order.seller_profile_id}<button class="seller-link" onclick={()=>openSellerProfile(order.seller_profile_id!)}>{lang==='ru'?'Профиль продавца':'Seller profile'} ↗</button>{/if}</div><button class={'heart-button '+(favoriteOrderIds.includes(order.id)?'hearted':'')} onclick={()=>toggleFavoriteOrder(order)} aria-label={favoriteOrderIds.includes(order.id)?'Remove from favorites':'Add to favorites'}>{favoriteOrderIds.includes(order.id)?'♥':'♡'}</button><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active' && order.isMine}
                   <div class="order-actions"><button class="match-button" onclick={()=>startEditOrder(order)}>{t.editOrder}</button><button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button></div>
