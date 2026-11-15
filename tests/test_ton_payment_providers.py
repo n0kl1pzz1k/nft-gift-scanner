@@ -112,7 +112,7 @@ class TonApiMainnetProviderTests(unittest.IsolatedAsyncioTestCase):
         traces = await self.provider.find_invoice_transfers(self.invoice)
         self.assertEqual(len(traces), 1)
         trace = traces[0]
-        self.assertEqual(trace["provider_id"] if "provider_id" in trace else "tonapi", "tonapi")
+        self.assertEqual(self.provider.provider_id, "tonapi")
         self.assertEqual(trace["master_address"], self.master)
         self.assertEqual(trace["sender_address"], self.buyer)
         self.assertEqual(trace["recipient_address"], self.escrow)
