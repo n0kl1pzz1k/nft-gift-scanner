@@ -1,9 +1,12 @@
 name = "nft-gift-scanner"
 compatibility_date = "2026-11-11"
+main = "worker/index.js"
 workers_dev = true
 
 [assets]
 directory = "./frontend/dist"
+binding = "ASSETS"
+run_worker_first = ["/tonconnect-manifest.json"]
 not_found_handling = "single-page-application"
 
 [previews]
