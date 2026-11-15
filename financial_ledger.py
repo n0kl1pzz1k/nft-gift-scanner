@@ -240,9 +240,10 @@ def _hash(value: Any) -> str:
 def ton_trace_evidence_hash(trace: dict[str, Any]) -> str:
     keys = (
         "chain", "asset_kind", "master_address", "source_jetton_wallet",
-        "expected_source_jetton_wallet", "sender_address", "recipient_address",
-        "amount_raw", "payload", "opcode", "successful", "bounced", "finalized",
-        "tx_hash", "event_index",
+        "expected_source_jetton_wallet", "destination_jetton_wallet",
+        "expected_destination_jetton_wallet", "sender_address", "recipient_address",
+        "amount_raw", "query_id", "payload", "opcode", "successful", "bounced",
+        "finalized", "tx_hash", "event_index",
     )
     return _hash({key: trace.get(key) for key in keys if key in trace})
 
