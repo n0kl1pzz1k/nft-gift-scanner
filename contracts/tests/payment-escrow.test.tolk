@@ -115,7 +115,7 @@ fun setupPaymentEscrow(assetKind: uint8, amount: coins): (GiftRadarPaymentEscrow
     expect(deployed).toHaveSuccessfulDeploy({ to: escrow.address });
     val escrowUsdtWallet = minter.getWalletAddress(escrow.address);
     val buyerUsdtWallet = minter.getWalletAddress(buyer.address);
-    val initialized = net.send(platformAdmin.address, createMessage({
+    val initialized = net.send(seller.address, createMessage({
         bounce: true,
         value: grams("0.05"),
         dest: escrow.address,
@@ -125,7 +125,7 @@ fun setupPaymentEscrow(assetKind: uint8, amount: coins): (GiftRadarPaymentEscrow
         },
     }));
     expect(initialized).toHaveSuccessfulTx<InitializePaymentEscrow>({
-        from: platformAdmin.address,
+        from: seller.address,
         to: escrow.address,
     });
     val mintInternal = InternalTransferStep {
