@@ -768,8 +768,7 @@
     }
     testnetPaymentBusy = true;
     try {
-      const wallet = tonConnectUI.wallet;
-      if (!wallet || Address.parse(wallet.account.address).toRawString() !== Address.parse(testnetIntent.payer_address).toRawString()) {
+      if (!connectedWallet || Address.parse(connectedWallet).toRawString() !== Address.parse(testnetIntent.payer_address).toRawString()) {
         throw new Error('Connected wallet does not match the payment intent');
       }
       if (!testnetIntent.payer_jetton_wallet_address || !testnetIntent.escrow_jetton_wallet_address) {
@@ -792,7 +791,7 @@
         .storeUint(queryId, 64)
         .storeCoins(amount)
         .storeAddress(Address.parse(testnetIntent.escrow_address))
-        .storeAddress(Address.parse(wallet.account.address))
+        .storeAddress(Address.parse(connectedWallet))
         .storeBit(0)
         .storeCoins(toNano('0.05'))
         .storeBit(1)
@@ -800,7 +799,7 @@
         .endCell();
       await tonConnectUI.sendTransaction({
         validUntil: Math.floor(Date.now() / 1000) + 600,
-        network: wallet.account.chain,
+        network: '-3',
         messages: [{
           address: testnetIntent.payer_jetton_wallet_address,
           amount: toNano('0.2').toString(),
