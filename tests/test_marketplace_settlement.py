@@ -55,6 +55,12 @@ class MarketplaceSettlementTests(unittest.TestCase):
             engine=self.engine, now=110,
         )
         self.listing_id = listing["listing_id"]
+        # Settlement fixtures represent an already-submitted seller NFT transfer.
+        with self.engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE marketplace_listings SET status='pending_verification' "
+                "WHERE listing_id=:id AND status='draft'"
+            ), {"id": self.listing_id})
         confirm_nft_escrow_deposit(
             listing_id=self.listing_id, tx_hash="ab" * 32, event_index=0,
             verified_escrow_owner=self.escrow, expected_escrow_owner=self.escrow,
