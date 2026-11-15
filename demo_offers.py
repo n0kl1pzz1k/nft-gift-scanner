@@ -19,7 +19,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from marketplace import _enforce_user_rate_limit
 from pydantic import BaseModel, Field, field_validator
 
-DB_PATH = os.getenv("HASSLE_NFT_DB_PATH", os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_URL", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3"))))
+DB_PATH = os.getenv("HASSLE_NFT_DB_PATH", os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3")))
 
 
 def _connect() -> sqlite3.Connection:
