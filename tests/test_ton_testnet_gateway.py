@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from payment_routes import PaymentEvidence, PaymentIntent, PaymentRouteError
 from ton_testnet_gateway import (
-    TestnetTransfer, TonApiEmbedTestnetProvider, TonCenterTestnetProvider,
+    TestnetTransfer, TonApiTestnetProvider, TonCenterTestnetProvider,
     TonApiTestnetProvider, TonTestnetPaymentGateway, configured_ton_testnet_gateway,
 )
 
