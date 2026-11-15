@@ -133,7 +133,7 @@ app.get("/health", async () => ({ status: "ok", service: "gift-radar-ton-proof" 
 
 app.post("/v1/challenges", async (request, reply) => {
   if (!pool) return reply.code(503).send({ error: "database_not_configured" });
-  const body = z.object({ userId: z.string().regex(/^\\d{1,24}$/) }).safeParse(request.body);
+  const body = z.object({ userId: z.string().regex(/^\d{1,24}$/) }).safeParse(request.body);
   if (!body.success) return reply.code(400).send({ error: "invalid_request" });
   const payload = Buffer.from(await getSecureRandomBytes(32)).toString("hex");
   const expiresAt = Math.floor(Date.now() / 1000) + 600;
