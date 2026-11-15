@@ -197,120 +197,217 @@ class ToncenterV3PaymentProvider:
         return await self._jettons(invoice)
 
 
-class TonApiEmbedPaymentProvider:
-    """Second independent indexer; the self-hosted TonAPI Embed API must be synced."""
+class TonApiPaymentProvider:
+    """Independent read-only observer using the official TonAPI mainnet REST API."""
 
     provider_id = "tonapi"
 
-    def __init__(self, *, base_url: str, api_key: str = "", timeout: float = 12.0):
-        if not base_url.startswith("https://"):
-            raise RuntimeError("TONAPI_EMBED_URL must be an HTTPS endpoint")
-        self.base_url = base_url.rstrip("/")
+    def __init__(self, *, api_key: str, timeout: float = 12.0):
+        if not api_key:
+            raise RuntimeError("TONAPI_API_KEY is required")
         self.api_key = api_key
         self.timeout = timeout
+        self.base_url = "https://tonapi.io/v2"
 
     def _client(self) -> httpx.AsyncClient:
-        headers = {"Authorization": "Bearer " + self.api_key} if self.api_key else {}
-        return httpx.AsyncClient(timeout=self.timeout, headers=headers)
+        return httpx.AsyncClient(
+            timeout=self.timeout,
+            headers={"Authorization": "Bearer " + self.api_key},
+        )
 
-    async def _history(self, invoice: dict[str, Any]) -> tuple[list[dict[str, Any]], int, int]:
-        asset_kind = invoice.get("asset_kind", "jetton")
-        if asset_kind == "native":
-            path = f"/account/{invoice['recipient_address']}/history"
-        else:
-            path = f"/jetton/{invoice['master_address']}/{invoice['recipient_address']}/history"
+    async def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         async with self._client() as client:
-            history_response = await client.get(self.base_url + path, params={"limit": 1000, "sort": "desc"})
-            status_response = await client.get(self.base_url + "/status")
-            account_response = await client.get(
-                self.base_url + (f"/account/{invoice['recipient_address']}" if asset_kind == "native"
-                                 else f"/jetton/{invoice['master_address']}/{invoice['recipient_address']}")
-            )
-        history_response.raise_for_status()
-        status_response.raise_for_status()
-        account_response.raise_for_status()
-        status = status_response.json()
-        account = account_response.json()
-        last_processed_lt = int(account.get("last_processed_tx_lt") or 0)
-        mc_seqno = int(status.get("mc_seqno") or status.get("last_mc_seqno") or 0)
-        rows = history_response.json()
-        if isinstance(rows, dict):
-            rows = rows.get("transfers") or rows.get("history") or rows.get("items") or []
-        return rows if isinstance(rows, list) else [], last_processed_lt, mc_seqno
+            response = await client.get(self.base_url + path, params=params)
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise ValueError("TonAPI returned a non-object response")
+        return data
 
-    async def _source_wallet(self, master: str, source_owner: str) -> str | None:
+    @staticmethod
+    def _address(value: Any) -> str:
+        if isinstance(value, dict):
+            value = value.get("address")
+        if not isinstance(value, str) or not value:
+            raise ValueError("TonAPI response omitted a required TON address")
+        return canonical_ton_address(value)
+
+    @staticmethod
+    def _transaction_successful(tx: dict[str, Any]) -> bool:
+        if tx.get("success") is not True or tx.get("aborted") is not False:
+            return False
+        compute = tx.get("compute_phase")
+        if not isinstance(compute, dict) or compute.get("success") is not True:
+            return False
+        if int(compute.get("exit_code", -1)) != 0:
+            return False
+        action = tx.get("action_phase")
+        if action is not None and (
+            not isinstance(action, dict) or action.get("success") is not True
+            or int(action.get("result_code", -1)) != 0
+        ):
+            return False
+        return tx.get("bounce_phase") in (None, "")
+
+    async def _status(self) -> dict[str, Any]:
+        status = await self._get("/status")
+        if status.get("rest_online") is not True:
+            raise RuntimeError("TonAPI mainnet REST service is not online")
+        if int(status.get("last_known_masterchain_seqno") or 0) <= 0:
+            raise RuntimeError("TonAPI has no known mainnet masterchain head")
+        return status
+
+    async def _jetton_wallet(self, owner: str, master: str) -> str | None:
+        owner_path = quote(owner, safe=":")
+        master_path = quote(master, safe=":")
         async with self._client() as client:
             response = await client.get(
-                "https://tonapi.io/v2/accounts/" + source_owner + "/jettons/" + master,
-                headers={"Authorization": "Bearer " + self.api_key} if self.api_key else {},
+                f"{self.base_url}/accounts/{owner_path}/jettons/{master_path}"
             )
         if response.status_code == 404:
             return None
         response.raise_for_status()
         data = response.json()
-        wallet = data.get("wallet_address") or data.get("jetton_wallet")
+        wallet = data.get("wallet_address") if isinstance(data, dict) else None
         return canonical_ton_address(wallet) if wallet else None
 
-    async def find_invoice_transfer(self, invoice: dict[str, Any]) -> dict[str, Any] | None:
-        candidates = await self.find_invoice_transfers(invoice)
-        if len(candidates) > 1:
-            raise ValueError("More than one transfer matches a unique invoice payload")
-        return candidates[0] if candidates else None
+    async def _transaction(self, tx_hash: str) -> dict[str, Any] | None:
+        async with self._client() as client:
+            response = await client.get(
+                self.base_url + "/blockchain/transactions/" + quote(tx_hash, safe="")
+            )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        data = response.json()
+        return data if isinstance(data, dict) else None
 
-    async def find_invoice_transfers(self, invoice: dict[str, Any]) -> list[dict[str, Any]]:
-        if invoice.get("chain") != "ton-mainnet":
-            raise ValueError("Only TON mainnet invoices are supported")
-        rows, last_lt, mc_seqno = await self._history(invoice)
+    async def _native(self, invoice: dict[str, Any]) -> list[dict[str, Any]]:
+        recipient = canonical_ton_address(invoice["recipient_address"])
+        recipient_path = quote(recipient, safe=":")
+        data = await self._get(
+            f"/blockchain/accounts/{recipient_path}/transactions",
+            {"limit": 1000, "sort_order": "desc"},
+        )
+        status = await self._status()
         candidates = []
-        for row in rows:
+        for tx in data.get("transactions") or []:
             try:
-                tx_hash = _hash64(row.get("hash") or row.get("transaction_hash"))
-                lt = int(row.get("lt") or row.get("transaction_lt") or 0)
-                if lt <= 0 or lt > last_lt or mc_seqno <= 0:
+                msg = tx.get("in_msg") or {}
+                if self._address(msg.get("destination")) != recipient:
                     continue
-                if canonical_ton_address(row.get("destination") or row.get("recipient") or "") != canonical_ton_address(invoice["recipient_address"]):
+                if int(tx.get("utime") or 0) < int(invoice["created_at"]):
                     continue
-                comment = _comment(row.get("comment") or row.get("forward_payload"))
+                comment = _comment(msg.get("decoded_body"))
                 if comment != invoice["payload"]:
                     continue
-                amount = int(row.get("amount") or 0)
-                if invoice.get("asset_kind") == "native":
-                    candidates.append({
-                        "chain": "ton-mainnet", "asset_kind": "native", "master_address": "",
-                        "sender_address": canonical_ton_address(row.get("source") or row.get("sender") or ""),
-                        "recipient_address": canonical_ton_address(invoice["recipient_address"]),
-                        "amount_raw": amount, "payload": comment, "opcode": None,
-                        "successful": row.get("successful", row.get("success")) is True,
-                        "bounced": row.get("bounced") is True,
-                        "finalized": lt <= last_lt and mc_seqno > 0,
-                        "tx_hash": tx_hash, "event_index": lt, "mc_block_seqno": mc_seqno,
-                    })
-                    continue
-                if canonical_ton_address(row.get("jetton_master") or row.get("jetton") or "") != canonical_ton_address(invoice["master_address"]):
-                    continue
-                source_owner = canonical_ton_address(row.get("source") or row.get("sender") or "")
-                source_wallet = await self._source_wallet(invoice["master_address"], source_owner)
-                if not source_wallet:
-                    continue
+                tx_hash = _hash64(tx.get("hash"))
+                successful = self._transaction_successful(tx) and msg.get("bounced") is not True
                 candidates.append({
-                    "chain": "ton-mainnet", "asset_kind": "jetton",
-                    "master_address": canonical_ton_address(invoice["master_address"]),
-                    "source_jetton_wallet": source_wallet,
-                    "expected_source_jetton_wallet": source_wallet,
-                    "sender_address": source_owner,
-                    "recipient_address": canonical_ton_address(invoice["recipient_address"]),
-                    "amount_raw": amount, "payload": comment,
-                    "opcode": JETTON_TRANSFER_NOTIFICATION,
-                    "successful": row.get("successful") is True,
-                    "bounced": row.get("bounced") is True,
-                    "finalized": lt <= last_lt and mc_seqno > 0,
-                    "tx_hash": tx_hash,
-                    "event_index": _stable_event_index(lt, row.get("query_id"), source_wallet, amount),
-                    "mc_block_seqno": mc_seqno,
+                    "chain": "ton-mainnet", "asset_kind": "native", "master_address": "",
+                    "sender_address": self._address(msg.get("source")),
+                    "recipient_address": recipient,
+                    "amount_raw": int(msg.get("value") or 0), "payload": comment,
+                    "opcode": None, "successful": successful,
+                    "bounced": msg.get("bounced") is True,
+                    "finalized": bool(tx.get("block")) and int(status["last_known_masterchain_seqno"]) > 0,
+                    "tx_hash": tx_hash, "event_index": int(tx.get("lt") or 0),
+                    "mc_block_seqno": int(status["last_known_masterchain_seqno"]),
                 })
             except (TypeError, ValueError, KeyError):
                 continue
         return candidates
+
+    async def _jettons(self, invoice: dict[str, Any]) -> list[dict[str, Any]]:
+        recipient = canonical_ton_address(invoice["recipient_address"])
+        master = canonical_ton_address(invoice["master_address"])
+        recipient_path = quote(recipient, safe=":")
+        master_path = quote(master, safe=":")
+        history = await self._get(
+            f"/jettons/{master_path}/accounts/{recipient_path}/history",
+            {"limit": 1000, "start_date": int(invoice["created_at"])},
+        )
+        status = await self._status()
+        expected_destination_wallet = await self._jetton_wallet(recipient, master)
+        if not expected_destination_wallet:
+            return []
+        candidates = []
+        for row in history.get("operations") or []:
+            try:
+                if row.get("operation") != "transfer":
+                    continue
+                if self._address(row.get("destination")) != recipient:
+                    continue
+                jetton = row.get("jetton") or {}
+                if self._address(jetton.get("address")) != master:
+                    continue
+                amount = int(row.get("amount") or 0)
+                query_id = int(row.get("query_id") or 0)
+                if amount <= 0 or query_id <= 0:
+                    continue
+                expected_query_id = invoice.get("query_id")
+                if expected_query_id is not None and query_id != int(expected_query_id):
+                    continue
+                tx_hash = _hash64(row.get("transaction_hash"))
+                source_owner = self._address(row.get("source"))
+                expected_source_wallet = await self._jetton_wallet(source_owner, master)
+                if not expected_source_wallet:
+                    continue
+                tx = await self._transaction(tx_hash)
+                if tx is None or not self._transaction_successful(tx):
+                    continue
+                msg = tx.get("in_msg") or {}
+                if msg.get("bounced") is True or str(msg.get("op_code") or "").lower() != JETTON_TRANSFER_NOTIFICATION:
+                    continue
+                if self._address(tx.get("account")) != expected_destination_wallet:
+                    continue
+                if self._address(msg.get("source")) != expected_source_wallet:
+                    continue
+                if self._address(msg.get("destination")) != expected_destination_wallet:
+                    continue
+                body = msg.get("decoded_body") or {}
+                body_query_id = int(body.get("query_id") or 0)
+                body_amount = int(body.get("amount") or 0)
+                body_sender = self._address(body.get("sender"))
+                comment = _comment(body)
+                if (body_query_id != query_id or body_amount != amount
+                        or body_sender != source_owner or comment != invoice["payload"]):
+                    continue
+                lt = int(row.get("lt") or tx.get("lt") or 0)
+                if lt <= 0:
+                    continue
+                candidates.append({
+                    "chain": "ton-mainnet", "asset_kind": "jetton",
+                    "master_address": master,
+                    "source_jetton_wallet": expected_source_wallet,
+                    "expected_source_jetton_wallet": expected_source_wallet,
+                    "destination_jetton_wallet": expected_destination_wallet,
+                    "expected_destination_jetton_wallet": expected_destination_wallet,
+                    "sender_address": source_owner, "recipient_address": recipient,
+                    "amount_raw": amount, "payload": comment,
+                    "opcode": JETTON_TRANSFER_NOTIFICATION,
+                    "successful": True, "bounced": False,
+                    "finalized": bool(tx.get("block")) and int(status["last_known_masterchain_seqno"]) > 0,
+                    "tx_hash": tx_hash,
+                    "event_index": _stable_event_index(lt, query_id, expected_source_wallet, amount),
+                    "mc_block_seqno": int(status["last_known_masterchain_seqno"]),
+                })
+            except (TypeError, ValueError, KeyError):
+                continue
+        return candidates
+
+    async def find_invoice_transfer(self, invoice: dict[str, Any]) -> dict[str, Any] | None:
+        candidates = await self.find_invoice_transfers(invoice)
+        if len(candidates) > 1:
+            raise ValueError("TonAPI returned multiple transfers for one unique invoice")
+        return candidates[0] if candidates else None
+
+    async def find_invoice_transfers(self, invoice: dict[str, Any]) -> list[dict[str, Any]]:
+        if invoice.get("chain") != "ton-mainnet":
+            raise ValueError("TonAPI mainnet provider accepts only TON mainnet invoices")
+        if invoice.get("asset_kind") == "native":
+            return await self._native(invoice)
+        return await self._jettons(invoice)
 
 
 def configured_ton_payment_providers() -> list[TonPaymentProvider]:
@@ -320,8 +417,5 @@ def configured_ton_payment_providers() -> list[TonPaymentProvider]:
         raise RuntimeError("TON_DEPOSIT_PROVIDER_IDS must be 'tonapi,toncenter'")
     return [
         ToncenterV3PaymentProvider(api_key=os.getenv("TONCENTER_API_KEY", "")),
-        TonApiEmbedPaymentProvider(
-            base_url=os.getenv("TONAPI_EMBED_URL", ""),
-            api_key=os.getenv("TONAPI_EMBED_API_KEY", ""),
-        ),
+        TonApiPaymentProvider(api_key=os.getenv("TONAPI_API_KEY", "")),
     ]
