@@ -527,26 +527,6 @@
     }
   }
 
-  async function toggleAdminMarketplace() {
-    if (!isAdmin || adminBusy) return;
-    adminBusy = true;
-    try {
-      const data = await request('/api/admin/marketplaces/portals', undefined, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !adminMarketplaceEnabled }),
-      });
-      adminMarketplaceEnabled = data.enabled === true;
-      notice = lang === 'ru'
-        ? (adminMarketplaceEnabled ? 'Каталог подарков включён.' : 'Каталог подарков выключен.')
-        : (adminMarketplaceEnabled ? 'Gift marketplace enabled.' : 'Gift marketplace disabled.');
-    } catch (e) {
-      notice = e instanceof Error ? e.message : String(e);
-    } finally {
-      adminBusy = false;
-    }
-  }
-
   async function telegramLogin(showNotice = true) {
     const initData = window.Telegram?.WebApp?.initData || '';
     if (!initData) {
@@ -593,15 +573,8 @@
     window.Telegram?.WebApp?.ready?.();
     window.Telegram?.WebApp?.expand?.();
     try {
-      const fav = JSON.parse(localStorage.getItem('gift-radar-favorites-v2') || '[]');
-      if (Array.isArray(fav)) {
-        if (fav.length && typeof fav[0] === 'object') {
-          favoriteItems = fav as Gift[];
-          favorites = favoriteItems.map(keyOf);
-        } else {
-          favorites = fav as string[];
-        }
-      }
+      const savedOrders = JSON.parse(localStorage.getItem('hassle-nft-favorite-orders-v1') || '[]');
+      if (Array.isArray(savedOrders)) favoriteOrderIds = savedOrders.filter((id): id is string => typeof id === 'string');
     } catch {}
     void loadMarketplace();
     if (window.Telegram?.WebApp?.initData) void telegramLogin(false);
