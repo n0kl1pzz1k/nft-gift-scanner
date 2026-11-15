@@ -30,7 +30,7 @@ The ledger supports native GRAM and Jetton-specific trace verification. A normal
 5. The database has not already used the chain event or invoice. The event identity is network + transaction hash + event index + asset ID.
 6. The payment event and balanced ledger posting commit atomically.
 
-Provider disagreement, provider equivocation, missing finality, unknown asset, stale/malformed trace or provider outage never credits the account. Such events require review. Provider IDs are explicitly configured in `TON_DEPOSIT_PROVIDER_IDS`; two aliases for one operator do not count as independent sources. The normalized deposit monitor and two-provider settlement gate are implemented, but production TonAPI/Toncenter payment-trace adapters and their continuous invoice scanner still need to be connected before crypto deposits can run continuously.
+Provider disagreement, provider equivocation, missing finality, unknown asset, stale/malformed trace or provider outage never credits the account. Such events require review. Provider IDs are explicitly configured in `TON_DEPOSIT_PROVIDER_IDS`; two aliases for one operator do not count as independent sources. The official TonAPI mainnet REST adapter and TON Center v3 adapter are connected to the background invoice monitor. Both adapters independently derive and verify source and destination Jetton wallets, transfer-notification opcode, amount, query identity and transaction execution. Runtime credentials and all legal/operational release gates remain unconfigured; crypto deposits stay disabled.
 
 ## 3. Withdrawals and double-spend prevention
 
@@ -83,6 +83,7 @@ Official references:
 Implemented in this phase:
 - TON Connect wallet connect/disconnect, network-aware TON Proof re-verification, and mainnet/testnet wallet separation;
 - one-use TON Proof challenges, wallet StateInit/address/signature verification and private sidecar routes;
+- official TonAPI mainnet REST payment-trace adapter and TON Center v3 paired observer, with exact source/destination Jetton wallet checks;
 - official TonAPI testnet Jetton history adapter paired with TON Center, query-ID and transaction identity matching;
 - TON Connect TEP-74 tUSDT testnet payment request construction; wallet submission is not treated as payment confirmation;
 - private seller inventory drafts that do not falsely mark an NFT as escrowed;
