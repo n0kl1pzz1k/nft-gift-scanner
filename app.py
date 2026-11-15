@@ -551,7 +551,7 @@ async def telegram_webhook(
 @app.post("/api/wallet/ton-proof/payload")
 async def ton_proof_payload(x_telegram_init_data: str | None = Header(default=None)):
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
-    service_url = os.getenv("TON_PROOF_SERVICE_URL", "").strip().rstrip("/")
+    service_url = os.getenv("TON_PROOF_SERVICE_URL", "http://127.0.0.1:8081").strip().rstrip("/")
     internal_token = os.getenv("TON_PROOF_INTERNAL_TOKEN", "").strip()
     if not service_url or not internal_token:
         raise HTTPException(status_code=503, detail="TON Proof service is not configured")
