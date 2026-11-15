@@ -104,16 +104,13 @@ def create_dispatcher() -> Dispatcher:
         if not is_admin(message):
             await message.answer("Доступ запрещён.")
             return
-        portals = "настроен" if os.getenv("PORTALS_API_KEY", "").strip() else "не настроен"
         app_ready = "настроен" if APP_URL.startswith("https://") else "не настроен"
         await message.answer(
-            "🔐 <b>HASSLE NFT — админ-панель</b>\n\n"
+            "🔐 <b>HASSLE NFT · админ-панель</b>\n\n"
             f"Mini App: {app_ready}\n"
-            f"Portals: {portals}\n"
             "<b>Команды:</b>\n"
-            "/admin_status — проверить backend и источники\n"
-            "/admin — открыть эту панель\n\n"
-            "Панель управляет мониторингом. Все заявки остаются демонстрационными."
+            "/admin_status · состояние backend и маркетплейса\n"
+            "/admin · эта панель"
         )
 
     @dp.message(Command("admin_status"))
@@ -124,20 +121,16 @@ def create_dispatcher() -> Dispatcher:
         try:
             async with httpx.AsyncClient(timeout=8.0) as client:
                 health_response = await client.get(f"{API_BASE}/health")
-                status_response = await client.get(f"{API_BASE}/api/status")
                 marketplace_response = await client.get(f"{API_BASE}/api/marketplace/stats")
-            if not health_response.is_success or not status_response.is_success or not marketplace_response.is_success:
+            if not health_response.is_success or not marketplace_response.is_success:
                 raise RuntimeError("Backend returned an error")
-            status_data = status_response.json()
-            sources = status_data.get("sources", {})
-            portals = sources.get("portals", "unknown")
             stats = marketplace_response.json()
             await message.answer(
-                "📊 <b>Статус HASSLE NFT</b>\n\n"
+                "📊 <b>HASSLE NFT · статус</b>\n\n"
                 "Backend: 🟢 онлайн\n"
-                f"Portals: <code>{portals}</code>\n"
-                f"Демо-ордера: <code>{stats.get('total_orders', 0)}</code>\n"
-                "Режим: <code>shared_demo</code>"
+                f"Объявлений: <code>{stats.get('total_orders', 0)}</code>\n"
+                f"Активных продаж: <code>{stats.get('active_listings', 0)}</code>\n"
+                f"Заявок на покупку: <code>{stats.get('active_buy_requests', 0)}</code>"
             )
         except Exception:
             await message.answer(
