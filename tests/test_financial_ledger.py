@@ -98,7 +98,8 @@ class FinancialLedgerTests(unittest.TestCase):
             conn.execute(insert(invoices).values(**invoice))
         trace = {
             "chain": "ton-mainnet", "master_address": "master", "source_jetton_wallet": "jetton-wallet",
-            "expected_source_jetton_wallet": "jetton-wallet", "recipient_address": "wallet",
+            "expected_source_jetton_wallet": "jetton-wallet", "destination_jetton_wallet": "recipient-jetton-wallet",
+            "expected_destination_jetton_wallet": "recipient-jetton-wallet", "recipient_address": "wallet",
             "amount_raw": 100, "payload": "invoice-payload", "opcode": "0x7362d09c",
             "successful": True, "bounced": False, "finalized": True,
             "tx_hash": "transaction-hash", "event_index": 0,
@@ -179,7 +180,8 @@ class FinancialLedgerTests(unittest.TestCase):
                    "amount_raw": "100", "payload": "inv"}
         trace = {
             "chain": "ton-mainnet", "master_address": "master", "source_jetton_wallet": "jw",
-            "expected_source_jetton_wallet": "jw", "recipient_address": "other", "amount_raw": 100,
+            "expected_source_jetton_wallet": "jw", "destination_jetton_wallet": "dest-jw",
+            "expected_destination_jetton_wallet": "dest-jw", "recipient_address": "other", "amount_raw": 100,
             "payload": "inv", "opcode": "0x7362d09c", "successful": True, "bounced": False,
             "finalized": True, "tx_hash": "abc", "event_index": 0,
         }
