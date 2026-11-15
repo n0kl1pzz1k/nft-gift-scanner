@@ -1215,6 +1215,7 @@ async def create_testnet_deal_payment_intent(
             "query_id": intent.query_id,
             "payer_address": intent.payer_address,
             "payer_jetton_wallet_address": intent.payer_jetton_wallet_address,
+            "escrow_jetton_wallet_address": intent.escrow_jetton_wallet_address,
             "escrow_address": route.escrow_address,
             "jetton_master": route.jetton_master,
             "note": "Platform-issued test Jetton only. The transaction includes the exact deal reference.",
