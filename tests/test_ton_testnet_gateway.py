@@ -159,23 +159,28 @@ class TonTestnetGatewayTests(unittest.TestCase):
 
         self.assertEqual(asyncio.run(run()), "0:" + "55" * 32)
 
-    def test_gateway_requires_explicit_self_hosted_testnet_embed_endpoint(self):
+    def test_gateway_uses_public_tonapi_testnet_endpoint_and_pinned_wallet(self):
         env = {
             "TON_TESTNET_ESCROW_ADDRESS": "0:" + "22" * 32,
             "TON_TESTNET_USDT_MASTER": "0:" + "33" * 32,
+            "TON_TESTNET_ESCROW_JETTON_WALLET": "0:" + "55" * 32,
+            "TON_TESTNET_TONAPI_KEY": "test-tonapi-key",
         }
         with patch.dict(os.environ, env, clear=True):
-            with self.assertRaises(PaymentRouteError):
-                configured_ton_testnet_gateway()
+            gateway = configured_ton_testnet_gateway()
+        tonapi = next(provider for provider in gateway.providers if provider.provider_id == "tonapi")
+        self.assertEqual(tonapi.base_url, "https://testnet.tonapi.io/v2")
+        self.assertEqual(tonapi.api_key, "test-tonapi-key")
 
-    def test_embed_provider_accepts_explicit_testnet_host_only(self):
+    def test_tonapi_provider_accepts_only_the_official_testnet_api(self):
         provider = TonApiEmbedTestnetProvider(
-            base_url="https://embed.testnet.example.org",
+            base_url="https://testnet.tonapi.io/v2",
         )
         self.assertEqual(provider.provider_id, "tonapi")
         for url in (
+            "https://testnet.tonapi.io.evil.example/v2",
             "https://testnet.evil.example/v2",
-            "https://evil.testnet.example.org/v2",
+            "https://tonapi.io/v2",
         ):
             with self.subTest(url=url), self.assertRaises(PaymentRouteError):
                 TonApiEmbedTestnetProvider(base_url=url)
