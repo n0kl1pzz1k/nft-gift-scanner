@@ -152,6 +152,35 @@ class TonNftProviderTests(unittest.TestCase):
         with patch("ton_nft_providers.httpx.AsyncClient", return_value=Client()):
             self.assertIsNone(asyncio.run(provider.get_nft_state(requested)))
 
+    def test_toncenter_rejects_non_boolean_initialized_state(self):
+        import asyncio
+
+        class Response:
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {"nft_items": [{
+                    "address": "0:" + "11" * 32,
+                    "collection_address": "0:" + "22" * 32,
+                    "index": 7,
+                    "owner_address": "0:" + "33" * 32,
+                    "init": "false",
+                }]}
+
+        class Client:
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return False
+            async def get(self, *args, **kwargs):
+                return Response()
+
+        provider = ToncenterNftProvider(api_key="test-key", base_url="https://testnet.toncenter.com")
+        with patch("ton_nft_providers.httpx.AsyncClient", return_value=Client()):
+            result = asyncio.run(provider.get_nft_state("0:" + "11" * 32))
+        self.assertIsNotNone(result)
+        self.assertFalse(result["initialized"])
+
     def test_provider_quorum_requires_two_named_independent_operators_and_keys(self):
         with patch.dict(os.environ, {
             "TON_NFT_PROVIDER_IDS": "tonapi,toncenter",
