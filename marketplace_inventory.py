@@ -93,7 +93,7 @@ marketplace_listings = Table(
     Column("created_at", BigInteger, nullable=False),
     Column("updated_at", BigInteger, nullable=False),
     CheckConstraint("price_raw>0", name="ck_marketplace_listings_positive_price"),
-    CheckConstraint("currency IN ('XTR','GRAM','USDT','tUSDT')", name="ck_marketplace_listings_currency"),
+    CheckConstraint("currency IN ('XTR','TON')", name="ck_marketplace_listings_currency"),
     CheckConstraint("status IN ('draft','pending_verification','active','reserved','payout_pending','sold','cancelled','expired','rejected')", name="ck_marketplace_listings_status"),
 )
 Index("idx_marketplace_listings_status_created", marketplace_listings.c.status, marketplace_listings.c.created_at)
@@ -278,7 +278,7 @@ def create_escrow_pending_listing(*, user_id: str, asset_id: str, price_raw: int
     """Create a private seller draft without changing NFT custody or publishing it."""
     db = engine or get_engine()
     init_inventory_schema(db)
-    if int(price_raw) <= 0 or currency not in {"XTR", "GRAM", "USDT"}:
+    if int(price_raw) <= 0 or currency not in {"XTR", "TON"}:
         raise ValueError("Invalid listing price or currency")
     if not idempotency_key or len(idempotency_key) > 128:
         raise ValueError("A bounded listing idempotency key is required")
