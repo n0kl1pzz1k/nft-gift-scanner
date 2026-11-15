@@ -26,6 +26,8 @@ Secrets belong only in Railway/Cloudflare environment variables. Never commit bo
 - `PUBLIC_APP_URL` - public Mini App URL.
 - `API_BASE_URL` - backend API URL.
 - `ADMIN_TELEGRAM_ID` / `ADMIN_TELEGRAM_IDS` - administrator Telegram IDs.
+- `HASSLE_NFT_DB_PATH` - optional database path; the legacy `GIFT_RADAR_DB_PATH` is still read as a fallback to preserve existing production data.
+- GitHub Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` - optional, free Cloudflare Worker deployment credentials. Without them, the deploy step safely skips.
 
 ## Deployment
 - Frontend Worker name: `hassle-nft-market`.
