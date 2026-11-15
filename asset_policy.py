@@ -152,7 +152,7 @@ def is_crypto_payment_enabled(asset_id: str) -> bool:
         postgres_url,
         provider_ids == {"tonapi", "toncenter"},
         bool(os.getenv("TONCENTER_API_KEY", "").strip()),
-        os.getenv("TONAPI_EMBED_URL", "").strip().startswith("https://"),
+        bool(os.getenv("TONAPI_API_KEY", "").strip()),
         bool(os.getenv("TON_DEPOSIT_ADDRESS", "").strip()),
         os.getenv("KZ_LEGAL_REVIEW_APPROVED", "false").strip().lower() == "true",
         os.getenv("KZ_DATA_RESIDENCY_VERIFIED", "false").strip().lower() == "true",
