@@ -98,6 +98,8 @@ class TonDepositMonitorTests(unittest.TestCase):
                 "chain": "ton-mainnet", "asset_kind": "jetton",
                 "master_address": "master", "source_jetton_wallet": "source-wallet",
                 "expected_source_jetton_wallet": "source-wallet",
+                "destination_jetton_wallet": "destination-wallet",
+                "expected_destination_jetton_wallet": "destination-wallet",
                 "sender_address": "sender", "recipient_address": "wallet",
                 "amount_raw": 100000, "payload": "gri_late_payment",
                 "opcode": "0x7362d09c", "successful": True, "bounced": False,
