@@ -68,15 +68,6 @@ class NativeListingRequest(BaseModel):
     idempotency_key: str = Field(min_length=16, max_length=128)
 
 
-class TestnetEscrowConfigRequest(BaseModel):
-    model_config = {"extra": "forbid"}
-    seller_address: str = Field(min_length=66, max_length=66)
-    buyer_address: str = Field(min_length=66, max_length=66)
-    nft_item_address: str = Field(min_length=66, max_length=66)
-    asset_kind: str = Field(pattern="^(TON|TEST_USDT_JETTON)$")
-    amount_raw: int = Field(gt=0, strict=True)
-
-
 app = FastAPI(title="GIFT RADAR API", version="0.4.0", docs_url=None, redoc_url=None, openapi_url=None)
 
 
@@ -94,17 +85,8 @@ _telegram_bot = None
 _telegram_dispatcher = None
 _telegram_webhook_secret = None
 
-class CryptoPaymentInvoiceRequest(BaseModel):
-    asset_id: str = Field(pattern="^(GRAM|usdt-ton)$")
-    amount_raw: int = Field(gt=0, strict=True)
-
-
-class DealInvoicePaymentRequest(BaseModel):
-    invoice_id: str = Field(min_length=8, max_length=64)
-
-
 class WalletWithdrawalRequest(BaseModel):
-    asset_id: str = Field(pattern="^(GRAM|usdt-ton)$")
+    asset_id: str = Field(pattern="^TON$")
     destination_address: str = Field(min_length=3, max_length=128)
     amount_raw: int = Field(gt=0, strict=True)
     idempotency_key: str = Field(min_length=16, max_length=200)
@@ -128,135 +110,17 @@ def _stars_payment_enabled() -> bool:
     )
 
 
-@app.post("/api/payments/crypto/invoices", status_code=201)
-async def create_crypto_payment_invoice(
-    payload: CryptoPaymentInvoiceRequest,
-    x_telegram_init_data: str | None = Header(default=None),
-):
-    user = _authenticate_telegram_credential(x_telegram_init_data or "")
-    from asset_policy import ASSETS, is_crypto_payment_enabled
-
-    asset = ASSETS[payload.asset_id]
-    if not is_crypto_payment_enabled(payload.asset_id):
-        raise HTTPException(
-            status_code=503,
-            detail="Crypto checkout is disabled inside Telegram Mini Apps; use Telegram Stars for digital goods",
-        )
-    configured_address = os.getenv("TON_DEPOSIT_ADDRESS", "").strip()
-    try:
-        recipient = canonical_ton_address(configured_address)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=503, detail="The platform TON deposit address is not configured")
-    if not recipient.startswith("0:"):
-        raise HTTPException(status_code=503, detail="Only a TON mainnet basechain deposit address is supported")
-
-    invoice_payload = "gri_" + secrets.token_urlsafe(18)
-    expires_at = int(time.time()) + 1200
-    try:
-        invoice_id = create_payment_invoice(
-            user_id=str(user["id"]), asset_id=asset.asset_id,
-            chain=asset.chain.value, master_address=asset.master_address,
-            recipient_address=recipient, amount_raw=payload.amount_raw,
-            payload=invoice_payload, expires_at=expires_at, engine=get_engine(),
-        )
-        with get_engine().connect() as conn:
-            invoice = conn.execute(select(invoices).where(
-                invoices.c.invoice_id == invoice_id,
-                invoices.c.user_id == str(user["id"]),
-            )).mappings().one()
-        return {
-            "invoice_id": invoice_id, "asset_id": asset.asset_id,
-            "chain": asset.chain.value, "asset_kind": asset.asset_kind,
-            "master_address": asset.master_address,
-            "recipient_address": invoice["recipient_address"],
-            "amount_raw": int(invoice["amount_raw"]),
-            "payload": invoice["payload"], "expires_at": int(invoice["expires_at"]),
-            "status": invoice["status"],
-            "instructions": "Отправьте точную сумму на указанный TON-адрес и обязательно укажите invoice payload в комментарии перевода.",
-        }
-    except PermissionError:
-        raise HTTPException(status_code=503, detail="Crypto deposits are disabled by payment policy")
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except Exception as exc:
-        logging.warning("Crypto payment invoice creation failed (%s)", type(exc).__name__)
-        raise HTTPException(status_code=503, detail="Crypto invoice service is unavailable")
-
-
-@app.get("/api/payments/crypto/invoices/{invoice_id}")
-async def get_crypto_payment_invoice(
-    invoice_id: str,
-    x_telegram_init_data: str | None = Header(default=None),
-):
-    user = _authenticate_telegram_credential(x_telegram_init_data or "")
-    with get_engine().connect() as conn:
-        invoice = conn.execute(select(invoices).where(
-            invoices.c.invoice_id == invoice_id,
-            invoices.c.user_id == str(user["id"]),
-        )).mappings().first()
-        if invoice is None:
-            raise HTTPException(status_code=404, detail="Payment invoice not found")
-        event = conn.execute(select(payment_events).where(
-            payment_events.c.invoice_id == invoice_id
-        )).mappings().first()
-    return {
-        "invoice_id": invoice["invoice_id"], "asset_id": invoice["asset_id"],
-        "amount_raw": int(invoice["amount_raw"]), "status": invoice["status"],
-        "expires_at": int(invoice["expires_at"]),
-        "review_required": invoice["status"] == "reconciliation_required",
-        "payment": None if event is None else {
-            "tx_hash": event["tx_hash"], "event_index": int(event["event_index"]),
-            "confirmed_at": int(event["created_at"]),
-        },
-    }
-
-
-@app.get("/api/admin/payments/crypto/reconciliation")
-async def list_crypto_payment_reconciliation(
-    limit: int = Query(default=50, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
-    x_telegram_init_data: str | None = Header(default=None),
-):
-    _require_admin(x_telegram_init_data)
-    with get_engine().connect() as conn:
-        total = conn.execute(select(func.count()).select_from(invoices).where(
-            invoices.c.status == "reconciliation_required"
-        )).scalar_one()
-        rows = conn.execute(select(
-            invoices.c.invoice_id, invoices.c.user_id, invoices.c.asset_id,
-            invoices.c.chain, invoices.c.master_address, invoices.c.recipient_address,
-            invoices.c.amount_raw, invoices.c.payload, invoices.c.expires_at,
-            invoices.c.created_at,
-        ).where(
-            invoices.c.status == "reconciliation_required"
-        ).order_by(invoices.c.created_at.asc()).limit(limit).offset(offset)).mappings().all()
-    return {
-        "total": int(total), "limit": limit, "offset": offset,
-        "items": [{**dict(row), "amount_raw": int(row["amount_raw"])} for row in rows],
-    }
-
-
 @app.get("/api/payments/capabilities")
 async def payment_capabilities():
-    """Expose only payment methods that have passed their server-side release gates."""
-    from asset_policy import ASSETS, is_crypto_payment_enabled
-
-    crypto = {}
-    for asset_id in ("GRAM", "usdt-ton", "usdt-tron"):
-        asset = ASSETS[asset_id]
-        enabled = is_crypto_payment_enabled(asset_id)
-        crypto[asset_id] = {
-            "enabled": enabled,
-            "symbol": asset.display_symbol,
-            "message": None if enabled else "Временно недоступно: проверка платёжного контура и разрешение на запуск не завершены.",
-        }
+    """Only Telegram Stars can be used to purchase digital goods in the Mini App."""
     stars_enabled = _stars_payment_enabled()
     return {
         "stars": {
             "enabled": stars_enabled,
+            "currency": "XTR",
             "message": None if stars_enabled else "Оплата Telegram Stars временно недоступна.",
         },
-        "crypto": crypto,
+        "wallet": {"protocol": "ton-connect", "network": "TON"},
     }
 
 
@@ -265,8 +129,7 @@ async def payment_capabilities():
 _CORS_DEFAULT_ORIGINS = [
     "https://nft-gift-scanner.fj7kmzkhn9.workers.dev",
     "https://nft-gift-scanner.pages.dev",
-    "https://feat-testnet-ton-usdt-escrow.nft-gift-scanner.pages.dev",
-]
+    ]
 _CORS_ALLOWED_ORIGINS = [
     origin.strip().rstrip("/")
     for origin in os.getenv("CORS_ALLOWED_ORIGINS", ",".join(_CORS_DEFAULT_ORIGINS)).split(",")
@@ -285,7 +148,6 @@ app.add_middleware(SecurityControlsMiddleware)
 
 _refresh_task: asyncio.Task | None = None
 _inventory_task: asyncio.Task | None = None
-_deposit_task: asyncio.Task | None = None
 _deal_expiry_task: asyncio.Task | None = None
 
 
@@ -411,27 +273,6 @@ def _require_admin(credential: str | None) -> dict:
     if str(user["id"]) not in _admin_ids():
         raise HTTPException(status_code=403, detail="Administrator access only")
     return user
-
-
-@app.post("/api/admin/testnet/escrow/config", status_code=201)
-async def create_testnet_escrow_config(
-    payload: TestnetEscrowConfigRequest,
-    x_telegram_init_data: str | None = Header(default=None),
-):
-    _require_admin(x_telegram_init_data)
-    if os.getenv("GIFT_RADAR_TESTNET_ESCROW_ENABLED", "false").strip().lower() != "true":
-        raise HTTPException(status_code=404, detail="Testnet escrow configuration is disabled")
-    try:
-        from escrow_authority_config import build_testnet_escrow_snapshot
-        return build_testnet_escrow_snapshot(
-            seller_address=payload.seller_address,
-            buyer_address=payload.buyer_address,
-            nft_item_address=payload.nft_item_address,
-            asset_kind=payload.asset_kind,
-            amount_raw=payload.amount_raw,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
 @app.post("/api/auth/telegram")
@@ -698,7 +539,7 @@ async def create_native_inventory_listing(
     x_telegram_init_data: str | None = Header(default=None),
 ):
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
-    if payload.currency not in {"XTR", "GRAM", "USDT"}:
+    if payload.currency not in {"XTR", "TON"}:
         raise HTTPException(status_code=422, detail="Unsupported listing currency")
     try:
         result = create_escrow_pending_listing(
@@ -735,7 +576,7 @@ async def list_verified_inventory_listings(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     search: str | None = Query(default=None, min_length=1, max_length=80),
-    currency: str | None = Query(default=None, pattern="^(XTR|GRAM|USDT|tUSDT)$"),
+    currency: str | None = Query(default=None, pattern="^(XTR|TON)$"),
     network: str | None = Query(default=None, pattern="^(ton-mainnet|ton-testnet)$"),
     asset_type: str | None = Query(default=None, max_length=40),
 ):
@@ -1195,81 +1036,6 @@ async def create_stars_invoice_endpoint(
         raise HTTPException(status_code=503, detail="Telegram Stars invoice service is unavailable")
 
 
-@app.post("/api/inventory/deals/{deal_id}/testnet-payment-intent")
-async def create_testnet_deal_payment_intent(
-    deal_id: str,
-    x_telegram_init_data: str | None = Header(default=None),
-):
-    user = _authenticate_telegram_credential(x_telegram_init_data or "")
-    from marketplace_settlement import create_deal_payment_intent_via_route
-    from payment_routes import configured_payment_route
-    try:
-        route = configured_payment_route()
-        intent = await create_deal_payment_intent_via_route(
-            deal_id=deal_id, route=route, actor_user_id=str(user["id"]),
-            engine=get_engine(),
-        )
-        if not intent.payer_jetton_wallet_address or not intent.query_id:
-            raise RuntimeError("Buyer testnet Jetton wallet or transfer query ID is unavailable")
-        return {
-            "deal_id": intent.deal_id, "route_id": route.route_id,
-            "network": intent.network, "currency": intent.currency,
-            "amount_raw": intent.amount, "reference": intent.reference,
-            "query_id": intent.query_id,
-            "payer_address": intent.payer_address,
-            "payer_jetton_wallet_address": intent.payer_jetton_wallet_address,
-            "escrow_jetton_wallet_address": intent.escrow_jetton_wallet_address,
-            "escrow_address": route.escrow_address,
-            "jetton_master": route.jetton_master,
-            "note": "Platform-issued test Jetton only. The transaction includes the exact deal reference.",
-        }
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as exc:
-        logging.warning("TON testnet payment intent unavailable (%s)", type(exc).__name__)
-        raise HTTPException(status_code=503, detail="TON testnet payment route is not configured")
-
-
-@app.post("/api/inventory/deals/{deal_id}/testnet-payment-confirmation")
-async def confirm_testnet_deal_payment(
-    deal_id: str,
-    x_telegram_init_data: str | None = Header(default=None),
-):
-    admin = _require_admin(x_telegram_init_data)
-    from marketplace_settlement import (
-        create_deal_payment_intent_via_route, confirm_deal_payment_via_route,
-        marketplace_deals,
-    )
-    from payment_routes import configured_payment_route
-    try:
-        route = configured_payment_route()
-        with get_engine().connect() as conn:
-            deal = conn.execute(select(marketplace_deals).where(
-                marketplace_deals.c.deal_id == deal_id
-            )).mappings().first()
-        if deal is None:
-            raise ValueError("Unknown marketplace deal")
-        intent = await create_deal_payment_intent_via_route(
-            deal_id=deal_id, route=route, actor_user_id=str(deal["buyer_user_id"]),
-            engine=get_engine(),
-        )
-        return await confirm_deal_payment_via_route(
-            deal_id=deal_id, intent=intent, route=route,
-            actor_user_id=str(admin["id"]), engine=get_engine(),
-        )
-    except HTTPException:
-        raise
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as exc:
-        logging.warning("TON testnet payment verification unavailable (%s)", type(exc).__name__)
-        raise HTTPException(status_code=503, detail="TON testnet payment verification is unavailable")
-
-
 @app.post("/api/inventory/deals/{deal_id}/nft-transfer-pending")
 async def mark_marketplace_nft_transfer_pending(
     deal_id: str,
@@ -1349,181 +1115,6 @@ async def confirm_marketplace_nft_transfer(
         )
     except (ValueError, PermissionError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-
-@app.post("/api/inventory/deals/{deal_id}/testnet-payout-confirmation")
-async def confirm_testnet_deal_payout(
-    deal_id: str,
-    x_telegram_init_data: str | None = Header(default=None),
-):
-    admin = _require_admin(x_telegram_init_data)
-    from marketplace_settlement import marketplace_deals, confirm_deal_testnet_payout
-    engine = get_engine()
-    with engine.connect() as conn:
-        deal = conn.execute(select(marketplace_deals).where(
-            marketplace_deals.c.deal_id == deal_id
-        )).mappings().first()
-        asset = conn.execute(select(marketplace_assets).where(
-            marketplace_assets.c.asset_id == deal["asset_id"]
-        )).mappings().first() if deal else None
-    if deal is None or asset is None or deal["network"] != "ton-testnet":
-        raise HTTPException(status_code=404, detail="Testnet deal not found")
-    if not asset["item_address"]:
-        raise HTTPException(status_code=409, detail="NFT item address is missing")
-    try:
-        owner_proofs = []
-        for provider in configured_testnet_nft_providers():
-            state = await provider.get_nft_state(str(asset["item_address"]))
-            if not state:
-                raise HTTPException(status_code=503, detail="Independent NFT owner lookup is unavailable")
-            if (not state.get("initialized")
-                    or canonical_ton_address(state.get("item_address") or "") != canonical_ton_address(asset["item_address"])
-                    or canonical_ton_address(state.get("collection_address") or "") != canonical_ton_address(asset["collection_address"])
-                    or str(state.get("token_id") or "") != str(asset["token_id"])):
-                raise HTTPException(status_code=409, detail="NFT identity or initialization differs from the registered asset")
-            owner_proofs.append({
-                "provider_id": provider.provider_id,
-                "owner_address": state["owner_address"],
-                "item_address": state["item_address"],
-                "collection_address": state["collection_address"],
-                "token_id": str(state["token_id"]),
-                "initialized": state["initialized"],
-                "successful": True,
-            })
-        from payment_routes import configured_payment_route
-        return await confirm_deal_testnet_payout(
-            deal_id=deal_id, route=configured_payment_route(),
-            actor_user_id=str(admin["id"]), current_owner_proofs=owner_proofs,
-            engine=engine,
-        )
-    except HTTPException:
-        raise
-    except (ValueError, PermissionError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except Exception as exc:
-        logging.warning("TON testnet payout verification unavailable (%s)", type(exc).__name__)
-        raise HTTPException(status_code=503, detail="TON testnet payout verification is unavailable")
-
-
-@app.get("/api/inventory/deals/{deal_id}/testnet-dispute-query")
-async def get_testnet_dispute_query(
-    deal_id: str,
-    decision: str = Query(..., pattern="^(refund|release)$"),
-    x_telegram_init_data: str | None = Header(default=None),
-):
-    _require_admin(x_telegram_init_data)
-    from marketplace_settlement import get_deal_testnet_dispute_query_id
-    try:
-        result = get_deal_testnet_dispute_query_id(
-            deal_id=deal_id, decision=decision, engine=get_engine(),
-        )
-        return result
-    except (ValueError, PermissionError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-
-@app.post("/api/inventory/deals/{deal_id}/testnet-dispute-release-pending")
-async def mark_testnet_deal_dispute_release_pending(
-    deal_id: str,
-    x_telegram_init_data: str | None = Header(default=None),
-):
-    admin = _require_admin(x_telegram_init_data)
-    from marketplace_settlement import mark_deal_testnet_dispute_release_pending
-    try:
-        return mark_deal_testnet_dispute_release_pending(
-            deal_id=deal_id, actor_user_id=str(admin["id"]), engine=get_engine(),
-        )
-    except (ValueError, PermissionError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-
-@app.post("/api/inventory/deals/{deal_id}/testnet-refund-pending")
-async def mark_testnet_deal_refund_pending(
-    deal_id: str,
-    x_telegram_init_data: str | None = Header(default=None),
-):
-    admin = _require_admin(x_telegram_init_data)
-    from marketplace_settlement import mark_deal_testnet_refund_pending
-    try:
-        return mark_deal_testnet_refund_pending(
-            deal_id=deal_id, actor_user_id=str(admin["id"]), engine=get_engine(),
-        )
-    except (ValueError, PermissionError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-
-@app.post("/api/inventory/deals/{deal_id}/testnet-refund-confirmation")
-async def confirm_testnet_deal_refund(
-    deal_id: str,
-    x_telegram_init_data: str | None = Header(default=None),
-):
-    admin = _require_admin(x_telegram_init_data)
-    from marketplace_settlement import marketplace_deals, confirm_deal_testnet_refund
-    engine = get_engine()
-    with engine.connect() as conn:
-        deal = conn.execute(select(marketplace_deals).where(
-            marketplace_deals.c.deal_id == deal_id
-        )).mappings().first()
-        asset = conn.execute(select(marketplace_assets).where(
-            marketplace_assets.c.asset_id == deal["asset_id"]
-        )).mappings().first() if deal else None
-    if deal is None or asset is None or deal["network"] != "ton-testnet":
-        raise HTTPException(status_code=404, detail="Testnet deal not found")
-    if (not asset["item_address"] or not deal["escrow_contract_address"]
-            or not deal["seller_wallet_address"]):
-        raise HTTPException(status_code=409, detail="NFT return verification configuration is incomplete")
-    try:
-        owner_proofs = []
-        return_proofs = []
-        for provider in configured_testnet_nft_providers():
-            state = await provider.get_nft_state(str(asset["item_address"]))
-            transfer = await provider.get_nft_transfer(
-                str(asset["item_address"]), str(deal["escrow_contract_address"]),
-                str(deal["seller_wallet_address"]),
-            )
-            if not state or not transfer:
-                raise HTTPException(status_code=409, detail="NFT return is not finalized on both independent providers")
-            if (not state.get("initialized")
-                    or canonical_ton_address(state.get("item_address") or "") != canonical_ton_address(asset["item_address"])
-                    or canonical_ton_address(state.get("collection_address") or "") != canonical_ton_address(asset["collection_address"])
-                    or str(state.get("token_id") or "") != str(asset["token_id"])):
-                raise HTTPException(status_code=409, detail="NFT identity or initialization differs from the registered asset")
-            tx_hash = str(transfer["tx_hash"]).lower().removeprefix("0x")
-            evidence_hash = hashlib.sha256(json.dumps({
-                "tx_hash": tx_hash,
-                "item_address": canonical_ton_address(asset["item_address"]),
-                "old_owner": canonical_ton_address(deal["escrow_contract_address"]),
-                "new_owner": canonical_ton_address(deal["seller_wallet_address"]),
-            }, sort_keys=True).encode()).hexdigest()
-            return_proofs.append({
-                "provider_id": provider.provider_id, "tx_hash": tx_hash,
-                "item_address": asset["item_address"],
-                "old_owner": deal["escrow_contract_address"],
-                "new_owner": deal["seller_wallet_address"],
-                "evidence_hash": evidence_hash, "successful": True, "finalized": True,
-            })
-            owner_proofs.append({
-                "provider_id": provider.provider_id,
-                "owner_address": state["owner_address"],
-                "item_address": state["item_address"],
-                "collection_address": state["collection_address"],
-                "token_id": str(state["token_id"]),
-                "initialized": state["initialized"],
-                "successful": True,
-            })
-        from payment_routes import configured_payment_route
-        return await confirm_deal_testnet_refund(
-            deal_id=deal_id, route=configured_payment_route(),
-            actor_user_id=str(admin["id"]), nft_return_proofs=return_proofs,
-            current_owner_proofs=owner_proofs, engine=engine,
-        )
-    except HTTPException:
-        raise
-    except (ValueError, PermissionError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except Exception as exc:
-        logging.warning("TON testnet refund verification unavailable (%s)", type(exc).__name__)
-        raise HTTPException(status_code=503, detail="TON testnet refund verification is unavailable")
 
 
 @app.post("/api/inventory/deals/{deal_id}/pay-from-invoice")
@@ -1789,13 +1380,11 @@ async def _run_marketplace_deal_expiry():
 
 @app.on_event("startup")
 async def start_catalogue_refresh():
-    global _refresh_task, _inventory_task, _deposit_task, _deal_expiry_task, _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret
+    global _refresh_task, _inventory_task, _deal_expiry_task, _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret
     init_marketplace_db()
     init_demo_offers_db()
     _refresh_task = asyncio.create_task(_refresh_public_catalogues())
     _inventory_task = asyncio.create_task(_run_nft_inventory_monitor())
-    from ton_deposit_monitor import run_ton_deposit_monitor
-    _deposit_task = asyncio.create_task(run_ton_deposit_monitor())
     _deal_expiry_task = asyncio.create_task(_run_marketplace_deal_expiry())
 
     token = os.getenv("BOT_TOKEN", "").strip()
@@ -1821,7 +1410,7 @@ async def start_catalogue_refresh():
 
 @app.on_event("shutdown")
 async def stop_catalogue_refresh():
-    global _refresh_task, _inventory_task, _deposit_task, _deal_expiry_task, _telegram_bot
+    global _refresh_task, _inventory_task, _deal_expiry_task, _telegram_bot
     if _refresh_task and not _refresh_task.done():
         _refresh_task.cancel()
         try:
