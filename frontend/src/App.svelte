@@ -18,7 +18,7 @@
   type MarketplaceOffer = { id:string; order_id:string; sender_name:string; amount:string; currency:'TON'|'XTR'; note:string; status:'pending'|'accepted'|'declined'|'withdrawn'; created_at:number; is_mine:boolean; order_title:string; order_owner_id:string; order_owner_name:string; order_status:string };
   
   type AccountNotification = { id:string; type:'offer_received'|'offer_accepted'|'offer_declined'|'offer_withdrawn'; offer_id:string; order_id:string; order_title:string; actor_name:string; created_at:number; read_at:number|null };
-  type AccountStats = { active_orders:number; completed_orders:number; pending_offers_sent:number; pending_offers_received:number; simulated_deals:number; unread_notifications:number };
+  type AccountStats = { active_orders:number; completed_orders:number; pending_offers_sent:number; pending_offers_received:number; unread_notifications:number };
   type AccountActivity = { id:string; type:string; order_id:string; title:string; actor_name:string; created_at:number; amount:string; currency:'TON'|'XTR'; simulation_only:boolean };
   type OrderReport = { id:string; order_id:string; reporter_name:string; reason:'scam'|'misleading'|'inappropriate'|'spam'|'other'; details:string; status:'open'|'dismissed'|'removed'; created_at:number; order_title:string; order_status:string; order_owner:string };
   type SellerProfile = { profile_id:string; display_name:string; bio:string; created_at:number; updated_at:number; username:string };
@@ -54,7 +54,7 @@
   let accountActivity = $state<AccountActivity[]>([]);
   let activityTotal = $state(0);
   let activityBusy = $state(false);
-  let accountStats = $state<AccountStats>({active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,simulated_deals:0,unread_notifications:0});
+  let accountStats = $state<AccountStats>({active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,unread_notifications:0});
   let sellerProfile = $state<SellerProfile | null>(null);
   let sellerDisplayName = $state('');
   let sellerBio = $state('');
@@ -117,7 +117,7 @@
   let orderKindFilter = $state<'all' | 'listing' | 'buy-order'>('all');
 
   const ru = {
-    market: 'Каталог', orders: 'Маркет', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'ТОЛЬКО ПРОСМОТР', catalogOnly: 'Каталог подарков. Собственные объявления GIFT RADAR отображаются в разделе «Маркет».',
+    market: 'Каталог', orders: 'Маркетплейс', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'GIFT RADAR', catalogOnly: 'Каталог подарков. Собственные объявления GIFT RADAR отображаются в разделе «Маркет».',
     headline: 'Подарки, которые находят своих владельцев', subtitle: 'Маркетплейс Telegram NFT-подарков от n0kl1pzz1k.',
     brandEyebrow: 'ОТКРЫВАЙ РЕДКОЕ · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Открой редкие подарки.', heroDescription: 'Исследуй коллекции Telegram-подарков, объявления и историю характеристик в одном месте.', openCatalogue: 'Открыть каталог', connectedLabel: 'GIFT RADAR · NFT GIFT MARKETPLACE', exploreMarket: 'ИССЛЕДУЙ МАРКЕТ', collectionsTitle: 'Коллекции', collectionsCount: 'коллекций в каталоге', discoverLabel: 'ОТКРЫВАЙ', portals: 'Каталог подарков', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
     listings: 'Каталог подарков', results: 'найдено', loading: 'Загружаем каталог…', loadMore: 'Показать ещё',
@@ -127,11 +127,11 @@
     priceLabel: 'Цена', noteLabel: 'Комментарий', publish: 'Опубликовать объявление',
     createHint: 'Размести предложение о продаже или заявку на покупку Telegram-подарка. Укажи цену в TON или Stars.',
     reportOrder: 'Пожаловаться', reportReason: 'Причина жалобы', reportDetails: 'Подробности', sendReport: 'Отправить жалобу', cancelReport: 'Отмена', reportSent: 'Жалоба отправлена на проверку.', reportScam: 'Мошенничество', reportMisleading: 'Вводящее в заблуждение объявление', reportInappropriate: 'Недопустимый контент', reportSpam: 'Спам', reportOther: 'Другое', adminReports: 'Жалобы на объявления', noAdminReports: 'Открытых жалоб нет.', dismissReport: 'Отклонить', removeReportedOrder: 'Снять объявление', reportResolved: 'Решение по жалобе сохранено.',
-    ordersTitle: 'Ордера маркетплейса', noOrders: 'Пока нет активных предложений или заявок.',
+    ordersTitle: 'Маркетплейс NFT-подарков', noOrders: 'Пока нет активных предложений или заявок.',
     offersTitle: 'Офферы', dealsTitle: 'История сделок', sendOffer: 'Отправить оффер', offerAmount: 'Сумма оффера', acceptOffer: 'Принять', declineOffer: 'Отклонить', withdrawOffer: 'Отозвать', noOffers: 'Офферов пока нет.', noDeals: 'История сделок пока пуста.', incoming: 'Входящий', outgoing: 'Исходящий', offerStatusFilter: 'Статус оффера', offerPending: 'Ожидает ответа', offerAccepted: 'Принят', offerDeclined: 'Отклонён', offerWithdrawn: 'Отозван',
     accountStatsTitle: 'Статистика аккаунта', activeOrdersStat: 'Активные заявки', completedOrdersStat: 'Завершённые', sentOffersStat: 'Мои офферы', receivedOffersStat: 'Входящие офферы', notificationsTitle: 'Уведомления', markAllRead: 'Прочитать все', noNotifications: 'Новых уведомлений нет.', offerReceivedNotice: 'отправил(а) оффер', offerAcceptedNotice: 'принят оффер по', offerDeclinedNotice: 'отклонил(а) оффер по', offerWithdrawnNotice: 'отозвал(а) оффер по', activityTitle: 'История активности', noActivity: 'Активность пока не появилась.', loadMoreActivity: 'Показать ещё', orderCreatedActivity: 'Создана заявка', orderUpdatedActivity: 'Заявка изменена', orderFilledActivity: 'Заявка исполнена', orderCancelledActivity: 'Заявка снята', offerReceivedActivity: 'Получен оффер', offerAcceptedActivity: 'Оффер принят', offerDeclinedActivity: 'Оффер отклонён', offerWithdrawnActivity: 'Оффер отозван', dealCreatedActivity: 'Создана сделка',
     active: 'Активен', matched: 'Закрыт', cancelled: 'Отменён', cancel: 'Снять', match: 'Исполнить', editOrder: 'Изменить', saveOrder: 'Сохранить', cancelEdit: 'Отмена', editTitle: 'Название', editPrice: 'Цена', editNote: 'Комментарий', orderUpdated: 'Объявление обновлено.',
-    demo: 'GIFT RADAR MARKETPLACE', demoWallet: 'TON-кошелёк', demoWalletText: 'Подключение кошельков и операции с активами пока не поддерживаются.',
+    demo: 'GIFT RADAR MARKETPLACE', demoWallet: 'Подключение кошелька', demoWalletText: 'Подключение TON-кошелька появится в следующем этапе.'
     signIn: 'Подтвердить Telegram', guest: 'Гость', authHint: 'Открой Mini App через Telegram, чтобы подтвердить профиль.',
     signed: 'Telegram подтверждён', profileText: 'Профиль Telegram и управление публичной карточкой продавца.', sellerCardTitle: 'Публичная карточка продавца', sellerDisplayName: 'Отображаемое имя', sellerBio: 'О себе', sellerSave: 'Сохранить профиль', sellerSaved: 'Профиль продавца обновлён.', sellerProfileId: 'Публичный ID',
     favoritesTitle: 'Избранные подарки', noFavorites: 'Добавьте подарки в избранное из каталога.',
@@ -140,7 +140,7 @@
     sourceStatusTitle: 'СОСТОЯНИЕ ИСТОЧНИКОВ', sourceStatusSubtitle: 'Что подключено к приложению', sourcePortals: 'Внешний каталог', sourceChanges: 'Изменения подарков', sourceDailyFloors: 'История floor-цен', sourceStatusChecked: 'Проверено', sourceStatusChecking: 'Проверяем статус…', sourceStatusUnavailable: 'Не удалось получить статус API.', sourceRefreshInterval: 'Интервал фонового обновления', sourceConfigured: 'Настроен · только чтение', sourceNeedsKey: 'Требуется API-ключ', sourcePublic: 'Публичный источник', sourceDaily: 'Публичная ежедневная история', sourceUnknown: 'Нет данных',
   };
   const en = {
-    market: 'Catalogue', orders: 'Market', create: 'Create', favorites: 'Favorites', profile: 'Profile', readonly: 'READ ONLY', catalogOnly: 'Live Portals listings. Browse and search are available; trade execution is not enabled in GIFT RADAR.',
+    market: 'Catalogue', orders: 'Marketplace', create: 'Create listing', favorites: 'Favorites', profile: 'Profile', readonly: 'GIFT RADAR', catalogOnly: 'Live Portals listings. Browse and search are available; trade execution is not enabled in GIFT RADAR.',
     headline: 'Discover gifts worth keeping', subtitle: 'A unified Telegram gifts experience powered by the Portals catalogue.',
     brandEyebrow: 'DISCOVER THE RARE · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Discover rare finds.', heroDescription: 'Explore Telegram gift collections, marketplace listings and item history in one place.', openCatalogue: 'Explore catalogue', connectedLabel: 'PORTALS CATALOGUE · READ ONLY', exploreMarket: 'EXPLORE THE MARKET', collectionsTitle: 'Collections', collectionsCount: 'collections in catalogue', discoverLabel: 'DISCOVER', portals: 'Single catalogue source · Portals', search: 'Gift name or number', min: 'Min price', max: 'Max price',
     listings: 'Portals listings', results: 'found', loading: 'Loading catalogue…', loadMore: 'Load more',
@@ -150,11 +150,11 @@
     priceLabel: 'Price', noteLabel: 'Note', publish: 'Publish listing',
     createHint: 'Publish a Telegram gift listing or a buy request. Set your price in TON or Stars.',
     reportOrder: 'Report', reportReason: 'Report reason', reportDetails: 'Details', sendReport: 'Submit report', cancelReport: 'Cancel', reportSent: 'Report submitted for review.', reportScam: 'Scam', reportMisleading: 'Misleading listing', reportInappropriate: 'Inappropriate content', reportSpam: 'Spam', reportOther: 'Other', adminReports: 'Listing reports', noAdminReports: 'No open reports.', dismissReport: 'Dismiss', removeReportedOrder: 'Remove listing', reportResolved: 'Report action saved.',
-    ordersTitle: 'Marketplace orders', noOrders: 'No active listings or requests yet.',
+    ordersTitle: 'NFT gift marketplace', noOrders: 'No active listings or requests yet.',
     offersTitle: 'Offers', dealsTitle: 'Trade history', sendOffer: 'Send offer', offerAmount: 'Offer amount', acceptOffer: 'Accept', declineOffer: 'Decline', withdrawOffer: 'Withdraw', noOffers: 'No offers yet.', noDeals: 'No trade history yet.', incoming: 'Incoming', outgoing: 'Outgoing', offerStatusFilter: 'Offer status', offerPending: 'Awaiting response', offerAccepted: 'Accepted', offerDeclined: 'Declined', offerWithdrawn: 'Withdrawn',
     accountStatsTitle: 'Account stats', activeOrdersStat: 'Active orders', completedOrdersStat: 'Completed', sentOffersStat: 'Offers sent', receivedOffersStat: 'Offers received', notificationsTitle: 'Notifications', markAllRead: 'Mark all read', noNotifications: 'No notifications yet.', offerReceivedNotice: 'sent you an offer for', offerAcceptedNotice: 'accepted your offer for', offerDeclinedNotice: 'declined your offer for', offerWithdrawnNotice: 'withdrew an offer for', activityTitle: 'Activity history', noActivity: 'No activity yet.', loadMoreActivity: 'Load more', orderCreatedActivity: 'Order created', orderUpdatedActivity: 'Order updated', orderFilledActivity: 'Order filled', orderCancelledActivity: 'Order cancelled', offerReceivedActivity: 'Offer received', offerAcceptedActivity: 'Offer accepted', offerDeclinedActivity: 'Offer declined', offerWithdrawnActivity: 'Offer withdrawn', dealCreatedActivity: 'Trade created',
     active: 'Active', matched: 'Closed', cancelled: 'Cancelled', cancel: 'Cancel', match: 'Complete', editOrder: 'Edit', saveOrder: 'Save changes', cancelEdit: 'Discard', editTitle: 'Title', editPrice: 'Price', editNote: 'Note', orderUpdated: 'Order updated.',
-    demo: 'GIFT RADAR MARKETPLACE', demoWallet: 'TON wallet', demoWalletText: 'Wallet connections and asset operations are not supported yet.',
+    demo: 'GIFT RADAR MARKETPLACE', demoWallet: 'Wallet connection', demoWalletText: 'TON wallet connection will be available in the next release.'
     signIn: 'Verify Telegram', guest: 'Guest', authHint: 'Open the Mini App in Telegram to verify your profile.',
     signed: 'Telegram verified', profileText: 'Your Telegram account and public seller card.', sellerCardTitle: 'Public seller card', sellerDisplayName: 'Display name', sellerBio: 'About', sellerSave: 'Save profile', sellerSaved: 'Seller profile updated.', sellerProfileId: 'Public ID',
     favoritesTitle: 'Saved gifts', noFavorites: 'Save gifts from the catalogue to see them here.',
@@ -170,10 +170,6 @@
     (orderKindFilter === 'all' || order.kind === orderKindFilter)
   ));
   const visibleOffers = $derived(offers.filter(offer => offerStatusFilter === 'all' || offer.status === offerStatusFilter));
-  const demoListings = $derived(marketplaceStats.active_listings);
-  const demoBuyRequests = $derived(marketplaceStats.active_buy_requests);
-  const demoVolumeTon = $derived(marketplaceStats.volume_ton);
-  const demoVolumeStars = $derived(marketplaceStats.volume_stars);
   const fmt = (value: unknown, currency = '') => value === null || value === undefined || value === '' ? '—' : String(value) + (currency ? ' ' + currency : '');
 
   function reportReasonLabel(reason: OrderReport['reason']) {
@@ -310,7 +306,7 @@
     if (!window.Telegram?.WebApp?.initData) {
       notifications = [];
       notificationTotal = 0;
-      accountStats = {active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,simulated_deals:0,unread_notifications:0};
+      accountStats = {active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,unread_notifications:0};
       return;
     }
     const [stats, feed, activity] = await Promise.all([
@@ -567,7 +563,7 @@
       return;
     }
     if (!window.Telegram?.WebApp?.initData) {
-      notice = lang === 'ru' ? 'Открой приложение через Telegram, чтобы публиковать заявки.' : 'Open the app in Telegram to publish demo orders.';
+      notice = lang === 'ru' ? 'Открой приложение через Telegram, чтобы публиковать объявления.' : 'Open the app in Telegram to publish listings.';
       return;
     }
     try {
@@ -583,15 +579,6 @@
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
-  async function completeOrder(id: string) {
-    try {
-      await request('/api/marketplace/orders/' + encodeURIComponent(id) + '/simulate-fill', undefined, {method:'POST'});
-      notice = lang === 'ru' ? 'Демо-ордер отмечен как исполненный.' : 'Demo order marked as filled.';
-      await loadMarketplace();
-      await loadOffersAndDeals();
-    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
-  }
-
   function startEditOrder(order: MarketplaceOrder) {
     editingOrderId = order.id;
     editTitle = order.title;
@@ -602,7 +589,7 @@
   async function saveOrderEdit(id: string) {
     const price = Number(editPrice);
     if (!editTitle.trim() || !Number.isFinite(price) || price <= 0) {
-      notice = lang === 'ru' ? 'Проверь название и положительную демо-цену.' : 'Enter a title and a positive demo price.';
+      notice = lang === 'ru' ? 'Проверь название и положительную цену.' : 'Enter a title and a positive price.';
       return;
     }
     if (orderEditBusy) return;
@@ -794,17 +781,17 @@
     <a class="brand" href="#market"><span class="brand-symbol">✳</span><span>GIFT RADAR<small>THE GIFT MARKET</small></span></a>
     <div class="nav-caption">WORKSPACE</div>
     <nav class="side-nav">
-      {#each [{id:'market',label:t.market,icon:'▦'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
+      {#each [{id:'orders',label:t.orders,icon:'⇄'},{id:'create',label:t.create,icon:'＋'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
         <button class:active={view===item.id} class="nav-item" onclick={()=>{view=item.id as View;notice='';}}><span>{item.icon}</span>{item.label}</button>
       {/each}
     </nav>
-    <div class="sidebar-bottom"><div class="demo-card"><span class="demo-dot"></span>{t.demo}<p>{t.demoWalletText}</p></div><div class="sidebar-version">PORTALS DATA · GIFT RADAR</div></div>
+    <div class="sidebar-bottom"><div class="demo-card"><span class="demo-dot"></span>{t.demo}<p>{t.demoWalletText}</p></div><div class="sidebar-version">GIFT RADAR · NFT GIFT MARKETPLACE</div></div>
   </aside>
 
   <main class="main-content">
     <header class="topbar">
       <div class="crumb"><span>GIFT RADAR</span><b>/</b><span>{view.toUpperCase()}</span></div>
-      <div class="top-actions"><span class="demo-pill">{t.readonly}</span><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>view='profile'}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
+      <div class="top-actions"><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>view='profile'}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
     </header>
 
     {#if view==='market'}
@@ -819,7 +806,7 @@
           {#each collections.slice(0,3) as collection, index}
             <div class={'collection-orb orb-'+index}>{#if collection.image}<img src={collection.image} alt=""/>{:else}<span>✳</span>{/if}</div>
           {/each}
-          <span class="float-chip chip-a">TELEGRAM GIFTS</span><span class="float-chip chip-b">PORTALS DATA</span><span class="float-chip chip-c">COLLECT · DISCOVER</span>
+          <span class="float-chip chip-a">TELEGRAM GIFTS</span><span class="float-chip chip-b">GIFT RADAR MARKET</span><span class="float-chip chip-c">COLLECT · DISCOVER</span>
         </div>
       </section>
       {#if collections.length}
@@ -888,7 +875,7 @@
               <article class="gift-card">
                 <button class="gift-visual" onclick={()=>void openGift(gift)} aria-label={t.details}>
                   <GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/>
-                  <span class="source-tag">PORTALS</span>
+                  
                 </button>
                 <div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'} <span>{gift.number?'#'+gift.number:''}</span></div><div class="gift-card-meta">Telegram collectible · {gift.status||'Listed'}</div><div class="gift-card-bottom"><div><small>{t.price}</small><strong>{fmt(gift.price,gift.currency||'TON')}</strong></div><button class:hearted={favorites.includes(keyOf(gift))} class="heart-button" onclick={()=>toggleFavorite(gift)}>{favorites.includes(keyOf(gift))?'♥':'♡'}</button></div><button class="card-details" onclick={()=>void openGift(gift)}>{t.details} <span>↗</span></button></div>
               </article>
@@ -949,7 +936,7 @@
         <label>{t.noteLabel}<textarea class="form-input note-input" bind:value={createNote} placeholder="..."></textarea></label>
         <button class="publish-button" onclick={createOrder}>{t.publish} <span>→</span></button>
         <p class="safety-note">ⓘ {t.createHint}</p>
-      </div><div class="create-aside"><div class="aside-icon">✳</div><div class="eyebrow">GIFT RADAR</div><h2>Make your next move visible.</h2><p>Заявки хранятся на сервере и видны другим пользователям. TON и Stars — только обозначения тестовых цен.</p><div class="aside-stats"><div><strong>{orders.length}</strong><span>DEMO ORDERS</span></div><div><strong>{favorites.length}</strong><span>SAVED GIFTS</span></div></div></div></section>
+      </div><div class="create-aside"><div class="aside-icon">✳</div><div class="eyebrow">GIFT RADAR</div><h2>Make your next move visible.</h2><p>Объявления хранятся на сервере и видны другим пользователям. Цена указывается в TON или Telegram Stars.</p><div class="aside-stats"><div><strong>{orders.length}</strong><span>LISTINGS</span></div><div><strong>{favorites.length}</strong><span>SAVED GIFTS</span></div></div></div></section>
     {:else if view==='favorites'}
       <section class="page-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{t.favoritesTitle}</h1><p>{favorites.length} saved items</p></section>
       {#if shownGifts.length}<div class="gift-grid">{#each shownGifts as gift (keyOf(gift))}<article class="gift-card"><button class="gift-visual" onclick={()=>void openGift(gift)}><GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/></button><div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'}</div><div class="gift-card-bottom"><strong>{fmt(gift.price,gift.currency||'TON')}</strong><button class="heart-button hearted" onclick={()=>toggleFavorite(gift)}>♥</button></div></div></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='market'}>{t.market}</button></div>{/if}
@@ -972,11 +959,10 @@
           <div><strong>{accountStats.completed_orders}</strong><span>{t.completedOrdersStat}</span></div>
           <div><strong>{accountStats.pending_offers_sent}</strong><span>{t.sentOffersStat}</span></div>
           <div><strong>{accountStats.pending_offers_received}</strong><span>{t.receivedOffersStat}</span></div>
-          <div><strong>{accountStats.simulated_deals}</strong><span>{t.dealsTitle}</span></div>
         </div>
       </article>
       <article class="profile-card activity-card">
-        <div class="notification-heading"><div><div class="eyebrow">{t.activityTitle}</div><strong>{accountActivity.length} / {activityTotal}</strong></div><span class="activity-demo-tag">DEMO LOG</span></div>
+        <div class="notification-heading"><div><div class="eyebrow">{t.activityTitle}</div><strong>{accountActivity.length} / {activityTotal}</strong></div></div>
         {#if accountActivity.length}
           <div class="activity-timeline">
             {#each accountActivity as item (item.id)}
@@ -1007,7 +993,7 @@
           {#if notifications.length < notificationTotal}<button class="refresh-button activity-more" onclick={loadMoreNotifications} disabled={notificationsLoadingMore}>{notificationsLoadingMore?'…':t.loadMoreActivity}</button>{/if}
         {:else}<div class="state-panel">{t.noNotifications}</div>{/if}
       </article>
-      <article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>Wallet connection disabled</strong><small>Demo profile · no assets stored</small></div><b>DEMO</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>Portals catalogue · TON / Stars demo labels · RU / EN</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article>{#if isAdmin}<article class="profile-card"><div class="eyebrow">ADMINISTRATION</div><h2>{lang==='ru'?'Управление каталогом':'Catalogue controls'}</h2><p>{lang==='ru'?'Доступ подтверждён сервером Telegram. Здесь можно только включать или отключать отображение каталога Portals.':'Access verified by the server through Telegram. You can only enable or disable the Portals catalogue visibility here.'}</p><div class="wallet-placeholder"><span>◈</span><div><strong>{lang==='ru'?'Каталог Portals':'Portals catalogue'}</strong><small>{adminMarketplaceEnabled?(lang==='ru'?'Включён':'Enabled'):(lang==='ru'?'Отключён':'Disabled')}</small></div><b>ADMIN</b></div><button class="publish-button" onclick={toggleAdminMarketplace} disabled={adminBusy}>{adminBusy?'…':(adminMarketplaceEnabled?(lang==='ru'?'Отключить каталог':'Disable catalogue'):(lang==='ru'?'Включить каталог':'Enable catalogue'))}</button></article><article class="profile-card"><div class="notification-heading"><div><div class="eyebrow">MODERATION</div><h2>{t.adminReports}</h2></div><button class="refresh-button" onclick={loadAdminReports} disabled={adminReportsBusy}>{adminReportsBusy?'…':t.refresh}</button></div>{#if adminReportsBusy}<div class="state-panel">{t.loading}</div>{:else if adminReports.length===0}<div class="state-panel">{t.noAdminReports}</div>{:else}<div class="orders-list">{#each adminReports as report (report.id)}<article class="order-card"><div class="order-main"><div class="order-kind">{report.order_title} · {report.order_owner}</div><h3>{reportReasonLabel(report.reason)}</h3><p>{report.reporter_name} · {new Date(report.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p>{#if report.details}<p>{report.details}</p>{/if}</div><div class="order-actions"><button class="match-button" onclick={()=>moderateOrderReport(report.id,'dismiss')} disabled={adminReportActionBusy===report.id}>{t.dismissReport}</button><button class="cancel-button" onclick={()=>moderateOrderReport(report.id,'remove_order')} disabled={adminReportActionBusy===report.id}>{t.removeReportedOrder}</button></div></article>{/each}</div>{/if}</article>{/if}</section>
+      <article class="profile-card"><div class="eyebrow">WALLET AREA</div><h2>{t.demoWallet}</h2><p>{t.demoWalletText}</p><div class="wallet-placeholder"><span>◈</span><div><strong>TON wallet connection</strong><small>Telegram profile · no assets stored</small></div><b>TON</b></div></article><article class="profile-card"><div class="eyebrow">PREFERENCES</div><h2>GIFT RADAR</h2><p>GIFT RADAR marketplace · TON / Stars · RU / EN</p><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>Language: {lang.toUpperCase()}</button></article>{#if isAdmin}<article class="profile-card"><div class="eyebrow">ADMINISTRATION</div><h2>{lang==='ru'?'Управление каталогом':'Catalogue controls'}</h2><p>{lang==='ru'?'Доступ подтверждён сервером Telegram. Здесь можно только включать или отключать отображение каталога Portals.':'Access verified by the server through Telegram. You can only enable or disable the Portals catalogue visibility here.'}</p><div class="wallet-placeholder"><span>◈</span><div><strong>{lang==='ru'?'Каталог Portals':'Portals catalogue'}</strong><small>{adminMarketplaceEnabled?(lang==='ru'?'Включён':'Enabled'):(lang==='ru'?'Отключён':'Disabled')}</small></div><b>ADMIN</b></div><button class="publish-button" onclick={toggleAdminMarketplace} disabled={adminBusy}>{adminBusy?'…':(adminMarketplaceEnabled?(lang==='ru'?'Отключить каталог':'Disable catalogue'):(lang==='ru'?'Включить каталог':'Enable catalogue'))}</button></article><article class="profile-card"><div class="notification-heading"><div><div class="eyebrow">MODERATION</div><h2>{t.adminReports}</h2></div><button class="refresh-button" onclick={loadAdminReports} disabled={adminReportsBusy}>{adminReportsBusy?'…':t.refresh}</button></div>{#if adminReportsBusy}<div class="state-panel">{t.loading}</div>{:else if adminReports.length===0}<div class="state-panel">{t.noAdminReports}</div>{:else}<div class="orders-list">{#each adminReports as report (report.id)}<article class="order-card"><div class="order-main"><div class="order-kind">{report.order_title} · {report.order_owner}</div><h3>{reportReasonLabel(report.reason)}</h3><p>{report.reporter_name} · {new Date(report.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p>{#if report.details}<p>{report.details}</p>{/if}</div><div class="order-actions"><button class="match-button" onclick={()=>moderateOrderReport(report.id,'dismiss')} disabled={adminReportActionBusy===report.id}>{t.dismissReport}</button><button class="cancel-button" onclick={()=>moderateOrderReport(report.id,'remove_order')} disabled={adminReportActionBusy===report.id}>{t.removeReportedOrder}</button></div></article>{/each}</div>{/if}</article>{/if}</section>
     {/if}
 
     {#if notice}<div class="toast" role="status">{notice}<button onclick={()=>notice=''}>×</button></div>{/if}
@@ -1016,7 +1002,7 @@
 </div>
 
 <nav class="mobile-nav">
-  {#each [{id:'market',label:t.market,icon:'▦'},{id:'orders',label:t.orders,icon:'⇄'},{id:'create',label:t.create,icon:'＋'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
+  {#each [{id:'orders',label:t.orders,icon:'⇄'},{id:'create',label:t.create,icon:'＋'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
     <button class:active={view===item.id} onclick={()=>{view=item.id as View;notice='';}}><span>{item.icon}</span><small>{item.label}</small></button>
   {/each}
 </nav>
@@ -1026,7 +1012,7 @@
     <div class="gift-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label={selected.name||'Gift details'} onclick={e=>e.stopPropagation()} onkeydown={e=>e.stopPropagation()}>
       <button class="modal-close" onclick={()=>selected=null}>×</button>
       <div class="modal-media"><GiftMedia image={selected.image} animationUrl={selected.animation_url} hasAnimation={selected.has_animation} alt={selected.name||'Gift'} className="gift-media"/></div>
-      <div class="modal-content"><div class="eyebrow">PORTALS COLLECTIBLE</div><h2>{selected.name||'Telegram Gift'} {selected.number?'#'+selected.number:''}</h2><div class="modal-price"><span>{t.price}</span><strong>{fmt(selected.price,selected.currency||'TON')}</strong></div><div class="modal-price"><span>{t.floor}</span><strong>{fmt(selected.floor_price,selected.currency||'TON')}</strong></div><h3>{t.traits}</h3>{#each selected.attributes||[] as trait}<div class="trait-row"><span>{trait.type||trait.name}</span><strong>{trait.value||'—'}</strong></div>{/each}<h3>{lang==='ru'?'История данных':'Metadata history'}</h3>{#if historyLoading}<div class="trait-row"><span>{lang==='ru'?'Загружаем снимки…':'Loading snapshots…'}</span></div>{:else if selectedHistory.length}{#each selectedHistory as snapshot}<div class="trait-row"><span>{new Date(snapshot.observed_at * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</span><strong>{fmt(snapshot.item.price, String(snapshot.item.currency||'TON'))}</strong></div>{/each}{:else}<div class="trait-row"><span>{lang==='ru'?'История пока не накоплена':'No history snapshots yet'}</span></div>{/if}<button class="publish-button" onclick={()=>toggleFavorite(selected!)}>{favorites.includes(keyOf(selected))?t.saved:t.save} <span>♡</span></button></div>
+      <div class="modal-content"><div class="eyebrow">TELEGRAM NFT GIFT</div><h2>{selected.name||'Telegram Gift'} {selected.number?'#'+selected.number:''}</h2><div class="modal-price"><span>{t.price}</span><strong>{fmt(selected.price,selected.currency||'TON')}</strong></div><div class="modal-price"><span>{t.floor}</span><strong>{fmt(selected.floor_price,selected.currency||'TON')}</strong></div><h3>{t.traits}</h3>{#each selected.attributes||[] as trait}<div class="trait-row"><span>{trait.type||trait.name}</span><strong>{trait.value||'—'}</strong></div>{/each}<h3>{lang==='ru'?'История данных':'Metadata history'}</h3>{#if historyLoading}<div class="trait-row"><span>{lang==='ru'?'Загружаем снимки…':'Loading snapshots…'}</span></div>{:else if selectedHistory.length}{#each selectedHistory as snapshot}<div class="trait-row"><span>{new Date(snapshot.observed_at * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</span><strong>{fmt(snapshot.item.price, String(snapshot.item.currency||'TON'))}</strong></div>{/each}{:else}<div class="trait-row"><span>{lang==='ru'?'История пока не накоплена':'No history snapshots yet'}</span></div>{/if}<button class="publish-button" onclick={()=>toggleFavorite(selected!)}>{favorites.includes(keyOf(selected))?t.saved:t.save} <span>♡</span></button></div>
     </div>
   </div>
 {/if}
