@@ -1,7 +1,6 @@
-"""Shared server-side demo marketplace.
+"""Shared server-side GIFT RADAR marketplace.
 
-All amounts are labels for simulated TON / Telegram Stars offers only.
-No wallet, payment, blockchain or transfer operations are performed.
+Listings store seller-provided prices in TON or Telegram Stars. Listing and offer records do not execute asset transfers or settle payments.
 """
 from __future__ import annotations
 
@@ -183,6 +182,23 @@ def init_marketplace_db() -> None:
             updated_at INTEGER NOT NULL
         );
         """)
+        # One-time cleanup of the explicitly identified test listing approved by the owner.
+        # Match every identifying field so no other seller listing can be touched.
+        conn.execute("BEGIN IMMEDIATE")
+        test_rows = conn.execute(
+            """SELECT id FROM demo_orders
+               WHERE TRIM(title) = 'Plush Pepe #1'
+                 AND LOWER(TRIM(owner_name)) = 'n0kl1pzz1k'
+                 AND currency = 'TON'
+                 AND CAST(price AS REAL) = 70000"""
+        ).fetchall()
+        test_ids = [row["id"] for row in test_rows]
+        for test_id in test_ids:
+            conn.execute("DELETE FROM demo_order_reports WHERE order_id = ?", (test_id,))
+            conn.execute("DELETE FROM demo_order_events WHERE order_id = ?", (test_id,))
+            conn.execute("DELETE FROM demo_order_revisions WHERE order_id = ?", (test_id,))
+            conn.execute("DELETE FROM demo_orders WHERE id = ?", (test_id,))
+        conn.commit()
 
 
 
@@ -427,7 +443,7 @@ def release_telegram_update(update_id: int) -> None:
 
 def _user(init_data: str | None, verify: Callable[[str], dict]) -> dict:
     if not init_data:
-        raise HTTPException(status_code=401, detail="Open GIFT RADAR from Telegram to use demo orders")
+        raise HTTPException(status_code=401, detail="Open GIFT RADAR from Telegram to manage marketplace listings")
     return verify(init_data)
 
 
@@ -500,7 +516,7 @@ class UpdateSellerProfile(BaseModel):
         return value.strip()
 
 
-class CreateDemoOrder(BaseModel):
+class CreateMarketplaceOrder(BaseModel):
     kind: Literal["listing", "buy-order"]
     title: str = Field(min_length=1, max_length=120)
     price: Decimal
@@ -524,7 +540,7 @@ class CreateDemoOrder(BaseModel):
 
 
 
-class UpdateDemoOrder(BaseModel):
+class UpdateMarketplaceOrder(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=120)
     price: Decimal | None = None
     note: str | None = Field(default=None, max_length=300)
@@ -938,7 +954,7 @@ def create_marketplace_router(
 
     @router.post("/orders", status_code=201)
     async def create_order(
-        payload: CreateDemoOrder,
+        payload: CreateMarketplaceOrder,
         x_telegram_init_data: str | None = Header(default=None),
     ):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
@@ -965,7 +981,7 @@ def create_marketplace_router(
     @router.patch("/orders/{order_id}")
     async def update_order(
         order_id: str,
-        payload: UpdateDemoOrder,
+        payload: UpdateMarketplaceOrder,
         x_telegram_init_data: str | None = Header(default=None),
     ):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
@@ -1008,39 +1024,6 @@ def create_marketplace_router(
             )
             conn.commit()
         return {"item": _order_dict(updated, actor_id)}
-
-    @router.post("/orders/{order_id}/simulate-fill")
-    async def simulate_fill(
-        order_id: str,
-        x_telegram_init_data: str | None = Header(default=None),
-    ):
-        user = _user(x_telegram_init_data, verify_telegram_init_data)
-        actor_id = str(user["id"])
-        _enforce_user_rate_limit(actor_id, "simulate_fill", 12)
-        now = int(time.time())
-        with _db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (order_id,)).fetchone()
-            if row is None:
-                conn.rollback()
-                raise HTTPException(status_code=404, detail="Order not found")
-            if row["user_id"] == actor_id:
-                conn.rollback()
-                raise HTTPException(status_code=403, detail="You cannot fill your own demo order")
-            updated = conn.execute(
-                "UPDATE demo_orders SET status='matched', updated_at=? WHERE id=? AND status='active'",
-                (now, order_id),
-            )
-            if updated.rowcount != 1:
-                conn.rollback()
-                raise HTTPException(status_code=409, detail="This order is no longer active")
-            conn.execute(
-                "INSERT INTO demo_order_events(order_id, actor_user_id, event_type, created_at) VALUES (?, ?, 'simulated_fill', ?)",
-                (order_id, actor_id, now),
-            )
-            row = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (order_id,)).fetchone()
-            conn.commit()
-        return {"item": _order_dict(row, actor_id), "simulated": True}
 
     @router.delete("/orders/{order_id}")
     async def cancel_order(
