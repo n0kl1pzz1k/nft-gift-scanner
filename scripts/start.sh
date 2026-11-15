@@ -12,7 +12,7 @@ trap cleanup EXIT INT TERM
 
 # Keep the TON Proof verifier private and colocated with the existing API.
 # No new Railway service or public port is required.
-if [[ -n "${DATABASE_URL:-}" && -z "${TON_PROOF_SERVICE_URL:-}" ]]; then
+if [[ -z "${TON_PROOF_SERVICE_URL:-}" ]]; then
   export TON_PROOF_PORT="${TON_PROOF_PORT:-8081}"
   export TON_PROOF_SERVICE_URL="http://127.0.0.1:${TON_PROOF_PORT}"
   export TON_PROOF_INTERNAL_TOKEN="${TON_PROOF_INTERNAL_TOKEN:-$(python -c 'import secrets; print(secrets.token_urlsafe(48))')}"
@@ -38,7 +38,7 @@ else:
     raise SystemExit("TON Proof sidecar failed its private health check")
 PY
 elif [[ -z "${TON_PROOF_SERVICE_URL:-}" ]]; then
-  echo "TON Proof is fail-closed: DATABASE_URL is not configured; wallet proof endpoints will remain unavailable." >&2
+  echo "TON Proof uses the configured private service URL."
 fi
 
 uvicorn app:app --host 0.0.0.0 --port "${PORT:-8080}" &
