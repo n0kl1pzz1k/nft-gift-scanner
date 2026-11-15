@@ -250,6 +250,7 @@ class TonTestnetGatewayTests(unittest.TestCase):
             "TON_TESTNET_USDT_MASTER": "0:" + "33" * 32,
             "TON_TESTNET_ESCROW_JETTON_WALLET": "0:" + "55" * 32,
             "TON_TESTNET_TONAPI_KEY": "test-tonapi-key",
+            "TON_TESTNET_TONCENTER_API_KEY": "test-toncenter-key",
         }
         with patch.dict(os.environ, env, clear=True):
             gateway = configured_ton_testnet_gateway()
