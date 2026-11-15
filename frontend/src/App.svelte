@@ -853,6 +853,12 @@
 
   async function createInventoryListing(assetId: string) {
     if (inventoryListingBusy) return;
+    if (!signedIn || !walletVerified || !connectedWallet) {
+      notice = lang==='ru'
+        ? 'Сначала подключи TON-кошелёк и подтверди владение через TON Proof.'
+        : 'Connect a TON wallet and verify ownership with TON Proof first.';
+      return;
+    }
     inventoryListingBusy = assetId;
     try {
       const currency = inventoryCurrencies[assetId] || 'GRAM';
@@ -865,8 +871,8 @@
         }),
       });
       notice = lang==='ru'
-        ? 'Лот создан как ожидающий передачи в эскроу. Публичным он станет только после проверки блокчейна.'
-        : 'Listing created as pending escrow. It becomes public only after on-chain verification.';
+        ? 'Черновик лота создан. NFT всё ещё находится в твоём кошельке: перевод в эскроу пока не выполнялся, лот не опубликован.'
+        : 'Listing draft created. The NFT remains in your wallet: no escrow transfer was sent and the listing is not public.';
       await loadMyInventory();
     } catch (e) {
       notice = e instanceof Error ? e.message : String(e);
