@@ -1,15 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import GiftMedia from './GiftMedia.svelte';
 
-  type Gift = {
-    id?: string | number; name?: string; number?: string | number;
-    image?: string; animation_url?: string; has_animation?: boolean;
-    price?: string | number; floor_price?: string | number | null;
-    currency?: string; source?: string; status?: string;
-    attributes?: { type?: string; name?: string; value?: string }[];
-  };
-  type Collection = { id?: string | number; name?: string; short_name?: string; image?: string };
   type MarketplaceOrder = {
     id: string; kind: 'listing' | 'buy-order'; title: string;
     price: string | number; currency: 'TON' | 'XTR'; status: 'active' | 'matched' | 'cancelled';
@@ -27,21 +18,13 @@
     active_listings: number; active_buy_requests: number; matched_orders: number;
     volume_ton: number; volume_stars: number; total_orders: number;
   };
-  type ApiStatus = {
-    sources?: Record<string, string>;
-    data_pipeline?: { refresh_interval_seconds?: number };
-    note?: string;
-  };
   type View = 'orders' | 'offers' | 'create' | 'favorites' | 'profile' | 'seller';
 
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://hassle-nft-market.up.railway.app').replace(/\/$/, '');
   let lang = $state<'ru' | 'en'>('ru');
   let view = $state<View>('orders');
-  let gifts = $state<Gift[]>([]);
-  let collections = $state<Collection[]>([]);
-  let favorites = $state<string[]>([]);
-  let favoriteItems = $state<Gift[]>([]);
   let orders = $state<MarketplaceOrder[]>([]);
+  let favoriteOrderIds = $state<string[]>([]);
   let publicOrdersTotal = $state(0);
   let publicOrdersOffset = $state(0);
   let ordersLoadingMore = $state(false);
@@ -66,22 +49,6 @@
   let offersBusy = $state(false);
   let offerActionBusy = $state('');
   let offerStatusFilter = $state<'all'|'pending'|'accepted'|'declined'|'withdrawn'>('all');
-  let marketplaceStats = $state<MarketplaceStats>({active_listings:0,active_buy_requests:0,matched_orders:0,volume_ton:0,volume_stars:0,total_orders:0});
-  let apiStatus = $state<ApiStatus | null>(null);
-  let statusCheckedAt = $state<number | null>(null);
-  let statusBusy = $state(false);
-  let statusError = $state(false);
-  let search = $state('');
-  let minPrice = $state('');
-  let maxPrice = $state('');
-  let busy = $state(true);
-  let loadingMore = $state(false);
-  let error = $state('');
-  let total = $state(0);
-  let offset = $state(0);
-  let selected = $state<Gift | null>(null);
-  let selectedHistory = $state<{item: Gift; observed_at: number}[]>([]);
-  let historyLoading = $state(false);
   let telegramUser = $state('');
   let telegramPhoto = $state('');
   let telegramUsername = $state('');
@@ -89,8 +56,6 @@
   let signedIn = $state(false);
   let authToken = $state('');
   let isAdmin = $state(false);
-  let adminMarketplaceEnabled = $state(true);
-  let adminBusy = $state(false);
   let notice = $state('');
   let createKind = $state<'listing' | 'buy-order'>('listing');
   let createTitle = $state('');
@@ -109,10 +74,6 @@
   let adminReports = $state<OrderReport[]>([]);
   let adminReportsBusy = $state(false);
   let adminReportActionBusy = $state('');
-  let collectionFilter = $state('all');
-  let statusFilter = $state('listed');
-  let sortBy = $state('listed_at desc');
-  let catalogueRequestId = 0;
   let orderStatusFilter = $state<'all' | 'active' | 'matched' | 'cancelled'>('active');
   let orderKindFilter = $state<'all' | 'listing' | 'buy-order'>('all');
 
@@ -134,7 +95,7 @@
     demo: 'HASSLE NFT MARKETPLACE', demoWallet: 'Подключение кошелька', demoWalletText: 'Подключение TON-кошелька появится в следующем этапе.',
     signIn: 'Подтвердить Telegram', guest: 'Гость', authHint: 'Открой Mini App через Telegram, чтобы подтвердить профиль.',
     signed: 'Telegram подтверждён', profileText: 'Профиль Telegram и управление публичной карточкой продавца.', sellerCardTitle: 'Публичная карточка продавца', sellerDisplayName: 'Отображаемое имя', sellerBio: 'О себе', sellerSave: 'Сохранить профиль', sellerSaved: 'Профиль продавца обновлён.', sellerProfileId: 'Публичный ID',
-    favoritesTitle: 'Избранные подарки', noFavorites: 'Добавьте подарки в избранное из каталога.',
+    favoritesTitle: 'Избранные подарки', noFavorites: 'Сохранённых объявлений пока нет.',
     save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Объявление опубликовано.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Оборот', statsVolumeHint: 'По данным маркетплейса', statsCatalog: 'Подарков в каталоге', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'Каталог подарков', refresh: 'Обновить', all: 'Все', orderStatus: 'Статус', orderKind: 'Тип заявки', activeOrders: 'Активные', matchedOrders: 'Закрытые', cancelledOrders: 'Снятые', listingsOnly: 'Предложения', buyRequestsOnly: 'Заявки на поиск', invalidPrice: 'Проверь диапазон цены: значения должны быть неотрицательными, а минимальная цена — не выше максимальной.',
     sourceStatusTitle: 'СОСТОЯНИЕ ИСТОЧНИКОВ', sourceStatusSubtitle: 'Что подключено к приложению', sourceCatalogue: 'Внешний каталог', sourceChanges: 'Изменения подарков', sourceDailyFloors: 'История floor-цен', sourceStatusChecked: 'Проверено', sourceStatusChecking: 'Проверяем статус…', sourceStatusUnavailable: 'Не удалось получить статус API.', sourceRefreshInterval: 'Интервал фонового обновления', sourceConfigured: 'Настроен · только чтение', sourceNeedsKey: 'Требуется API-ключ', sourcePublic: 'Публичный источник', sourceDaily: 'Публичная ежедневная история', sourceUnknown: 'Нет данных',
@@ -157,20 +118,18 @@
     demo: 'HASSLE NFT MARKETPLACE', demoWallet: 'Wallet connection', demoWalletText: 'TON wallet connection will be available in the next release.',
     signIn: 'Verify Telegram', guest: 'Guest', authHint: 'Open the Mini App in Telegram to verify your profile.',
     signed: 'Telegram verified', profileText: 'Your Telegram account and public seller card.', sellerCardTitle: 'Public seller card', sellerDisplayName: 'Display name', sellerBio: 'About', sellerSave: 'Save profile', sellerSaved: 'Seller profile updated.', sellerProfileId: 'Public ID',
-    favoritesTitle: 'Saved gifts', noFavorites: 'Save gifts from the catalogue to see them here.',
+    favoritesTitle: 'Saved gifts', noFavorites: 'No saved marketplace listings yet.',
     save: 'Save', saved: 'Saved', currency: 'TON', success: 'Listing published.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Volume', statsVolumeHint: 'Marketplace records', statsCatalog: 'Catalogue gifts', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'Gift marketplace', refresh: 'Refresh', all: 'All', orderStatus: 'Status', orderKind: 'Order type', activeOrders: 'Active', matchedOrders: 'Closed', cancelledOrders: 'Cancelled', listingsOnly: 'Listings', buyRequestsOnly: 'Buy requests', invalidPrice: 'Check the price range: values must be non-negative and the minimum cannot exceed the maximum.',
     sourceStatusTitle: 'SOURCE STATUS', sourceStatusSubtitle: 'Connected data sources', sourceCatalogue: 'Marketplace catalogue', sourceChanges: 'Gift metadata changes', sourceDailyFloors: 'Floor price history', sourceStatusChecked: 'Checked', sourceStatusChecking: 'Checking status…', sourceStatusUnavailable: 'Could not load API status.', sourceRefreshInterval: 'Background refresh interval', sourceConfigured: 'Configured · read-only', sourceNeedsKey: 'API key required', sourcePublic: 'Public source', sourceDaily: 'Public daily history', sourceUnknown: 'No data',
   };
   const t = $derived(lang === 'ru' ? ru : en);
-  const keyOf = (g: Gift) => String(g.id ?? g.number ?? g.name ?? 'gift');
-  const shownGifts = $derived(view === 'favorites' ? favoriteItems : gifts);
+  const favoriteOrders = $derived(orders.filter(order => favoriteOrderIds.includes(order.id)));
   const visibleOrders = $derived(orders.filter(order =>
     (orderStatusFilter === 'all' || order.status === orderStatusFilter) &&
     (orderKindFilter === 'all' || order.kind === orderKindFilter)
   ));
   const visibleOffers = $derived(offers.filter(offer => offerStatusFilter === 'all' || offer.status === offerStatusFilter));
-  const fmt = (value: unknown, currency = '') => value === null || value === undefined || value === '' ? '—' : String(value) + (currency ? ' ' + currency : '');
 
   function reportReasonLabel(reason: OrderReport['reason']) {
     const labels = {scam:t.reportScam,misleading:t.reportMisleading,inappropriate:t.reportInappropriate,spam:t.reportSpam,other:t.reportOther};
@@ -441,40 +400,11 @@
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
     finally { offerActionBusy = ''; }
   }
-  function toggleFavorite(gift: Gift) {
-    const id = keyOf(gift);
-    const exists = favorites.includes(id);
-    favorites = exists ? favorites.filter(x => x !== id) : [...favorites, id];
-    favoriteItems = exists
-      ? favoriteItems.filter(item => keyOf(item) !== id)
-      : [gift, ...favoriteItems.filter(item => keyOf(item) !== id)];
-    try { localStorage.setItem('hassle-nft-favorites-v1', JSON.stringify(favoriteItems)); } catch {}
-    if (signedIn) void persistFavorite(gift, !exists);
-  }
-
-  async function persistFavorite(gift: Gift, enabled: boolean) {
-    const id = keyOf(gift);
-    try {
-      if (enabled) {
-        await request('/api/marketplace/favorites/' + encodeURIComponent(id), undefined, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ gift }),
-        });
-      } else {
-        await request('/api/marketplace/favorites/' + encodeURIComponent(id), undefined, { method: 'DELETE' });
-      }
-    } catch (e) {
-      notice = e instanceof Error ? e.message : String(e);
-    }
-  }
-
-  async function loadAccountFavorites() {
-    const data = await request('/api/marketplace/favorites');
-    const items = Array.isArray(data.items) ? data.items as Gift[] : [];
-    favoriteItems = items;
-    favorites = items.map(keyOf);
-    try { localStorage.setItem('gift-radar-favorites-v2', JSON.stringify(items)); } catch {}
+  function toggleFavoriteOrder(order: MarketplaceOrder) {
+    favoriteOrderIds = favoriteOrderIds.includes(order.id)
+      ? favoriteOrderIds.filter(id => id !== order.id)
+      : [...favoriteOrderIds, order.id];
+    try { localStorage.setItem('hassle-nft-favorite-orders-v1', JSON.stringify(favoriteOrderIds)); } catch {}
   }
 
   async function createOrder() {
@@ -541,16 +471,7 @@
   }
 
   async function loadAdminOverview() {
-    if (!isAdmin) return;
-    try {
-      const data = await request('/api/admin/overview');
-      adminMarketplaceEnabled = data.marketplace_visibility?.portals !== false;
-      await loadAdminReports();
-    } catch (e) {
-      // Do not render privileged controls if the protected overview cannot be loaded.
-      isAdmin = false;
-      notice = e instanceof Error ? e.message : String(e);
-    }
+    if (isAdmin) await loadAdminReports();
   }
 
   async function loadAdminReports() {
@@ -654,7 +575,6 @@
       isAdmin = data.is_admin === true;
       signedIn = true;
       if (isAdmin) await loadAdminOverview();
-      await loadAccountFavorites();
       await loadOffersAndDeals();
       if (showNotice) notice = t.signed;
     } catch (e) {
@@ -733,7 +653,7 @@
       {:else}<div class="state-panel">{lang==='ru'?'Профиль не найден.':'Seller profile not found.'}</div>{/if}
     {:else if view==='orders'}
       <section class="page-heading compact-heading" id="marketplace"><div class="eyebrow">HASSLE NFT</div><h1>{t.ordersTitle}</h1></section>
-      <div class="order-filter-bar"><label>{t.orderStatus}<select class="filter-input" bind:value={orderStatusFilter} onchange={changeOrderFilters}><option value="all">{t.all}</option><option value="active">{t.activeOrders}</option><option value="matched">{t.matchedOrders}</option><option value="cancelled">{t.cancelledOrders}</option></select></label><label>{t.orderKind}<select class="filter-input" bind:value={orderKindFilter} onchange={changeOrderFilters}><option value="all">{t.all}</option><option value="listing">{t.listingsOnly}</option><option value="buy-order">{t.buyRequestsOnly}</option></select></label></div>{#if visibleOrders.length===0}<div class="state-panel">{t.noOrders}</div>{:else}<div class="orders-list">{#each visibleOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {'· '+order.owner} {order.note?'· '+order.note:''} {order.events?.length?'· '+order.events.map(event=>event.type==='created'?(lang==='ru'?'создан':'created'):event.type==='updated'?(lang==='ru'?'изменено':'updated'):(lang==='ru'?'снят':'cancelled')).join(' → '):''}</p>{#if order.seller_profile_id}<button class="seller-link" onclick={()=>openSellerProfile(order.seller_profile_id!)}>{lang==='ru'?'Профиль продавца':'Seller profile'} ↗</button>{/if}</div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active' && order.isMine}
+      <div class="order-filter-bar"><label>{t.orderStatus}<select class="filter-input" bind:value={orderStatusFilter} onchange={changeOrderFilters}><option value="all">{t.all}</option><option value="active">{t.activeOrders}</option><option value="matched">{t.matchedOrders}</option><option value="cancelled">{t.cancelledOrders}</option></select></label><label>{t.orderKind}<select class="filter-input" bind:value={orderKindFilter} onchange={changeOrderFilters}><option value="all">{t.all}</option><option value="listing">{t.listingsOnly}</option><option value="buy-order">{t.buyRequestsOnly}</option></select></label></div>{#if visibleOrders.length===0}<div class="state-panel">{t.noOrders}</div>{:else}<div class="orders-list">{#each visibleOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {'· '+order.owner} {order.note?'· '+order.note:''} {order.events?.length?'· '+order.events.map(event=>event.type==='created'?(lang==='ru'?'создан':'created'):event.type==='updated'?(lang==='ru'?'изменено':'updated'):(lang==='ru'?'снят':'cancelled')).join(' → '):''}</p>{#if order.seller_profile_id}<button class="seller-link" onclick={()=>openSellerProfile(order.seller_profile_id!)}>{lang==='ru'?'Профиль продавца':'Seller profile'} ↗</button>{/if}</div><button class={'heart-button '+(favoriteOrderIds.includes(order.id)?'hearted':'')} onclick={()=>toggleFavoriteOrder(order)} aria-label={favoriteOrderIds.includes(order.id)?'Remove from favorites':'Add to favorites'}>{favoriteOrderIds.includes(order.id)?'♥':'♡'}</button><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active' && order.isMine}
                   <div class="order-actions"><button class="match-button" onclick={()=>startEditOrder(order)}>{t.editOrder}</button><button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button></div>
                   {#if editingOrderId===order.id}
                     <div class="order-edit-form">
@@ -769,7 +689,7 @@
       </div></section>
     {:else if view==='favorites'}
       <section class="page-heading compact-heading"><div class="eyebrow">HASSLE NFT</div><h1>{t.favoritesTitle}</h1></section>
-      {#if shownGifts.length}<div class="gift-grid">{#each shownGifts as gift (keyOf(gift))}<article class="gift-card"><button class="gift-visual" onclick={()=>void openGift(gift)}><GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/></button><div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'}</div><div class="gift-card-bottom"><strong>{fmt(gift.price,gift.currency||'TON')}</strong><button class="heart-button hearted" onclick={()=>toggleFavorite(gift)}>♥</button></div></div></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='orders'}>{t.market}</button></div>{/if}
+      {#if favoriteOrders.length}<div class="orders-list">{#each favoriteOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{order.owner}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div><button class="heart-button hearted" onclick={()=>toggleFavoriteOrder(order)}>♥</button></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='orders'}>{lang==='ru'?'К объявлениям':'Browse listings'}</button></div>{/if}
     {:else}
       <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.profile}</h1></section>
       <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div><button class="publish-button" onclick={()=>telegramLogin()}>{t.signIn} →</button></article>
