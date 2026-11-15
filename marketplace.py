@@ -1,4 +1,4 @@
-"""Shared server-side GIFT RADAR marketplace.
+"""Shared server-side HASSLE NFT marketplace.
 
 Listings store seller-provided prices in TON or Telegram Stars. Listing and offer records do not execute asset transfers or settle payments.
 """
@@ -19,7 +19,7 @@ from typing import Callable, Literal, Any
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
-DB_PATH = os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3"))
+DB_PATH = os.getenv("HASSLE_NFT_DB_PATH", os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3")) )
 
 
 def _connect_database(database_path: str | Path) -> sqlite3.Connection:
@@ -443,7 +443,7 @@ def release_telegram_update(update_id: int) -> None:
 
 def _user(init_data: str | None, verify: Callable[[str], dict]) -> dict:
     if not init_data:
-        raise HTTPException(status_code=401, detail="Open GIFT RADAR from Telegram to manage marketplace listings")
+        raise HTTPException(status_code=401, detail="Open HASSLE NFT from Telegram to manage marketplace listings")
     return verify(init_data)
 
 
