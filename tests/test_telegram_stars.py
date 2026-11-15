@@ -52,6 +52,12 @@ class TelegramStarsLedgerTests(unittest.TestCase):
             currency="XTR", idempotency_key="native-stars-listing-0001",
             engine=self.engine, now=1010,
         )
+        # This fixture models a seller-submitted NFT transfer awaiting chain verification.
+        with self.engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE marketplace_listings SET status='pending_verification' "
+                "WHERE listing_id=:id AND status='draft'"
+            ), {"id": listing["listing_id"]})
         confirm_nft_escrow_deposit(
             listing_id=listing["listing_id"], tx_hash="ab" * 32, event_index=0,
             verified_escrow_owner=escrow, expected_escrow_owner=escrow,
