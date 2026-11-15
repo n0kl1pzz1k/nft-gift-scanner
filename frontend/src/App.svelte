@@ -441,85 +441,6 @@
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
     finally { offerActionBusy = ''; }
   }
-  async function loadApiStatus() {
-    if (statusBusy) return;
-    statusBusy = true;
-    try {
-      apiStatus = await request('/api/status');
-      statusError = false;
-      statusCheckedAt = Date.now();
-    } catch {
-      statusError = true;
-    } finally {
-      statusBusy = false;
-    }
-  }
-
-  async function loadCollections() {
-    try {
-      const data = await request('/api/collections');
-      collections = Array.isArray(data.items) ? data.items : [];
-    } catch {
-      collections = [];
-    }
-  }
-
-  async function openGift(gift: Gift) {
-    selected = gift;
-    selectedHistory = [];
-    historyLoading = true;
-    const giftId = keyOf(gift);
-    try {
-      const data = await request('/api/catalog/items/' + encodeURIComponent(giftId) + '/history?limit=5');
-      if (selected && keyOf(selected) === giftId) {
-        selectedHistory = Array.isArray(data.history) ? data.history : [];
-      }
-    } catch {
-      // Ignore stale responses when the user has opened a different gift.
-      if (selected && keyOf(selected) === giftId) selectedHistory = [];
-    } finally {
-      if (selected && keyOf(selected) === giftId) historyLoading = false;
-    }
-  }
-
-  async function loadCatalogue(append = false) {
-    if (append && (loadingMore || busy)) return;
-    const requestId = ++catalogueRequestId;
-    if (append) loadingMore = true; else { busy = true; error = ''; offset = 0; }
-    const minValue = minPrice.trim() === '' ? null : Number(minPrice);
-    const maxValue = maxPrice.trim() === '' ? null : Number(maxPrice);
-    if ((minValue !== null && (!Number.isFinite(minValue) || minValue < 0)) ||
-        (maxValue !== null && (!Number.isFinite(maxValue) || maxValue < 0)) ||
-        (minValue !== null && maxValue !== null && minValue > maxValue)) {
-      error = t.invalidPrice;
-      busy = false;
-      loadingMore = false;
-      return;
-    }
-    try {
-      const nextOffset = append ? offset : 0;
-      const params = new URLSearchParams({ limit: '40', offset: String(nextOffset), search: search.trim() });
-      if (minValue !== null) params.set('min_price', String(minValue));
-      if (maxValue !== null) params.set('max_price', String(maxValue));
-      if (collectionFilter !== 'all') params.set('collection_id', collectionFilter);
-      if (statusFilter !== 'all') params.set('status', statusFilter);
-      if (sortBy) params.set('sort_by', sortBy);
-      const data = await request('/api/gifts?' + params.toString());
-      if (requestId !== catalogueRequestId) return;
-      const items = Array.isArray(data.items) ? data.items : [];
-      gifts = append ? [...gifts, ...items] : items;
-      total = Math.max(Number(data.total_count) || 0, gifts.length);
-      offset = nextOffset + items.length;
-    } catch (e) {
-      if (requestId === catalogueRequestId) error = e instanceof Error ? e.message : String(e);
-    } finally {
-      if (requestId === catalogueRequestId) {
-        busy = false;
-        loadingMore = false;
-      }
-    }
-  }
-
   function toggleFavorite(gift: Gift) {
     const id = keyOf(gift);
     const exists = favorites.includes(id);
@@ -945,12 +866,3 @@
   {/each}
 </nav>
 
-{#if selected}
-  <div class="modal-backdrop" role="presentation" onclick={()=>selected=null}>
-    <div class="gift-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label={selected.name||'Gift details'} onclick={e=>e.stopPropagation()} onkeydown={e=>e.stopPropagation()}>
-      <button class="modal-close" onclick={()=>selected=null}>×</button>
-      <div class="modal-media"><GiftMedia image={selected.image} animationUrl={selected.animation_url} hasAnimation={selected.has_animation} alt={selected.name||'Gift'} className="gift-media"/></div>
-      <div class="modal-content"><div class="eyebrow">TELEGRAM NFT GIFT</div><h2>{selected.name||'Telegram Gift'} {selected.number?'#'+selected.number:''}</h2><div class="modal-price"><span>{t.price}</span><strong>{fmt(selected.price,selected.currency||'TON')}</strong></div><div class="modal-price"><span>{t.floor}</span><strong>{fmt(selected.floor_price,selected.currency||'TON')}</strong></div><h3>{t.traits}</h3>{#each selected.attributes||[] as trait}<div class="trait-row"><span>{trait.type||trait.name}</span><strong>{trait.value||'—'}</strong></div>{/each}<h3>{lang==='ru'?'История данных':'Metadata history'}</h3>{#if historyLoading}<div class="trait-row"><span>{lang==='ru'?'Загружаем снимки…':'Loading snapshots…'}</span></div>{:else if selectedHistory.length}{#each selectedHistory as snapshot}<div class="trait-row"><span>{new Date(snapshot.observed_at * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</span><strong>{fmt(snapshot.item.price, String(snapshot.item.currency||'TON'))}</strong></div>{/each}{:else}<div class="trait-row"><span>{lang==='ru'?'История пока не накоплена':'No history snapshots yet'}</span></div>{/if}<button class="publish-button" onclick={()=>toggleFavorite(selected!)}>{favorites.includes(keyOf(selected))?t.saved:t.save} <span>♡</span></button></div>
-    </div>
-  </div>
-{/if}
