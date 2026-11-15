@@ -16,7 +16,7 @@ if [[ -z "${TON_PROOF_SERVICE_URL:-}" ]]; then
   export TON_PROOF_PORT="${TON_PROOF_PORT:-8081}"
   export TON_PROOF_SERVICE_URL="http://127.0.0.1:${TON_PROOF_PORT}"
   export TON_PROOF_INTERNAL_TOKEN="${TON_PROOF_INTERNAL_TOKEN:-$(python -c 'import secrets; print(secrets.token_urlsafe(48))')}"
-  export TON_PROOF_ALLOWED_DOMAINS="${TON_PROOF_ALLOWED_DOMAINS:-nft-gift-scanner.fj7kmzkhn9.workers.dev,nft-gift-scanner.pages.dev,feat-testnet-ton-usdt-escrow.nft-gift-scanner.pages.dev}"
+  export TON_PROOF_ALLOWED_DOMAINS="${TON_PROOF_ALLOWED_DOMAINS:-nft-gift-scanner.fj7kmzkhn9.workers.dev,nft-gift-scanner.pages.dev}"
   export TON_PROOF_ALLOWED_DOMAIN_SUFFIXES="${TON_PROOF_ALLOWED_DOMAIN_SUFFIXES:--nft-gift-scanner.fj7kmzkhn9.workers.dev}"
 
   npm --prefix services/ton-proof start &
