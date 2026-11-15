@@ -32,6 +32,17 @@ The ledger supports native GRAM and Jetton-specific trace verification. A normal
 
 Provider disagreement, provider equivocation, missing finality, unknown asset, stale/malformed trace or provider outage never credits the account. Such events require review. Provider IDs are explicitly configured in `TON_DEPOSIT_PROVIDER_IDS`; two aliases for one operator do not count as independent sources. The official TonAPI mainnet REST adapter and TON Center v3 adapter are connected to the background invoice monitor. Both adapters independently derive and verify source and destination Jetton wallets, transfer-notification opcode, amount, query identity and transaction execution. Runtime credentials and all legal/operational release gates remain unconfigured; crypto deposits stay disabled.
 
+### Mainnet observer configuration
+
+The existing backend worker uses the official TonAPI REST API and TON Center v3. Required runtime variables are:
+
+- `TON_DEPOSIT_PROVIDER_IDS=tonapi,toncenter`
+- `TONAPI_API_KEY`
+- `TONCENTER_API_KEY`
+- `TON_DEPOSIT_ADDRESS`
+
+API keys must be configured only in the existing production secret manager, never committed to the repository or pasted into chat. This config enables observation only; it does not enable Telegram Mini App crypto checkout, escrow deployment, or seller payouts.
+
 ## 3. Withdrawals and double-spend prevention
 
 A withdrawal request reserves the user's available liability balance into a request-specific hold in one ledger transaction. The idempotency key is bound to a hash of user, asset, destination, amount and fee; reusing it with different details is rejected.
