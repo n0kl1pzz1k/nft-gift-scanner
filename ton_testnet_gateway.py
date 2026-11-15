@@ -539,10 +539,13 @@ def configured_ton_testnet_gateway() -> TonTestnetPaymentGateway:
     center_url = os.getenv("TON_TESTNET_TONCENTER_URL", "https://testnet.toncenter.com/api/v3").strip()
     tonapi_url = os.getenv("TON_TESTNET_TONAPI_URL", "https://testnet.tonapi.io/v2").strip()
     tonapi_key = os.getenv("TON_TESTNET_TONAPI_KEY", "").strip()
+    center_key = os.getenv("TON_TESTNET_TONCENTER_API_KEY", "").strip()
+    if not center_key or not tonapi_key:
+        raise PaymentRouteError("Dedicated TON testnet API keys for Toncenter and TonAPI are required")
     return TonTestnetPaymentGateway(
         providers=[
             TonCenterTestnetProvider(
-                base_url=center_url, api_key=os.getenv("TON_TESTNET_TONCENTER_API_KEY", "").strip(),
+                base_url=center_url, api_key=center_key,
             ),
             TonApiTestnetProvider(base_url=tonapi_url, api_key=tonapi_key),
         ],
