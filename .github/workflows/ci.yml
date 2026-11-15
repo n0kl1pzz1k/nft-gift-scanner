@@ -2,7 +2,7 @@ name: Validate GIFT RADAR
 
 on:
   push:
-    branches: [main, feat/testnet-ton-usdt-escrow-e2e]
+    branches: [main]
   pull_request:
     branches: [main, payments/stars-ton-proof-phase-2026-11-13, feat/ton-testnet-escrow, feat/escrow-configurable-authorities]
     types: [opened, synchronize, reopened, edited, ready_for_review]
@@ -12,7 +12,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
