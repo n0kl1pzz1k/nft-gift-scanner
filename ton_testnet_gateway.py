@@ -420,7 +420,7 @@ class TonTestnetPaymentGateway:
             return (
                 item.transaction_id, item.deal_id, item.reference, item.amount,
                 item.currency, item.network, item.sender, item.recipient,
-                item.finalized,
+                item.finalized, item.query_id,
             )
         if comparable(first) != comparable(second):
             raise PaymentRouteError("TON testnet providers disagree on payment evidence")
