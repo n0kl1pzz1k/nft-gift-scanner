@@ -17,11 +17,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
-APP_URL = os.getenv("PUBLIC_APP_URL", "").strip()
-WELCOME_IMAGE_URL = os.getenv(
-    "WELCOME_IMAGE_URL",
-    "https://nft-gift-scanner.pages.dev/welcome_640x360.jpg",
+APP_URL = os.getenv(
+    "PUBLIC_APP_URL",
+    "https://nft-gift-scanner.fj7kmzkhn9.workers.dev",
 ).strip()
+WELCOME_IMAGE_URL = os.getenv("WELCOME_IMAGE_URL", "").strip()
 API_BASE = os.getenv(
     "API_BASE_URL",
     "https://nft-gift-scanner-production.up.railway.app",
@@ -61,16 +61,17 @@ def create_dispatcher() -> Dispatcher:
         raw_name = message.from_user.first_name if message.from_user else "друг"
         first_name = html.escape(raw_name)
         text = (
-            f"✨ <b>GIFT RADAR</b> — добро пожаловать, {first_name}!\n\n"
-            "Твой навигатор по Telegram-подаркам.\n\n"
-            "🎁 <b>Маркет</b> — каталог Portals, карточки подарков и поиск.\n"
-            "⭐ <b>Избранное</b> — сохраняй интересные экземпляры в своём профиле.\n"
-            "🧾 <b>Ордера</b> — общая лента демонстрационных заявок.\n"
-            "👤 <b>Профиль</b> — Telegram-аккаунт и настройки.\n\n"
-            "Каталог получает данные из Portals в режиме просмотра. "
-            "Ордера и суммы в текущей версии — демонстрационные; "
-            "платежи, вывод средств и операции с кошельками не выполняются.\n\n"
-            "<b>Открывай Mini App кнопкой ниже.</b>"
+            f"✨ <b>GIFT RADAR</b> — добро пожаловать, {first_name}!\\n\\n"
+            "🎁 <b>Твой маркетплейс Telegram-подарков</b>\\n"
+            "Ищи коллекционные подарки, изучай карточки и следи за предложениями.\\n\\n"
+            "💎 <b>TON</b> — кошелёк и операции с NFT.\\n"
+            "⭐ <b>Stars</b> — платежи Telegram там, где они доступны.\\n"
+            "🛍 <b>Маркет</b> — каталог и объявления.\\n"
+            "🤝 <b>Офферы</b> — предложения по сделкам.\\n"
+            "👤 <b>Профиль</b> — твой аккаунт и активность.\\n\\n"
+            "Мы развиваем независимую площадку GIFT RADAR. "
+            "Статусы операций и доступность функций показываются непосредственно в приложении.\\n\\n"
+            "<b>Нажми кнопку ниже, чтобы открыть Mini App.</b>"
         )
         buttons = []
         if APP_URL.startswith("https://"):
