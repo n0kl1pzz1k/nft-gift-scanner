@@ -307,21 +307,21 @@ def create_escrow_pending_listing(*, user_id: str, asset_id: str, price_raw: int
             raise ValueError("NFT is not in the seller wallet state")
         conn.execute(insert(marketplace_listings).values(
             listing_id=listing_id, asset_id=asset_id, seller_user_id=str(user_id),
-            price_raw=int(price_raw), currency=currency, status="pending_verification",
+            price_raw=int(price_raw), currency=currency, status="draft",
             idempotency_key=idempotency_key, created_at=current, updated_at=current,
         ))
-        conn.execute(update(marketplace_assets).where(
-            marketplace_assets.c.asset_id == asset_id
-        ).values(custody_state="escrow_pending", updated_at=current))
+        # Draft creation never changes NFT custody: the asset remains in the seller wallet.
+        # Only a separately verified on-chain deposit may move it into marketplace escrow.
         conn.execute(insert(marketplace_listing_events).values(
             event_id=uuid.uuid4().hex, listing_id=listing_id, actor_user_id=str(user_id),
-            event_type="created", event_data='{"status":"pending_verification"}', created_at=current,
+            event_type="draft_created",
+            event_data='{"status":"draft","custody_changed":false}', created_at=current,
         ))
         row = conn.execute(select(marketplace_listings).where(
             marketplace_listings.c.listing_id == listing_id
         )).mappings().one()
     return {**dict(row), "duplicate": False, "public": False,
-            "next_step": "Transfer the NFT from your wallet to the official GIFT RADAR escrow address"}
+            "next_step": "draft_only; NFT remains in seller wallet; no blockchain transfer was initiated"}
 
 
 def confirm_nft_escrow_deposit(*, listing_id: str, tx_hash: str, event_index: int,
@@ -573,8 +573,8 @@ def cancel_seller_listing(*, listing_id: str, seller_user_id: str,
             return {"cancelled": False, "duplicate": True, "status": "cancelled"}
         if listing["status"] == "reserved":
             raise PermissionError("Listing cannot be cancelled after a buyer reservation")
-        if listing["status"] != "active":
-            raise ValueError("Only an active, unreserved listing can be cancelled")
+        if listing["status"] not in {"draft", "active"}:
+            raise ValueError("Only a draft or active, unreserved listing can be cancelled")
         active_reservation = conn.execute(select(marketplace_reservations.c.reservation_id).where(
             marketplace_reservations.c.listing_id == listing_id,
             marketplace_reservations.c.status == "active",
@@ -582,14 +582,15 @@ def cancel_seller_listing(*, listing_id: str, seller_user_id: str,
         )).first()
         if active_reservation:
             raise PermissionError("Listing cannot be cancelled while a buyer reservation is active")
+        previous_status = listing["status"]
         conn.execute(update(marketplace_listings).where(
             marketplace_listings.c.listing_id == listing_id,
-            marketplace_listings.c.status == "active",
+            marketplace_listings.c.status == previous_status,
         ).values(status="cancelled", updated_at=current))
         conn.execute(insert(marketplace_listing_events).values(
             event_id=uuid.uuid4().hex, listing_id=listing_id,
             actor_user_id=str(seller_user_id), event_type="seller_cancelled",
-            event_data='{"reason":"seller_requested"}', created_at=current,
+            event_data=__import__("json").dumps({"reason":"seller_requested","previous_status":previous_status}), created_at=current,
         ))
     return {"cancelled": True, "duplicate": False, "status": "cancelled"}
 
