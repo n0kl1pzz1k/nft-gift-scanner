@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update
 from demo_offers import create_demo_offers_router, init_demo_offers_db
 from security_controls import SecurityControlsMiddleware
-from financial_ledger import get_engine, get_account_balance, create_payment_invoice, invoices, payment_events
+from financial_ledger import get_engine, get_account_balance
 from marketplace_settlement import reserve_verified_deal_payment
 from withdrawal_signer import create_withdrawal_request
 from marketplace_inventory import (
@@ -1214,7 +1214,7 @@ async def execute_stars_refund(
 async def wallet_balances(x_telegram_init_data: str | None = Header(default=None)):
     """Return computed ledger liabilities; there is no balance setter or client credit path."""
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
-    assets = ("GRAM", "usdt-ton", "XTR")
+    assets = ("TON", "XTR")
     balances = {}
     for asset_id in assets:
         user_liability = get_account_balance(
@@ -1236,27 +1236,13 @@ async def wallet_balances(x_telegram_init_data: str | None = Header(default=None
 @app.get("/api/wallet/policy")
 async def wallet_policy():
     """Disclose TON wallet proof and gated payment capabilities without enabling signing."""
-    from asset_policy import is_crypto_payment_enabled
-
-    crypto_enabled = {
-        asset_id: is_crypto_payment_enabled(asset_id)
-        for asset_id in ("GRAM", "usdt-ton", "usdt-tron")
-    }
     withdrawal_requests_enabled = bool(
-        any(crypto_enabled.values())
-        and os.getenv("TON_WITHDRAWAL_REQUESTS_ENABLED", "false").strip().lower() == "true"
-        and os.getenv("TON_WITHDRAWALS_ENABLED", "false").strip().lower() == "true"
-        and os.getenv("TON_WITHDRAWAL_EXECUTOR_ENABLED", "false").strip().lower() == "true"
-        and os.getenv("TON_SIGNER_SERVICE_URL", "").strip().startswith("https://")
-        and bool(os.getenv("TON_SIGNER_SERVICE_TOKEN", "").strip())
-        and bool(os.getenv("TON_SIGNER_WALLET_ID", "").strip())
-        and bool(os.getenv("TONCENTER_API_KEY", "").strip())
-        and len({part.strip() for part in os.getenv("WITHDRAWAL_APPROVER_IDS", "").split(",")
-                 if part.strip().isdigit()}) >= 2
-    )
+        os.getenv("TON_WITHDRAWAL_REQUESTS_ENABLED", "false").strip().lower() == "true"
     return {
         "wallet_connect": "ton_connect_with_server_verified_ton_proof",
         "supported_network": "ton-mainnet",
+        "supported_assets": ["TON"],
+        "payment_currency": "XTR",
         "stores": ["public_wallet_address_only_after_verified_wallet_proof"],
         "requests_seed_phrase": False,
         "requests_private_key": False,
@@ -1427,12 +1413,6 @@ async def stop_catalogue_refresh():
         _deal_expiry_task.cancel()
         try:
             await _deal_expiry_task
-        except asyncio.CancelledError:
-            pass
-    if _deposit_task and not _deposit_task.done():
-        _deposit_task.cancel()
-        try:
-            await _deposit_task
         except asyncio.CancelledError:
             pass
     if _telegram_bot is not None:
