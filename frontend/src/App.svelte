@@ -28,6 +28,7 @@
     active_listings: number; active_buy_requests: number; matched_orders: number;
     volume_ton: number; volume_stars: number; total_orders: number;
   };
+  type NativeListing = { listing_id:string; price_raw:number; currency:'XTR'|'GRAM'|'USDT'|'tUSDT'; created_at:number; asset_type:string; network:'ton-mainnet'|'ton-testnet'; collection_address:string; token_id:string; item_address:string };
   type ApiStatus = {
     sources?: Record<string, string>;
     data_pipeline?: { refresh_interval_seconds?: number };
@@ -61,6 +62,11 @@
   let testnetVerifyBusy = $state(false);
   let lang = $state<'ru' | 'en'>('ru');
   let view = $state<View>('market');
+  let nativeListings = $state<NativeListing[]>([]);
+  let nativeListingsTotal = $state(0);
+  let nativeListingsBusy = $state(false);
+  let nativeListingSearch = $state('');
+  let nativeListingCurrency = $state('all');
   let gifts = $state<Gift[]>([]);
   let collections = $state<Collection[]>([]);
   let favorites = $state<string[]>([]);
@@ -144,9 +150,9 @@
   const ru = {
     market: 'Маркет', orders: 'Активность', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'ТОЛЬКО ПРОСМОТР', catalogOnly: 'Самостоятельный маркетплейс GIFT RADAR. Здесь публикуются собственные объявления и оформляются сделки.',
     headline: 'Подарки, которые находят своих владельцев', subtitle: 'Самостоятельный рынок Telegram-подарков. Объявления, ордера и сделки живут внутри GIFT RADAR.',
-    brandEyebrow: 'ОТКРЫВАЙ РЕДКОЕ · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Открой редкие подарки.', heroDescription: 'Исследуй коллекции Telegram-подарков, объявления и историю характеристик в одном месте.', openCatalogue: 'Открыть каталог', connectedLabel: 'СОБСТВЕННЫЙ МАРКЕТПЛЕЙС · GIFT RADAR', exploreMarket: 'ИССЛЕДУЙ МАРКЕТ', collectionsTitle: 'Коллекции', collectionsCount: 'коллекций в каталоге', discoverLabel: 'ОТКРЫВАЙ', nativeCatalog: 'Собственный каталог GIFT RADAR', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
+    brandEyebrow: 'ОТКРЫВАЙ РЕДКОЕ · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Открой редкие подарки.', heroDescription: 'Покупай и продавай NFT напрямую у пользователей GIFT RADAR. Собственные объявления, ордера и сделки без внешних маркетплейсов.', openCatalogue: 'Открыть каталог', connectedLabel: 'СОБСТВЕННЫЙ МАРКЕТПЛЕЙС · GIFT RADAR', exploreMarket: 'ИССЛЕДУЙ МАРКЕТ', collectionsTitle: 'Коллекции', collectionsCount: 'коллекций в каталоге', discoverLabel: 'ОТКРЫВАЙ', nativeCatalog: 'Собственный каталог GIFT RADAR', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
     listings: 'Объявления GIFT RADAR', results: 'найдено', loading: 'Загружаем каталог…', loadMore: 'Показать ещё',
-    empty: 'По этому запросу ничего не найдено.', failed: 'Не удалось загрузить каталог.',
+    empty: 'Активных объявлений пока нет.', failed: 'Не удалось загрузить каталог.',
     details: 'О подарке', floor: 'Флор', price: 'Цена', traits: 'Характеристики',
     createTitle: 'Создать объявление', sell: 'Предложение', buy: 'Заявка на поиск', titleLabel: 'Название подарка',
     priceLabel: 'Цена (демо)', noteLabel: 'Комментарий', publish: 'Создать демо-объявление',
@@ -160,16 +166,16 @@
     signIn: 'Подтвердить Telegram', guest: 'Гость', authHint: 'Открой Mini App через Telegram, чтобы подтвердить профиль.',
     signed: 'Telegram подтверждён', profileText: 'Профиль Telegram и управление публичной карточкой продавца.', sellerCardTitle: 'Публичная карточка продавца', sellerDisplayName: 'Отображаемое имя', sellerBio: 'О себе', sellerSave: 'Сохранить профиль', sellerSaved: 'Профиль продавца обновлён.', sellerProfileId: 'Публичный ID',
     favoritesTitle: 'Избранные подарки', noFavorites: 'Добавьте подарки в избранное из каталога.',
-    save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Демо-запись добавлена.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Демо-оборот', statsVolumeHint: 'Только смоделированные записи', statsCatalog: 'Подарков в каталоге', stars: 'Stars', ton: 'TON',
+    save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Демо-запись добавлена.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Демо-оборот', statsVolumeHint: 'Только смоделированные записи', statsCatalog: 'Активных лотов', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'Каталог GIFT RADAR', refresh: 'Обновить', all: 'Все', orderStatus: 'Статус', orderKind: 'Тип заявки', activeOrders: 'Активные', matchedOrders: 'Смоделированные', cancelledOrders: 'Снятые', listingsOnly: 'Предложения', buyRequestsOnly: 'Заявки на поиск', invalidPrice: 'Проверь диапазон цены: значения должны быть неотрицательными, а минимальная цена — не выше максимальной.',
     sourceStatusTitle: 'СТАТУС ПЛАТФОРМЫ', sourceStatusSubtitle: 'Собственная инфраструктура GIFT RADAR', sourceNative: 'Внутренний каталог', sourceChanges: 'Индексация подарков', sourceDailyFloors: 'История платформы', sourceStatusChecked: 'Проверено', sourceStatusChecking: 'Проверяем статус…', sourceStatusUnavailable: 'Не удалось получить статус API.', sourceRefreshInterval: 'Интервал обновления', sourceConfigured: 'Активен', sourceNeedsKey: 'Ожидает настройки', sourcePublic: 'Внутренний источник', sourceDaily: 'Внутренняя история', sourceUnknown: 'Нет данных',
   };
   const en = {
     market: 'Market', orders: 'Activity', create: 'Create', favorites: 'Favorites', profile: 'Profile', readonly: 'READ ONLY', catalogOnly: 'Live GIFT RADAR listings. Browse and search are available; trade execution is not enabled in GIFT RADAR.',
     headline: 'Discover gifts worth keeping', subtitle: 'A unified Telegram gifts experience powered by the GIFT RADAR catalogue.',
-    brandEyebrow: 'DISCOVER THE RARE · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Discover rare finds.', heroDescription: 'Explore Telegram gift collections, marketplace listings and item history in one place.', openCatalogue: 'Explore catalogue', connectedLabel: 'GIFT RADAR · INDEPENDENT MARKET', exploreMarket: 'EXPLORE THE MARKET', collectionsTitle: 'Collections', collectionsCount: 'collections in catalogue', discoverLabel: 'DISCOVER', nativeCatalog: 'GIFT RADAR native catalogue', search: 'Gift name or number', min: 'Min price', max: 'Max price',
+    brandEyebrow: 'DISCOVER THE RARE · GIFT RADAR', heroLine1: 'Telegram Gifts.', heroLine2: 'Discover rare finds.', heroDescription: 'Buy and sell NFTs directly with GIFT RADAR users. Native listings, orders and deals without external marketplaces.', openCatalogue: 'Explore catalogue', connectedLabel: 'GIFT RADAR · INDEPENDENT MARKET', exploreMarket: 'EXPLORE THE MARKET', collectionsTitle: 'Collections', collectionsCount: 'collections in catalogue', discoverLabel: 'DISCOVER', nativeCatalog: 'GIFT RADAR native catalogue', search: 'Gift name or number', min: 'Min price', max: 'Max price',
     listings: 'GIFT RADAR listings', results: 'found', loading: 'Loading catalogue…', loadMore: 'Load more',
-    empty: 'No gifts match this search.', failed: 'Could not load the catalogue.',
+    empty: 'No active native listings yet.', failed: 'Could not load the catalogue.',
     details: 'Gift details', floor: 'Floor', price: 'Price', traits: 'Attributes',
     createTitle: 'Create an order', sell: 'Sell listing', buy: 'Buy request', titleLabel: 'Gift name',
     priceLabel: 'Demo price', noteLabel: 'Note', publish: 'Create demo order',
@@ -183,7 +189,7 @@
     signIn: 'Verify Telegram', guest: 'Guest', authHint: 'Open the Mini App in Telegram to verify your profile.',
     signed: 'Telegram verified', profileText: 'Your Telegram account and public seller card.', sellerCardTitle: 'Public seller card', sellerDisplayName: 'Display name', sellerBio: 'About', sellerSave: 'Save profile', sellerSaved: 'Seller profile updated.', sellerProfileId: 'Public ID',
     favoritesTitle: 'Saved gifts', noFavorites: 'Save gifts from the catalogue to see them here.',
-    save: 'Save', saved: 'Saved', currency: 'TON', success: 'Demo entry created.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Demo volume', statsVolumeHint: 'Simulated entries only', statsCatalog: 'Catalogue gifts', stars: 'Stars', ton: 'TON',
+    save: 'Save', saved: 'Saved', currency: 'TON', success: 'Demo entry created.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Demo volume', statsVolumeHint: 'Simulated entries only', statsCatalog: 'Active listings', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'GIFT RADAR catalogue', refresh: 'Refresh', all: 'All', orderStatus: 'Status', orderKind: 'Order type', activeOrders: 'Active', matchedOrders: 'Simulated', cancelledOrders: 'Cancelled', listingsOnly: 'Listings', buyRequestsOnly: 'Buy requests', invalidPrice: 'Check the price range: values must be non-negative and the minimum cannot exceed the maximum.',
     sourceStatusTitle: 'PLATFORM STATUS', sourceStatusSubtitle: 'GIFT RADAR native infrastructure', sourceNative: 'Native catalogue', sourceChanges: 'Gift indexing', sourceDailyFloors: 'Platform history', sourceStatusChecked: 'Checked', sourceStatusChecking: 'Checking status…', sourceStatusUnavailable: 'Could not load API status.', sourceRefreshInterval: 'Refresh interval', sourceConfigured: 'Active', sourceNeedsKey: 'Setup pending', sourcePublic: 'Native source', sourceDaily: 'Internal history', sourceUnknown: 'No data',
   };
@@ -524,6 +530,35 @@
     } finally {
       if (selected && keyOf(selected) === giftId) historyLoading = false;
     }
+  }
+
+  async function loadNativeListings() {
+    if (nativeListingsBusy) return;
+    nativeListingsBusy = true;
+    try {
+      const params = new URLSearchParams({limit:'60',offset:'0'});
+      if (nativeListingSearch.trim()) params.set('search', nativeListingSearch.trim());
+      if (nativeListingCurrency !== 'all') params.set('currency', nativeListingCurrency);
+      const data = await request('/api/inventory/listings?' + params.toString());
+      nativeListings = Array.isArray(data.items) ? data.items : [];
+      nativeListingsTotal = Number(data.total) || nativeListings.length;
+    } catch (e) {
+      nativeListings = [];
+      nativeListingsTotal = 0;
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      nativeListingsBusy = false;
+    }
+  }
+
+  function formatNativeListingPrice(listing: NativeListing) {
+    const decimals = listing.currency === 'XTR' ? 0 : listing.currency === 'USDT' || listing.currency === 'tUSDT' ? 6 : 9;
+    const amount = Number(listing.price_raw || 0) / (10 ** decimals);
+    return new Intl.NumberFormat(lang === 'ru' ? 'ru-RU' : 'en-US', {maximumFractionDigits:decimals > 2 ? 4 : 2}).format(amount) + ' ' + listing.currency;
+  }
+
+  function shortAddress(value:string) {
+    return value && value.length > 18 ? value.slice(0,8) + '…' + value.slice(-6) : value || '—';
   }
 
   async function loadCatalogue(append = false) {
@@ -1063,8 +1098,7 @@
         }
       }
     } catch {}
-    void loadCatalogue();
-    void loadCollections();
+    void loadNativeListings();
     void loadMarketplace();
     void loadApiStatus();
     if (window.Telegram?.WebApp?.initData) void telegramLogin(false);
@@ -1138,42 +1172,43 @@
       </section>
 
       <section class="market-section" id="catalogue">
-        <div class="section-title"><div><div class="eyebrow">{t.discoverLabel}</div><h2>{t.listings}</h2><p>{total.toLocaleString()} {t.results}</p></div><button class="refresh-button" onclick={()=>loadCatalogue()} disabled={busy}>↻ {t.refresh}</button></div>
-        <div class="filter-bar">
-          <div class="search-field"><span>⌕</span><input bind:value={search} placeholder={t.search} onkeydown={e=>e.key==="Enter"&&loadCatalogue()}/></div>
-          <select class="filter-input" bind:value={collectionFilter} aria-label="Collection">
-            <option value="all">Все коллекции</option>
-            {#each collections as collection}
-              <option value={String(collection.id ?? collection.short_name ?? "")}>{collection.name || collection.short_name || "Collection"}</option>
-            {/each}
-          </select>
-          <select class="filter-input" bind:value={statusFilter} aria-label="Listing status">
-            <option value="listed">В продаже</option><option value="unlisted">Не выставлены</option><option value="all">Все статусы</option>
-          </select>
-          <input class="filter-input" type="number" min="0" bind:value={minPrice} placeholder={t.min}/>
-          <input class="filter-input" type="number" min="0" bind:value={maxPrice} placeholder={t.max}/>
-          <select class="filter-input" bind:value={sortBy} aria-label="Sort listings">
-            <option value="listed_at desc">Сначала новые</option><option value="price asc">Сначала дешевле</option><option value="price desc">Сначала дороже</option>
-            <option value="model_rarity asc">Редкость модели ↑</option><option value="model_rarity desc">Редкость модели ↓</option>
-          </select>
-          <button class="search-button" onclick={()=>loadCatalogue()}>Применить</button>
+        <div class="section-title">
+          <div><div class="eyebrow">{lang==='ru'?'СОБСТВЕННЫЕ ЛОТЫ':'NATIVE LISTINGS'}</div><h2>{lang==='ru'?'Объявления GIFT RADAR':'GIFT RADAR listings'}</h2><p>{nativeListingsTotal.toLocaleString()} {lang==='ru'?'активных лотов':'active listings'}</p></div>
+          <button class="refresh-button" onclick={()=>void loadNativeListings()} disabled={nativeListingsBusy}>↻ {t.refresh}</button>
         </div>
-        {#if busy}<div class="state-panel"><div class="loader"></div>{t.loading}</div>
-        {:else if error}<div class="state-panel error-state">{t.failed}<small>{error}</small><button class="search-button" onclick={()=>loadCatalogue()}>{t.refresh}</button></div>
-        {:else if gifts.length===0}<div class="state-panel">{t.empty}</div>
+        <div class="filter-bar">
+          <div class="search-field"><span>⌕</span><input bind:value={nativeListingSearch} placeholder={lang==='ru'?'Адрес NFT или token ID':'NFT address or token ID'} onkeydown={e=>e.key==='Enter'&&loadNativeListings()}/></div>
+          <select class="filter-input" bind:value={nativeListingCurrency} aria-label="Currency">
+            <option value="all">{lang==='ru'?'Все валюты':'All currencies'}</option><option value="GRAM">GRAM</option><option value="USDT">USDT</option><option value="XTR">Stars</option><option value="tUSDT">tUSDT testnet</option>
+          </select>
+          <button class="search-button" onclick={()=>void loadNativeListings()}>{lang==='ru'?'Найти':'Search'}</button>
+        </div>
+        {#if nativeListingsBusy}
+          <div class="state-panel"><div class="loader"></div>{lang==='ru'?'Загружаем собственные объявления…':'Loading native listings…'}</div>
+        {:else if nativeListings.length===0}
+          <div class="state-panel">
+            <strong>{lang==='ru'?'Пока нет активных объявлений':'No active listings yet'}</strong>
+            <p>{lang==='ru'?'Здесь будут только NFT, которые пользователи разместили непосредственно на GIFT RADAR и передали в проверяемый эскроу. Чужие каталоги и API маркетплейсов не используются.':'Only NFTs listed directly on GIFT RADAR and deposited into verified escrow appear here. No external marketplace catalogues or APIs are used.'}</p>
+            <button class="search-button" onclick={()=>{view='inventory';if(signedIn)void loadMyInventory();}}>{lang==='ru'?'Добавить свой NFT':'List your NFT'}</button>
+          </div>
         {:else}
           <div class="gift-grid">
-            {#each gifts as gift (keyOf(gift))}
+            {#each nativeListings as listing (listing.listing_id)}
               <article class="gift-card">
-                <button class="gift-visual" onclick={()=>void openGift(gift)} aria-label={t.details}>
-                  <GiftMedia image={gift.image} animationUrl={gift.animation_url} hasAnimation={gift.has_animation} alt={gift.name||'Telegram gift'} className="gift-media"/>
-                  <span class="source-tag">GIFT RADAR</span>
-                </button>
-                <div class="gift-card-body"><div class="gift-card-title">{gift.name||'Telegram Gift'} <span>{gift.number?'#'+gift.number:''}</span></div><div class="gift-card-meta">Telegram collectible · {gift.status||'Listed'}</div><div class="gift-card-bottom"><div><small>{t.price}</small><strong>{fmt(gift.price,gift.currency||'TON')}</strong></div><button class:hearted={favorites.includes(keyOf(gift))} class="heart-button" onclick={()=>toggleFavorite(gift)}>{favorites.includes(keyOf(gift))?'♥':'♡'}</button></div><button class="card-details" onclick={()=>void openGift(gift)}>{t.details} <span>↗</span></button></div>
+                <div class="gift-visual">
+                  <div class="native-nft-placeholder"><span>✳</span><small>{listing.asset_type.replaceAll('_',' ').toUpperCase()}</small></div>
+                  <span class="source-tag">GIFT RADAR ESCROW</span>
+                </div>
+                <div class="gift-card-body">
+                  <div class="gift-card-title">NFT #{listing.token_id}</div>
+                  <div class="gift-card-meta">{listing.network==='ton-testnet'?'TON TESTNET':'TON MAINNET'} · {shortAddress(listing.collection_address)}</div>
+                  <div class="gift-card-bottom"><div><small>{lang==='ru'?'Цена продавца':'Seller price'}</small><strong>{formatNativeListingPrice(listing)}</strong></div></div>
+                  <div class="gift-card-meta">{lang==='ru'?'NFT в проверенном эскроу':'NFT held in verified escrow'} · {new Date(listing.created_at*1000).toLocaleDateString(lang==='ru'?'ru-RU':'en-US')}</div>
+                  <button class="card-details" onclick={()=>void copyTestnetValue(listing.item_address)}>{lang==='ru'?'Скопировать адрес NFT':'Copy NFT address'} <span>↗</span></button>
+                </div>
               </article>
             {/each}
           </div>
-          {#if gifts.length<total}<div class="load-more-wrap"><button class="load-more" onclick={()=>loadCatalogue(true)} disabled={loadingMore}>{loadingMore?'…':t.loadMore}</button></div>{/if}
         {/if}
       </section>
     {:else if view==='seller'}
