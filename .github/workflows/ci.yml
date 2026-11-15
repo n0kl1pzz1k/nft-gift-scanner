@@ -1,4 +1,4 @@
-name: Validate GIFT RADAR
+name: Validate HASSLE NFT Market
 
 on:
   push:
@@ -26,7 +26,7 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
       - name: Compile all backend modules
-        run: python -m compileall -q app.py bot.py marketplace.py demo_offers.py catalog_store.py tests
+        run: python -m compileall -q app.py bot.py marketplace.py demo_offers.py tests
       - name: Run API and security regression tests
         run: python -m unittest discover -s tests -v
 
@@ -39,8 +39,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Check browser JavaScript syntax
-        run: node --check app.js
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm install --no-audit --no-fund
