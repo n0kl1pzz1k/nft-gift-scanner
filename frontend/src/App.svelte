@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import GiftMedia from './GiftMedia.svelte';
   import { TonConnectUI } from '@tonconnect/ui';
+  import { Address, beginCell, toNano } from '@ton/ton';
 
   type Gift = {
     id?: string | number; name?: string; number?: string | number;
@@ -760,6 +761,63 @@
     }
   }
 
+  async function sendTestnetPayment() {
+    if (!tonConnectUI || !walletVerified || walletNetwork !== '-3' || !testnetIntent || testnetPaymentBusy) {
+      notice = lang === 'ru' ? 'Подключи и подтверди TON testnet-кошелёк перед оплатой.' : 'Connect and verify a TON testnet wallet before paying.';
+      return;
+    }
+    testnetPaymentBusy = true;
+    try {
+      const wallet = tonConnectUI.wallet;
+      if (!wallet || Address.parse(wallet.account.address).toRawString() !== Address.parse(testnetIntent.payer_address).toRawString()) {
+        throw new Error('Connected wallet does not match the payment intent');
+      }
+      if (!testnetIntent.payer_jetton_wallet_address || !testnetIntent.escrow_jetton_wallet_address) {
+        throw new Error('Verified buyer or escrow Jetton wallet is missing');
+      }
+      const amount = BigInt(testnetIntent.amount_raw);
+      const queryId = BigInt(testnetIntent.query_id);
+      if (amount <= 0n || queryId <= 0n || testnetIntent.currency !== 'tUSDT' || testnetIntent.network !== 'testnet') {
+        throw new Error('Payment intent contains invalid testnet payment data');
+      }
+      if (testnetIntent.reference !== 'grpay:' + testnetDeal?.deal_id) {
+        throw new Error('Payment reference does not match the active deal');
+      }
+      const forwardPayload = beginCell()
+        .storeUint(0, 32)
+        .storeStringTail(testnetIntent.reference)
+        .endCell();
+      const transferBody = beginCell()
+        .storeUint(0x0f8a7ea5, 32)
+        .storeUint(queryId, 64)
+        .storeCoins(amount)
+        .storeAddress(Address.parse(testnetIntent.escrow_address))
+        .storeAddress(Address.parse(wallet.account.address))
+        .storeBit(0)
+        .storeCoins(toNano('0.05'))
+        .storeBit(1)
+        .storeRef(forwardPayload)
+        .endCell();
+      await tonConnectUI.sendTransaction({
+        validUntil: Math.floor(Date.now() / 1000) + 600,
+        network: wallet.account.chain,
+        messages: [{
+          address: testnetIntent.payer_jetton_wallet_address,
+          amount: toNano('0.2').toString(),
+          payload: transferBody.toBoc().toString('base64'),
+        }],
+      });
+      notice = lang === 'ru'
+        ? 'Транзакция отправлена кошельком. Ожидаем финализацию и сверку TON Center + TonAPI. Сделка пока не считается оплаченной.'
+        : 'Wallet submitted the transaction. Waiting for finalization and TON Center + TonAPI reconciliation. The deal is not marked paid yet.';
+      await refreshTestnetDeal();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      testnetPaymentBusy = false;
+    }
+  }
+
   async function refreshTestnetDeal() {
     if (!testnetDeal?.deal_id) return;
     try {
@@ -1271,12 +1329,16 @@
             <div class="trait-row"><span>{lang==='ru'?'Сумма':'Amount'}</span><strong>{(Number(testnetIntent.amount_raw)/1000000).toFixed(2)} tUSDT</strong></div>
             <div class="trait-row"><span>{lang==='ru'?'Получатель escrow':'Escrow recipient'}</span><strong>{testnetIntent.escrow_address}</strong></div>
             <div class="trait-row"><span>Jetton master</span><strong>{testnetIntent.jetton_master}</strong></div>
-            <div class="trait-row"><span>{lang==='ru'?'Комментарий':'Comment'}</span><strong>{testnetIntent.reference}</strong></div>
+            <div class="trait-row"><span>{lang==='ru'?'Jetton-кошелёк эскроу':'Escrow Jetton wallet'}</span><strong>{testnetIntent.escrow_jetton_wallet_address}</strong></div>
+            <div class="trait-row"><span>{lang==='ru'?'Комментарий сделки':'Deal reference'}</span><strong>{testnetIntent.reference}</strong></div>
+            <button class="publish-button" onclick={sendTestnetPayment} disabled={testnetPaymentBusy || !walletVerified || walletNetwork !== '-3'}>
+              {testnetPaymentBusy?'…':lang==='ru'?'Оплатить tUSDT через TON Connect':'Pay tUSDT with TON Connect'} →
+            </button>
             <div class="order-actions">
-              <button class="match-button" onclick={()=>copyTestnetValue(testnetIntent.escrow_address)}>{lang==='ru'?'Копировать адрес':'Copy address'}</button>
-              <button class="match-button" onclick={()=>copyTestnetValue(testnetIntent.reference)}>{lang==='ru'?'Копировать комментарий':'Copy comment'}</button>
+              <button class="match-button" onclick={()=>copyTestnetValue(testnetIntent.escrow_address)}>{lang==='ru'?'Копировать адрес эскроу':'Copy escrow address'}</button>
+              <button class="match-button" onclick={()=>copyTestnetValue(testnetIntent.reference)}>{lang==='ru'?'Копировать reference':'Copy reference'}</button>
             </div>
-            <p class="safety-note">{lang==='ru'?'Для ручного теста отправляй только tUSDT в TON testnet на адрес эскроу с точным комментарием выше. Не отправляй реальные USDT или TON mainnet. Перевод пока не считается подтверждённым, пока backend не получит совпадающие финализированные данные от двух независимых провайдеров.':'For a manual test, send only tUSDT on TON testnet to the escrow address with the exact comment above. Never send real USDT or TON mainnet. The payment is not confirmed until the backend receives matching finalized evidence from two independent providers.'}</p>
+            <p class="safety-note">{lang==='ru'?'Кошелёк покажет точную сумму tUSDT и запросит подтверждение. Используется только TON testnet. Никакие seed-фразы или приватные ключи не запрашиваются. После отправки платёж не считается подтверждённым, пока TON Center и TonAPI не увидят одну и ту же финализированную транзакцию.':'Your wallet will show the exact tUSDT amount and request approval. TON testnet only. No seed phrase or private key is requested. Submission is not payment confirmation until TON Center and TonAPI independently observe the same finalized transaction.'}</p>
           {:else}
             <div class="state-panel">{lang==='ru'?'Реквизиты платежа не получены. Backend мог отклонить маршрут или конфигурация тестовой сети не завершена.':'Payment intent was not returned. The backend may have rejected the route or testnet configuration is incomplete.'}</div>
           {/if}
