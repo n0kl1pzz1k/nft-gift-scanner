@@ -1302,7 +1302,7 @@
             {:else if item.status==='draft'}<span class="status-payment-disabled">{lang==='ru'?'Черновик · NFT в твоём кошельке':'Draft · NFT remains in your wallet'}</span>
               {#if item.listing_id}<button class="cancel-button" onclick={()=>cancelInventoryListing(item.listing_id)} disabled={inventoryCancelBusy===item.listing_id}>{inventoryCancelBusy===item.listing_id?'…':lang==='ru'?'Удалить черновик':'Delete draft'}</button>{/if}
             {:else if item.status==='pending_verification'}<span class="status-payment-disabled">{lang==='ru'?'Ожидает проверки эскроу':'Awaiting escrow verification'}</span>
-            {:else if !item.listing_id}
+            {:else if !item.listing_id || item.status==='cancelled' || item.status==='expired' || item.status==='rejected'}
               <div class="order-edit-form">
                 <label>{lang==='ru'?'Цена':'Price'}<input class="form-input" type="number" min="0.000000001" step="0.000000001" bind:value={inventoryPrices[item.asset_id]} placeholder="1"/></label>
                 <label>{lang==='ru'?'Валюта':'Currency'}<select class="form-input" bind:value={inventoryCurrencies[item.asset_id]}><option value="GRAM">GRAM</option><option value="USDT">USDT</option><option value="XTR">⭐ Stars</option></select></label>
