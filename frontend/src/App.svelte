@@ -48,7 +48,7 @@
   let nftImportBusy = $state(false);
   let inventoryListingBusy = $state('');
   let inventoryCancelBusy = $state('');
-  let nftAssetType = $state<'ton_nft'|'collectible_username'|'collectible_phone_number'>('ton_nft');
+  let nftAssetType = $state<'ton_nft'|'collectible_username'|'collectible_phone_number'|'testnet_mock_nft'>('ton_nft');
   let nftCollectionAddress = $state('');
   let nftTokenId = $state('');
   let nftItemAddress = $state('');
@@ -727,10 +727,10 @@
   }
 
   async function startTestnetPayment(listingId: string) {
-    if (!signedIn || !walletVerified || testnetPaymentBusy) {
+    if (!signedIn || !walletVerified || walletNetwork !== '-3' || testnetPaymentBusy) {
       notice = lang === 'ru'
-        ? 'Сначала войди через Telegram и подтверди TON-кошелёк в профиле.'
-        : 'Sign in through Telegram and verify your TON wallet first.';
+        ? (walletVerified && walletNetwork !== '-3' ? 'Для тестовой сделки подключи TON testnet-кошелёк и подтверди его через TON Proof.' : 'Сначала войди через Telegram и подтверди TON testnet-кошелёк в профиле.')
+        : (walletVerified && walletNetwork !== '-3' ? 'Connect and verify a TON testnet wallet for this test deal.' : 'Sign in through Telegram and verify your TON testnet wallet first.');
       return;
     }
     testnetPaymentBusy = true;
@@ -822,7 +822,9 @@
       await request('/api/inventory/nft/import', undefined, {
         method:'POST', headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
-          asset_type:nftAssetType, collection_address:nftCollectionAddress.trim(),
+          asset_type:walletNetwork === '-3' ? 'testnet_mock_nft' : nftAssetType,
+          network:walletNetwork === '-3' ? 'ton-testnet' : 'ton-mainnet',
+          collection_address:nftCollectionAddress.trim(),
           token_id:nftTokenId.trim(), item_address:nftItemAddress.trim(),
         }),
       });
@@ -927,6 +929,9 @@
         state: 'ready',
         value: { tonProof: challenge.payload },
       });
+      // A restored session has no fresh ton_proof item. Reconnect after the user
+      // explicitly asks to verify so the wallet signs this new challenge.
+      if (tonConnectUI.wallet) await tonConnectUI.disconnect();
       const wallet = await tonConnectUI.connectWallet();
       if (!wallet) throw new Error('Wallet connection was cancelled');
       const proofItem = wallet.connectItems?.tonProof;
@@ -948,13 +953,18 @@
       connectedWallet = verified.address || wallet.account.address;
       walletAppName = wallet.device.appName || 'TON Connect';
       walletNetwork = String(verified.network || wallet.account.chain);
-      walletVerified = verified.verified === true && walletNetwork === '-239';
-      if (!walletVerified) throw new Error(lang === 'ru'
-        ? 'Для покупательской привязки backend пока принимает только TON mainnet TON Proof. Переключи сеть кошелька на mainnet и подключи его снова. Оплата tUSDT при этом остаётся отдельным тестом в TON testnet.'
-        : 'The current buyer-wallet binding accepts TON mainnet TON Proof only. Switch the wallet to mainnet and reconnect. The tUSDT payment itself remains a separate TON testnet test.');
+      if (!['-239', '-3'].includes(walletNetwork)) throw new Error('Unsupported TON network');
+      walletVerified = verified.verified === true;
+      if (!walletVerified) throw new Error('Server did not verify wallet ownership');
+      if (walletNetwork === '-3') nftAssetType = 'testnet_mock_nft';
+      else if (nftAssetType === 'testnet_mock_nft') nftAssetType = 'ton_nft';
       notice = lang === 'ru'
-        ? 'TON mainnet-кошелёк подтверждён. Тестовый tUSDT-платёж будет идти отдельно в TON testnet.'
-        : 'TON mainnet wallet verified. The testnet tUSDT payment runs separately on TON testnet.';
+        ? (walletNetwork === '-3'
+            ? 'TON testnet-кошелёк подтверждён. Можно импортировать только тестовые NFT, а платежи остаются тестовыми.'
+            : 'TON mainnet-кошелёк подтверждён. Mainnet-активы проверяются отдельно от тестовой оплаты tUSDT.')
+        : (walletNetwork === '-3'
+            ? 'TON testnet wallet verified. Only testnet NFT assets can be imported; payments remain test-only.'
+            : 'TON mainnet wallet verified. Mainnet assets are verified separately from testnet tUSDT payments.');
     } catch (e) {
       walletVerified = false;
       notice = e instanceof Error ? e.message : String(e);
@@ -969,7 +979,7 @@
     walletBusy = true;
     try {
       if (signedIn && walletVerified) {
-        await request('/api/wallet/ton-proof/revoke', undefined, { method:'POST' });
+        await request('/api/wallet/ton-proof/revoke?network=' + (walletNetwork === '-3' ? 'ton-testnet' : 'ton-mainnet'), undefined, { method:'POST' });
       }
       await tonConnectUI.disconnect();
       connectedWallet = '';
@@ -1034,8 +1044,10 @@
       });
       tonConnectUI.onStatusChange((wallet) => {
         const nextAddress = wallet?.account.address || '';
-        if (nextAddress !== connectedWallet) { walletVerified = false; walletNetwork = ''; }
+        const nextNetwork = wallet?.account.chain || '';
+        if (nextAddress !== connectedWallet || nextNetwork !== walletNetwork) walletVerified = false;
         connectedWallet = nextAddress;
+        walletNetwork = nextNetwork;
         walletAppName = wallet?.device.appName || '';
       });
     } catch (e) {
@@ -1243,7 +1255,7 @@
                 <div class="order-icon">₮</div>
                 <div class="order-main"><div class="order-kind">{listing.asset_type}</div><h3>{listing.collection_address} · #{listing.token_id}</h3><p>{listing.listing_id}</p></div>
                 <div class="order-price"><strong>{(Number(listing.price_raw)/1000000).toFixed(2)} tUSDT</strong><span class="status-active">{lang==='ru'?'Эскроу подтверждён':'Escrow verified'}</span></div>
-                <div class="order-actions"><button class="match-button" onclick={()=>startTestnetPayment(listing.listing_id)} disabled={!signedIn || !walletVerified || testnetPaymentBusy}>{testnetPaymentBusy?(lang==='ru'?'Создаём…':'Creating…'):(lang==='ru'?'Купить через тестовый эскроу':'Buy via test escrow')}</button></div>
+                <div class="order-actions"><button class="match-button" onclick={()=>startTestnetPayment(listing.listing_id)} disabled={!signedIn || !walletVerified || walletNetwork !== '-3' || testnetPaymentBusy}>{testnetPaymentBusy?(lang==='ru'?'Создаём…':'Creating…'):(lang==='ru'?'Купить через тестовый эскроу':'Buy via test escrow')}</button></div>
               </article>
             {/each}
           </div>
@@ -1290,9 +1302,13 @@
         <div class="eyebrow">{lang==='ru'?'ИМПОРТ NFT':'IMPORT NFT'}</div>
         <label>{lang==='ru'?'Тип актива':'Asset type'}
           <select class="form-input" bind:value={nftAssetType}>
-            <option value="ton_nft">TON NFT</option>
-            <option value="collectible_username">{lang==='ru'?'Коллекционный username':'Collectible username'}</option>
-            <option value="collectible_phone_number">{lang==='ru'?'Коллекционный номер +888':'Collectible +888 number'}</option>
+            {#if walletNetwork === '-3'}
+              <option value="testnet_mock_nft">{lang==='ru'?'Тестовый NFT (testnet)':'Test NFT (testnet)'}</option>
+            {:else}
+              <option value="ton_nft">TON NFT</option>
+              <option value="collectible_username">{lang==='ru'?'Коллекционный username':'Collectible username'}</option>
+              <option value="collectible_phone_number">{lang==='ru'?'Коллекционный номер +888':'Collectible +888 number'}</option>
+            {/if}
           </select>
         </label>
         <label>{lang==='ru'?'Адрес коллекции':'Collection address'}<input class="form-input" bind:value={nftCollectionAddress} placeholder="EQ…"/></label>
@@ -1334,7 +1350,8 @@
         <p>{lang==='ru'?'Показывается только публичный адрес. Seed phrase, приватный ключ и подпись транзакции не запрашиваются.':'Only the public address is shown. No seed phrase, private key or transaction signature is requested.'}</p>
         {#if connectedWallet}
           <div class="wallet-address"><strong>{walletAppName || 'TON wallet'}</strong><code>{connectedWallet}</code></div>
-          <span class="activity-demo-tag">{walletVerified?(lang==='ru'?'КОШЕЛЁК ПОДТВЕРЖДЁН':'WALLET VERIFIED'):(lang==='ru'?'НЕ ПОДТВЕРЖДЁН':'NOT VERIFIED')}</span>
+          <span class="activity-demo-tag">{walletVerified?(lang==='ru'?'КОШЕЛЁК ПОДТВЕРЖДЁН':'WALLET VERIFIED'):(lang==='ru'?'НЕ ПОДТВЕРЖДЁН':'NOT VERIFIED')} · {walletNetwork === '-3' ? 'TON TESTNET' : walletNetwork === '-239' ? 'TON MAINNET' : 'NETWORK UNKNOWN'}</span>
+          {#if !walletVerified}<button class="publish-button" onclick={connectTonWallet} disabled={walletBusy || !signedIn}>{walletBusy?'…':lang==='ru'?'Подтвердить TON Proof':'Verify TON Proof'}</button>{/if}
           <button class="cancel-button" onclick={disconnectTonWallet} disabled={walletBusy}>{lang==='ru'?'Отключить кошелёк':'Disconnect wallet'}</button>
         {:else}
           <span class="activity-demo-tag">{lang==='ru'?'КОШЕЛЁК НЕ ПОДКЛЮЧЁН':'WALLET NOT CONNECTED'}</span>
