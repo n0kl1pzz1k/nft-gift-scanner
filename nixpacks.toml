@@ -1,0 +1,14 @@
+providers = ["python"]
+
+[phases.setup]
+nixPkgs = ["...", "nodejs_20"]
+
+[phases.ton-proof]
+dependsOn = ["install"]
+cmds = [
+  "npm --prefix services/ton-proof install --no-audit --no-fund",
+  "npm --prefix services/ton-proof run build"
+]
+
+[start]
+cmd = "bash scripts/start.sh"
