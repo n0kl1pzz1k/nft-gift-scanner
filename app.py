@@ -4,7 +4,6 @@ import time
 import json
 import hmac
 import hashlib
-import secrets
 
 import marketplace
 from urllib.parse import parse_qsl
@@ -32,6 +31,30 @@ app.include_router(create_demo_offers_router(lambda value: _authenticate_telegra
 _telegram_bot = None
 _telegram_dispatcher = None
 _telegram_webhook_secret = None
+
+
+def _resolve_webhook_secret(bot_token: str) -> str:
+    """Return a stable Telegram webhook secret across restarts and replicas.
+
+    An explicit secret takes precedence. Otherwise derive a dedicated value
+    from the bot token, so a process restart cannot invalidate Telegram's
+    configured webhook header.
+    """
+    configured = os.getenv("BOT_WEBHOOK_SECRET", "").strip()
+    if configured:
+        if not (1 <= len(configured) <= 256) or not all(
+            character in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for character in configured
+        ):
+            raise RuntimeError("BOT_WEBHOOK_SECRET must be 1-256 URL-safe characters")
+        return configured
+    token = str(bot_token or "").strip()
+    if not token:
+        raise RuntimeError("BOT_TOKEN is required to derive a Telegram webhook secret")
+    return hmac.new(
+        token.encode("utf-8"),
+        b"hassle-nft/telegram-webhook/v1",
+        hashlib.sha256,
+    ).hexdigest()
 
 # Browser access is restricted to the production Mini App origins.
 # Extra origins may be supplied explicitly for a controlled preview environment.
@@ -558,7 +581,7 @@ async def start_services():
             from bot import create_bot, create_dispatcher
             _telegram_bot = create_bot()
             _telegram_dispatcher = create_dispatcher()
-            _telegram_webhook_secret = os.getenv("BOT_WEBHOOK_SECRET", "").strip() or secrets.token_urlsafe(32)
+            _telegram_webhook_secret = _resolve_webhook_secret(token)
             backend_url = os.getenv(
                 "API_BASE_URL",
                 "https://hassle-nft-market.up.railway.app",
