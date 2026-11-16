@@ -136,6 +136,23 @@ async def telegram_auth(payload: TelegramAuthRequest):
         "user": profile,
     }
 
+@app.get("/api/auth/me")
+async def telegram_me(x_telegram_init_data: str | None = Header(default=None)):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    return {
+        "authenticated": True,
+        "is_admin": str(user["id"]) in _admin_ids(),
+        "user": {
+            "id": str(user["id"]),
+            "first_name": user.get("first_name") or "Telegram user",
+            "last_name": user.get("last_name") or "",
+            "username": user.get("username") or "",
+            "photo_url": user.get("photo_url") or "",
+            "is_premium": bool(user.get("is_premium")),
+        },
+    }
+
+
 @app.get("/api/auth/sessions")
 async def telegram_sessions(x_telegram_init_data: str | None = Header(default=None)):
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
