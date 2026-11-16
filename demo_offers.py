@@ -209,12 +209,24 @@ def init_demo_offers_db() -> None:
                         FOREIGN KEY(offer_id) REFERENCES demo_offers(id)
                     )
                 """)
-                conn.execute("""
+                # Some legacy databases have the permanent per-order unique index
+                # but predate the deal lifecycle status column. Preserve those rows
+                # with the same safe initial state used by the forward migration below.
+                legacy_deal_columns = {
+                    row["name"] for row in conn.execute(
+                        "PRAGMA table_info(demo_deals)"
+                    ).fetchall()
+                }
+                status_expression = (
+                    "status" if "status" in legacy_deal_columns
+                    else "'payment_not_enabled'"
+                )
+                conn.execute(f"""
                     INSERT INTO demo_deals_new
                     (id, order_id, offer_id, listing_owner_id, offer_sender_id,
                      agreed_amount, currency, created_at, status)
                     SELECT id, order_id, offer_id, listing_owner_id, offer_sender_id,
-                           agreed_amount, currency, created_at, status
+                           agreed_amount, currency, created_at, {status_expression}
                     FROM demo_deals
                 """)
                 conn.execute("DROP TABLE demo_deals")
