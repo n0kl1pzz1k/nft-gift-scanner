@@ -720,6 +720,60 @@ def sync_ton_nft_assets(*, owner_telegram_id: str, wallets: list[dict[str, Any]]
     return registered
 
 
+
+def sync_telegram_gift_assets(*, owner_telegram_id: str,
+                              gifts: list[dict[str, str]], complete: bool) -> list[dict[str, Any]]:
+    """Persist unique gifts returned by Telegram for the authenticated Telegram user."""
+    owner_id = str(owner_telegram_id).strip()
+    if not owner_id.isdigit():
+        raise ValueError("A verified Telegram owner ID is required")
+    current_ids = {
+        str(item.get("external_asset_id") or "").strip()
+        for item in gifts
+        if str(item.get("external_asset_id") or "").strip()
+    }
+    registered: list[dict[str, Any]] = []
+    for item in gifts:
+        external_id = str(item.get("external_asset_id") or "").strip()
+        title = str(item.get("title") or "").strip()
+        if not external_id or not title:
+            continue
+        # The official Bot API response is scoped to the ID from verified WebApp initData.
+        # Only unique gifts have a stable item identifier; regular gifts are not guessed.
+        registered.append(register_verified_asset(
+            source="telegram_gift",
+            external_asset_id=external_id,
+            owner_telegram_id=owner_id,
+            title=title[:120],
+            asset_type="gift",
+            image_url=str(item.get("image_url") or ""),
+            verification_method="telegram_gift_owner",
+            verification_reference=(
+                f"telegram-bot-api:getUserGifts:{owner_id}:{external_id}:"
+                f"{str(item.get('send_date') or '')}:{int(time.time())}"
+            ),
+            allow_owner_transfer=True,
+        ))
+    if complete:
+        now = int(time.time())
+        with _db() as conn:
+            if current_ids:
+                placeholders = ",".join("?" for _ in current_ids)
+                conn.execute(
+                    f"""UPDATE verified_assets SET status = 'revoked', revoked_at = ?
+                        WHERE owner_telegram_id = ? AND source = 'telegram_gift'
+                          AND status = 'verified' AND external_asset_id NOT IN ({placeholders})""",
+                    (now, owner_id, *sorted(current_ids)),
+                )
+            else:
+                conn.execute(
+                    """UPDATE verified_assets SET status = 'revoked', revoked_at = ?
+                       WHERE owner_telegram_id = ? AND source = 'telegram_gift' AND status = 'verified'""",
+                    (now, owner_id),
+                )
+    return registered
+
+
 def _verified_asset_actions_enabled() -> bool:
     """Listing mutations stay closed until TON Connect ownership verification is live."""
     return os.getenv("HASSLE_VERIFIED_ASSETS_ENABLED", "false").strip().lower() == "true"
