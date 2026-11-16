@@ -571,6 +571,57 @@ def register_verified_asset(*, source: str, external_asset_id: str, owner_telegr
             "image_url": image_url, "status": "verified", "verified_at": now}
 
 
+def sync_ton_nft_assets(*, owner_telegram_id: str, wallets: list[dict[str, Any]],
+                          nft_items: list[dict[str, str]], complete: bool) -> list[dict[str, Any]]:
+    """Persist provider-derived NFT snapshots and revoke stale ownership only on complete scans."""
+    owner_id = str(owner_telegram_id).strip()
+    if not owner_id.isdigit():
+        raise ValueError("A verified Telegram owner ID is required")
+    current_ids = {str(item.get("address") or "").strip() for item in nft_items}
+    current_ids.discard("")
+    registered: list[dict[str, Any]] = []
+    wallet_addresses = {str(wallet.get("address") or "") for wallet in wallets}
+    for item in nft_items:
+        address = str(item.get("address") or "").strip()
+        if not address:
+            continue
+        # Wallet proof binds the Telegram account to this address; TonAPI's
+        # direct-owner NFT response supplies the current on-chain owner assertion.
+        evidence_wallet = next(
+            (str(wallet.get("address")) for wallet in wallets
+             if str(wallet.get("address")) in wallet_addresses),
+            "",
+        )
+        registered.append(register_verified_asset(
+            source="ton_nft",
+            external_asset_id=address,
+            owner_telegram_id=owner_id,
+            title=str(item.get("title") or "TON NFT")[:120],
+            asset_type="gift",
+            image_url=str(item.get("image_url") or ""),
+            verification_method="ton_connect_proof",
+            verification_reference=f"tonapi-owner-index:{evidence_wallet}:{address}:{int(time.time())}",
+        ))
+    if complete:
+        now = int(time.time())
+        with _db() as conn:
+            if current_ids:
+                placeholders = ",".join("?" for _ in current_ids)
+                conn.execute(
+                    f"""UPDATE verified_assets SET status = 'revoked', revoked_at = ?
+                        WHERE owner_telegram_id = ? AND source = 'ton_nft'
+                          AND status = 'verified' AND external_asset_id NOT IN ({placeholders})""",
+                    (now, owner_id, *sorted(current_ids)),
+                )
+            else:
+                conn.execute(
+                    """UPDATE verified_assets SET status = 'revoked', revoked_at = ?
+                       WHERE owner_telegram_id = ? AND source = 'ton_nft' AND status = 'verified'""",
+                    (now, owner_id),
+                )
+    return registered
+
+
 def _verified_asset_actions_enabled() -> bool:
     """Listing mutations stay closed until TON Connect ownership verification is live."""
     return os.getenv("HASSLE_VERIFIED_ASSETS_ENABLED", "false").strip().lower() == "true"
