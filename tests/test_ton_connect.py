@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from nacl.signing import SigningKey
+from tonsdk.boc import Cell
 
 import marketplace
 import ton_connect
@@ -102,6 +103,28 @@ class TonConnectProofTests(unittest.TestCase):
         verified = self._verify()
         self.assertFalse(ton_connect.consume_challenge_and_link_wallet(verified, self.user_id, "grs_another-session", now=self.now))
         self.assertFalse(ton_connect.consume_challenge_and_link_wallet(verified, "202", self.session, now=self.now))
+
+    def test_state_init_parser_uses_real_tonsdk_slice_layout(self):
+        code = Cell()
+        code.bits.write_uint(123, 8)
+        data = Cell()
+        data.bits.write_uint(0, 32)
+        data.bits.write_bytes(self.public_key)
+        state_init = Cell()
+        state_init.bits.write_bit(0)  # no split depth
+        state_init.bits.write_bit(0)  # no special
+        state_init.bits.write_bit(1)  # code ref follows
+        state_init.refs.append(code)
+        state_init.bits.write_bit(1)  # data ref follows
+        state_init.refs.append(data)
+        state_init.bits.write_bit(0)  # empty library
+        state_init_b64 = base64.b64encode(state_init.to_boc(has_idx=False)).decode("ascii")
+        code_hash = code.bytes_hash().hex()
+        with patch.dict(ton_connect._WALLET_LAYOUTS, {code_hash: 1}):
+            state_hash, extracted_key, parsed_code_hash = ton_connect._parse_state_init(state_init_b64)
+        self.assertEqual(state_hash, state_init.bytes_hash())
+        self.assertEqual(extracted_key, self.public_key)
+        self.assertEqual(parsed_code_hash, code_hash)
 
     def test_network_must_be_enabled(self):
         with self.assertRaisesRegex(ValueError, "not enabled"):
