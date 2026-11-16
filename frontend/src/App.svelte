@@ -955,16 +955,17 @@
           {#if businessGiftImportMessage}<p class="ton-wallet-message">{businessGiftImportMessage}</p>{/if}
         {/if}
         <div class="business-connection-card">
-          <div class="business-connection-heading"><strong>{lang==='ru'?'Telegram Business':'Telegram Business'}</strong><span class:ready={telegramBusinessStatus.gift_transfer_ready}>{telegramBusinessStatus.gift_transfer_ready?(lang==='ru'?'Передача доступна':'Transfer ready'):(telegramBusinessStatus.connected?(lang==='ru'?'Не все права выданы':'Missing permissions'):(lang==='ru'?'Не подключён':'Not connected'))}</span></div>
+          <div class="business-connection-heading"><strong>Telegram Business</strong><span class:ready={telegramBusinessStatus.gift_import_ready}>{telegramBusinessStatus.gift_import_ready?(lang==='ru'?'Импорт доступен':'Import ready'):(telegramBusinessStatus.connected?(lang==='ru'?'Не все права выданы':'Missing permissions'):(lang==='ru'?'Не подключён':'Not connected'))}</span></div>
           {#if telegramBusinessStatus.connected}
             <div class="business-rights-list">
               <span class:granted={telegramBusinessStatus.can_view_gifts_and_stars}>{lang==='ru'?'Просмотр подарков':'View gifts'}</span>
-              <span class:granted={telegramBusinessStatus.can_transfer_and_upgrade_gifts}>{lang==='ru'?'Передача подарков':'Transfer gifts'}</span>
-              <span class:granted={telegramBusinessStatus.can_transfer_stars}>{lang==='ru'?'Оплата передачи Stars':'Stars transfer fee'}</span>
+              <span class:granted={telegramBusinessStatus.can_transfer_and_upgrade_gifts}>{lang==='ru'?'Разрешение передачи':'Transfer permission'}</span>
+              <span class:granted={telegramBusinessStatus.can_transfer_stars}>{lang==='ru'?'Комиссия в Stars':'Stars transfer fee'}</span>
             </div>
-            {#if !telegramBusinessStatus.gift_transfer_ready}<small>{lang==='ru'?'Измени разрешения бота в настройках Telegram Business.':'Update the bot permissions in Telegram Business settings.'}</small>{/if}
+            {#if !telegramBusinessStatus.gift_import_ready}<small>{lang==='ru'?'Выдай боту право просмотра подарков в настройках Telegram Business.':'Grant the bot permission to view gifts in Telegram Business settings.'}</small>{/if}
+            <p>{lang==='ru'?'Подключение и разрешения проверены. Автоматическая передача подарков в сделках пока закрыта: сначала завершаем и тестируем безопасный механизм оплаты и передачи.':'Connection and permissions are verified. Automatic gift delivery in marketplace deals remains disabled until the secure payment and transfer flow is implemented and tested.'}</p>
           {:else}
-            <p>{lang==='ru'?'Для автоматической передачи подключи HASSLE NFT как бизнес-бота: Настройки Telegram → Telegram для бизнеса → Чат-боты. Разреши просмотр подарков и передачу подарков.':'To enable automatic transfers, connect HASSLE NFT as a business bot: Telegram Settings → Telegram Business → Chatbots. Grant view gifts and transfer gifts permissions.'}</p>
+            <p>{lang==='ru'?'Подключи HASSLE NFT как бизнес-бота: Настройки Telegram → Telegram для бизнеса → Чат-боты. Разреши просмотр подарков. Право передачи понадобится на следующем этапе.':'Connect HASSLE NFT as a business bot: Telegram Settings → Telegram Business → Chatbots. Grant view gifts permission. Transfer permission will be needed in a later step.'}</p>
           {/if}
           <button class="refresh-button" type="button" onclick={loadTelegramBusinessStatus}>{lang==='ru'?'Проверить подключение':'Check connection'} ↻</button>
         </div>
