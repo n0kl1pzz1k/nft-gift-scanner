@@ -699,7 +699,7 @@
     <div class="nav-caption">{lang === 'ru' ? 'МЕНЮ' : 'MENU'}</div>
     <nav class="side-nav">
       {#each [{id:'orders',label:lang==='ru'?'Маркет':'Market',icon:'▦'},{id:'create',label:lang==='ru'?'Инвентарь':'Inventory',icon:'◈'},{id:'offers',label:lang==='ru'?'Активность':'Activity',icon:'↗'},{id:'profile',label:lang==='ru'?'Профиль':'Profile',icon:'◉'}] as item}
-        <button class:active={view===item.id} class="nav-item" onclick={()=>{haptic();view=item.id as View;notice='';}}><span>{item.icon}</span>{item.label}</button>
+        <button class:active={view===item.id || (view==='favorites' && item.id==='orders')} class="nav-item" onclick={()=>{haptic();view=item.id as View;notice='';}}><span>{item.icon}</span>{item.label}</button>
       {/each}
     </nav>
     <div class="sidebar-bottom"><div class="sidebar-version">NFT GIFTS · TON · STARS</div></div>
@@ -738,6 +738,7 @@
           <p>{lang==='ru'?'Маркетплейс Telegram-подарков. Покупай, продавай и находи редкое в одном месте.':'The Telegram gift marketplace. Buy, sell and discover rare finds in one place.'}</p>
           <div class="ton-hero-actions">
             <button class="ton-primary" onclick={()=>{document.getElementById('asset-feed')?.scrollIntoView({behavior:'smooth'});haptic();}}>{lang==='ru'?'Открыть маркет':'Explore market'} →</button>
+            <button class="favorite-market-link" onclick={()=>{view='favorites';haptic();}}>{lang==='ru'?'Избранное':'Favorites'} ♥</button>
             <span class="ton-network"><b></b> TON NETWORK</span>
           </div>
         </div>
@@ -867,7 +868,7 @@
         </div>
       {/if}
     {:else if view==='favorites'}
-      <section class="page-heading compact-heading"><div class="eyebrow">HASSLE NFT</div><h1>{t.favoritesTitle}</h1></section>
+      <section class="page-heading compact-heading favorites-heading"><div><div class="eyebrow">HASSLE NFT</div><h1>{t.favoritesTitle}</h1></div><button class="refresh-button" onclick={()=>view='orders'}>{lang==='ru'?'Назад в маркет':'Back to market'}</button></section>
       {#if favoriteOrders.length}<div class="orders-list">{#each favoriteOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{order.owner}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div><button class="heart-button hearted" onclick={()=>toggleFavoriteOrder(order)}>♥</button></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='orders'}>{lang==='ru'?'К активам':'Browse assets'}</button></div>{/if}
     {:else}
       <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.profile}</h1></section>
@@ -961,4 +962,4 @@
   </main>
 </div>
 
-<BottomNav lang={lang} active={view as 'orders'|'create'|'offers'|'profile'} onNavigate={(target)=>{haptic();view=target;notice='';}} />
+<BottomNav lang={lang} active={view==='favorites'?'orders':view as 'orders'|'create'|'offers'|'profile'} onNavigate={(target)=>{haptic();view=target;notice='';}} />
