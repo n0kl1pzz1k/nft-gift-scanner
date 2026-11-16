@@ -23,6 +23,8 @@ RULES = (
      "executescript transaction behavior must be replaced with explicit, portable migrations."),
     ("sqlite_trigger_abort", re.compile(r"\bRAISE\s*\(\s*ABORT\b", re.IGNORECASE), "blocker",
      "SQLite trigger RAISE(ABORT) bodies require PostgreSQL trigger functions and exception semantics."),
+    ("sqlite_randomblob_id", re.compile(r"\b(?:lower\s*\(\s*)?hex\s*\(\s*randomblob\s*\(", re.IGNORECASE), "blocker",
+     "SQLite randomblob()/hex() ID generation needs a PostgreSQL-compatible UUID or cryptographic ID strategy."),
     ("sqlite_insert_or_ignore", re.compile(r"INSERT\s+OR\s+IGNORE", re.IGNORECASE), "review",
      "Translate conflict targets and ignored-constraint semantics deliberately."),
     ("sqlite_insert_or_replace", re.compile(r"INSERT\s+OR\s+REPLACE", re.IGNORECASE), "blocker",
