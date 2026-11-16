@@ -115,7 +115,10 @@ class TelegramBusinessGiftImportApiTests(unittest.TestCase):
             "user": {"id": 101},
             "user_chat_id": 101,
             "is_enabled": True,
-            "rights": {"can_view_gifts_and_stars": True},
+            "rights": {
+                "can_view_gifts_and_stars": True,
+                "can_transfer_and_upgrade_gifts": True,
+            },
         })
         snapshot = {
             "complete": True,
