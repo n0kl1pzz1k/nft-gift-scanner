@@ -723,3 +723,19 @@ html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202
 .verified-inventory-list{display:grid;gap:12px;margin-top:18px}.verified-inventory-item{display:flex;align-items:center;gap:14px;min-width:0;padding:12px;border:1px solid rgba(130,165,210,.16);border-radius:18px;background:rgba(17,24,35,.78)}.verified-inventory-item img,.verified-inventory-placeholder{width:68px;height:68px;flex:0 0 68px;border-radius:14px;object-fit:cover;background:linear-gradient(145deg,rgba(65,139,222,.25),rgba(22,31,46,.9));display:grid;place-items:center;color:#91bfff;font-size:11px;font-weight:800;letter-spacing:.12em}.verified-inventory-item>div:last-child{display:grid;gap:4px;min-width:0}.verified-inventory-item strong{overflow-wrap:anywhere;color:#f2f6ff;font-size:14px}.verified-inventory-item small{overflow-wrap:anywhere;color:#8494aa;font-size:11px}.verified-inventory-item span{color:#74c9a5;font-size:11px;font-weight:700}
 
 .asset-gift-image{width:100%;height:100%;display:block;object-fit:cover;border-radius:inherit}.asset-detail-gift-image{width:100%;height:100%;object-fit:contain;border-radius:inherit;background:rgba(8,13,22,.45)}
+
+/* Explicit wallet NFT import control. */
+.inventory-import-button{
+  width:100%;
+  min-height:46px;
+  margin-top:10px;
+  border:1px solid rgba(80,210,190,.32);
+  border-radius:14px;
+  color:#dffcf7;
+  background:linear-gradient(120deg,rgba(29,133,120,.28),rgba(26,77,111,.35));
+  font:700 13px/1.2 Inter,ui-sans-serif,sans-serif;
+  cursor:pointer;
+  transition:transform .18s ease,opacity .18s ease;
+}
+.inventory-import-button:active{transform:scale(.985)}
+.inventory-import-button:disabled{opacity:.55;cursor:wait}
