@@ -32,13 +32,78 @@ def normalise_business_owned_gift(raw: Any) -> dict[str, str] | None:
             or isinstance(number, bool) or not isinstance(number, int) or number < 1):
         return None
     base_name = str(gift.get("base_name") or "Telegram Gift").strip()[:80]
+    model = gift.get("model") if isinstance(gift.get("model"), dict) else {}
+    sticker = model.get("sticker") if isinstance(model.get("sticker"), dict) else {}
+    thumbnail = sticker.get("thumbnail") if isinstance(sticker.get("thumbnail"), dict) else {}
+    preview_file_id = str(thumbnail.get("file_id") or "").strip()
+    if not preview_file_id and sticker.get("is_animated") is not True and sticker.get("is_video") is not True:
+        preview_file_id = str(sticker.get("file_id") or "").strip()
+    if len(preview_file_id) > 512:
+        preview_file_id = ""
     return {
         "owned_gift_id": owned_gift_id,
+        "model_sticker_file_id": preview_file_id,
         "external_asset_id": slug,
         "title": f"{base_name} #{number}"[:120],
         "gift_url": f"https://t.me/nft/{quote(slug, safe='')}",
         "send_date": str(raw.get("send_date") or ""),
     }
+
+
+async def fetch_sticker_preview(
+    file_id: str,
+    *,
+    client: httpx.AsyncClient | None = None,
+) -> tuple[bytes, str]:
+    """Download a small raster Telegram sticker preview without exposing the bot token."""
+    safe_file_id = str(file_id or "").strip()
+    if not safe_file_id or len(safe_file_id) > 512:
+        raise TelegramBusinessGiftInventoryError("A valid Telegram sticker file is required")
+    token = os.getenv("BOT_TOKEN", "").strip()
+    if not token:
+        raise TelegramBusinessGiftInventoryError("Telegram Bot API is not configured")
+    owns_client = client is None
+    session = client or httpx.AsyncClient(
+        base_url=TELEGRAM_API_BASE,
+        timeout=httpx.Timeout(15.0, connect=5.0),
+        follow_redirects=False,
+    )
+    try:
+        response = await session.post(f"/bot{token}/getFile", json={"file_id": safe_file_id})
+        if response.status_code != 200:
+            raise TelegramBusinessGiftInventoryError("Telegram sticker preview is unavailable")
+        payload = response.json()
+        result = payload.get("result") if isinstance(payload, dict) and payload.get("ok") is True else None
+        file_path = str(result.get("file_path") or "") if isinstance(result, dict) else ""
+        if not file_path or file_path.startswith("/") or ".." in file_path.split("/") or len(file_path) > 512:
+            raise TelegramBusinessGiftInventoryError("Telegram returned an invalid sticker file path")
+        async with session.stream("GET", f"/file/bot{token}/{file_path}") as download:
+            if download.status_code != 200:
+                raise TelegramBusinessGiftInventoryError("Telegram sticker preview download failed")
+            content_type = download.headers.get("content-type", "").split(";", 1)[0].lower()
+            if content_type not in {"image/webp", "image/png", "image/jpeg"}:
+                raise TelegramBusinessGiftInventoryError("Telegram sticker preview is not a supported image")
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in download.aiter_bytes():
+                total += len(chunk)
+                if total > 2_500_000:
+                    raise TelegramBusinessGiftInventoryError("Telegram sticker preview exceeds the size limit")
+                chunks.append(chunk)
+        data = b"".join(chunks)
+        valid = (
+            content_type == "image/webp" and len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+            or content_type == "image/png" and data.startswith(b"\\x89PNG\\r\\n\\x1a\\n")
+            or content_type == "image/jpeg" and data.startswith(b"\\xff\\xd8\\xff")
+        )
+        if not valid:
+            raise TelegramBusinessGiftInventoryError("Telegram returned an invalid image payload")
+        return data, content_type
+    except httpx.HTTPError as exc:
+        raise TelegramBusinessGiftInventoryError("Telegram sticker preview request failed") from exc
+    finally:
+        if owns_client:
+            await session.aclose()
 
 
 async def fetch_business_account_gifts(
