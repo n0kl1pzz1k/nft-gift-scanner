@@ -11,6 +11,7 @@ import secrets
 import sqlite3
 import time
 import uuid
+from urllib.parse import urlparse
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -133,6 +134,31 @@ def init_marketplace_db() -> None:
             ON demo_orders(status, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_demo_orders_user_created
             ON demo_orders(user_id, created_at DESC);
+        CREATE TABLE IF NOT EXISTS verified_assets (
+            id TEXT PRIMARY KEY,
+            source TEXT NOT NULL CHECK(source IN ('telegram_gift', 'ton_nft', 'telegram_username', 'anonymous_number')),
+            external_asset_id TEXT NOT NULL,
+            owner_telegram_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            asset_type TEXT NOT NULL CHECK(asset_type IN ('gift', 'username', 'number')),
+            image_url TEXT NOT NULL DEFAULT '',
+            verification_method TEXT NOT NULL CHECK(verification_method IN ('telegram_gift_owner', 'ton_connect_proof', 'telegram_username_owner', 'anonymous_number_owner')),
+            verification_reference_hash TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'verified' CHECK(status IN ('verified', 'revoked')),
+            created_at INTEGER NOT NULL,
+            verified_at INTEGER NOT NULL,
+            revoked_at INTEGER,
+            UNIQUE(source, external_asset_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_verified_assets_owner_status
+            ON verified_assets(owner_telegram_id, status, verified_at DESC);
+        CREATE TRIGGER IF NOT EXISTS verified_assets_metadata_immutable
+        BEFORE UPDATE OF source, external_asset_id, owner_telegram_id, title, asset_type,
+                         image_url, verification_method, verification_reference_hash, verified_at
+        ON verified_assets
+        BEGIN
+            SELECT RAISE(ABORT, 'verified asset metadata is immutable');
+        END;
         CREATE TABLE IF NOT EXISTS demo_order_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             order_id TEXT NOT NULL,
@@ -187,6 +213,9 @@ def init_marketplace_db() -> None:
         order_columns = {row["name"] for row in conn.execute("PRAGMA table_info(demo_orders)").fetchall()}
         if "asset_type" not in order_columns:
             conn.execute("ALTER TABLE demo_orders ADD COLUMN asset_type TEXT CHECK(asset_type IS NULL OR asset_type IN ('gift', 'username', 'number'))")
+        if "asset_id" not in order_columns:
+            conn.execute("ALTER TABLE demo_orders ADD COLUMN asset_id TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_demo_orders_asset ON demo_orders(asset_id, status)")
         # One-time cleanup of the explicitly identified test listing approved by the owner.
         # Match every identifying field so no other seller listing can be touched.
         conn.execute("BEGIN IMMEDIATE")
@@ -465,6 +494,81 @@ def release_telegram_update(update_id: int) -> None:
             "UPDATE telegram_update_inbox SET lease_until = 0 WHERE update_id = ? AND status = 'processing'",
             (update_id,),
         )
+
+
+def _test_unverified_assets_allowed() -> bool:
+    """Explicit compatibility switch used only by legacy automated tests."""
+    return os.getenv("HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS", "false").strip().lower() == "true"
+
+
+def register_verified_asset(*, source: str, external_asset_id: str, owner_telegram_id: str,
+                            title: str, asset_type: str, image_url: str,
+                            verification_method: str, verification_reference: str) -> dict[str, Any]:
+    """Persist an asset only after a trusted upstream verifier has validated ownership.
+
+    This function is intentionally not an HTTP endpoint. A TON Connect / Telegram
+    verifier must validate the proof before calling it. Client claims are not proof.
+    """
+    allowed = {
+        ("telegram_gift", "gift", "telegram_gift_owner"),
+        ("ton_nft", "gift", "ton_connect_proof"),
+        ("telegram_username", "username", "telegram_username_owner"),
+        ("anonymous_number", "number", "anonymous_number_owner"),
+    }
+    source, asset_type, verification_method = str(source), str(asset_type), str(verification_method)
+    external_asset_id = str(external_asset_id).strip()
+    owner_telegram_id = str(owner_telegram_id).strip()
+    title = str(title).strip()
+    image_url = str(image_url or "").strip()
+    verification_reference = str(verification_reference or "").strip()
+    if (source, asset_type, verification_method) not in allowed:
+        raise ValueError("Asset source, type and verification method do not match")
+    if not external_asset_id or len(external_asset_id) > 200:
+        raise ValueError("A valid external asset ID is required")
+    if not owner_telegram_id.isdigit():
+        raise ValueError("A verified Telegram owner ID is required")
+    if not title or len(title) > 120:
+        raise ValueError("A valid verified asset title is required")
+    if image_url:
+        parsed = urlparse(image_url)
+        if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password or len(image_url) > 2048:
+            raise ValueError("Asset images must use a valid HTTPS URL")
+    if len(verification_reference) < 16 or len(verification_reference) > 4096:
+        raise ValueError("A valid one-time verification reference is required")
+    now = int(time.time())
+    reference_hash = hashlib.sha256(verification_reference.encode("utf-8")).hexdigest()
+    with _db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT * FROM verified_assets WHERE source = ? AND external_asset_id = ?",
+            (source, external_asset_id),
+        ).fetchone()
+        if existing is not None:
+            conn.rollback()
+            if existing["owner_telegram_id"] != owner_telegram_id:
+                raise ValueError("This asset is already registered to another owner")
+            if existing["status"] != "verified":
+                raise ValueError("This asset verification has been revoked")
+            return {"id": existing["id"], "source": existing["source"],
+                    "external_asset_id": existing["external_asset_id"],
+                    "owner_telegram_id": existing["owner_telegram_id"],
+                    "title": existing["title"], "asset_type": existing["asset_type"],
+                    "image_url": existing["image_url"], "status": existing["status"],
+                    "verified_at": existing["verified_at"]}
+        asset_id = "ast_" + uuid.uuid4().hex
+        conn.execute(
+            """INSERT INTO verified_assets
+               (id, source, external_asset_id, owner_telegram_id, title, asset_type,
+                image_url, verification_method, verification_reference_hash,
+                status, created_at, verified_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'verified', ?, ?)""",
+            (asset_id, source, external_asset_id, owner_telegram_id, title, asset_type,
+             image_url, verification_method, reference_hash, now, now),
+        )
+        conn.commit()
+    return {"id": asset_id, "source": source, "external_asset_id": external_asset_id,
+            "owner_telegram_id": owner_telegram_id, "title": title, "asset_type": asset_type,
+            "image_url": image_url, "status": "verified", "verified_at": now}
 
 
 def _verified_asset_actions_enabled() -> bool:
