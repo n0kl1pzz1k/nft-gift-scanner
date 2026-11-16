@@ -14,6 +14,7 @@ from aiogram.types import (
     InlineKeyboardButton,
 )
 from dotenv import load_dotenv
+from marketplace import upsert_telegram_business_connection
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
@@ -47,6 +48,15 @@ def create_bot() -> Bot:
 
 def create_dispatcher() -> Dispatcher:
     dp = Dispatcher()
+
+    @dp.business_connection()
+    async def business_connection_updated(connection):
+        # Telegram sends this update on connect, permission changes, and disconnect.
+        # Store only the owner ID and the exact rights granted by the account owner.
+        upsert_telegram_business_connection(
+            connection.model_dump(mode="json", exclude_none=True)
+        )
+
 
     @dp.message(Command("myid"))
     async def my_id(message: Message):
