@@ -36,6 +36,7 @@
   let marketMinPrice = $state('');
   let marketMaxPrice = $state('');
   let showSellModal = $state(false);
+  let createOrderBusy = $state(false);
   let showOfferModal = $state(false);
   let selectedOfferOrder = $state<MarketplaceOrder | null>(null);
   let selectedAsset = $state<MarketplaceOrder | null>(null);
@@ -475,6 +476,7 @@
   }
 
   async function createOrder() {
+    if (createOrderBusy) return;
     const price = Number(createPrice);
     if (createKind === 'listing' && assetTypeOf(createTitle) !== createAssetType) {
       notice = createAssetType === 'username'
@@ -493,6 +495,7 @@
       notice = lang === 'ru' ? 'Открой приложение через Telegram, чтобы выставлять активы.' : 'Open the app in Telegram to publish listings.';
       return;
     }
+    createOrderBusy = true;
     try {
       await request('/api/marketplace/orders', undefined, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -505,7 +508,12 @@
       view = 'orders';
       await loadMarketplace();
       await loadOffersAndDeals();
-    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+      haptic('error');
+    } finally {
+      createOrderBusy = false;
+    }
   }
 
   function startEditOrder(order: MarketplaceOrder) {
@@ -845,15 +853,15 @@
         </div>
       {/if}
       {#if showSellModal}
-        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showSellModal=false;}}>
+        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !createOrderBusy)showSellModal=false;}}>
           <div class="sell-modal" role="dialog" aria-modal="true" aria-labelledby="sell-title">
-            <button class="modal-close" onclick={()=>showSellModal=false} aria-label="Close">×</button>
+            <button class="modal-close" onclick={()=>showSellModal=false} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={createOrderBusy}>×</button>
             <div class="eyebrow">HASSLE NFT · SELL</div><h2 id="sell-title">{lang==='ru'?'Выставить актив':'List an asset'}</h2><p>{lang==='ru'?'Добавь актив в каталог маркетплейса':'Add an asset to the marketplace'}</p>
             <div class="sell-type-grid"><button class:chosen={createAssetType==='gift'} type="button" onclick={()=>createAssetType='gift'}>✳ <span>Telegram Gift</span></button><button class:chosen={createAssetType==='username'} type="button" onclick={()=>createAssetType='username'}>＠ <span>Username</span></button><button class:chosen={createAssetType==='number'} type="button" onclick={()=>createAssetType='number'}>888 <span>Number</span></button></div>
             <label>{lang==='ru'?'Название актива':'Asset name'}<input class="form-input" bind:value={createTitle} maxlength="120" placeholder={createAssetType==='username'?'@username':createAssetType==='number'?'+888 123 4567':'Plush Pepe #042'}/></label>
             <label>{lang==='ru'?'Цена':'Price'}<div class="currency-choice"><button class:chosen={createCurrency==='TON'} onclick={()=>createCurrency='TON'}>TON</button><button class:chosen={createCurrency==='XTR'} onclick={()=>createCurrency='XTR'}>⭐ Stars</button></div><input class="form-input" type="number" min="0.01" step="0.01" bind:value={createPrice} placeholder="1.25"/></label>
             <label>{lang==='ru'?'Описание':'Description'}<textarea class="form-input note-input" bind:value={createNote} maxlength="300"></textarea></label>
-            <button class="publish-button" onclick={createOrder}>{lang==='ru'?'Выставить на маркет':'List on market'} <span>→</span></button>
+            <button class="publish-button" onclick={createOrder} disabled={createOrderBusy}>{createOrderBusy?(lang==='ru'?'Публикуем…':'Publishing…'):(lang==='ru'?'Выставить на маркет':'List on market')} <span>→</span></button>
             <small class="sell-modal-hint">{lang==='ru'?'Тип актива определяется по его идентификатору. Передача и проверка владения через TON Connect ещё не подключены.':'Asset type is inferred from its identifier. On-chain ownership verification and TON Connect transfer are not connected yet.'}</small>
           </div>
         </div>
