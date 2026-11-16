@@ -434,16 +434,17 @@
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
-  async function createOffer(orderId: string) {
+  async function createOffer(orderId: string): Promise<boolean> {
     const amount = Number(offerAmount);
-    if (!Number.isFinite(amount) || amount <= 0) { notice = lang === 'ru' ? 'Укажи положительную сумму оффера.' : 'Enter a positive offer amount.'; return; }
+    if (!Number.isFinite(amount) || amount <= 0) { notice = lang === 'ru' ? 'Укажи положительную сумму оффера.' : 'Enter a positive offer amount.'; return false; }
     try {
       await request('/api/marketplace/offers', undefined, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order_id:orderId,amount,note:offerNote.trim()}) });
       offerAmount = ''; offerNote = '';
       haptic('success');
-      notice = lang === 'ru' ? 'Оффер отправлен владельцу заявки.' : 'Offer sent to the order owner.';
+      notice = lang === 'ru' ? 'Оффер отправлен владельцу актива.' : 'Offer sent to the asset owner.';
       await loadOffersAndDeals();
-    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+      return true;
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); haptic('error'); return false; }
   }
 
   async function respondToOffer(offerId: string, action: 'accept'|'decline'|'withdraw') {
@@ -807,7 +808,7 @@
             <div class="offer-asset-preview"><span>{assetTypeOf(selectedOfferOrder.title)==='username'?'＠':assetTypeOf(selectedOfferOrder.title)==='number'?'888':'✳'}</span><div><strong>{selectedOfferOrder.title}</strong><small>{lang==='ru'?'Цена продавца':'Seller price'}: {selectedOfferOrder.price} {selectedOfferOrder.currency==='XTR'?'⭐':'TON'}</small></div></div>
             <label>{lang==='ru'?'Твоё предложение':'Your offer'}<input class="form-input" type="number" min="0.01" step="0.01" bind:value={offerAmount} placeholder="1.25"/></label>
             <label>{lang==='ru'?'Сообщение продавцу':'Message to seller'}<textarea class="form-input note-input" bind:value={offerNote} maxlength="500" placeholder={lang==='ru'?'Необязательно':'Optional'}></textarea></label>
-            <button class="ton-primary offer-submit" disabled={offerSubmitBusy} onclick={async()=>{if(!selectedOfferOrder)return;offerSubmitBusy=true;try{await createOffer(selectedOfferOrder.id);if(!notice.toLowerCase().includes('укажи')&&!notice.toLowerCase().includes('enter a positive')){showOfferModal=false;selectedOfferOrder=null;}}finally{offerSubmitBusy=false;}}}>{offerSubmitBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendOffer+' →'}</button>
+            <button class="ton-primary offer-submit" disabled={offerSubmitBusy} onclick={async()=>{if(!selectedOfferOrder)return;offerSubmitBusy=true;try{const sent=await createOffer(selectedOfferOrder.id);if(sent){showOfferModal=false;selectedOfferOrder=null;}}finally{offerSubmitBusy=false;}}}>{offerSubmitBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendOffer+' →'}</button>
             <small class="sell-modal-hint">{lang==='ru'?'Оффер отправится владельцу актива. Это не перевод средств и не завершение сделки.':'The offer goes to the asset owner. It does not transfer funds or complete a trade.'}</small>
           </div>
         </div>
