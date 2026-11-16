@@ -953,4 +953,4 @@
   </main>
 </div>
 
-<BottomNav active={view as 'orders'|'create'|'offers'|'profile'} onNavigate={(target)=>{haptic();view=target;notice='';}} />
+<BottomNav lang={lang} active={view as 'orders'|'create'|'offers'|'profile'} onNavigate={(target)=>{haptic();view=target;notice='';}} />
