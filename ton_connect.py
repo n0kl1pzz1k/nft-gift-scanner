@@ -27,6 +27,7 @@ _WALLET_LAYOUTS = {
     "84dafa449f98a6987789ba232358072bc0f76dc4524002a5d0918b9a75d2d599": 2,  # V3R2
     "64dd54805522c5be8a9db59cea0105ccf0d08786ca79beb8cb79e880a8d7322d": 2,  # V4R1
     "feb5ff6820e2ff0d9483e7e0d62c817d846789fb4ae580c878866d959dabd5c0": 2,  # V4R2
+    "20834b7b72b112147e1b2fb457b84e74d1a30f04f737d4f62a668e9552d2b72f": 3,  # V5R1
 }
 PROOF_MAX_AGE_SECONDS = 600
 CHALLENGE_TTL_SECONDS = 300
@@ -110,8 +111,10 @@ def _parse_state_init(state_init_b64: str) -> tuple[bytes, bytes, str]:
         if layout is None:
             raise ValueError("Unsupported wallet contract version")
         data_slice = data.begin_parse()
+        if layout == 3:
+            data_slice.load_bit()  # V5 signature-authentication flag
         data_slice.load_uint(32)  # seqno
-        if layout == 2:
+        if layout in {2, 3}:
             data_slice.load_uint(32)  # subwallet_id / wallet_id
         public_key = data_slice.load_bytes(32)
         if len(public_key) != 32:
