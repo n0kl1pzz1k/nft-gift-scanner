@@ -225,6 +225,7 @@ def init_marketplace_db() -> None:
             business_connection_id TEXT NOT NULL,
             owned_gift_id TEXT NOT NULL,
             gift_slug TEXT NOT NULL,
+            model_sticker_file_id TEXT NOT NULL DEFAULT '',
             updated_at INTEGER NOT NULL,
             UNIQUE(business_connection_id, owned_gift_id),
             FOREIGN KEY(asset_id) REFERENCES verified_assets(id)
@@ -234,6 +235,9 @@ def init_marketplace_db() -> None:
 
 
         """)
+        gift_ref_columns = {row["name"] for row in conn.execute("PRAGMA table_info(telegram_business_gift_refs)").fetchall()}
+        if "model_sticker_file_id" not in gift_ref_columns:
+            conn.execute("ALTER TABLE telegram_business_gift_refs ADD COLUMN model_sticker_file_id TEXT NOT NULL DEFAULT ''")
         # Ownership may change only after the old owner snapshot was revoked and a
         # trusted verifier confirms the new owner. Preserve a permanent audit trail.
         conn.execute("DROP TRIGGER IF EXISTS verified_assets_metadata_immutable")
@@ -374,7 +378,7 @@ def get_telegram_business_connection_id(telegram_id: str | int) -> str | None:
 
 def save_telegram_business_gift_ref(
     *, asset_id: str, owner_telegram_id: str, business_connection_id: str,
-    owned_gift_id: str, gift_slug: str,
+    owned_gift_id: str, gift_slug: str, model_sticker_file_id: str = "",
 ) -> None:
     """Bind the Telegram-issued owned_gift_id to a verified marketplace asset."""
     owner_id = str(owner_telegram_id).strip()
@@ -384,15 +388,16 @@ def save_telegram_business_gift_ref(
     with _db() as conn:
         conn.execute(
             """INSERT INTO telegram_business_gift_refs
-               (asset_id, owner_telegram_id, business_connection_id, owned_gift_id, gift_slug, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)
+               (asset_id, owner_telegram_id, business_connection_id, owned_gift_id, gift_slug, model_sticker_file_id, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(asset_id) DO UPDATE SET
                  owner_telegram_id=excluded.owner_telegram_id,
                  business_connection_id=excluded.business_connection_id,
                  owned_gift_id=excluded.owned_gift_id,
                  gift_slug=excluded.gift_slug,
+                 model_sticker_file_id=excluded.model_sticker_file_id,
                  updated_at=excluded.updated_at""",
-            (asset_id, owner_id, business_connection_id, owned_gift_id, gift_slug, now),
+            (asset_id, owner_id, business_connection_id, owned_gift_id, gift_slug, str(model_sticker_file_id or "")[:512], now),
         )
 
 
@@ -419,6 +424,27 @@ def prune_telegram_business_gift_refs(
                    WHERE owner_telegram_id = ? AND business_connection_id = ?""",
                 (owner_id, business_connection_id),
             )
+
+
+def get_telegram_business_gift_preview_ref(asset_id: str, owner_telegram_id: str | int) -> dict[str, Any] | None:
+    """Return a preview handle only to the current owner with view-gifts permission."""
+    owner_id = str(owner_telegram_id).strip()
+    if not owner_id.isdigit():
+        raise ValueError("A verified Telegram owner ID is required")
+    with _db() as conn:
+        row = conn.execute(
+            """SELECT r.model_sticker_file_id
+               FROM telegram_business_gift_refs r
+               JOIN telegram_business_connections c
+                 ON c.telegram_id = r.owner_telegram_id
+                AND c.business_connection_id = r.business_connection_id
+               JOIN verified_assets a ON a.id = r.asset_id
+               WHERE r.asset_id = ? AND r.owner_telegram_id = ?
+                 AND c.is_enabled = 1 AND c.can_view_gifts_and_stars = 1
+                 AND a.owner_telegram_id = ? AND a.status = 'verified'""",
+            (str(asset_id), owner_id, owner_id),
+        ).fetchone()
+    return dict(row) if row else None
 
 
 def get_telegram_business_gift_ref(asset_id: str, owner_telegram_id: str | int) -> dict[str, Any] | None:
