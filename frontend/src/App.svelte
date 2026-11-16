@@ -725,27 +725,8 @@
         </section>
       {:else}<div class="state-panel">{lang==='ru'?'Профиль не найден.':'Seller profile not found.'}</div>{/if}
     {:else if view==='orders'}
-      <section class="ton-hero">
-        <div class="ton-hero-copy">
-          <div class="ton-kicker"><span class="ton-live-dot"></span> HASSLE NFT MARKET <i>·</i> TON ECOSYSTEM</div>
-          <h1>{lang==='ru'?'ТВОИ NFT. ТВОЯ СДЕЛКА.':'YOUR NFT. YOUR DEAL.'}</h1>
-          <p>{lang==='ru'?'Маркетплейс Telegram-подарков. Выставляй активы, предлагай цену и находи редкое в одном месте.':'The Telegram gift marketplace. List assets, make offers and discover rare finds in one place.'}</p>
-          <div class="ton-hero-actions">
-            <button class="ton-primary" onclick={()=>{document.getElementById('asset-feed')?.scrollIntoView({behavior:'smooth'});haptic();}}>{lang==='ru'?'Открыть маркет':'Explore market'} →</button>
-            <button class="favorite-market-link" onclick={()=>{view='favorites';haptic();}}>{lang==='ru'?'Избранное':'Favorites'} ♥</button>
-            <span class="ton-network"><b></b> TON NETWORK</span>
-          </div>
-        </div>
-        <div class="ton-stage" aria-hidden="true">
-          <div class="ton-aura"></div><div class="ton-orbit ton-orbit-a"></div><div class="ton-orbit ton-orbit-b"></div>
-          <div class="ton-coin"><div class="ton-coin-rim"></div><div class="ton-coin-face"><span class="ton-mark">T</span></div></div>
-          <span class="ton-float-tag tag-ton">TON <b>◆</b></span><span class="ton-float-tag tag-nft">NFT <b>✦</b></span>
-          <span class="ton-particle particle-a"></span><span class="ton-particle particle-b"></span><span class="ton-particle particle-c"></span>
-        </div>
-        <div class="ton-hero-foot"><span>01 / MARKETPLACE</span><span>POWERED BY TON</span><span>HASSLE NFT © 2026</span></div>
-      </section>
-      <section class="market-overview" id="asset-feed">
-        <div class="market-heading-row"><div><div class="eyebrow">LIVE ASSET MARKET</div><h2>{lang==='ru'?'Найди свой следующий актив':'Discover your next asset'}</h2><p>{lang==='ru'?'Подарки, username и номера 888 в одном каталоге':'Gifts, usernames and anonymous numbers in one curated feed'}</p></div><div class="floor-chip"><div><small>TON FLOOR</small><strong>{tonFloor} <span>TON</span></strong></div><i></i><div><small>STARS FLOOR</small><strong>{starsFloor} <span>⭐</span></strong></div></div></div>
+      <section class="market-overview catalog-first" id="asset-feed">
+        <div class="market-heading-row catalog-heading"><div><div class="eyebrow">HASSLE NFT MARKET</div><h2>{lang==='ru'?'Каталог NFT-подарков':'NFT Gift Catalogue'}</h2></div></div>
         <div class="market-toolbar">
           <label class="market-search"><span>⌕</span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label={lang==='ru'?'Поиск активов':'Search assets'}/></label>
           <select class="market-select" bind:value={assetTypeFilter} aria-label={lang==='ru'?'Тип актива':'Asset type'}><option value="all">{lang==='ru'?'Все активы':'All assets'}</option><option value="gift">{lang==='ru'?'NFT-подарки':'NFT Gifts'}</option><option value="username">Username</option><option value="number">{lang==='ru'?'Номера 888':'Anonymous numbers'}</option></select>
@@ -761,7 +742,7 @@
         {:else if marketError && orders.length===0}
           <div class="state-panel"><strong>{lang==='ru'?'Не удалось загрузить маркет':'Market failed to load'}</strong><small>{marketError}</small><button class="asset-offer-button" onclick={()=>loadMarketplace()}>{t.refresh} ↻</button></div>
         {:else if marketAssets.length===0}
-          <div class="state-panel"><span class="state-icon">⌕</span><strong>{lang==='ru'?'Ничего не найдено':'No assets found'}</strong><small>{lang==='ru'?'Попробуй изменить поиск или фильтры':'Try changing your search or filters'}</small></div>
+          <div class="state-panel"><span class="state-icon">⌕</span><strong>{lang==='ru'?'Пока нет выставленных NFT-подарков':'No NFT gifts listed yet'}</strong><small>{lang==='ru'?'Здесь появятся реальные подарки, когда владельцы выставят их на маркетплейс.':'Real gifts will appear here when their owners list them on the marketplace.'}</small></div>
         {:else}
           <div class="asset-grid">
             {#each marketAssets as order (order.id)}
