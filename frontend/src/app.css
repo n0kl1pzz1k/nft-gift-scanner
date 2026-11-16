@@ -754,6 +754,7 @@ html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202
   cursor:pointer;
 }
 .inventory-list-button:active{transform:scale(.98)}
+.inventory-gift-link{width:max-content;max-width:100%;color:#78c9f5;font-size:11px;font-weight:700;text-decoration:none}.inventory-gift-link:active{opacity:.7}
 .inventory-listing-note{color:#91a1b7!important;font-size:10px!important}
 .inventory-list-modal{max-height:min(88dvh,720px);overflow-y:auto}
 .inventory-list-modal label{display:grid;gap:7px;margin:14px 0;color:#aabbd0;font-size:12px;font-weight:700}
