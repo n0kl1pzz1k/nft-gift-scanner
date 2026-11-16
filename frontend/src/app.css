@@ -559,3 +559,10 @@ html[data-telegram-color-scheme="light"] .ton-hero{color:#fff}
 .asset-card{content-visibility:auto;contain-intrinsic-size:320px 360px}
 .asset-card,.asset-skeleton{contain:layout paint style}
 .sell-modal{overscroll-behavior:contain}
+
+.wallet-card{display:flex;align-items:center;gap:13px;min-height:105px}
+.wallet-card-icon{width:42px;height:42px;flex:0 0 42px;display:grid;place-items:center;border:1px solid #3298ff44;border-radius:13px;background:#087dff18;color:#7fcaff;font-size:23px}
+.wallet-card-copy{flex:1;min-width:0}.wallet-card-copy h2{margin:5px 0;font:700 14px Inter,sans-serif;color:#eef6ff}.wallet-card-copy p{margin:0;max-width:420px;color:#8195ad;font-size:9px;line-height:1.55}
+.wallet-status{padding:6px 8px;border:1px solid #ffffff18;border-radius:8px;color:#8194aa;font:700 8px Inter,sans-serif;white-space:nowrap}
+html[data-telegram-color-scheme="light"] .wallet-card-copy h2{color:#17202b}
+@media(max-width:520px){.wallet-card{align-items:flex-start;flex-wrap:wrap}.wallet-card-copy{flex:1 1 calc(100% - 60px)}.wallet-status{margin-left:55px}}
