@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update
+from ton_connect import init_ton_connect_db, create_proof_challenge, verify_ton_proof, consume_challenge_and_link_wallet, list_verified_wallets
 from demo_offers import create_demo_offers_router, init_demo_offers_db
 
 app = FastAPI(title="HASSLE NFT Market API", version="1.0.0")
@@ -46,6 +47,26 @@ app.add_middleware(
 
 class TelegramAuthRequest(BaseModel):
     init_data: str
+
+
+class TonProofDomain(BaseModel):
+    lengthBytes: int
+    value: str
+
+
+class TonProofData(BaseModel):
+    timestamp: int
+    domain: TonProofDomain
+    signature: str
+    payload: str
+
+
+class TonProofVerifyRequest(BaseModel):
+    address: str
+    network: str
+    public_key: str | None = None
+    proof: TonProofData
+    state_init: str
 
 
 def _admin_ids() -> set[str]:
@@ -225,6 +246,58 @@ async def telegram_webhook(
     finish_telegram_update(update_id)
     return {"ok": True, "duplicate": False}
 
+@app.post("/api/ton-proof/payload")
+async def ton_proof_payload(x_telegram_init_data: str | None = Header(default=None)):
+    credential = x_telegram_init_data or ""
+    user = _authenticate_telegram_credential(credential)
+    try:
+        payload = create_proof_challenge(str(user["id"]), credential)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+    return {"payload": payload, "expires_in": 300}
+
+
+@app.post("/api/ton-proof/verify")
+async def ton_proof_verify(
+    payload: TonProofVerifyRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    credential = x_telegram_init_data or ""
+    user = _authenticate_telegram_credential(credential)
+    expected_domain = os.getenv(
+        "TON_CONNECT_DOMAIN",
+        "hassle-nft-market.fj7kmzkhn9.workers.dev",
+    ).strip()
+    try:
+        verified = verify_ton_proof(
+            address=payload.address,
+            network=payload.network,
+            public_key_hex=payload.public_key,
+            proof=payload.proof.model_dump(),
+            state_init_b64=payload.state_init,
+            expected_domain=expected_domain,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+    if not consume_challenge_and_link_wallet(
+        verified,
+        str(user["id"]),
+        credential,
+    ):
+        raise HTTPException(status_code=409, detail="TON proof challenge expired, mismatched, or already used")
+    return {
+        "verified": True,
+        "address": verified["address"],
+        "network": verified["network"],
+    }
+
+
+@app.get("/api/ton-proof/wallets/me")
+async def ton_proof_wallets_me(x_telegram_init_data: str | None = Header(default=None)):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    return {"items": list_verified_wallets(str(user["id"]))}
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "hassle-nft-market"}
@@ -235,6 +308,7 @@ async def start_services():
     global _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret
     init_marketplace_db()
     init_demo_offers_db()
+    init_ton_connect_db()
     token = os.getenv("BOT_TOKEN", "").strip()
     if token:
         try:
