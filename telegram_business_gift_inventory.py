@@ -32,12 +32,20 @@ def normalise_business_owned_gift(raw: Any) -> dict[str, str] | None:
             or isinstance(number, bool) or not isinstance(number, int) or number < 1):
         return None
     base_name = str(gift.get("base_name") or "Telegram Gift").strip()[:80]
+    # Prefer Telegram's raster thumbnail for the model sticker. Some gift models
+    # expose the only usable static artwork through the symbol sticker instead.
+    # Animated/video sticker file_ids are not directly renderable in an <img>.
     model = gift.get("model") if isinstance(gift.get("model"), dict) else {}
-    sticker = model.get("sticker") if isinstance(model.get("sticker"), dict) else {}
-    thumbnail = sticker.get("thumbnail") if isinstance(sticker.get("thumbnail"), dict) else {}
-    preview_file_id = str(thumbnail.get("file_id") or "").strip()
-    if not preview_file_id and sticker.get("is_animated") is not True and sticker.get("is_video") is not True:
-        preview_file_id = str(sticker.get("file_id") or "").strip()
+    symbol = gift.get("symbol") if isinstance(gift.get("symbol"), dict) else {}
+    preview_file_id = ""
+    for component in (model, symbol):
+        sticker = component.get("sticker") if isinstance(component.get("sticker"), dict) else {}
+        thumbnail = sticker.get("thumbnail") if isinstance(sticker.get("thumbnail"), dict) else {}
+        preview_file_id = str(thumbnail.get("file_id") or "").strip()
+        if not preview_file_id and sticker.get("is_animated") is not True and sticker.get("is_video") is not True:
+            preview_file_id = str(sticker.get("file_id") or "").strip()
+        if preview_file_id:
+            break
     if len(preview_file_id) > 512:
         preview_file_id = ""
     return {
