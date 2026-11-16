@@ -1056,15 +1056,32 @@ def create_marketplace_router(
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         with _db() as conn:
             qualified_where = where.replace("status", "o.status").replace("kind", "o.kind")
+            asset_filter = "" if _test_unverified_assets_allowed() else " AND a.id IS NOT NULL"
+            if asset_filter and not qualified_where:
+                qualified_where = " WHERE a.id IS NOT NULL"
+            elif asset_filter:
+                qualified_where += asset_filter
             rows = conn.execute(
-                f"""SELECT o.*, p.profile_id AS seller_profile_id
+                f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url
                     FROM demo_orders o
                     LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
+                    LEFT JOIN verified_assets a ON a.id = o.asset_id
+                       AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
                     {qualified_where}
                     ORDER BY o.created_at DESC LIMIT ? OFFSET ?""",
                 (*values, limit, offset),
             ).fetchall()
-            total = conn.execute(f"SELECT COUNT(*) FROM demo_orders{where}", values).fetchone()[0]
+            count_where = where.replace("status", "o.status").replace("kind", "o.kind")
+            if asset_filter and not count_where:
+                count_where = " WHERE a.id IS NOT NULL"
+            elif asset_filter:
+                count_where += asset_filter
+            total = conn.execute(
+                f"""SELECT COUNT(*) FROM demo_orders o
+                    LEFT JOIN verified_assets a ON a.id = o.asset_id
+                       AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
+                    {count_where}""", values,
+            ).fetchone()[0]
         return {"items": [_order_dict(row, user_id) for row in rows], "total": total}
 
     @router.get("/mine")
@@ -1074,11 +1091,15 @@ def create_marketplace_router(
             return {"items": []}
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         with _db() as conn:
+            verified_filter = "" if _test_unverified_assets_allowed() else " AND a.id IS NOT NULL"
             rows = conn.execute(
-                """SELECT o.*, p.profile_id AS seller_profile_id
-                   FROM demo_orders o
-                   LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
-                   WHERE o.user_id = ? ORDER BY o.created_at DESC LIMIT 200""",
+                f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url
+                    FROM demo_orders o
+                    LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
+                    LEFT JOIN verified_assets a ON a.id = o.asset_id
+                       AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
+                    WHERE o.user_id = ?{verified_filter}
+                    ORDER BY o.created_at DESC LIMIT 200""",
                 (str(user["id"]),),
             ).fetchall()
         return {"items": [_order_dict(row, str(user["id"])) for row in rows]}
