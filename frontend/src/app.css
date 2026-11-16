@@ -613,3 +613,6 @@ html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202
   .sell-modal textarea,
   .inventory-edit input{font-size:16px!important}
 }
+
+
+.filter-error{min-height:0;margin:10px 0;padding:12px 15px;border:1px solid #ff9a6a55;background:#ff9a6a12;color:#ffc09b}
