@@ -97,6 +97,8 @@ async def fetch_business_account_gifts(
             offset = next_offset
         if len(items) >= MAX_ITEMS and total_count > len(items):
             complete = False
+    except httpx.HTTPError as exc:
+        raise TelegramBusinessGiftInventoryError("Telegram Business gift inventory request failed") from exc
     finally:
         if owns_client:
             await session.aclose()
