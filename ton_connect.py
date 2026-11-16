@@ -96,14 +96,14 @@ def _parse_state_init(state_init_b64: str) -> tuple[bytes, bytes, str]:
         root = Cell.one_from_boc(raw)
         state_hash = root.bytes_hash()
         sl = root.begin_parse()
-        if sl.load_bit():
-            sl.load_uint(5)  # split_depth
-        if sl.load_bit():
-            sl.load_uint(2)  # special TickTock
-        code = sl.load_ref() if sl.load_bit() else None
-        data = sl.load_ref() if sl.load_bit() else None
-        if sl.load_bit():
-            sl.load_ref()  # library
+        if sl.read_bit():
+            sl.read_uint(5)  # split_depth
+        if sl.read_bit():
+            sl.read_uint(2)  # special TickTock
+        code = sl.read_ref() if sl.read_bit() else None
+        data = sl.read_ref() if sl.read_bit() else None
+        if sl.read_bit():
+            sl.read_ref()  # library
         if code is None or data is None:
             raise ValueError("Wallet StateInit must contain code and data")
         code_hash = code.bytes_hash().hex()
@@ -112,11 +112,11 @@ def _parse_state_init(state_init_b64: str) -> tuple[bytes, bytes, str]:
             raise ValueError("Unsupported wallet contract version")
         data_slice = data.begin_parse()
         if layout == 3:
-            data_slice.load_bit()  # V5 signature-authentication flag
-        data_slice.load_uint(32)  # seqno
+            data_slice.read_bit()  # V5 signature-authentication flag
+        data_slice.read_uint(32)  # seqno
         if layout in {2, 3}:
-            data_slice.load_uint(32)  # subwallet_id / wallet_id
-        public_key = data_slice.load_bytes(32)
+            data_slice.read_uint(32)  # subwallet_id / wallet_id
+        public_key = data_slice.read_bytes(32)
         if len(public_key) != 32:
             raise ValueError("Invalid wallet public key")
         return state_hash, public_key, code_hash
