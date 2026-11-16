@@ -80,7 +80,7 @@ def main() -> int:
     parser.add_argument("--output", help="Optional JSON output path")
     args = parser.parse_args()
     report = audit_source_tree(args.root)
-    rendered = json.dumps(report, indent=2, ensure_ascii=False) + "\\n"
+    rendered = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
     if args.output:
         Path(args.output).write_text(rendered, encoding="utf-8")
     else:
