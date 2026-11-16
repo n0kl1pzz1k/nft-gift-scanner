@@ -106,6 +106,14 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(response.json()["dependency"], "database_schema")
         self.assertIn("demo_notifications", response.json()["missing_tables"])
 
+    def test_readiness_probe_returns_503_when_required_column_is_missing(self):
+        with marketplace._db() as connection:
+            connection.execute("ALTER TABLE verified_wallets RENAME COLUMN address TO wallet_address")
+        response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["dependency"], "database_schema")
+        self.assertIn("verified_wallets.address", response.json()["missing_columns"])
+
     def test_database_initializers_are_idempotent_and_foreign_keys_are_valid(self):
         marketplace.init_marketplace_db()
         demo_offers.init_demo_offers_db()
