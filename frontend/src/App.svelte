@@ -5,7 +5,7 @@
 
   type VerifiedAsset = { id:string; source:string; external_asset_id:string; title:string; asset_type:'gift'|'username'|'number'; image_url:string; verified_at:number; active_listing_id:string|null };
   type MarketplaceOrder = {
-    id: string; kind: 'listing' | 'buy-order'; title: string; asset_type?: 'gift' | 'username' | 'number' | null;
+    id: string; kind: 'listing' | 'buy-order'; title: string; asset_id?: string | null; image_url?: string; asset_type?: 'gift' | 'username' | 'number' | null;
     price: string | number; currency: 'TON' | 'XTR'; status: 'active' | 'matched' | 'cancelled';
     createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; seller_profile_id?: string | null; events?: {type:string;createdAt:number}[];
   };
