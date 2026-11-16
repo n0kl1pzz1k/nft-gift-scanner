@@ -825,7 +825,7 @@
             <div class="asset-detail-price"><small>{lang==='ru'?'Цена продавца':'Seller price'}</small><strong>{selectedAsset.price} {selectedAsset.currency==='XTR'?'⭐ Stars':'TON'}</strong></div>
             {#if selectedAsset.note}<p class="asset-detail-note">{selectedAsset.note}</p>{/if}
             <div class="asset-detail-unavailable"><strong>{lang==='ru'?'Характеристики актива':'Asset traits'}</strong><span>{lang==='ru'?'Метаданные и traits появятся после подключения источника NFT-метаданных.':'Metadata and traits will appear after an NFT metadata source is connected.'}</span></div>
-            <button class="ton-primary offer-submit" onclick={()=>{if(!signedIn){notice=t.authHint;haptic('error');return;}selectedOfferOrder=selectedAsset;offerAmount=String(selectedAsset.price);offerNote='';showAssetDetails=false;showOfferModal=true;}}>{t.sendOffer} ↗</button>
+            <button class="ton-primary offer-submit" onclick={()=>{if(!signedIn){notice=t.authHint;haptic('error');return;}const asset=selectedAsset;if(!asset)return;selectedOfferOrder=asset;offerAmount=String(asset.price);offerNote='';showAssetDetails=false;showOfferModal=true;}}>{t.sendOffer} ↗</button>
             <button class="asset-buy-disabled" disabled title={lang==='ru'?'Покупка включится после запуска защищённой оплаты и escrow':'Buying will be enabled after secure payments and escrow are live'}>{lang==='ru'?'Покупка скоро':'Buy · Coming soon'}</button>
           </div>
         </div>
