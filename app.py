@@ -5,11 +5,14 @@ import json
 import hmac
 import hashlib
 import secrets
+
+import marketplace
 from urllib.parse import parse_qsl
 from pydantic import BaseModel
 
 from fastapi import FastAPI, HTTPException, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update, _enforce_user_rate_limit, sync_ton_nft_assets, sync_telegram_gift_assets, get_telegram_business_connection, get_telegram_business_connection_id, register_verified_asset, save_telegram_business_gift_ref, prune_telegram_business_gift_refs, get_telegram_business_gift_preview_ref
 from ton_connect import init_ton_connect_db, create_proof_challenge, verify_ton_proof, consume_challenge_and_link_wallet, list_verified_wallets
@@ -492,7 +495,22 @@ async def telegram_business_status(x_telegram_init_data: str | None = Header(def
 
 @app.get("/health")
 async def health():
+    """Liveness probe: confirms that the API process is responding."""
     return {"status": "ok", "service": "hassle-nft-market"}
+
+
+@app.get("/ready")
+async def readiness():
+    """Readiness probe: confirms the application database accepts queries."""
+    try:
+        with marketplace._db() as connection:
+            connection.execute("SELECT 1").fetchone()
+    except Exception:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "service": "hassle-nft-market", "dependency": "database"},
+        )
+    return {"status": "ready", "service": "hassle-nft-market", "dependencies": {"database": "ok"}}
 
 
 @app.on_event("startup")
