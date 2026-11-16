@@ -19,13 +19,10 @@ class TonConnectApiTests(unittest.TestCase):
         ton_connect.init_ton_connect_db()
         marketplace.upsert_telegram_user({"id": "101", "first_name": "Wallet owner"})
         self.session = marketplace.create_telegram_session("101")
-        self.auth_patch = patch.object(app, "_authenticate_telegram_credential", side_effect=marketplace.get_telegram_session_user)
-        self.auth_patch.start()
         self.client = TestClient(app.app)
 
     def tearDown(self):
         self.client.close()
-        self.auth_patch.stop()
         self.db_patch.stop()
         self.temp_dir.cleanup()
 
