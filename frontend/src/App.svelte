@@ -54,6 +54,8 @@
   let tonNftImportMessage = $state('');
   let telegramGiftImportBusy = $state(false);
   let telegramGiftImportMessage = $state('');
+  let businessGiftImportBusy = $state(false);
+  let businessGiftImportMessage = $state('');
   let telegramBusinessStatus = $state({connected:false,can_view_gifts_and_stars:false,can_transfer_and_upgrade_gifts:false,can_transfer_stars:false,gift_import_ready:false,gift_transfer_ready:false});
   let favoriteOrderIds = $state<string[]>([]);
   let publicOrdersTotal = $state(0);
@@ -326,6 +328,27 @@
       tonNftImportMessage = e instanceof Error ? e.message : String(e);
     } finally {
       tonNftImportBusy = false;
+    }
+  }
+
+  async function importBusinessGifts() {
+    if (!signedIn || !authToken || businessGiftImportBusy || !telegramBusinessStatus.gift_import_ready) return;
+    businessGiftImportBusy = true;
+    businessGiftImportMessage = '';
+    try {
+      const result = await request('/api/marketplace/assets/import-business-gifts', undefined, { method: 'POST' });
+      await loadVerifiedInventory();
+      const count = Number(result.imported) || 0;
+      businessGiftImportMessage = lang === 'ru'
+        ? (count ? `Импортировано из Telegram Business: ${count}` : 'В бизнес-аккаунте нет коллекционных подарков.')
+        : (count ? `Imported from Telegram Business: ${count}` : 'No collectible gifts found in the business account.');
+      if (result.ownership_scan_complete === false) {
+        businessGiftImportMessage += lang === 'ru' ? ' Сканирование неполное, повтори позже.' : ' The scan was partial; refresh again later.';
+      }
+    } catch (e) {
+      businessGiftImportMessage = e instanceof Error ? e.message : String(e);
+    } finally {
+      businessGiftImportBusy = false;
     }
   }
 
@@ -927,6 +950,10 @@
      {:else if view==='create'}
        <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{lang==='ru'?'Инвентарь':'Inventory'}</h1><p>{lang==='ru'?'Подтверждённые подарки Telegram и NFT из твоего TON-кошелька':'Verified Telegram gifts and NFTs from your TON wallet'}</p></section>
        <div class="inventory-connect-panel"><div class="inventory-connect-icon">◈</div><div class="inventory-connect-copy"><span class="eyebrow">TELEGRAM GIFTS · TON CONNECT</span><h2>{lang==='ru'?'Импорт твоих активов':'Import your assets'}</h2><p>{lang==='ru'?'Подарки Telegram проверяются через официальный Bot API по твоему Telegram ID. TON NFT подтверждаются подписью TON Proof. Seed-фраза и приватный ключ не запрашиваются.':'Telegram gifts are checked through the official Bot API using your Telegram ID. TON NFTs are verified with TON Proof. Your seed phrase and private key are never requested.'}</p>{#if signedIn}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTelegramGifts} disabled={telegramGiftImportBusy}>{telegramGiftImportBusy?(lang==='ru'?'Проверяем подарки…':'Checking gifts…'):(lang==='ru'?'↓ Загрузить подарки Telegram':'↓ Import Telegram gifts')}</button>{/if}{#if telegramGiftImportMessage}<p class="ton-wallet-message">{telegramGiftImportMessage}</p>{/if}
+        {#if telegramBusinessStatus.gift_import_ready}
+          <button class="ton-wallet-button inventory-import-button" type="button" onclick={importBusinessGifts} disabled={businessGiftImportBusy}>{businessGiftImportBusy?(lang==='ru'?'Загружаем бизнес-подарки…':'Importing business gifts…'):(lang==='ru'?'↓ Импортировать подарки Business':'↓ Import Business gifts')}</button>
+          {#if businessGiftImportMessage}<p class="ton-wallet-message">{businessGiftImportMessage}</p>{/if}
+        {/if}
         <div class="business-connection-card">
           <div class="business-connection-heading"><strong>{lang==='ru'?'Telegram Business':'Telegram Business'}</strong><span class:ready={telegramBusinessStatus.gift_transfer_ready}>{telegramBusinessStatus.gift_transfer_ready?(lang==='ru'?'Передача доступна':'Transfer ready'):(telegramBusinessStatus.connected?(lang==='ru'?'Не все права выданы':'Missing permissions'):(lang==='ru'?'Не подключён':'Not connected'))}</span></div>
           {#if telegramBusinessStatus.connected}
