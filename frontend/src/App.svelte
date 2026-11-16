@@ -33,7 +33,10 @@
   let marketError = $state('');
   let createAssetType = $state<'gift'|'username'|'number'>('gift');
   let assetTypeFilter = $state<AssetTypeFilter>('all');
-  let marketSort = $state<'recent'|'price-low'|'price-high'>('recent');
+  let marketSort = $state<'recent'|'price-low'|'price-high'|'id-low'|'id-high'>('recent');
+  let marketCollectionSearch = $state('');
+  let marketNftIdSearch = $state('');
+  let nftBackground = $state<'midnight'|'violet'|'blue'|'emerald'|'rose'|'gold'>('midnight');
   let marketCurrency = $state<'all'|'TON'|'XTR'>('all');
   let marketMinPrice = $state('');
   let marketMaxPrice = $state('');
@@ -166,9 +169,12 @@
   ));
   const visibleOffers = $derived(offers.filter(offer => offerStatusFilter === 'all' || offer.status === offerStatusFilter));
   const invalidPriceRange = $derived(marketCurrency !== 'all' && ((marketMinPrice !== '' && (!Number.isFinite(Number(marketMinPrice)) || Number(marketMinPrice) < 0)) || (marketMaxPrice !== '' && (!Number.isFinite(Number(marketMaxPrice)) || Number(marketMaxPrice) < 0)) || (marketMinPrice !== '' && marketMaxPrice !== '' && Number(marketMinPrice) > Number(marketMaxPrice))));
-  const hasMarketFilters = $derived(Boolean(marketSearch.trim() || assetTypeFilter !== 'all' || marketCurrency !== 'all' || marketMinPrice !== '' || marketMaxPrice !== ''));
+  const hasMarketFilters = $derived(Boolean(marketSearch.trim() || marketCollectionSearch.trim() || marketNftIdSearch.trim() || assetTypeFilter !== 'all' || marketCurrency !== 'all' || marketMinPrice !== '' || marketMaxPrice !== ''));
   function resetMarketFilters() {
     marketSearch = '';
+    marketCollectionSearch = '';
+    marketNftIdSearch = '';
+    nftBackground = 'midnight';
     assetTypeFilter = 'all';
     marketCurrency = 'all';
     marketMinPrice = '';
@@ -180,16 +186,21 @@
       if (order.kind !== 'listing' || order.status !== 'active' || invalidPriceRange) return false;
       const type = assetTypeOf(order);
       const query = marketSearch.trim().toLocaleLowerCase();
+      const collectionQuery = marketCollectionSearch.trim().toLocaleLowerCase();
+      const nftIdQuery = marketNftIdSearch.trim().toLocaleLowerCase();
       const matchesType = assetTypeFilter === 'all' || type === assetTypeFilter;
       const matchesCurrency = marketCurrency === 'all' || order.currency === marketCurrency;
       const price = Number(order.price);
       const matchesMin = marketCurrency === 'all' || !marketMinPrice || price >= Number(marketMinPrice);
       const matchesMax = marketCurrency === 'all' || !marketMaxPrice || price <= Number(marketMaxPrice);
       const haystack = [order.title, order.owner, order.note || ''].join(' ').toLocaleLowerCase();
-      return matchesType && matchesCurrency && matchesMin && matchesMax && (!query || haystack.includes(query));
+      const idHaystack = [order.id, order.asset_id || ''].join(' ').toLocaleLowerCase();
+      return matchesType && matchesCurrency && matchesMin && matchesMax && (!query || haystack.includes(query)) && (!collectionQuery || haystack.includes(collectionQuery)) && (!nftIdQuery || idHaystack.includes(nftIdQuery));
     });
     return [...filtered].sort((a,b) => {
       if (marketSort === 'recent') return b.createdAt-a.createdAt;
+      if (marketSort === 'id-low') return a.id.localeCompare(b.id, undefined, {numeric:true});
+      if (marketSort === 'id-high') return b.id.localeCompare(a.id, undefined, {numeric:true});
       if (a.currency !== b.currency) return a.currency === 'TON' ? -1 : 1;
       const delta = Number(a.price)-Number(b.price);
       return marketSort === 'price-low' ? delta : -delta;
@@ -941,9 +952,12 @@
         <div class="market-heading-row catalog-heading"><div><div class="eyebrow">HASSLE NFT MARKET</div><h2>{lang==='ru'?'Каталог NFT-подарков':'NFT Gift Catalogue'}</h2></div></div>
         <div class="market-toolbar">
           <label class="market-search"><span>⌕</span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label={lang==='ru'?'Поиск активов':'Search assets'}/></label>
+          <label class="market-search"><span>▤</span><input bind:value={marketCollectionSearch} placeholder={lang==='ru'?'Коллекция':'Collection'} aria-label={lang==='ru'?'Фильтр по коллекции':'Filter by collection or collection name'}/></label>
+          <label class="market-search"><span>#</span><input bind:value={marketNftIdSearch} placeholder={lang==='ru'?'NFT ID':'NFT ID'} aria-label="NFT ID"/></label>
+          <select class="market-select" bind:value={nftBackground} aria-label={lang==='ru'?'Цвет фона NFT':'NFT background color'}><option value="midnight">{lang==='ru'?'Фон: графит':'Background: graphite'}</option><option value="violet">{lang==='ru'?'Фон: фиолетовый':'Background: violet'}</option><option value="blue">{lang==='ru'?'Фон: синий':'Background: blue'}</option><option value="emerald">{lang==='ru'?'Фон: изумрудный':'Background: emerald'}</option><option value="rose">{lang==='ru'?'Фон: розовый':'Background: rose'}</option><option value="gold">{lang==='ru'?'Фон: золотой':'Background: gold'}</option></select>
           <select class="market-select" bind:value={assetTypeFilter} aria-label={lang==='ru'?'Тип актива':'Asset type'}><option value="all">{lang==='ru'?'Все активы':'All assets'}</option><option value="gift">{lang==='ru'?'NFT-подарки':'NFT Gifts'}</option><option value="username">Username</option><option value="number">{lang==='ru'?'Номера 888':'Anonymous numbers'}</option></select>
           <select class="market-select" bind:value={marketCurrency} aria-label={lang==='ru'?'Валюта цены':'Price currency'}><option value="all">{lang==='ru'?'Любая валюта':'Any currency'}</option><option value="TON">TON</option><option value="XTR">⭐ Stars</option></select>
-          <select class="market-select" bind:value={marketSort} aria-label={lang==='ru'?'Сортировка активов':'Sort assets'}><option value="recent">{lang==='ru'?'Сначала новые':'Recently listed'}</option><option value="price-low">{lang==='ru'?'Сначала дешевле':'Price: low to high'}</option><option value="price-high">{lang==='ru'?'Сначала дороже':'Price: high to low'}</option></select>
+          <select class="market-select" bind:value={marketSort} aria-label={lang==='ru'?'Сортировка активов':'Sort assets'}><option value="recent">{lang==='ru'?'Сначала новые':'Recently listed'}</option><option value="price-low">{lang==='ru'?'Сначала дешевле':'Price: low to high'}</option><option value="price-high">{lang==='ru'?'Сначала дороже':'Price: high to low'}</option><option value="id-low">{lang==='ru'?'NFT ID: по возрастанию':'NFT ID: ascending'}</option><option value="id-high">{lang==='ru'?'NFT ID: по убыванию':'NFT ID: descending'}</option></select>
           <label class="price-filter"><span>{lang==='ru'?'От':'Min'}</span><input type="number" min="0" step="any" bind:value={marketMinPrice} disabled={marketCurrency==='all'} placeholder="0" aria-label={lang==='ru'?'Минимальная цена':'Minimum price'} inputmode="decimal"/></label>
           <label class="price-filter"><span>{lang==='ru'?'До':'Max'}</span><input type="number" min="0" step="any" bind:value={marketMaxPrice} disabled={marketCurrency==='all'} placeholder="∞" aria-label={lang==='ru'?'Максимальная цена':'Maximum price'} inputmode="decimal"/></label>
         </div>
@@ -958,7 +972,7 @@
         {:else}
           <div class="asset-grid">
             {#each marketAssets as order (order.id)}
-              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} {lang} sellerProfileId={order.seller_profile_id || null} onSeller={()=>openSellerProfile(order.seller_profile_id || '')} onFavorite={()=>toggleFavoriteOrder(order)} canOffer={walletConnected} onOffer={()=>{notice=lang==='ru'?'Офферы откроются после подключения TON-кошелька и подтверждения актива в инвентаре.':'Offers unlock after TON Connect and verified inventory ownership.';haptic('error');}} onOpen={()=>{selectedAsset=order;showAssetDetails=true;haptic();}} />
+              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} backgroundColor={nftBackground} {lang} sellerProfileId={order.seller_profile_id || null} onSeller={()=>openSellerProfile(order.seller_profile_id || '')} onFavorite={()=>toggleFavoriteOrder(order)} canOffer={walletConnected} onOffer={()=>{notice=lang==='ru'?'Офферы откроются после подключения TON-кошелька и подтверждения актива в инвентаре.':'Offers unlock after TON Connect and verified inventory ownership.';haptic('error');}} onOpen={()=>{selectedAsset=order;showAssetDetails=true;haptic();}} />
             {/each}
           </div>
           {#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}
