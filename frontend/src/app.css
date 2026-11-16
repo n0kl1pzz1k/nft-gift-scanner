@@ -616,3 +616,11 @@ html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202
 
 
 .filter-error{min-height:0;margin:10px 0;padding:12px 15px;border:1px solid #ff9a6a55;background:#ff9a6a12;color:#ffc09b}
+
+
+.asset-seller-link{padding:0;border:0;background:transparent;color:#9fcaff;font:inherit;font-weight:700;text-align:left;cursor:pointer;text-decoration:underline;text-decoration-color:#9fcaff55;text-underline-offset:3px}
+.asset-seller-link:focus-visible{outline:2px solid #69baff;outline-offset:3px;border-radius:3px}
+.report-asset-button{width:100%;margin-top:10px;padding:11px 13px;border:1px solid #ff9b8b44;border-radius:11px;background:#ff8b7a0c;color:#ffb2a5;font-size:11px;font-weight:700}
+.report-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:16px}
+.report-actions .ton-primary{margin:0}
+@media(max-width:620px){.report-actions{display:grid;grid-template-columns:1fr 1fr}.report-actions button{min-height:42px}}
