@@ -1,7 +1,6 @@
 import json
 import sqlite3
 
-import pytest
 
 from db_schema_audit import audit_database, build_schema_manifest
 
@@ -59,12 +58,16 @@ def test_audit_opens_existing_database_read_only(tmp_path):
     manifest = audit_database(database)
     assert [table["name"] for table in manifest["tables"]] == ["sample"]
 
-    with pytest.raises(sqlite3.OperationalError):
-        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+    connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+    try:
         try:
             connection.execute("CREATE TABLE forbidden (id TEXT)")
-        finally:
-            connection.close()
+        except sqlite3.OperationalError:
+            pass
+        else:
+            raise AssertionError("read-only SQLite connection unexpectedly allowed a write")
+    finally:
+        connection.close()
 
 
 def test_current_hassle_schema_inventory_covers_all_subsystems(tmp_path, monkeypatch):
