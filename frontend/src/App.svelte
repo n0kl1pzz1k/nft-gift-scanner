@@ -677,8 +677,8 @@
     <a class="brand" href="#marketplace"><span class="brand-symbol">H</span><span>HASSLE NFT<small>THE GIFT MARKET</small></span></a>
     <div class="nav-caption">MENU</div>
     <nav class="side-nav">
-      {#each [{id:'orders',label:lang==='ru'?'Market':'Market',sub:lang==='ru'?'Маркет':'Market',icon:'▦'},{id:'create',label:'Inventory',sub:lang==='ru'?'Активы':'Inventory',icon:'◈'},{id:'offers',label:'Activity',sub:lang==='ru'?'Активность':'Activity',icon:'↗'},{id:'profile',label:t.profile,sub:t.profile,icon:'◉'}] as item}
-        <button class:active={view===item.id} class="nav-item" onclick={()=>{haptic();view=item.id as View;notice='';}}><span>{item.icon}</span>{item.sub}</button>
+      {#each [{id:'orders',label:'Market',icon:'▦'},{id:'create',label:'Inventory',icon:'◈'},{id:'offers',label:'Activity',icon:'↗'},{id:'profile',label:'Profile',icon:'◉'}] as item}
+        <button class:active={view===item.id} class="nav-item" onclick={()=>{haptic();view=item.id as View;notice='';}}><span>{item.icon}</span>{item.label}</button>
       {/each}
     </nav>
     <div class="sidebar-bottom"><div class="sidebar-version">NFT GIFTS · TON · STARS</div></div>
