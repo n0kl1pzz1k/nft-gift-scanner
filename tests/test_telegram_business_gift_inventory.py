@@ -165,6 +165,41 @@ class TelegramBusinessGiftImportApiTests(unittest.TestCase):
         preview_ref = marketplace.get_telegram_business_gift_preview_ref(asset_id, "101")
         self.assertEqual(preview_ref["model_sticker_file_id"], "model-preview-file")
 
+    def test_primary_telegram_import_prefers_business_when_view_permission_is_granted(self):
+        marketplace.upsert_telegram_business_connection({
+            "id": "business-connection-101",
+            "user": {"id": 101},
+            "user_chat_id": 101,
+            "is_enabled": True,
+            "rights": {"can_view_gifts_and_stars": True},
+        })
+        snapshot = {
+            "complete": True,
+            "total_count": 1,
+            "supported_unique_count": 1,
+            "items": [{
+                "owned_gift_id": "owned-primary-1",
+                "external_asset_id": "PrimaryGift-1",
+                "title": "Primary Gift #1",
+                "gift_url": "https://t.me/nft/PrimaryGift-1",
+                "send_date": "1760000000",
+                "model_sticker_file_id": "primary-preview-file",
+            }],
+        }
+        with patch.object(app, "fetch_business_account_gifts", new=AsyncMock(return_value=snapshot)) as business_fetch, \\
+             patch.object(app, "fetch_user_telegram_gifts", new=AsyncMock()) as regular_fetch:
+            response = self.client.post(
+                "/api/marketplace/assets/import-telegram",
+                headers={"X-Telegram-Init-Data": "verified-session"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["imported"], 1)
+        business_fetch.assert_awaited_once_with("business-connection-101")
+        regular_fetch.assert_not_awaited()
+        asset_id = response.json()["items"][0]["id"]
+        preview_ref = marketplace.get_telegram_business_gift_preview_ref(asset_id, "101")
+        self.assertEqual(preview_ref["model_sticker_file_id"], "primary-preview-file")
+
     def test_owner_can_fetch_preview_with_view_permission_without_transfer_permission(self):
         marketplace.upsert_telegram_business_connection({
             "id": "business-connection-101",
