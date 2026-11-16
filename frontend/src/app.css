@@ -662,3 +662,34 @@ html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202
     }
   }
 }
+
+
+/* Compact catalogue filter reset and useful empty-search state. */
+.market-reset-filters,
+.market-empty-reset{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:5px;
+  border:1px solid rgba(100,174,255,.25);
+  border-radius:9px;
+  background:rgba(43,139,232,.09);
+  color:#8fc8ff;
+  font:600 11px/1.2 Inter,ui-sans-serif,sans-serif;
+  padding:7px 10px;
+  cursor:pointer;
+  transition:background .18s ease,border-color .18s ease,transform .18s ease;
+}
+.market-reset-filters:hover,
+.market-empty-reset:hover{
+  background:rgba(43,139,232,.17);
+  border-color:rgba(100,174,255,.48);
+}
+.market-empty{align-items:center;text-align:center;gap:10px}
+.market-empty .state-icon{margin:0 auto}
+.market-empty-reset{margin-top:3px}
+.market-meta .market-reset-filters{margin-left:auto;white-space:nowrap}
+@media(max-width:620px){
+  .market-meta{flex-wrap:wrap;row-gap:8px}
+  .market-meta .market-reset-filters{margin-left:0}
+}
