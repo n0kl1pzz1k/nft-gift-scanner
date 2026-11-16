@@ -263,7 +263,7 @@ class SharedMarketplaceTests(unittest.TestCase):
                 (old_asset["id"],),
             ).fetchone()
             old_offer = conn.execute(
-                "SELECT status FROM demo_offers WHERE id = ?", (offer.json()["offer"]["id"],)
+                "SELECT status FROM demo_offers WHERE id = ?", (offer.json()["item"]["id"],)
             ).fetchone()
         self.assertEqual(old_listing["status"], "cancelled")
         self.assertEqual(old_offer["status"], "declined")
