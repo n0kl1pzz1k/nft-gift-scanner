@@ -70,9 +70,6 @@ def init_demo_offers_db() -> None:
             FOREIGN KEY(order_id) REFERENCES demo_orders(id),
             FOREIGN KEY(offer_id) REFERENCES demo_offers(id)
         );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_demo_deals_one_open_reservation
-            ON demo_deals(order_id)
-            WHERE status NOT IN ('cancelled', 'expired');
         CREATE TABLE IF NOT EXISTS demo_deal_events (
             id TEXT PRIMARY KEY,
             deal_id TEXT NOT NULL,
@@ -242,12 +239,6 @@ def init_demo_offers_db() -> None:
                 raise
             finally:
                 conn.execute("PRAGMA foreign_keys = ON")
-        # Recreate the partial index on databases created before the partial reservation guard.
-        conn.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_demo_deals_one_open_reservation
-            ON demo_deals(order_id)
-            WHERE status NOT IN ('cancelled', 'expired')
-        """)
         # Forward-compatible migration for databases created before deal lifecycle state.
         deal_columns = {row["name"] for row in conn.execute("PRAGMA table_info(demo_deals)").fetchall()}
         if "status" not in deal_columns:
@@ -258,6 +249,13 @@ def init_demo_offers_db() -> None:
                                     'paid', 'delivery_pending', 'completed', 'disputed',
                                     'cancelled', 'expired'))"""
             )
+        # Create this only after status exists: older schemas cannot parse a partial
+        # index predicate that references a column they do not yet have.
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_demo_deals_one_open_reservation
+            ON demo_deals(order_id)
+            WHERE status NOT IN ('cancelled', 'expired')
+        """)
 
 
 def _require_user(init_data: str | None, verify: Callable[[str], dict]) -> dict:
