@@ -639,3 +639,64 @@ html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202
 .telegram-verified-state{align-self:center;padding:9px 13px;border:1px solid #39d9a455;border-radius:999px;background:#12b98120;color:#62edc0;font-size:11px;font-weight:700;white-space:nowrap}
 .asset-offer-button:disabled{opacity:.55;filter:saturate(.55);cursor:not-allowed;background:linear-gradient(110deg,#33445d,#3c4560);color:#b7c6dc;box-shadow:none}
 @media(max-width:520px){.inventory-connect-panel{align-items:flex-start;padding:17px;gap:13px}.inventory-connect-icon{flex-basis:46px;height:46px;border-radius:14px;font-size:24px}.inventory-connect-panel h2{font-size:16px}.inventory-connect-panel p{font-size:11px}}
+
+
+/* HASSLE NFT: catalogue-first layout with the TON coin kept strictly in the background. */
+.market-app{
+  position:relative;
+  isolation:isolate;
+}
+.market-app::after{
+  content:"";
+  position:fixed;
+  z-index:0;
+  right:-92px;
+  bottom:-126px;
+  width:min(430px,58vw);
+  aspect-ratio:1;
+  pointer-events:none;
+  border:10px double rgba(92,174,255,.22);
+  border-radius:50%;
+  background:
+    radial-gradient(circle at 34% 25%,rgba(255,255,255,.16),transparent 38%),
+    url("https://s3.coinmarketcap.com/static/img/portraits/6304d4f7dcf54d0fb59743ba.png") center/78% 78% no-repeat,
+    linear-gradient(145deg,#1a9be8,#0755a8 58%,#032b62);
+  box-shadow:inset 0 0 0 5px rgba(184,225,255,.13),inset 0 -18px 32px rgba(0,14,48,.45),0 24px 90px rgba(0,92,190,.18);
+  opacity:.105;
+  filter:saturate(.9);
+}
+.sidebar,.main-content{
+  position:relative;
+  z-index:1;
+}
+.market-overview.catalog-first{
+  padding-top:16px;
+}
+.market-heading-row.catalog-heading{
+  align-items:center;
+  margin:14px 0 17px;
+}
+.catalog-heading h2{
+  margin:0;
+  font:700 clamp(22px,3vw,30px)/1.12 Inter,ui-sans-serif,sans-serif;
+  letter-spacing:-.045em;
+  color:#f4f8ff;
+}
+.catalog-first .market-toolbar{
+  margin-top:0;
+}
+@media(max-width:600px){
+  .market-overview.catalog-first{padding-top:8px}
+  .market-heading-row.catalog-heading{margin:12px 0 14px}
+  .catalog-heading h2{font-size:23px}
+  .market-app::after{
+    right:-92px;
+    bottom:-78px;
+    width:245px;
+    border-width:7px;
+    opacity:.085;
+  }
+}
+@media(prefers-reduced-motion:reduce){
+  .market-app::after{filter:none}
+}
