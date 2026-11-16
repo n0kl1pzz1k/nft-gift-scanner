@@ -80,9 +80,6 @@ async def fetch_sticker_preview(
         async with session.stream("GET", f"/file/bot{token}/{file_path}") as download:
             if download.status_code != 200:
                 raise TelegramBusinessGiftInventoryError("Telegram sticker preview download failed")
-            content_type = download.headers.get("content-type", "").split(";", 1)[0].lower()
-            if content_type not in {"image/webp", "image/png", "image/jpeg"}:
-                raise TelegramBusinessGiftInventoryError("Telegram sticker preview is not a supported image")
             chunks: list[bytes] = []
             total = 0
             async for chunk in download.aiter_bytes():
@@ -91,14 +88,15 @@ async def fetch_sticker_preview(
                     raise TelegramBusinessGiftInventoryError("Telegram sticker preview exceeds the size limit")
                 chunks.append(chunk)
         data = b"".join(chunks)
-        valid = (
-            content_type == "image/webp" and len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"
-            or content_type == "image/png" and data.startswith(b"\\x89PNG\\r\\n\\x1a\\n")
-            or content_type == "image/jpeg" and data.startswith(b"\\xff\\xd8\\xff")
-        )
-        if not valid:
+        if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            media_type = "image/webp"
+        elif data.startswith(bytes.fromhex("89504e470d0a1a0a")):
+            media_type = "image/png"
+        elif data.startswith(bytes.fromhex("ffd8ff")):
+            media_type = "image/jpeg"
+        else:
             raise TelegramBusinessGiftInventoryError("Telegram returned an invalid image payload")
-        return data, content_type
+        return data, media_type
     except httpx.HTTPError as exc:
         raise TelegramBusinessGiftInventoryError("Telegram sticker preview request failed") from exc
     finally:
