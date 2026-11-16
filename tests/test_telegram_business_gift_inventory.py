@@ -33,6 +33,24 @@ class TelegramBusinessGiftInventoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(item["gift_url"], "https://t.me/nft/PlushPepe-42")
         self.assertEqual(item["model_sticker_file_id"], "model-preview-file")
 
+    def test_uses_symbol_thumbnail_when_model_has_no_raster_preview(self):
+        item = normalise_business_owned_gift({
+            "type": "unique",
+            "owned_gift_id": "owned-symbol-7",
+            "gift": {
+                "name": "Gift-7",
+                "base_name": "Gift",
+                "number": 7,
+                "model": {"sticker": {"file_id": "animated-model", "is_animated": True}},
+                "symbol": {"sticker": {
+                    "file_id": "animated-symbol",
+                    "is_animated": True,
+                    "thumbnail": {"file_id": "symbol-static-thumb"},
+                }},
+            },
+        })
+        self.assertEqual(item["model_sticker_file_id"], "symbol-static-thumb")
+
     def test_rejects_missing_owned_gift_id_and_blockchain_gifts(self):
         self.assertIsNone(normalise_business_owned_gift({
             "type": "unique", "gift": {"name": "Gift-1", "number": 1}
