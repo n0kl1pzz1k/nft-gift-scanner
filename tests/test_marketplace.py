@@ -59,6 +59,22 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.db_patch.stop()
         self.temp_dir.cleanup()
 
+    def test_webhook_secret_is_stable_when_derived_from_bot_token(self):
+        with patch.dict(os.environ, {}, clear=True):
+            first = api._resolve_webhook_secret("test-bot-token")
+            second = api._resolve_webhook_secret("test-bot-token")
+        self.assertEqual(first, second)
+        self.assertEqual(len(first), 64)
+
+    def test_webhook_secret_uses_valid_explicit_configuration(self):
+        with patch.dict(os.environ, {"BOT_WEBHOOK_SECRET": "Stable_secret-123"}, clear=True):
+            self.assertEqual(api._resolve_webhook_secret("test-bot-token"), "Stable_secret-123")
+
+    def test_webhook_secret_rejects_invalid_explicit_configuration(self):
+        with patch.dict(os.environ, {"BOT_WEBHOOK_SECRET": "bad secret"}, clear=True):
+            with self.assertRaises(RuntimeError):
+                api._resolve_webhook_secret("test-bot-token")
+
     def test_readiness_probe_confirms_database_is_queryable(self):
         response = self.client.get("/ready")
         self.assertEqual(response.status_code, 200)
