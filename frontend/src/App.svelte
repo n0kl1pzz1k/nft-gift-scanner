@@ -178,7 +178,7 @@
     try {
       const [publicData, mineData, statsData] = await Promise.all([
         request('/api/marketplace/orders?' + orderFilterQuery()),
-        window.Telegram?.WebApp?.initData ? request('/api/marketplace/mine') : Promise.resolve({items:[]}),
+        authToken ? request('/api/marketplace/mine') : Promise.resolve({items:[]}),
         request('/api/marketplace/stats'),
       ]);
       const publicItems = Array.isArray(publicData.items) ? publicData.items as MarketplaceOrder[] : [];
@@ -556,6 +556,7 @@
       isAdmin = data.is_admin === true;
       signedIn = true;
       if (isAdmin) await loadAdminOverview();
+      await loadMarketplace();
       await loadOffersAndDeals();
       if (showNotice) notice = t.signed;
     } catch (e) {
