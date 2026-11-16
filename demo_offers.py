@@ -16,7 +16,7 @@ from typing import Callable, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Query
 
-from marketplace import _enforce_user_rate_limit
+from marketplace import _enforce_user_rate_limit, _verified_asset_actions_enabled
 from pydantic import BaseModel, Field, field_validator
 
 DB_PATH = os.getenv("HASSLE_NFT_DB_PATH", os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3")))
@@ -305,6 +305,11 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
     @router.post("/offers", status_code=201)
     async def create_offer(payload: CreateOffer, x_telegram_init_data: str | None = Header(default=None)):
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        if not _verified_asset_actions_enabled():
+            raise HTTPException(
+                status_code=409,
+                detail="Offers are unavailable until TON Connect and verified inventory assets are enabled",
+            )
         actor_id = str(user["id"])
         _enforce_user_rate_limit(actor_id, "create_offer", 15)
         now = int(time.time())
