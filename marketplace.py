@@ -1079,7 +1079,7 @@ def create_marketplace_router(
             ).fetchall()
             count_where = where.replace("status", "o.status").replace("kind", "o.kind")
             if asset_filter and not count_where:
-                count_where = " WHERE a.id IS NOT NULL"
+                count_where = " WHERE (o.kind != 'listing' OR a.id IS NOT NULL)"
             elif asset_filter:
                 count_where += asset_filter
             total = conn.execute(
