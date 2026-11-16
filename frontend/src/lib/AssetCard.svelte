@@ -41,7 +41,7 @@
     {:else if kind === 'number'}
       <span class="asset-number">{order.title.replace(/[^0-9+]/g, '') || '888'}</span><small>ANONYMOUS NUMBER</small>
     {:else}
-      <span class="asset-gift-symbol">✳</span><small>TELEGRAM NFT GIFT</small>
+      <div class="asset-preview-placeholder"><span>PREVIEW</span><small>{lang === 'ru' ? 'Изображение появится после импорта подарка' : 'Gift preview appears after verified import'}</small></div>
     {/if}
     <span class="asset-type-pill">{typeLabel}</span>
     <button class={'asset-favorite ' + (favorite ? 'is-favorite' : '')} onclick={onFavorite} aria-label={lang === 'ru' ? (favorite ? 'Убрать из избранного' : 'Добавить в избранное') : (favorite ? 'Remove from favorites' : 'Add to favorites')}>{favorite ? '♥' : '♡'}</button>
