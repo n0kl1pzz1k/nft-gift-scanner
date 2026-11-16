@@ -18,7 +18,7 @@
   type PublicSellerProfile = SellerProfile & { active_listings:number; completed_trades:number; rating:number|null; listings:{id:string;title:string;price:string;currency:'TON'|'XTR';createdAt:number;note:string}[] };
   type MarketplaceStats = {
     active_listings: number; active_buy_requests: number; matched_orders: number;
-    volume_ton: number; volume_stars: number; total_orders: number;
+    volume_ton: number; volume_stars: number; floor_ton: number | null; floor_stars: number | null; total_orders: number;
   };
   type View = 'orders' | 'offers' | 'create' | 'favorites' | 'profile' | 'seller';
   type AssetTypeFilter = 'all' | 'gift' | 'username' | 'number';
@@ -48,7 +48,7 @@
   let activityTotal = $state(0);
   let activityBusy = $state(false);
   let accountStats = $state<AccountStats>({active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,unread_notifications:0});
-  let marketplaceStats = $state<MarketplaceStats>({active_listings:0,active_buy_requests:0,matched_orders:0,volume_ton:0,volume_stars:0,total_orders:0});
+  let marketplaceStats = $state<MarketplaceStats>({active_listings:0,active_buy_requests:0,matched_orders:0,volume_ton:0,volume_stars:0,floor_ton:null,floor_stars:null,total_orders:0});
   let sellerProfile = $state<SellerProfile | null>(null);
   let sellerDisplayName = $state('');
   let sellerBio = $state('');
@@ -158,10 +158,7 @@
     });
   });
   const inventoryAssets = $derived(orders.filter(order => order.isMine && order.kind === 'listing'));
-  const tonFloor = $derived.by(() => {
-    const prices = orders.filter(order => order.kind === 'listing' && order.status === 'active' && order.currency === 'TON').map(order => Number(order.price)).filter(price => Number.isFinite(price) && price > 0);
-    return prices.length ? Math.min(...prices).toFixed(2) : '—';
-  });
+  const tonFloor = $derived(marketplaceStats.floor_ton && marketplaceStats.floor_ton > 0 ? marketplaceStats.floor_ton.toFixed(2) : '—');
   function assetTypeOf(title: string): AssetTypeFilter {
     if (/888|anonymous.*number|number.*888/i.test(title)) return 'number';
     if (/^@|t[.]me[/]|username/i.test(title)) return 'username';
