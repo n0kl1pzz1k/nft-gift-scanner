@@ -43,7 +43,7 @@ def _resolve_webhook_secret(bot_token: str) -> str:
     configured = os.getenv("BOT_WEBHOOK_SECRET", "").strip()
     if configured:
         if not (1 <= len(configured) <= 256) or not all(
-            character.isalnum() or character in "_-" for character in configured
+            character in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for character in configured
         ):
             raise RuntimeError("BOT_WEBHOOK_SECRET must be 1-256 URL-safe characters")
         return configured
