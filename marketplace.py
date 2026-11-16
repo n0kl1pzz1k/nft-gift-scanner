@@ -1186,7 +1186,11 @@ def create_marketplace_router(
                 "INSERT INTO demo_order_events(order_id, actor_user_id, event_type, created_at) VALUES (?, ?, 'created', ?)",
                 (order_id, str(user["id"]), now),
             )
-            row = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (order_id,)).fetchone()
+            row = conn.execute(
+                """SELECT o.*, a.image_url AS asset_image_url FROM demo_orders o
+                   LEFT JOIN verified_assets a ON a.id = o.asset_id
+                   WHERE o.id = ?""", (order_id,),
+            ).fetchone()
             conn.commit()
         return {"item": _order_dict(row, str(user["id"]))}
 
