@@ -621,6 +621,8 @@ def _order_dict(row: sqlite3.Row, current_user_id: str | None = None) -> dict[st
         "id": row["id"],
         "kind": row["kind"],
         "title": row["title"],
+        "asset_id": row["asset_id"] if "asset_id" in row.keys() else None,
+        "image_url": row["asset_image_url"] if "asset_image_url" in row.keys() else "",
         "asset_type": row["asset_type"] if "asset_type" in row.keys() else None,
         "price": row["price"],
         "currency": row["currency"],
@@ -654,6 +656,7 @@ class UpdateSellerProfile(BaseModel):
 
 class CreateMarketplaceOrder(BaseModel):
     kind: Literal["listing", "buy-order"]
+    asset_id: str | None = Field(default=None, min_length=8, max_length=80)
     title: str = Field(min_length=1, max_length=120)
     price: Decimal
     currency: Literal["TON", "XTR"]
@@ -1113,14 +1116,46 @@ def create_marketplace_router(
         _enforce_user_rate_limit(str(user["id"]), "create_order", 8)
         now = int(time.time())
         order_id = "gr-" + uuid.uuid4().hex[:16]
+        owner_id = str(user["id"])
         owner = (user.get("first_name") or user.get("username") or "Telegram user")[:64]
         with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            asset = None
+            if payload.asset_id:
+                asset = conn.execute(
+                    "SELECT * FROM verified_assets WHERE id = ? AND status = 'verified'",
+                    (payload.asset_id,),
+                ).fetchone()
+                if asset is None:
+                    conn.rollback()
+                    raise HTTPException(status_code=404, detail="Verified asset not found")
+                if asset["owner_telegram_id"] != owner_id:
+                    conn.rollback()
+                    raise HTTPException(status_code=403, detail="Only the verified asset owner can list it")
+                title = asset["title"]
+                asset_type = asset["asset_type"]
+                asset_id = asset["id"]
+            elif _test_unverified_assets_allowed():
+                # Legacy tests only. Production must always supply a server-verified asset ID.
+                title = payload.title
+                asset_type = None
+                asset_id = None
+            else:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="A verified asset must be imported before it can be listed")
+            if asset is not None:
+                already_listed = conn.execute(
+                    "SELECT 1 FROM demo_orders WHERE asset_id = ? AND status = 'active' LIMIT 1",
+                    (asset_id,),
+                ).fetchone()
+                if already_listed:
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="This asset already has an active listing")
             conn.execute("""
                 INSERT INTO demo_orders
-                (id, user_id, owner_name, kind, title, price, currency, status, created_at, updated_at, note)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
-            """, (order_id, str(user["id"]), owner, payload.kind, payload.title,
+                (id, user_id, owner_name, kind, title, asset_id, asset_type, price, currency, status, created_at, updated_at, note)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+            """, (order_id, owner_id, owner, payload.kind, title, asset_id, asset_type,
                   format(payload.price, "f"), payload.currency, now, now, payload.note.strip()))
             conn.execute(
                 "INSERT INTO demo_order_events(order_id, actor_user_id, event_type, created_at) VALUES (?, ?, 'created', ?)",
