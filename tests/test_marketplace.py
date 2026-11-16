@@ -26,6 +26,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.offers_db_patch.start()
         marketplace.init_marketplace_db()
         demo_offers.init_demo_offers_db()
+        api.init_ton_connect_db()
         self.auth_patch = patch.object(
             api,
             "_verify_telegram_init_data",
@@ -64,6 +65,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ready")
         self.assertEqual(response.json()["dependencies"]["database"], "ok")
+        self.assertEqual(response.json()["dependencies"]["database_schema"], "ok")
 
     def test_readiness_probe_returns_503_when_database_is_unavailable(self):
         with patch("marketplace._db", side_effect=RuntimeError("database unavailable")):
@@ -71,6 +73,14 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["status"], "not_ready")
         self.assertEqual(response.json()["dependency"], "database")
+
+    def test_readiness_probe_returns_503_when_critical_schema_is_missing(self):
+        with marketplace._db() as connection:
+            connection.execute("DROP TABLE verified_wallets")
+        response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["dependency"], "database_schema")
+        self.assertIn("verified_wallets", response.json()["missing_tables"])
 
     def test_database_connections_enforce_durability_and_lock_wait_policy(self):
         with marketplace._db() as conn:
