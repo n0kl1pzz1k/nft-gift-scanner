@@ -701,3 +701,20 @@ html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202
 .asset-preview-placeholder>small{max-width:190px;margin:0;color:#8da1b8;font:500 9px/1.5 Manrope,Inter,sans-serif;letter-spacing:0}
 .asset-art-gift{background:linear-gradient(145deg,#15263a,#0c1420)}
 .asset-detail-art .asset-preview-placeholder{min-height:150px;width:100%;margin:auto}
+
+
+/* iOS focus stability for every catalogue control, including the compact price fields. */
+@media (max-width: 900px) {
+  .market-toolbar input,
+  .market-toolbar select {
+    font-size: 16px !important;
+    min-height: 44px;
+    -webkit-text-size-adjust: 100%;
+  }
+  .market-toolbar .market-search {
+    min-height: 46px;
+  }
+  .market-toolbar .market-search input {
+    min-height: 44px;
+  }
+}
