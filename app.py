@@ -383,6 +383,14 @@ async def import_telegram_gifts(x_telegram_init_data: str | None = Header(defaul
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
     telegram_id = str(user["id"])
     _enforce_user_rate_limit(telegram_id, "import_telegram_gifts", 3, 60)
+
+    # Prefer Telegram Business whenever the owner has granted gift-view access.
+    # This keeps the primary inventory import bound to owned_gift_id and stores
+    # the model sticker handle needed by the protected preview endpoint, even
+    # when a cached Mini App client calls the legacy import-telegram route.
+    if get_telegram_business_connection_id(telegram_id):
+        return await import_business_account_gifts(x_telegram_init_data)
+
     try:
         snapshot = await fetch_user_telegram_gifts(telegram_id)
     except (httpx.HTTPError, ValueError) as exc:
