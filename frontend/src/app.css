@@ -799,3 +799,76 @@ html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202
 .verified-inventory-placeholder{align-content:center;gap:5px;text-align:center}
 .verified-inventory-placeholder small{max-width:60px;color:#a9bdd5;font-size:7px;line-height:1.3;letter-spacing:.06em}
 @media(max-width:420px){.verified-inventory-item{align-items:flex-start;gap:10px;padding:10px}.verified-inventory-item img,.verified-inventory-placeholder{width:58px;height:58px;flex-basis:58px}.verified-inventory-title-row{align-items:flex-start;flex-direction:column;gap:4px}}
+
+
+/* HASSLE NFT finishing pass: floating TON coin ambience and mobile polish. */
+body{position:relative;isolation:isolate;overflow-x:hidden}
+body::before{
+  content:"TON";
+  position:fixed;
+  z-index:-1;
+  top:23vh;
+  right:clamp(-130px,5vw,90px);
+  width:clamp(210px,29vw,390px);
+  aspect-ratio:1;
+  display:grid;
+  place-items:center;
+  border:1px solid rgba(49,92,255,.22);
+  border-radius:50%;
+  background:
+    radial-gradient(circle at 32% 25%,rgba(255,255,255,.95),transparent 23%),
+    radial-gradient(circle at 38% 30%,#b9cbff 0%,#6689ee 24%,#315cff 53%,#1839a9 76%,#0e2474 100%);
+  color:rgba(255,255,255,.78);
+  font:900 clamp(42px,7vw,86px)/1 Manrope,ui-sans-serif,sans-serif;
+  letter-spacing:-.09em;
+  text-shadow:0 3px 0 rgba(8,24,92,.28),0 12px 26px rgba(9,31,112,.28);
+  box-shadow:inset 0 4px 9px rgba(255,255,255,.7),inset 0 -16px 28px rgba(5,24,91,.38),0 30px 90px rgba(49,92,255,.16);
+  opacity:.13;
+  pointer-events:none;
+  transform:rotate(-14deg);
+  animation:hassleTonFloat 18s ease-in-out infinite;
+}
+body::after{
+  content:"";
+  position:fixed;
+  z-index:-1;
+  top:calc(23vh + 9px);
+  right:calc(clamp(-130px,5vw,90px) + 9px);
+  width:calc(clamp(210px,29vw,390px) - 18px);
+  aspect-ratio:1;
+  border:1px solid rgba(255,255,255,.36);
+  border-radius:50%;
+  opacity:.16;
+  pointer-events:none;
+  transform:rotate(-14deg);
+}
+@keyframes hassleTonFloat{
+  0%,100%{translate:0 0;rotate:-2deg}
+  50%{translate:0 -16px;rotate:2deg}
+}
+.market-app{position:relative;z-index:1}
+.mobile-nav{z-index:30}
+.business-connection-heading strong small{display:inline;color:#8b95a2;font-size:9px;font-weight:600;letter-spacing:.04em}
+.inventory-connect-panel{position:relative;overflow:hidden}
+.inventory-connect-panel:after{
+  content:"";
+  position:absolute;
+  right:-48px;
+  top:-70px;
+  width:190px;
+  height:190px;
+  border:1px solid rgba(115,177,255,.18);
+  border-radius:50%;
+  box-shadow:0 0 0 14px rgba(115,177,255,.035),0 0 0 30px rgba(115,177,255,.025);
+  pointer-events:none;
+}
+@media(max-width:700px){
+  body::before{top:18vh;right:-115px;width:250px;opacity:.105}
+  body::after{top:calc(18vh + 7px);right:-108px;width:236px;opacity:.12}
+  .market-app{min-height:100dvh}
+  .inventory-connect-panel{align-items:stretch}
+  .business-connection-heading{align-items:flex-start;flex-wrap:wrap}
+}
+@media(prefers-reduced-motion:reduce){
+  body::before{animation:none}
+}
