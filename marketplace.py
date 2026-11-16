@@ -182,6 +182,11 @@ def init_marketplace_db() -> None:
             updated_at INTEGER NOT NULL
         );
         """)
+        # Asset category is server-owned metadata. Older rows remain unknown instead
+        # of guessing the category from a seller-editable title.
+        order_columns = {row["name"] for row in conn.execute("PRAGMA table_info(demo_orders)").fetchall()}
+        if "asset_type" not in order_columns:
+            conn.execute("ALTER TABLE demo_orders ADD COLUMN asset_type TEXT CHECK(asset_type IS NULL OR asset_type IN ('gift', 'username', 'number'))")
         # One-time cleanup of the explicitly identified test listing approved by the owner.
         # Match every identifying field so no other seller listing can be touched.
         conn.execute("BEGIN IMMEDIATE")
@@ -512,6 +517,7 @@ def _order_dict(row: sqlite3.Row, current_user_id: str | None = None) -> dict[st
         "id": row["id"],
         "kind": row["kind"],
         "title": row["title"],
+        "asset_type": row["asset_type"] if "asset_type" in row.keys() else None,
         "price": row["price"],
         "currency": row["currency"],
         "status": row["status"],
