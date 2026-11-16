@@ -786,3 +786,16 @@ html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202
 .inventory-gift-link:focus-visible,.inventory-list-button:focus-visible,.business-connection-card button:focus-visible{outline:2px solid #67c8ef;outline-offset:3px}
 @media(max-width:680px){.verified-inventory-list{grid-template-columns:minmax(0,1fr);gap:10px}.verified-inventory-item{min-height:100px;padding:12px}.verified-inventory-item img,.verified-inventory-placeholder{width:68px;height:68px;flex-basis:68px}.business-connection-card{padding:13px}}
 @media(prefers-reduced-motion:reduce){.verified-inventory-item{transition:none}.verified-inventory-item:hover{transform:none}}
+
+
+/* Verified collectible gift identity, separated from the human-readable title. */
+.verified-inventory-details{flex:1;min-width:0;display:grid;gap:6px}
+.verified-inventory-title-row{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.verified-inventory-title-row strong{min-width:0}
+.verified-asset-status{flex:0 0 auto;padding:4px 7px;border:1px solid rgba(94,211,171,.24);border-radius:999px;background:rgba(53,173,130,.1);color:#83e0b8!important;font-size:8px!important;font-weight:800;letter-spacing:.08em}
+.verified-gift-number{display:flex;align-items:center;gap:7px;color:#9cabc0;font-size:10px}
+.verified-gift-number b{display:inline-grid;min-width:27px;height:23px;place-items:center;padding:0 7px;border:1px solid rgba(126,158,255,.28);border-radius:8px;background:rgba(105,127,230,.13);color:#d9e1ff;font-size:12px}
+.verified-gift-id{overflow-wrap:anywhere;color:#8494aa;font-size:9px}
+.verified-inventory-placeholder{align-content:center;gap:5px;text-align:center}
+.verified-inventory-placeholder small{max-width:60px;color:#a9bdd5;font-size:7px;line-height:1.3;letter-spacing:.06em}
+@media(max-width:420px){.verified-inventory-item{align-items:flex-start;gap:10px;padding:10px}.verified-inventory-item img,.verified-inventory-placeholder{width:58px;height:58px;flex-basis:58px}.verified-inventory-title-row{align-items:flex-start;flex-direction:column;gap:4px}}
