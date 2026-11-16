@@ -1060,7 +1060,7 @@ def create_marketplace_router(
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         with _db() as conn:
             qualified_where = where.replace("status", "o.status").replace("kind", "o.kind")
-            asset_filter = "" if _test_unverified_assets_allowed() else " AND a.id IS NOT NULL"
+            asset_filter = "" if _test_unverified_assets_allowed() else " AND (o.kind != 'listing' OR a.id IS NOT NULL)"
             if asset_filter and not qualified_where:
                 qualified_where = " WHERE a.id IS NOT NULL"
             elif asset_filter:
@@ -1095,7 +1095,7 @@ def create_marketplace_router(
             return {"items": []}
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         with _db() as conn:
-            verified_filter = "" if _test_unverified_assets_allowed() else " AND a.id IS NOT NULL"
+            verified_filter = "" if _test_unverified_assets_allowed() else " AND (o.kind != 'listing' OR a.id IS NOT NULL)"
             rows = conn.execute(
                 f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url
                     FROM demo_orders o
@@ -1146,28 +1146,36 @@ def create_marketplace_router(
         with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             asset = None
-            if payload.asset_id:
-                asset = conn.execute(
-                    "SELECT * FROM verified_assets WHERE id = ? AND status = 'verified'",
-                    (payload.asset_id,),
-                ).fetchone()
-                if asset is None:
+            if payload.kind == "listing":
+                if payload.asset_id:
+                    asset = conn.execute(
+                        "SELECT * FROM verified_assets WHERE id = ? AND status = 'verified'",
+                        (payload.asset_id,),
+                    ).fetchone()
+                    if asset is None:
+                        conn.rollback()
+                        raise HTTPException(status_code=404, detail="Verified asset not found")
+                    if asset["owner_telegram_id"] != owner_id:
+                        conn.rollback()
+                        raise HTTPException(status_code=403, detail="Only the verified asset owner can list it")
+                    title = asset["title"]
+                    asset_type = asset["asset_type"]
+                    asset_id = asset["id"]
+                elif _test_unverified_assets_allowed():
+                    # Legacy tests only. Production must always supply a server-verified asset ID.
+                    title = payload.title
+                    asset_type = None
+                    asset_id = None
+                else:
                     conn.rollback()
-                    raise HTTPException(status_code=404, detail="Verified asset not found")
-                if asset["owner_telegram_id"] != owner_id:
+                    raise HTTPException(status_code=409, detail="A verified asset must be imported before it can be listed")
+            else:
+                if payload.asset_id:
                     conn.rollback()
-                    raise HTTPException(status_code=403, detail="Only the verified asset owner can list it")
-                title = asset["title"]
-                asset_type = asset["asset_type"]
-                asset_id = asset["id"]
-            elif _test_unverified_assets_allowed():
-                # Legacy tests only. Production must always supply a server-verified asset ID.
+                    raise HTTPException(status_code=422, detail="Buy requests cannot be linked to an owned asset")
                 title = payload.title
                 asset_type = None
                 asset_id = None
-            else:
-                conn.rollback()
-                raise HTTPException(status_code=409, detail="A verified asset must be imported before it can be listed")
             if asset is not None:
                 already_listed = conn.execute(
                     "SELECT 1 FROM demo_orders WHERE asset_id = ? AND status = 'active' LIMIT 1",
