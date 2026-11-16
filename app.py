@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update, _enforce_user_rate_limit, sync_ton_nft_assets, sync_telegram_gift_assets
+from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update, _enforce_user_rate_limit, sync_ton_nft_assets, sync_telegram_gift_assets, get_telegram_business_connection
 from ton_connect import init_ton_connect_db, create_proof_challenge, verify_ton_proof, consume_challenge_and_link_wallet, list_verified_wallets
 from ton_nft_inventory import fetch_wallet_nfts
 from telegram_gift_inventory import fetch_user_telegram_gifts
@@ -376,6 +376,22 @@ async def import_telegram_gifts(x_telegram_init_data: str | None = Header(defaul
         "telegram_gifts_seen": snapshot["total_count"],
         "supported_unique_gifts": snapshot["supported_unique_count"],
     }
+
+
+@app.get("/api/telegram-business/status")
+async def telegram_business_status(x_telegram_init_data: str | None = Header(default=None)):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    connection = get_telegram_business_connection(str(user["id"]))
+    if connection is None:
+        return {
+            "connected": False,
+            "can_view_gifts_and_stars": False,
+            "can_transfer_and_upgrade_gifts": False,
+            "can_transfer_stars": False,
+            "gift_import_ready": False,
+            "gift_transfer_ready": False,
+        }
+    return connection
 
 
 @app.get("/health")
