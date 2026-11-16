@@ -78,6 +78,62 @@ class TonNftImportApiTests(unittest.TestCase):
         self.assertEqual(inventory.json()["items"][0]["title"], "Real chain NFT")
         self.assertEqual(inventory.json()["items"][0]["external_asset_id"], address)
 
+    def test_complete_empty_scan_revokes_nfts_no_longer_owned(self):
+        old_address = "0:" + "e" * 64
+        with marketplace._db() as conn:
+            conn.execute(
+                """INSERT INTO verified_assets
+                   (id, source, external_asset_id, owner_telegram_id, title, asset_type,
+                    image_url, verification_method, verification_reference_hash,
+                    status, created_at, verified_at)
+                   VALUES ('asset_old', 'ton_nft', ?, '101', 'Old NFT', 'gift', '',
+                           'ton_connect_proof', ?, 'verified', 1, 1)""",
+                (old_address, "f" * 64),
+            )
+        snapshot = {"wallet_address": "0:" + "a" * 64, "complete": True, "items": []}
+        with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(return_value=snapshot)):
+            response = self.client.post(
+                "/api/marketplace/assets/import-ton",
+                headers={"X-Telegram-Init-Data": "verified-session"},
+            )
+        self.assertEqual(response.status_code, 200)
+        with marketplace._db() as conn:
+            row = conn.execute("SELECT status FROM verified_assets WHERE id='asset_old'").fetchone()
+        self.assertEqual(row["status"], "revoked")
+
+    def test_partial_scan_never_revokes_unseen_assets(self):
+        old_address = "0:" + "e" * 64
+        with marketplace._db() as conn:
+            conn.execute(
+                """INSERT INTO verified_assets
+                   (id, source, external_asset_id, owner_telegram_id, title, asset_type,
+                    image_url, verification_method, verification_reference_hash,
+                    status, created_at, verified_at)
+                   VALUES ('asset_old', 'ton_nft', ?, '101', 'Old NFT', 'gift', '',
+                           'ton_connect_proof', ?, 'verified', 1, 1)""",
+                (old_address, "f" * 64),
+            )
+        snapshot = {
+            "wallet_address": "0:" + "a" * 64,
+            "complete": False,
+            "items": [{
+                "address": "0:" + "d" * 64,
+                "wallet_address": "0:" + "a" * 64,
+                "title": "New NFT",
+                "image_url": "",
+            }],
+        }
+        with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(return_value=snapshot)):
+            response = self.client.post(
+                "/api/marketplace/assets/import-ton",
+                headers={"X-Telegram-Init-Data": "verified-session"},
+            )
+        self.assertEqual(response.status_code, 200)
+        with marketplace._db() as conn:
+            row = conn.execute("SELECT status FROM verified_assets WHERE id='asset_old'").fetchone()
+        self.assertEqual(row["status"], "verified")
+        self.assertFalse(response.json()["ownership_scan_complete"])
+
     def test_failed_provider_scan_does_not_change_ownership_registry(self):
         with marketplace._db() as conn:
             conn.execute(
