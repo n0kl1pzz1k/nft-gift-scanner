@@ -834,70 +834,6 @@
       {:else}
         <div class="state-panel inventory-empty"><span class="state-icon">◈</span><strong>{lang==='ru'?'Твой инвентарь пока пуст':'Your inventory is empty'}</strong><small>{lang==='ru'?'Добавь первый актив или подключи TON-кошелёк, чтобы увидеть NFT':'List your first asset or connect a TON wallet to discover your NFTs'}</small><button class="asset-offer-button" onclick={()=>{showSellModal=true;haptic();}}>{lang==='ru'?'Выставить актив':'List an asset'} →</button></div>
       {/if}
-      {#if showAssetDetails && selectedAsset}
-        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showAssetDetails=false;}}>
-          <div class="sell-modal asset-detail-modal" role="dialog" aria-modal="true" aria-labelledby="asset-detail-title">
-            <button class="modal-close" onclick={()=>showAssetDetails=false} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button>
-            <div class={'asset-detail-art asset-art-'+assetTypeOf(selectedAsset.title)}>
-              {#if assetTypeOf(selectedAsset.title)==='username'}<span class="asset-at">@</span><strong>{selectedAsset.title.replace(/^@/,'')}</strong><small>TELEGRAM USERNAME</small>
-              {:else if assetTypeOf(selectedAsset.title)==='number'}<span class="asset-number">{selectedAsset.title.replace(/[^0-9+]/g,'') || '888'}</span><small>ANONYMOUS NUMBER</small>
-              {:else}<span class="asset-gift-symbol">✳</span><small>TELEGRAM NFT GIFT</small>{/if}
-            </div>
-            <div class="eyebrow">HASSLE NFT · ASSET</div><h2 id="asset-detail-title">{selectedAsset.title}</h2>
-            <div class="asset-detail-meta"><span>ID <b>#{selectedAsset.id}</b></span><span>{lang==='ru'?'Продавец':'Seller'} <b>{selectedAsset.owner}</b></span></div>
-            <div class="asset-detail-price"><small>{lang==='ru'?'Цена продавца':'Seller price'}</small><strong>{selectedAsset.price} {selectedAsset.currency==='XTR'?'⭐ Stars':'TON'}</strong></div>
-            {#if selectedAsset.note}<p class="asset-detail-note">{selectedAsset.note}</p>{/if}
-            <div class="asset-detail-unavailable"><strong>{lang==='ru'?'Характеристики актива':'Asset traits'}</strong><span>{lang==='ru'?'Метаданные и traits появятся после подключения источника NFT-метаданных.':'Metadata and traits will appear after an NFT metadata source is connected.'}</span></div>
-            <button class="ton-primary offer-submit" onclick={()=>{if(!signedIn){notice=t.authHint;haptic('error');return;}const asset=selectedAsset;if(!asset)return;selectedOfferOrder=asset;offerAmount=String(asset.price);offerNote='';showAssetDetails=false;showOfferModal=true;}}>{t.sendOffer} ↗</button>
-            {#if selectedAsset && !selectedAsset.isMine}<button class="report-asset-button" onclick={()=>{const asset=selectedAsset;if(!asset)return;if(!signedIn){notice=t.authHint;haptic('error');return;}startOrderReport(asset.id);}}>{t.reportOrder}</button>{/if}
-            <button class="asset-buy-disabled" disabled title={lang==='ru'?'Покупка включится после запуска защищённой оплаты и escrow':'Buying will be enabled after secure payments and escrow are live'}>{lang==='ru'?'Покупка скоро':'Buy · Coming soon'}</button>
-          </div>
-        </div>
-      {/if}
-      {#if reportingOrderId}
-        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !reportBusy)reportingOrderId='';}}>
-          <div class="sell-modal report-modal" role="dialog" aria-modal="true" aria-labelledby="report-title">
-            <button class="modal-close" onclick={()=>reportingOrderId=''} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={reportBusy}>×</button>
-            <div class="eyebrow">HASSLE NFT · REPORT</div>
-            <h2 id="report-title">{t.reportOrder}</h2>
-            <label>{t.reportReason}
-              <select class="form-input" bind:value={reportReason}>
-                <option value="scam">{t.reportScam}</option><option value="misleading">{t.reportMisleading}</option><option value="inappropriate">{t.reportInappropriate}</option><option value="spam">{t.reportSpam}</option><option value="other">{t.reportOther}</option>
-              </select>
-            </label>
-            <label>{t.reportDetails}<textarea class="form-input note-input" bind:value={reportDetails} maxlength="1000" placeholder={lang==='ru'?'Опиши проблему (необязательно)':'Describe the issue (optional)'}></textarea></label>
-            <div class="report-actions"><button class="refresh-button" onclick={()=>reportingOrderId=''} disabled={reportBusy}>{t.cancelReport}</button><button class="ton-primary" onclick={()=>submitOrderReport(reportingOrderId)} disabled={reportBusy}>{reportBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendReport}</button></div>
-          </div>
-        </div>
-      {/if}
-      {#if showOfferModal && selectedOfferOrder}
-        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !offerSubmitBusy)showOfferModal=false;}}>
-          <div class="sell-modal offer-modal" role="dialog" aria-modal="true" aria-labelledby="offer-title">
-            <button class="modal-close" onclick={()=>showOfferModal=false} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={offerSubmitBusy}>×</button>
-            <div class="eyebrow">HASSLE NFT · OFFER</div>
-            <h2 id="offer-title">{lang==='ru'?'Предложить цену':'Make an offer'}</h2>
-            <div class="offer-asset-preview"><span>{assetTypeOf(selectedOfferOrder.title)==='username'?'＠':assetTypeOf(selectedOfferOrder.title)==='number'?'888':'✳'}</span><div><strong>{selectedOfferOrder.title}</strong><small>{lang==='ru'?'Цена продавца':'Seller price'}: {selectedOfferOrder.price} {selectedOfferOrder.currency==='XTR'?'⭐':'TON'}</small></div></div>
-            <label>{lang==='ru'?'Твоё предложение':'Your offer'}<input class="form-input" type="number" min="0.01" step={selectedOfferOrder.currency==='XTR'?'1':'0.01'} bind:value={offerAmount} placeholder={selectedOfferOrder.currency==='XTR'?'100':'1.25'}/></label>
-            <label>{lang==='ru'?'Сообщение продавцу':'Message to seller'}<textarea class="form-input note-input" bind:value={offerNote} maxlength="500" placeholder={lang==='ru'?'Необязательно':'Optional'}></textarea></label>
-            <button class="ton-primary offer-submit" disabled={offerSubmitBusy} onclick={async()=>{if(!selectedOfferOrder)return;offerSubmitBusy=true;try{const sent=await createOffer(selectedOfferOrder.id);if(sent){showOfferModal=false;selectedOfferOrder=null;}}finally{offerSubmitBusy=false;}}}>{offerSubmitBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendOffer+' →'}</button>
-            <small class="sell-modal-hint">{lang==='ru'?'Оффер отправится владельцу актива. Это не перевод средств и не завершение сделки.':'The offer goes to the asset owner. It does not transfer funds or complete a trade.'}</small>
-          </div>
-        </div>
-      {/if}
-      {#if showSellModal}
-        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !createOrderBusy)showSellModal=false;}}>
-          <div class="sell-modal" role="dialog" aria-modal="true" aria-labelledby="sell-title">
-            <button class="modal-close" onclick={()=>showSellModal=false} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={createOrderBusy}>×</button>
-            <div class="eyebrow">HASSLE NFT · SELL</div><h2 id="sell-title">{lang==='ru'?'Выставить актив':'List an asset'}</h2><p>{lang==='ru'?'Добавь актив в каталог маркетплейса':'Add an asset to the marketplace'}</p>
-            <div class="sell-type-grid"><button class:chosen={createAssetType==='gift'} type="button" onclick={()=>createAssetType='gift'}>✳ <span>Telegram Gift</span></button><button class:chosen={createAssetType==='username'} type="button" onclick={()=>createAssetType='username'}>＠ <span>Username</span></button><button class:chosen={createAssetType==='number'} type="button" onclick={()=>createAssetType='number'}>888 <span>Number</span></button></div>
-            <label>{lang==='ru'?'Название актива':'Asset name'}<input class="form-input" bind:value={createTitle} maxlength="120" placeholder={createAssetType==='username'?'@username':createAssetType==='number'?'+888 123 4567':'Plush Pepe #042'}/></label>
-            <label>{lang==='ru'?'Цена':'Price'}<div class="currency-choice"><button class:chosen={createCurrency==='TON'} onclick={()=>createCurrency='TON'}>TON</button><button class:chosen={createCurrency==='XTR'} onclick={()=>createCurrency='XTR'}>⭐ Stars</button></div><input class="form-input" type="number" min="0.01" step={createCurrency==='XTR'?'1':'0.01'} bind:value={createPrice} placeholder={createCurrency==='XTR'?'100':'1.25'}/></label>
-            <label>{lang==='ru'?'Описание':'Description'}<textarea class="form-input note-input" bind:value={createNote} maxlength="300"></textarea></label>
-            <button class="publish-button" onclick={createOrder} disabled={createOrderBusy}>{createOrderBusy?(lang==='ru'?'Публикуем…':'Publishing…'):(lang==='ru'?'Выставить на маркет':'List on market')} <span>→</span></button>
-            <small class="sell-modal-hint">{lang==='ru'?'Тип актива определяется по его идентификатору. Передача и проверка владения через TON Connect ещё не подключены.':'Asset type is inferred from its identifier. On-chain ownership verification and TON Connect transfer are not connected yet.'}</small>
-          </div>
-        </div>
-      {/if}
     {:else if view==='favorites'}
       <section class="page-heading compact-heading favorites-heading"><div><div class="eyebrow">HASSLE NFT</div><h1>{t.favoritesTitle}</h1></div><button class="refresh-button" onclick={()=>view='orders'}>{lang==='ru'?'Назад в маркет':'Back to market'}</button></section>
       {#if favoriteOrders.length}<div class="orders-list">{#each favoriteOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{order.owner}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div><button class="heart-button hearted" onclick={()=>toggleFavoriteOrder(order)}>♥</button></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='orders'}>{lang==='ru'?'К активам':'Browse assets'}</button></div>{/if}
@@ -987,6 +923,71 @@
         </article>
       {/if}</section>
     {/if}
+
+      {#if showAssetDetails && selectedAsset}
+        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showAssetDetails=false;}}>
+          <div class="sell-modal asset-detail-modal" role="dialog" aria-modal="true" aria-labelledby="asset-detail-title">
+            <button class="modal-close" onclick={()=>showAssetDetails=false} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button>
+            <div class={'asset-detail-art asset-art-'+assetTypeOf(selectedAsset.title)}>
+              {#if assetTypeOf(selectedAsset.title)==='username'}<span class="asset-at">@</span><strong>{selectedAsset.title.replace(/^@/,'')}</strong><small>TELEGRAM USERNAME</small>
+              {:else if assetTypeOf(selectedAsset.title)==='number'}<span class="asset-number">{selectedAsset.title.replace(/[^0-9+]/g,'') || '888'}</span><small>ANONYMOUS NUMBER</small>
+              {:else}<span class="asset-gift-symbol">✳</span><small>TELEGRAM NFT GIFT</small>{/if}
+            </div>
+            <div class="eyebrow">HASSLE NFT · ASSET</div><h2 id="asset-detail-title">{selectedAsset.title}</h2>
+            <div class="asset-detail-meta"><span>ID <b>#{selectedAsset.id}</b></span><span>{lang==='ru'?'Продавец':'Seller'} <b>{selectedAsset.owner}</b></span></div>
+            <div class="asset-detail-price"><small>{lang==='ru'?'Цена продавца':'Seller price'}</small><strong>{selectedAsset.price} {selectedAsset.currency==='XTR'?'⭐ Stars':'TON'}</strong></div>
+            {#if selectedAsset.note}<p class="asset-detail-note">{selectedAsset.note}</p>{/if}
+            <div class="asset-detail-unavailable"><strong>{lang==='ru'?'Характеристики актива':'Asset traits'}</strong><span>{lang==='ru'?'Метаданные и traits появятся после подключения источника NFT-метаданных.':'Metadata and traits will appear after an NFT metadata source is connected.'}</span></div>
+            <button class="ton-primary offer-submit" onclick={()=>{if(!signedIn){notice=t.authHint;haptic('error');return;}const asset=selectedAsset;if(!asset)return;selectedOfferOrder=asset;offerAmount=String(asset.price);offerNote='';showAssetDetails=false;showOfferModal=true;}}>{t.sendOffer} ↗</button>
+            {#if selectedAsset && !selectedAsset.isMine}<button class="report-asset-button" onclick={()=>{const asset=selectedAsset;if(!asset)return;if(!signedIn){notice=t.authHint;haptic('error');return;}startOrderReport(asset.id);}}>{t.reportOrder}</button>{/if}
+            <button class="asset-buy-disabled" disabled title={lang==='ru'?'Покупка включится после запуска защищённой оплаты и escrow':'Buying will be enabled after secure payments and escrow are live'}>{lang==='ru'?'Покупка скоро':'Buy · Coming soon'}</button>
+          </div>
+        </div>
+      {/if}
+      {#if reportingOrderId}
+        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !reportBusy)reportingOrderId='';}}>
+          <div class="sell-modal report-modal" role="dialog" aria-modal="true" aria-labelledby="report-title">
+            <button class="modal-close" onclick={()=>reportingOrderId=''} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={reportBusy}>×</button>
+            <div class="eyebrow">HASSLE NFT · REPORT</div>
+            <h2 id="report-title">{t.reportOrder}</h2>
+            <label>{t.reportReason}
+              <select class="form-input" bind:value={reportReason}>
+                <option value="scam">{t.reportScam}</option><option value="misleading">{t.reportMisleading}</option><option value="inappropriate">{t.reportInappropriate}</option><option value="spam">{t.reportSpam}</option><option value="other">{t.reportOther}</option>
+              </select>
+            </label>
+            <label>{t.reportDetails}<textarea class="form-input note-input" bind:value={reportDetails} maxlength="1000" placeholder={lang==='ru'?'Опиши проблему (необязательно)':'Describe the issue (optional)'}></textarea></label>
+            <div class="report-actions"><button class="refresh-button" onclick={()=>reportingOrderId=''} disabled={reportBusy}>{t.cancelReport}</button><button class="ton-primary" onclick={()=>submitOrderReport(reportingOrderId)} disabled={reportBusy}>{reportBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendReport}</button></div>
+          </div>
+        </div>
+      {/if}
+      {#if showOfferModal && selectedOfferOrder}
+        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !offerSubmitBusy)showOfferModal=false;}}>
+          <div class="sell-modal offer-modal" role="dialog" aria-modal="true" aria-labelledby="offer-title">
+            <button class="modal-close" onclick={()=>showOfferModal=false} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={offerSubmitBusy}>×</button>
+            <div class="eyebrow">HASSLE NFT · OFFER</div>
+            <h2 id="offer-title">{lang==='ru'?'Предложить цену':'Make an offer'}</h2>
+            <div class="offer-asset-preview"><span>{assetTypeOf(selectedOfferOrder.title)==='username'?'＠':assetTypeOf(selectedOfferOrder.title)==='number'?'888':'✳'}</span><div><strong>{selectedOfferOrder.title}</strong><small>{lang==='ru'?'Цена продавца':'Seller price'}: {selectedOfferOrder.price} {selectedOfferOrder.currency==='XTR'?'⭐':'TON'}</small></div></div>
+            <label>{lang==='ru'?'Твоё предложение':'Your offer'}<input class="form-input" type="number" min="0.01" step={selectedOfferOrder.currency==='XTR'?'1':'0.01'} bind:value={offerAmount} placeholder={selectedOfferOrder.currency==='XTR'?'100':'1.25'}/></label>
+            <label>{lang==='ru'?'Сообщение продавцу':'Message to seller'}<textarea class="form-input note-input" bind:value={offerNote} maxlength="500" placeholder={lang==='ru'?'Необязательно':'Optional'}></textarea></label>
+            <button class="ton-primary offer-submit" disabled={offerSubmitBusy} onclick={async()=>{if(!selectedOfferOrder)return;offerSubmitBusy=true;try{const sent=await createOffer(selectedOfferOrder.id);if(sent){showOfferModal=false;selectedOfferOrder=null;}}finally{offerSubmitBusy=false;}}}>{offerSubmitBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendOffer+' →'}</button>
+            <small class="sell-modal-hint">{lang==='ru'?'Оффер отправится владельцу актива. Это не перевод средств и не завершение сделки.':'The offer goes to the asset owner. It does not transfer funds or complete a trade.'}</small>
+          </div>
+        </div>
+      {/if}
+      {#if showSellModal}
+        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !createOrderBusy)showSellModal=false;}}>
+          <div class="sell-modal" role="dialog" aria-modal="true" aria-labelledby="sell-title">
+            <button class="modal-close" onclick={()=>showSellModal=false} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={createOrderBusy}>×</button>
+            <div class="eyebrow">HASSLE NFT · SELL</div><h2 id="sell-title">{lang==='ru'?'Выставить актив':'List an asset'}</h2><p>{lang==='ru'?'Добавь актив в каталог маркетплейса':'Add an asset to the marketplace'}</p>
+            <div class="sell-type-grid"><button class:chosen={createAssetType==='gift'} type="button" onclick={()=>createAssetType='gift'}>✳ <span>Telegram Gift</span></button><button class:chosen={createAssetType==='username'} type="button" onclick={()=>createAssetType='username'}>＠ <span>Username</span></button><button class:chosen={createAssetType==='number'} type="button" onclick={()=>createAssetType='number'}>888 <span>Number</span></button></div>
+            <label>{lang==='ru'?'Название актива':'Asset name'}<input class="form-input" bind:value={createTitle} maxlength="120" placeholder={createAssetType==='username'?'@username':createAssetType==='number'?'+888 123 4567':'Plush Pepe #042'}/></label>
+            <label>{lang==='ru'?'Цена':'Price'}<div class="currency-choice"><button class:chosen={createCurrency==='TON'} onclick={()=>createCurrency='TON'}>TON</button><button class:chosen={createCurrency==='XTR'} onclick={()=>createCurrency='XTR'}>⭐ Stars</button></div><input class="form-input" type="number" min="0.01" step={createCurrency==='XTR'?'1':'0.01'} bind:value={createPrice} placeholder={createCurrency==='XTR'?'100':'1.25'}/></label>
+            <label>{lang==='ru'?'Описание':'Description'}<textarea class="form-input note-input" bind:value={createNote} maxlength="300"></textarea></label>
+            <button class="publish-button" onclick={createOrder} disabled={createOrderBusy}>{createOrderBusy?(lang==='ru'?'Публикуем…':'Publishing…'):(lang==='ru'?'Выставить на маркет':'List on market')} <span>→</span></button>
+            <small class="sell-modal-hint">{lang==='ru'?'Тип актива определяется по его идентификатору. Передача и проверка владения через TON Connect ещё не подключены.':'Asset type is inferred from its identifier. On-chain ownership verification and TON Connect transfer are not connected yet.'}</small>
+          </div>
+        </div>
+      {/if}
 
     {#if notice}<div class="toast" role="status">{notice}<button onclick={()=>notice=''}>×</button></div>{/if}
     <footer class="footer"><span>✳ HASSLE NFT</span><span>Telegram NFT Gift Marketplace · n0kl1pzz1k</span><span>© 2026</span></footer>
