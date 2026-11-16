@@ -2,7 +2,7 @@ import json
 import sqlite3
 
 
-from db_schema_audit import audit_database, build_schema_manifest
+from db_schema_audit import audit_database, build_postgres_portability_report, build_schema_manifest
 
 
 def test_manifest_captures_constraints_indexes_and_triggers_without_rows():
@@ -105,3 +105,55 @@ def test_current_hassle_schema_inventory_covers_all_subsystems(tmp_path, monkeyp
     deals = next(table for table in manifest["tables"] if table["name"] == "demo_deals")
     assert any(index["name"] == "idx_demo_deals_one_open_reservation" and index["partial"] for index in deals["indexes"])
     assert manifest["schema_sha256"]
+
+
+
+def test_postgres_portability_report_flags_sqlite_only_schema_features():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE parent (id TEXT PRIMARY KEY);
+        CREATE TABLE child (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            parent_id TEXT NOT NULL,
+            state TEXT NOT NULL CHECK(state IN ('open', 'closed')),
+            FOREIGN KEY(parent_id) REFERENCES parent(id)
+        );
+        CREATE UNIQUE INDEX idx_child_open
+            ON child(parent_id) WHERE state = 'open';
+        CREATE TRIGGER child_no_delete BEFORE DELETE ON child
+        BEGIN SELECT RAISE(ABORT, 'immutable'); END;
+        CREATE VIEW open_children AS SELECT * FROM child WHERE state = 'open';
+        """
+    )
+    manifest = build_schema_manifest(connection)
+    report = build_postgres_portability_report(manifest)
+    connection.close()
+
+    assert report["target_engine"] == "postgresql"
+    assert report["ready_for_cutover"] is False
+    assert report["table_count"] == 2
+    assert report["foreign_key_count"] == 1
+    assert report["trigger_count"] == 1
+    assert report["view_count"] == 1
+    assert report["partial_indexes"][0]["name"] == "idx_child_open"
+    assert report["check_constraint_tables"] == [{"table": "child"}]
+    blocker_features = {item["feature"] for item in report["blockers"]}
+    assert blocker_features == {"sqlite_triggers", "sqlite_autoincrement"}
+
+
+def test_postgres_portability_report_contains_no_table_rows():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE private_data (id TEXT PRIMARY KEY, secret TEXT NOT NULL);
+        INSERT INTO private_data VALUES ('row-1', 'DO_NOT_EXPORT_THIS');
+        """
+    )
+    report = build_postgres_portability_report(build_schema_manifest(connection))
+    connection.close()
+
+    rendered = json.dumps(report, ensure_ascii=False)
+    assert "DO_NOT_EXPORT_THIS" not in rendered
+    assert report["ready_for_cutover"] is False
+    assert "transaction boundaries" in " ".join(report["review_items"])
