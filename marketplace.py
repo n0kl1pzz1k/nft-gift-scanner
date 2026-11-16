@@ -923,6 +923,8 @@ def create_marketplace_router(
         offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
+        if not _verified_asset_actions_enabled():
+            return {"items": [], "total": 0}
         user_id = None
         if x_telegram_init_data:
             try:
@@ -952,6 +954,9 @@ def create_marketplace_router(
 
     @router.get("/mine")
     async def my_orders(x_telegram_init_data: str | None = Header(default=None)):
+        if not _verified_asset_actions_enabled():
+            _user(x_telegram_init_data, verify_telegram_init_data)
+            return {"items": []}
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         with _db() as conn:
             rows = conn.execute(
@@ -965,6 +970,8 @@ def create_marketplace_router(
 
     @router.get("/stats")
     async def marketplace_stats():
+        if not _verified_asset_actions_enabled():
+            return {"active_listings": 0, "active_buy_requests": 0, "matched_orders": 0, "volume_ton": 0, "volume_stars": 0, "floor_ton": None, "floor_stars": None, "total_orders": 0}
         with _db() as conn:
             counts = conn.execute("""
                 SELECT
