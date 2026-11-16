@@ -79,7 +79,7 @@
   let orderKindFilter = $state<'all' | 'listing' | 'buy-order'>('all');
 
   const ru = {
-    market: 'Маркет', orders: 'Маркет', offersTitle: 'Офферы', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'HASSLE NFT', catalogOnly: 'Независимый маркетплейс Telegram NFT-подарков. Покупай, продавай и договаривайся напрямую.',
+    market: 'Маркет', orders: 'Маркет', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'HASSLE NFT', catalogOnly: 'Независимый маркетплейс Telegram NFT-подарков. Покупай, продавай и договаривайся напрямую.',
     headline: 'Твой рынок Telegram NFT-подарков', subtitle: 'Маркетплейс Telegram NFT-подарков от n0kl1pzz1k.',
     brandEyebrow: 'ПОКУПАЙ · ПРОДАВАЙ · HASSLE NFT', heroLine1: 'Telegram Gifts.', heroLine2: 'Твой маркет. Твои сделки.', heroDescription: 'Публикуй предложения, находи покупателей и отправляй офферы на Telegram NFT-подарки.', openCatalogue: 'Открыть маркет', connectedLabel: 'HASSLE NFT · HASSLE NFT MARKET', exploreMarket: 'МАРКЕТПЛЕЙС HASSLE NFT', collectionsTitle: 'Объявления', collectionsCount: 'предложений сообщества', discoverLabel: 'МАРКЕТ', portals: 'Объявления сообщества', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
     listings: 'Объявления', results: 'найдено', loading: 'Загружаем маркетплейс…', loadMore: 'Показать ещё',
