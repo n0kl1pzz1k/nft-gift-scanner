@@ -1003,7 +1003,7 @@
             {#if !telegramBusinessStatus.gift_import_ready}<small>{lang==='ru'?'Выдай боту право просмотра подарков в настройках Telegram Business.':'Grant the bot permission to view gifts in Telegram Business settings.'}</small>{/if}
             <p>{lang==='ru'?'Подключение и разрешения проверены. Автоматическая передача подарков в сделках пока закрыта: сначала завершаем и тестируем безопасный механизм оплаты и передачи.':'Connection and permissions are verified. Automatic gift delivery in marketplace deals remains disabled until the secure payment and transfer flow is implemented and tested.'}</p>
           {:else}
-            <p>{lang==='ru'?'Это дополнительный способ импорта Telegram-подарков. Для подключения Telegram Business аккаунту владельца нужен Premium. Без него можно пользоваться маркетом как покупатель и добавлять NFT из TON через кошелёк.':'This is an optional way to import Telegram gifts. The Telegram Business account owner needs Premium to connect it. Without it, users can still browse and buy, and import TON NFTs through a wallet.'}</p>
+            <p>{lang==='ru'?'Это дополнительный способ импорта Telegram-подарков. Подключённые бизнес-боты доступны и без Premium. Покупателям подключать Telegram Business вообще не нужно; NFT из TON можно добавлять через кошелёк.':'This is an optional way to import Telegram gifts. The Telegram Business account owner needs Premium to connect it. Without it, users can still browse and buy, and import TON NFTs through a wallet.'}</p>
           {/if}
           <button class="refresh-button" type="button" onclick={loadTelegramBusinessStatus}>{lang==='ru'?'Проверить подключение':'Check connection'} ↻</button>
         </div>
