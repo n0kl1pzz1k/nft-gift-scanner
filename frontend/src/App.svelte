@@ -819,29 +819,10 @@
        </section>
     
      {:else if view==='create'}
-      <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{lang==='ru'?'Инвентарь':'Inventory'}</h1><p>{lang==='ru'?'Твои активы и позиции, выставленные на HASSLE NFT':'Your assets and active positions on HASSLE NFT'}</p></section>
-      <div class="inventory-note"><span>◈</span><div><strong>{lang==='ru'?'Подключение кошелька':'Wallet inventory'}</strong><p>{lang==='ru'?'Здесь пока отображаются активы, которые ты уже выставил на маркет. Импорт NFT из TON-кошелька появится после подключения TON Connect.':'This view currently shows assets you have listed on the marketplace. Wallet NFT import will appear when TON Connect inventory is integrated.'}</p></div></div>
-      <div class="inventory-toolbar"><div><strong>{inventoryAssets.length}</strong><span>{lang==='ru'?'активов выставлено':'listed assets'}</span></div><button class="ton-primary" onclick={()=>{showSellModal=true;haptic();}}>{lang==='ru'?'＋ Выставить актив':'＋ List an asset'}</button></div>
-      {#if inventoryAssets.length}
-        <div class="asset-grid inventory-grid">
-          {#each inventoryAssets as order (order.id)}
-            <article class="asset-card">
-              <div class={'asset-art asset-art-'+assetTypeOf(order.title)}>
-                {#if assetTypeOf(order.title)==='username'}<span class="asset-at">@</span><strong>{order.title.replace(/^@/,'')}</strong><small>TELEGRAM USERNAME</small>
-                {:else if assetTypeOf(order.title)==='number'}<span class="asset-number">{order.title.replace(/[^0-9+]/g,'') || '888'}</span><small>ANONYMOUS NUMBER</small>
-                {:else}<span class="asset-gift-symbol">✳</span><small>TELEGRAM NFT GIFT</small>{/if}
-                <span class="asset-type-pill">{order.status==='active'?(lang==='ru'?'На маркете':'Listed'):order.status}</span>
-              </div>
-              <div class="asset-card-content"><div class="asset-title-row"><h3>{order.title}</h3><span class="asset-id">#{order.id.slice(-5)}</span></div><div class="asset-card-footer"><div><small>{lang==='ru'?'Твоя цена':'Your price'}</small><strong>{order.price} <span>{order.currency==='XTR'?'⭐':'TON'}</span></strong></div><div class="inventory-actions">{#if order.status==='active'}<button class="asset-manage-button" onclick={()=>startEditOrder(order)}>{lang==='ru'?'Изменить':'Edit'}</button><button class="asset-remove-button" onclick={()=>cancelOrder(order.id)}>{lang==='ru'?'Снять':'Unlist'}</button>{:else}<span class="status-cancelled">{t.cancelled}</span>{/if}</div></div>
-                {#if editingOrderId===order.id}<div class="inventory-edit"><input class="form-input" bind:value={editTitle} aria-label={lang==='ru'?'Название актива':'Asset name'}/><input class="form-input" type="number" min="0.01" step="0.01" bind:value={editPrice} aria-label={lang==='ru'?'Цена актива':'Asset price'}/><button class="asset-offer-button" onclick={()=>saveOrderEdit(order.id)} disabled={orderEditBusy}>{t.saveOrder}</button></div>{/if}
-              </div>
-            </article>
-          {/each}
-        </div>
-      {:else}
-        <div class="state-panel inventory-empty"><span class="state-icon">◈</span><strong>{lang==='ru'?'Твой инвентарь пока пуст':'Your inventory is empty'}</strong><small>{lang==='ru'?'Добавь первый актив или подключи TON-кошелёк, чтобы увидеть NFT':'List your first asset or connect a TON wallet to discover your NFTs'}</small><button class="asset-offer-button" onclick={()=>{showSellModal=true;haptic();}}>{lang==='ru'?'Выставить актив':'List an asset'} →</button></div>
-      {/if}
-    {:else if view==='favorites'}
+       <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{lang==='ru'?'Инвентарь':'Inventory'}</h1><p>{lang==='ru'?'Только подтверждённые активы, принадлежащие твоему кошельку':'Only verified assets owned by your connected wallet'}</p></section>
+       <div class="inventory-connect-panel"><div class="inventory-connect-icon">◈</div><div><span class="eyebrow">TON CONNECT</span><h2>{lang==='ru'?'Твой инвентарь начинается с кошелька':'Your inventory starts with your wallet'}</h2><p>{lang==='ru'?'Подключи TON-кошелёк, затем импортируй или передай Telegram-подарок в инвентарь HASSLE NFT. Название, ID, модель, узор и анимация будут получены из данных самого подарка.':'Connect your TON wallet, then import or transfer a Telegram gift into HASSLE NFT inventory. Its name, ID, model, pattern and animation will come from the gift itself.'}</p><span class="wallet-status">{lang==='ru'?'Кошелёк не подключён':'Wallet not connected'}</span></div></div>
+       <div class="inventory-empty-state"><span class="state-icon">✦</span><strong>{lang==='ru'?'Пока нет подтверждённых активов':'No verified assets yet'}</strong><small>{lang==='ru'?'Ручное создание карточек отключено. Выставление и офферы станут доступны только после проверки владения активом.':'Manual asset creation is disabled. Listings and offers unlock only after asset ownership is verified.'}</small></div>
+{:else if view==='favorites'}
       <section class="page-heading compact-heading favorites-heading"><div><div class="eyebrow">HASSLE NFT</div><h1>{t.favoritesTitle}</h1></div><button class="refresh-button" onclick={()=>view='orders'}>{lang==='ru'?'Назад в маркет':'Back to market'}</button></section>
       {#if favoriteOrders.length}<div class="orders-list">{#each favoriteOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{order.owner}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div><button class="heart-button hearted" onclick={()=>toggleFavoriteOrder(order)}>♥</button></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='orders'}>{lang==='ru'?'К активам':'Browse assets'}</button></div>{/if}
     {:else}
@@ -859,16 +840,7 @@
            <button class="publish-button" onclick={saveSellerProfile} disabled={sellerProfileBusy || !sellerDisplayName.trim()}>{sellerProfileBusy?'…':t.sellerSave}</button>
          </article>
        {/if}
-       <article class="profile-card account-stats-card">
-        <div class="eyebrow">{t.accountStatsTitle}</div>
-        <div class="account-stat-grid">
-          <div><strong>{accountStats.active_orders}</strong><span>{t.activeOrdersStat}</span></div>
-          <div><strong>{accountStats.completed_orders}</strong><span>{t.completedOrdersStat}</span></div>
-          <div><strong>{accountStats.pending_offers_sent}</strong><span>{t.sentOffersStat}</span></div>
-          <div><strong>{accountStats.pending_offers_received}</strong><span>{t.receivedOffersStat}</span></div>
-        </div>
-      </article>
-      <article class="profile-card activity-card">
+       <article class="profile-card activity-card">
         <div class="notification-heading"><div><div class="eyebrow">{t.activityTitle}</div><strong>{accountActivity.length} / {activityTotal}</strong></div></div>
         {#if accountActivity.length}
           <div class="activity-timeline">
