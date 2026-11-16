@@ -13,11 +13,13 @@
     order: AssetOrder;
     favorite: boolean;
     lang: 'ru' | 'en';
+    sellerProfileId: string | null;
+    onSeller: () => void;
     onFavorite: () => void;
     onOffer: () => void;
     onOpen: () => void;
   };
-  let { order, favorite, lang, onFavorite, onOffer, onOpen }: Props = $props();
+  let { order, favorite, lang, sellerProfileId, onSeller, onFavorite, onOffer, onOpen }: Props = $props();
 
   function assetType(title: string): 'gift' | 'username' | 'number' {
     if (/888|anonymous.*number|number.*888/i.test(title)) return 'number';
@@ -45,7 +47,7 @@
   </div>
   <div class="asset-card-content">
     <div class="asset-title-row"><button class="asset-title-button" onclick={onOpen}>{order.title}</button><span class="asset-id">#{order.id.slice(-5)}</span></div>
-    <p class="asset-owner">{order.owner}{order.note ? ' · ' + order.note : ''}</p>
+    <p class="asset-owner">{#if sellerProfileId}<button class="asset-seller-link" onclick={onSeller}>{order.owner}</button>{:else}{order.owner}{/if}{order.note ? ' · ' + order.note : ''}</p>
     <div class="asset-card-footer">
       <div><small>{lang === 'ru' ? 'Цена' : 'Price'}</small><strong>{order.price} <span>{order.currency === 'XTR' ? '⭐' : 'TON'}</span></strong></div>
       <button class="asset-offer-button" onclick={onOffer}>{lang === 'ru' ? 'Сделать оффер' : 'Make offer'} ↗</button>
