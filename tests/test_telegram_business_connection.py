@@ -99,6 +99,11 @@ class TelegramBusinessConnectionTests(unittest.TestCase):
         self.assertNotIn("business_connection_id", response.json())
         self.assertNotIn("private-connection-id", response.text)
 
+    def test_bot_webhook_subscribes_to_business_connection_updates(self):
+        from bot import create_dispatcher
+        dispatcher = create_dispatcher()
+        self.assertIn("business_connection", dispatcher.resolve_used_update_types())
+
     def test_missing_connection_returns_closed_permissions(self):
         response = self.client.get(
             "/api/telegram-business/status",
