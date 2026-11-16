@@ -838,7 +838,7 @@
            {#each verifiedAssets as asset (asset.id)}
              <article class="verified-inventory-item">
                {#if asset.image_url}<img src={asset.image_url} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder">HASSLE</div>{/if}
-               <div><strong>{asset.title}</strong><small>{asset.asset_type==='gift'?'Telegram Gift':asset.asset_type==='username'?'Username':'Anonymous Number'} · {asset.external_asset_id}</small><span>{asset.active_listing_id?(lang==='ru'?'Уже выставлен':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</span></div>
+               <div><strong>{asset.title}</strong><small>{asset.source==='ton_nft'?'TON NFT':asset.source==='telegram_gift'?'Telegram Gift':asset.asset_type==='username'?'Username':'Anonymous Number'} · {asset.external_asset_id}</small><span>{asset.active_listing_id?(lang==='ru'?'Уже выставлен':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</span></div>
              </article>
            {/each}
          </div>
