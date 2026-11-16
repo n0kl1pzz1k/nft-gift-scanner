@@ -784,7 +784,7 @@
         {:else}
           <div class="asset-grid">
             {#each marketAssets as order (order.id)}
-              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} {lang} onFavorite={()=>toggleFavoriteOrder(order)} onOffer={()=>{if(!signedIn){notice=t.authHint;haptic('error');}else{selectedOfferOrder=order;offerAmount=String(order.price);offerNote='';showOfferModal=true;haptic('medium');}}} onOpen={()=>{selectedAsset=order;showAssetDetails=true;haptic();}} />
+              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} {lang} sellerProfileId={order.seller_profile_id || null} onSeller={()=>openSellerProfile(order.seller_profile_id || '')} onFavorite={()=>toggleFavoriteOrder(order)} onOffer={()=>{if(!signedIn){notice=t.authHint;haptic('error');}else{selectedOfferOrder=order;offerAmount=String(order.price);offerNote='';showOfferModal=true;haptic('medium');}}} onOpen={()=>{selectedAsset=order;showAssetDetails=true;haptic();}} />
             {/each}
           </div>
           {#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}
@@ -849,7 +849,24 @@
             {#if selectedAsset.note}<p class="asset-detail-note">{selectedAsset.note}</p>{/if}
             <div class="asset-detail-unavailable"><strong>{lang==='ru'?'Характеристики актива':'Asset traits'}</strong><span>{lang==='ru'?'Метаданные и traits появятся после подключения источника NFT-метаданных.':'Metadata and traits will appear after an NFT metadata source is connected.'}</span></div>
             <button class="ton-primary offer-submit" onclick={()=>{if(!signedIn){notice=t.authHint;haptic('error');return;}const asset=selectedAsset;if(!asset)return;selectedOfferOrder=asset;offerAmount=String(asset.price);offerNote='';showAssetDetails=false;showOfferModal=true;}}>{t.sendOffer} ↗</button>
+            {#if !selectedAsset.isMine}<button class="report-asset-button" onclick={()=>{if(!signedIn){notice=t.authHint;haptic('error');return;}startOrderReport(selectedAsset.id);}}>{t.reportOrder}</button>{/if}
             <button class="asset-buy-disabled" disabled title={lang==='ru'?'Покупка включится после запуска защищённой оплаты и escrow':'Buying will be enabled after secure payments and escrow are live'}>{lang==='ru'?'Покупка скоро':'Buy · Coming soon'}</button>
+          </div>
+        </div>
+      {/if}
+      {#if reportingOrderId}
+        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !reportBusy)reportingOrderId='';}}>
+          <div class="sell-modal report-modal" role="dialog" aria-modal="true" aria-labelledby="report-title">
+            <button class="modal-close" onclick={()=>reportingOrderId=''} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={reportBusy}>×</button>
+            <div class="eyebrow">HASSLE NFT · REPORT</div>
+            <h2 id="report-title">{t.reportOrder}</h2>
+            <label>{t.reportReason}
+              <select class="form-input" bind:value={reportReason}>
+                <option value="scam">{t.reportScam}</option><option value="misleading">{t.reportMisleading}</option><option value="inappropriate">{t.reportInappropriate}</option><option value="spam">{t.reportSpam}</option><option value="other">{t.reportOther}</option>
+              </select>
+            </label>
+            <label>{t.reportDetails}<textarea class="form-input note-input" bind:value={reportDetails} maxlength="1000" placeholder={lang==='ru'?'Опиши проблему (необязательно)':'Describe the issue (optional)'}></textarea></label>
+            <div class="report-actions"><button class="refresh-button" onclick={()=>reportingOrderId=''} disabled={reportBusy}>{t.cancelReport}</button><button class="ton-primary" onclick={()=>submitOrderReport(reportingOrderId)} disabled={reportBusy}>{reportBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendReport}</button></div>
           </div>
         </div>
       {/if}
