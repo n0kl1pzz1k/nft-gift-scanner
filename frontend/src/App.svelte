@@ -33,6 +33,9 @@
   let assetTypeFilter = $state<AssetTypeFilter>('all');
   let marketSort = $state<'recent'|'price-low'|'price-high'>('recent');
   let showSellModal = $state(false);
+  let showOfferModal = $state(false);
+  let selectedOfferOrder = $state<MarketplaceOrder | null>(null);
+  let offerSubmitBusy = $state(false);
   let orders = $state<MarketplaceOrder[]>([]);
   let favoriteOrderIds = $state<string[]>([]);
   let publicOrdersTotal = $state(0);
@@ -745,7 +748,7 @@
         {:else}
           <div class="asset-grid">
             {#each marketAssets as order (order.id)}
-              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} {lang} onFavorite={()=>toggleFavoriteOrder(order)} onOffer={()=>{if(!signedIn){notice=t.authHint;haptic('error');}else{offerAmount=String(order.price);offerNote='';view='offers';haptic();}}} />
+              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} {lang} onFavorite={()=>toggleFavoriteOrder(order)} onOffer={()=>{if(!signedIn){notice=t.authHint;haptic('error');}else{selectedOfferOrder=order;offerAmount=String(order.price);offerNote='';showOfferModal=true;haptic('medium');}}} />
             {/each}
           </div>
           {#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}
@@ -794,6 +797,20 @@
         </div>
       {:else}
         <div class="state-panel inventory-empty"><span class="state-icon">◈</span><strong>{lang==='ru'?'Твой инвентарь пока пуст':'Your inventory is empty'}</strong><small>{lang==='ru'?'Добавь первый актив или подключи TON-кошелёк, чтобы увидеть NFT':'List your first asset or connect a TON wallet to discover your NFTs'}</small><button class="asset-offer-button" onclick={()=>{showSellModal=true;haptic();}}>{lang==='ru'?'Выставить актив':'List an asset'} →</button></div>
+      {/if}
+      {#if showOfferModal && selectedOfferOrder}
+        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !offerSubmitBusy)showOfferModal=false;}}>
+          <div class="sell-modal offer-modal" role="dialog" aria-modal="true" aria-labelledby="offer-title">
+            <button class="modal-close" onclick={()=>showOfferModal=false} aria-label="Close" disabled={offerSubmitBusy}>×</button>
+            <div class="eyebrow">HASSLE NFT · OFFER</div>
+            <h2 id="offer-title">{lang==='ru'?'Предложить цену':'Make an offer'}</h2>
+            <div class="offer-asset-preview"><span>{assetTypeOf(selectedOfferOrder.title)==='username'?'＠':assetTypeOf(selectedOfferOrder.title)==='number'?'888':'✳'}</span><div><strong>{selectedOfferOrder.title}</strong><small>{lang==='ru'?'Цена продавца':'Seller price'}: {selectedOfferOrder.price} {selectedOfferOrder.currency==='XTR'?'⭐':'TON'}</small></div></div>
+            <label>{lang==='ru'?'Твоё предложение':'Your offer'}<input class="form-input" type="number" min="0.01" step="0.01" bind:value={offerAmount} placeholder="1.25"/></label>
+            <label>{lang==='ru'?'Сообщение продавцу':'Message to seller'}<textarea class="form-input note-input" bind:value={offerNote} maxlength="500" placeholder={lang==='ru'?'Необязательно':'Optional'}></textarea></label>
+            <button class="ton-primary offer-submit" disabled={offerSubmitBusy} onclick={async()=>{if(!selectedOfferOrder)return;offerSubmitBusy=true;try{await createOffer(selectedOfferOrder.id);if(!notice.toLowerCase().includes('укажи')&&!notice.toLowerCase().includes('enter a positive')){showOfferModal=false;selectedOfferOrder=null;}}finally{offerSubmitBusy=false;}}}>{offerSubmitBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendOffer+' →'}</button>
+            <small class="sell-modal-hint">{lang==='ru'?'Оффер отправится владельцу актива. Это не перевод средств и не завершение сделки.':'The offer goes to the asset owner. It does not transfer funds or complete a trade.'}</small>
+          </div>
+        </div>
       {/if}
       {#if showSellModal}
         <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showSellModal=false;}}>
