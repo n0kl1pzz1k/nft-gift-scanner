@@ -802,7 +802,11 @@ def create_marketplace_router(
                    ORDER BY a.verified_at DESC LIMIT 200""",
                 (owner_id,),
             ).fetchall()
-        return {"items": [dict(row) for row in rows], "total": len(rows)}
+        return {
+            "items": [dict(row) for row in rows],
+            "total": len(rows),
+            "listing_enabled": _verified_asset_actions_enabled(),
+        }
 
     @router.get("/profiles/me")
     async def get_my_seller_profile(
