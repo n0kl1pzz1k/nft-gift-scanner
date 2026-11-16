@@ -1,4 +1,5 @@
 import os
+import asyncio
 import time
 import json
 import hmac
@@ -315,7 +316,9 @@ async def import_ton_wallet_assets(x_telegram_init_data: str | None = Header(def
 
     snapshots = []
     try:
-        for wallet in wallets:
+        for index, wallet in enumerate(wallets):
+            if index and not os.getenv("TONAPI_TOKEN", "").strip():
+                await asyncio.sleep(4.1)
             snapshot = await fetch_wallet_nfts(wallet["address"])
             snapshots.append(snapshot)
     except (httpx.HTTPError, ValueError) as exc:
