@@ -25,6 +25,9 @@
   let lang = $state<'ru' | 'en'>('ru');
   let view = $state<View>('orders');
   let marketSearch = $state('');
+  let marketplaceLoading = $state(true);
+  let marketError = $state('');
+  let createAssetType = $state<'gift'|'username'|'number'>('gift');
   let assetTypeFilter = $state<AssetTypeFilter>('all');
   let marketSort = $state<'recent'|'price-low'|'price-high'>('recent');
   let showSellModal = $state(false);
@@ -219,6 +222,8 @@
   }
 
   async function loadMarketplace() {
+    marketplaceLoading = true;
+    marketError = '';
     try {
       const [publicData, mineData, statsData] = await Promise.all([
         request('/api/marketplace/orders?' + orderFilterQuery()),        authToken ? request('/api/marketplace/mine') : Promise.resolve({items:[]}),
@@ -233,7 +238,10 @@
       publicOrdersOffset = publicItems.length;
       marketplaceStats = { ...marketplaceStats, ...statsData };
     } catch (e) {
-      notice = e instanceof Error ? e.message : String(e);
+      marketError = e instanceof Error ? e.message : String(e);
+      notice = marketError;
+    } finally {
+      marketplaceLoading = false;
     }
   }
 
@@ -454,6 +462,15 @@
 
   async function createOrder() {
     const price = Number(createPrice);
+    if (createKind === 'listing' && assetTypeOf(createTitle) !== createAssetType) {
+      notice = createAssetType === 'username'
+        ? (lang === 'ru' ? 'Для Username укажи @username или ссылку t.me/username.' : 'Enter @username or a t.me/username link.')
+        : createAssetType === 'number'
+          ? (lang === 'ru' ? 'Укажи номер 888 в названии актива.' : 'Include the 888 number in the asset name.')
+          : (lang === 'ru' ? 'Укажи название Telegram-подарка.' : 'Enter the Telegram gift name.');
+      haptic('error');
+      return;
+    }
     if (!createTitle.trim() || !Number.isFinite(price) || price <= 0) {
       notice = lang === 'ru' ? 'Укажи название подарка и положительную цену.' : 'Enter a gift name and a positive price.';
       return;
@@ -467,7 +484,7 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({kind:createKind,title:createTitle.trim(),price,currency:createCurrency,note:createNote.trim()}),
       });
-      createTitle = ''; createPrice = ''; createNote = ''; createCurrency = 'TON';
+      createTitle = ''; createPrice = ''; createNote = ''; createCurrency = 'TON'; createAssetType = 'gift';
       notice = t.success;
       showSellModal = false;
       haptic('success');
@@ -668,7 +685,7 @@
 
   <main class="main-content">
     <header class="topbar">
-      <div class="crumb"><span>HASSLE NFT</span><b>/</b><span>{view==='orders'?t.orders:view==='offers'?t.offersTitle:view==='create'?t.create:view==='favorites'?t.favorites:t.profile}</span></div>
+      <div class="crumb"><span>HASSLE NFT</span><b>/</b><span>{view==='orders'?'Market':view==='offers'?'Activity':view==='create'?'Inventory':view==='favorites'?'Saved':t.profile}</span></div>
       <div class="top-actions"><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>view='profile'}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
     </header>
 
@@ -718,8 +735,10 @@
           <select class="market-select" bind:value={marketSort} aria-label="Sort assets"><option value="recent">{lang==='ru'?'Сначала новые':'Recently listed'}</option><option value="price-low">{lang==='ru'?'Сначала дешевле':'Price: low to high'}</option><option value="price-high">{lang==='ru'?'Сначала дороже':'Price: high to low'}</option></select>
         </div>
         <div class="market-meta"><span>{marketAssets.length} {lang==='ru'?'активов в каталоге':'assets in market'}</span><span>{lang==='ru'?'Сделки в TON и Stars':'TON & Stars'}</span></div>
-        {#if orders.length===0}
+        {#if marketplaceLoading && orders.length===0}
           <div class="asset-grid-skeleton">{#each [1,2,3,4,5,6] as item}<div class="asset-skeleton"><span></span><i></i><b></b></div>{/each}</div>
+        {:else if marketError && orders.length===0}
+          <div class="state-panel"><strong>{lang==='ru'?'Не удалось загрузить маркет':'Market failed to load'}</strong><small>{marketError}</small><button class="asset-offer-button" onclick={()=>loadMarketplace()}>{t.refresh} ↻</button></div>
         {:else if marketAssets.length===0}
           <div class="state-panel"><span class="state-icon">⌕</span><strong>{lang==='ru'?'Ничего не найдено':'No assets found'}</strong><small>{lang==='ru'?'Попробуй изменить поиск или фильтры':'Try changing your search or filters'}</small></div>
         {:else}
@@ -793,12 +812,12 @@
           <section class="sell-modal" role="dialog" aria-modal="true" aria-labelledby="sell-title">
             <button class="modal-close" onclick={()=>showSellModal=false} aria-label="Close">×</button>
             <div class="eyebrow">HASSLE NFT · SELL</div><h2 id="sell-title">{lang==='ru'?'Выставить актив':'List an asset'}</h2><p>{lang==='ru'?'Добавь актив в каталог маркетплейса':'Add an asset to the marketplace'}</p>
-            <div class="sell-type-grid"><button class="chosen" type="button">✳ <span>Telegram Gift</span></button><button type="button" disabled>＠ <span>Username</span></button><button type="button" disabled>888 <span>Number</span></button></div>
-            <label>{lang==='ru'?'Название актива':'Asset name'}<input class="form-input" bind:value={createTitle} maxlength="120" placeholder="Plush Pepe #042"/></label>
+            <div class="sell-type-grid"><button class:chosen={createAssetType==='gift'} type="button" onclick={()=>createAssetType='gift'}>✳ <span>Telegram Gift</span></button><button class:chosen={createAssetType==='username'} type="button" onclick={()=>createAssetType='username'}>＠ <span>Username</span></button><button class:chosen={createAssetType==='number'} type="button" onclick={()=>createAssetType='number'}>888 <span>Number</span></button></div>
+            <label>{lang==='ru'?'Название актива':'Asset name'}<input class="form-input" bind:value={createTitle} maxlength="120" placeholder={createAssetType==='username'?'@username':createAssetType==='number'?'+888 123 4567':'Plush Pepe #042'}/></label>
             <label>{lang==='ru'?'Цена':'Price'}<div class="currency-choice"><button class:chosen={createCurrency==='TON'} onclick={()=>createCurrency='TON'}>TON</button><button class:chosen={createCurrency==='XTR'} onclick={()=>createCurrency='XTR'}>⭐ Stars</button></div><input class="form-input" type="number" min="0.01" step="0.01" bind:value={createPrice} placeholder="1.25"/></label>
             <label>{lang==='ru'?'Описание':'Description'}<textarea class="form-input note-input" bind:value={createNote} maxlength="300"></textarea></label>
             <button class="publish-button" onclick={createOrder}>{lang==='ru'?'Выставить на маркет':'List on market'} <span>→</span></button>
-            <small class="sell-modal-hint">{lang==='ru'?'Сейчас поддерживается создание позиции Telegram Gift. Username и номера будут включены после расширения серверной модели активов.':'Telegram Gift listings are supported now. Username and anonymous number assets require the server asset model upgrade.'}</small>
+            <small class="sell-modal-hint">{lang==='ru'?'Тип актива определяется по его идентификатору. Передача и проверка владения через TON Connect ещё не подключены.':'Asset type is inferred from its identifier. On-chain ownership verification and TON Connect transfer are not connected yet.'}</small>
           </section>
         </div>
       {/if}
