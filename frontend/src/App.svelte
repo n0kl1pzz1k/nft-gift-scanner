@@ -19,10 +19,15 @@
     volume_ton: number; volume_stars: number; total_orders: number;
   };
   type View = 'orders' | 'offers' | 'create' | 'favorites' | 'profile' | 'seller';
+  type AssetTypeFilter = 'all' | 'gift' | 'username' | 'number';
 
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://hassle-nft-market.up.railway.app').replace(/\/$/, '');
   let lang = $state<'ru' | 'en'>('ru');
   let view = $state<View>('orders');
+  let marketSearch = $state('');
+  let assetTypeFilter = $state<AssetTypeFilter>('all');
+  let marketSort = $state<'recent'|'price-low'|'price-high'>('recent');
+  let showSellModal = $state(false);
   let orders = $state<MarketplaceOrder[]>([]);
   let favoriteOrderIds = $state<string[]>([]);
   let publicOrdersTotal = $state(0);
@@ -131,6 +136,45 @@
     (orderKindFilter === 'all' || order.kind === orderKindFilter)
   ));
   const visibleOffers = $derived(offers.filter(offer => offerStatusFilter === 'all' || offer.status === offerStatusFilter));
+  const marketAssets = $derived.by(() => {
+    const filtered = orders.filter(order => {
+      if (order.kind !== 'listing' || order.status !== 'active') return false;
+      const type = assetTypeOf(order.title);
+      const query = marketSearch.trim().toLocaleLowerCase();
+      const matchesType = assetTypeFilter === 'all' || type === assetTypeFilter;
+      const haystack = [order.title, order.owner, order.note || ''].join(' ').toLocaleLowerCase();
+      return matchesType && (!query || haystack.includes(query));
+    });
+    return [...filtered].sort((a,b) => marketSort === 'price-low'
+      ? Number(a.price)-Number(b.price)
+      : marketSort === 'price-high'
+        ? Number(b.price)-Number(a.price)
+        : b.createdAt-a.createdAt);
+  });
+  const inventoryAssets = $derived(orders.filter(order => order.isMine && order.kind === 'listing'));
+  const tonFloor = $derived.by(() => {
+    const prices = orders.filter(order => order.kind === 'listing' && order.status === 'active' && order.currency === 'TON').map(order => Number(order.price)).filter(price => Number.isFinite(price) && price > 0);
+    return prices.length ? Math.min(...prices).toFixed(2) : '—';
+  });
+  function assetTypeOf(title: string): AssetTypeFilter {
+    if (/(?:\\+?888|anonymous\\s*number|number\\s*888)/i.test(title)) return 'number';
+    if (/^@|t\\.me\\/|username/i.test(title)) return 'username';
+    return 'gift';
+  }
+  function assetTypeName(type: AssetTypeFilter) {
+    return type === 'number' ? (lang === 'ru' ? 'Номер 888' : 'Anonymous number')
+      : type === 'username' ? 'Username'
+      : type === 'gift' ? (lang === 'ru' ? 'NFT-подарок' : 'NFT Gift')
+      : (lang === 'ru' ? 'Все активы' : 'All assets');
+  }
+  function haptic(kind: 'light'|'medium'|'success'|'error' = 'light') {
+    try {
+      const feedback = (window as any).Telegram?.WebApp?.HapticFeedback;
+      if (kind === 'success') feedback?.notificationOccurred?.('success');
+      else if (kind === 'error') feedback?.notificationOccurred?.('error');
+      else feedback?.impactOccurred?.(kind);
+    } catch {}
+  }
 
   function reportReasonLabel(reason: OrderReport['reason']) {
     const labels = {scam:t.reportScam,misleading:t.reportMisleading,inappropriate:t.reportInappropriate,spam:t.reportSpam,other:t.reportOther};
@@ -177,8 +221,7 @@
   async function loadMarketplace() {
     try {
       const [publicData, mineData, statsData] = await Promise.all([
-        request('/api/marketplace/orders?' + orderFilterQuery()),
-        authToken ? request('/api/marketplace/mine') : Promise.resolve({items:[]}),
+        request('/api/marketplace/orders?' + orderFilterQuery()),        authToken ? request('/api/marketplace/mine') : Promise.resolve({items:[]}),
         request('/api/marketplace/stats'),
       ]);
       const publicItems = Array.isArray(publicData.items) ? publicData.items as MarketplaceOrder[] : [];
@@ -357,8 +400,7 @@
     const labels: Record<string,string> = {
       order_created:t.orderCreatedActivity, order_updated:t.orderUpdatedActivity, order_simulated_fill:t.orderFilledActivity,
       order_cancelled:t.orderCancelledActivity, offer_received:t.offerReceivedActivity,
-      offer_accepted:t.offerAcceptedActivity, offer_declined:t.offerDeclinedActivity,
-      offer_withdrawn:t.offerWithdrawnActivity, demo_deal_created:t.dealCreatedActivity,
+      offer_accepted:t.offerAcceptedActivity, offer_declined:t.offerDeclinedActivity,      offer_withdrawn:t.offerWithdrawnActivity, demo_deal_created:t.dealCreatedActivity,
     };
     return labels[item.type] || item.type;
   }
@@ -386,6 +428,7 @@
     try {
       await request('/api/marketplace/offers', undefined, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order_id:orderId,amount,note:offerNote.trim()}) });
       offerAmount = ''; offerNote = '';
+      haptic('success');
       notice = lang === 'ru' ? 'Оффер отправлен владельцу заявки.' : 'Offer sent to the order owner.';
       await loadOffersAndDeals();
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
@@ -402,6 +445,7 @@
     finally { offerActionBusy = ''; }
   }
   function toggleFavoriteOrder(order: MarketplaceOrder) {
+    haptic('light');
     favoriteOrderIds = favoriteOrderIds.includes(order.id)
       ? favoriteOrderIds.filter(id => id !== order.id)
       : [...favoriteOrderIds, order.id];
@@ -425,6 +469,8 @@
       });
       createTitle = ''; createPrice = ''; createNote = ''; createCurrency = 'TON';
       notice = t.success;
+      showSellModal = false;
+      haptic('success');
       view = 'orders';
       await loadMarketplace();
       await loadOffersAndDeals();
@@ -537,8 +583,7 @@
       return;
     }
     // Fail closed while refreshing the signed Telegram session.
-    isAdmin = false;
-    signedIn = false;
+    isAdmin = false;    signedIn = false;
     authToken = '';
     try {
       const response = await fetch(API + '/api/auth/telegram', {
@@ -594,8 +639,8 @@
     <a class="brand" href="#marketplace"><span class="brand-symbol">H</span><span>HASSLE NFT<small>THE GIFT MARKET</small></span></a>
     <div class="nav-caption">MENU</div>
     <nav class="side-nav">
-      {#each [{id:'orders',label:t.orders,icon:'▦'},{id:'offers',label:t.offersTitle,icon:'↗'},{id:'create',label:t.create,icon:'＋'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
-        <button class:active={view===item.id} class="nav-item" onclick={()=>{view=item.id as View;notice='';}}><span>{item.icon}</span>{item.label}</button>
+      {#each [{id:'orders',label:lang==='ru'?'Market':'Market',sub:lang==='ru'?'Маркет':'Market',icon:'▦'},{id:'create',label:'Inventory',sub:lang==='ru'?'Активы':'Inventory',icon:'◈'},{id:'offers',label:'Activity',sub:lang==='ru'?'Активность':'Activity',icon:'↗'},{id:'profile',label:t.profile,sub:t.profile,icon:'◉'}] as item}
+        <button class:active={view===item.id} class="nav-item" onclick={()=>{haptic();view=item.id as View;notice='';}}><span>{item.icon}</span>{item.sub}</button>
       {/each}
     </nav>
     <div class="sidebar-bottom"><div class="sidebar-version">NFT GIFTS · TON · STARS</div></div>
@@ -633,7 +678,7 @@
           <h1>{lang==='ru'?'ТВОИ NFT. ТВОЯ СДЕЛКА.':'YOUR NFT. YOUR DEAL.'}</h1>
           <p>{lang==='ru'?'Маркетплейс Telegram-подарков. Покупай, продавай и находи редкое в одном месте.':'The Telegram gift marketplace. Buy, sell and discover rare finds in one place.'}</p>
           <div class="ton-hero-actions">
-            <button class="ton-primary" onclick={()=>view='create'}>{lang==='ru'?'＋ Разместить объявление':'＋ Create listing'}</button>
+            <button class="ton-primary" onclick={()=>{document.getElementById('asset-feed')?.scrollIntoView({behavior:'smooth'});haptic();}}>{lang==='ru'?'Открыть маркет':'Explore market'} →</button>
             <span class="ton-network"><b></b> TON NETWORK</span>
           </div>
         </div>
@@ -645,17 +690,40 @@
         </div>
         <div class="ton-hero-foot"><span>01 / MARKETPLACE</span><span>POWERED BY TON</span><span>HASSLE NFT © 2026</span></div>
       </section>
-      <section class="page-heading compact-heading" id="marketplace"><div class="eyebrow">HASSLE NFT</div><h1>{t.ordersTitle}</h1></section>
-      <div class="order-filter-bar"><label>{t.orderStatus}<select class="filter-input" bind:value={orderStatusFilter} onchange={changeOrderFilters}><option value="all">{t.all}</option><option value="active">{t.activeOrders}</option><option value="matched">{t.matchedOrders}</option><option value="cancelled">{t.cancelledOrders}</option></select></label><label>{t.orderKind}<select class="filter-input" bind:value={orderKindFilter} onchange={changeOrderFilters}><option value="all">{t.all}</option><option value="listing">{t.listingsOnly}</option><option value="buy-order">{t.buyRequestsOnly}</option></select></label></div>{#if visibleOrders.length===0}<div class="state-panel">{t.noOrders}</div>{:else}<div class="orders-list">{#each visibleOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{new Date(order.createdAt * 1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} {'· '+order.owner} {order.note?'· '+order.note:''} {order.events?.length?'· '+order.events.map(event=>event.type==='created'?(lang==='ru'?'создан':'created'):event.type==='updated'?(lang==='ru'?'изменено':'updated'):(lang==='ru'?'снят':'cancelled')).join(' → '):''}</p>{#if order.seller_profile_id}<button class="seller-link" onclick={()=>openSellerProfile(order.seller_profile_id!)}>{lang==='ru'?'Профиль продавца':'Seller profile'} ↗</button>{/if}</div><button class={'heart-button '+(favoriteOrderIds.includes(order.id)?'hearted':'')} onclick={()=>toggleFavoriteOrder(order)} aria-label={favoriteOrderIds.includes(order.id)?'Remove from favorites':'Add to favorites'}>{favoriteOrderIds.includes(order.id)?'♥':'♡'}</button><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div>{#if order.status==='active' && order.isMine}
-                  <div class="order-actions"><button class="match-button" onclick={()=>startEditOrder(order)}>{t.editOrder}</button><button class="cancel-button" onclick={()=>cancelOrder(order.id)}>{t.cancel}</button></div>
-                  {#if editingOrderId===order.id}
-                    <div class="order-edit-form">
-                      <label>{t.editTitle}<input class="form-input" bind:value={editTitle} maxlength="120"/></label>
-                      <label>{t.editPrice}<input class="form-input" type="number" min="0.01" step="0.01" bind:value={editPrice}/></label>
-                      <label>{t.editNote}<textarea class="form-input note-input" bind:value={editNote} maxlength="300"></textarea></label>
-                      <div class="order-actions"><button class="match-button" onclick={()=>saveOrderEdit(order.id)} disabled={orderEditBusy}>{orderEditBusy?'…':t.saveOrder}</button><button class="cancel-button" onclick={()=>editingOrderId=''} disabled={orderEditBusy}>{t.cancelEdit}</button></div>
-                    </div>
-                  {/if}{:else if order.status==='active' && signedIn}<div class="order-actions"><input class="form-input" type="number" min="0.01" step="0.01" bind:value={offerAmount} placeholder={t.offerAmount}/><button class="match-button" onclick={()=>createOffer(order.id)}>{t.sendOffer}</button><button class="cancel-button" onclick={()=>startOrderReport(order.id)}>{t.reportOrder}</button></div>{#if reportingOrderId===order.id}<div class="order-edit-form"><label>{t.reportReason}<select class="form-input" bind:value={reportReason}><option value="scam">{t.reportScam}</option><option value="misleading">{t.reportMisleading}</option><option value="inappropriate">{t.reportInappropriate}</option><option value="spam">{t.reportSpam}</option><option value="other">{t.reportOther}</option></select></label><label>{t.reportDetails}<textarea class="form-input note-input" bind:value={reportDetails} maxlength="500"></textarea></label><div class="order-actions"><button class="match-button" onclick={()=>submitOrderReport(order.id)} disabled={reportBusy}>{reportBusy?'…':t.sendReport}</button><button class="cancel-button" onclick={()=>reportingOrderId=''} disabled={reportBusy}>{t.cancelReport}</button></div></div>{/if}{/if}</article>{/each}</div>{#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}{/if}
+      <section class="market-overview" id="asset-feed">
+        <div class="market-heading-row"><div><div class="eyebrow">LIVE ASSET MARKET</div><h2>{lang==='ru'?'Найди свой следующий актив':'Discover your next asset'}</h2><p>{lang==='ru'?'Подарки, username и номера 888 в одном каталоге':'Gifts, usernames and anonymous numbers in one curated feed'}</p></div><div class="floor-chip"><small>TON FLOOR</small><strong>{tonFloor} <span>TON</span></strong></div></div>
+        <div class="market-toolbar">
+          <label class="market-search"><span>⌕</span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label="Search assets"/></label>
+          <select class="market-select" bind:value={assetTypeFilter} aria-label="Asset type"><option value="all">{lang==='ru'?'Все активы':'All assets'}</option><option value="gift">{lang==='ru'?'NFT-подарки':'NFT Gifts'}</option><option value="username">Username</option><option value="number">{lang==='ru'?'Номера 888':'Anonymous numbers'}</option></select>
+          <select class="market-select" bind:value={marketSort} aria-label="Sort assets"><option value="recent">{lang==='ru'?'Сначала новые':'Recently listed'}</option><option value="price-low">{lang==='ru'?'Сначала дешевле':'Price: low to high'}</option><option value="price-high">{lang==='ru'?'Сначала дороже':'Price: high to low'}</option></select>
+        </div>
+        <div class="market-meta"><span>{marketAssets.length} {lang==='ru'?'активов в каталоге':'assets in market'}</span><span>{lang==='ru'?'Сделки в TON и Stars':'TON & Stars'}</span></div>
+        {#if orders.length===0}
+          <div class="asset-grid-skeleton">{#each [1,2,3,4,5,6] as item}<div class="asset-skeleton"><span></span><i></i><b></b></div>{/each}</div>
+        {:else if marketAssets.length===0}
+          <div class="state-panel"><span class="state-icon">⌕</span><strong>{lang==='ru'?'Ничего не найдено':'No assets found'}</strong><small>{lang==='ru'?'Попробуй изменить поиск или фильтры':'Try changing your search or filters'}</small></div>
+        {:else}
+          <div class="asset-grid">
+            {#each marketAssets as order (order.id)}
+              <article class="asset-card">
+                <div class={'asset-art asset-art-'+assetTypeOf(order.title)}>
+                  {#if assetTypeOf(order.title)==='username'}<span class="asset-at">@</span><strong>{order.title.replace(/^@/,'')}</strong><small>TELEGRAM USERNAME</small>
+                  {:else if assetTypeOf(order.title)==='number'}<span class="asset-number">{order.title.replace(/[^0-9+]/g,'') || '888'}</span><small>ANONYMOUS NUMBER</small>
+                  {:else}<span class="asset-gift-symbol">✳</span><small>TELEGRAM NFT GIFT</small>{/if}
+                  <span class="asset-type-pill">{assetTypeName(assetTypeOf(order.title))}</span>
+                  <button class={'asset-favorite '+(favoriteOrderIds.includes(order.id)?'is-favorite':'')} onclick={()=>toggleFavoriteOrder(order)} aria-label="Toggle favorite">{favoriteOrderIds.includes(order.id)?'♥':'♡'}</button>
+                </div>
+                <div class="asset-card-content">
+                  <div class="asset-title-row"><h3>{order.title}</h3><span class="asset-id">#{order.id.slice(-5)}</span></div>
+                  <p class="asset-owner">{order.owner}{order.note?' · '+order.note:''}</p>
+                  <div class="asset-card-footer"><div><small>{lang==='ru'?'Цена':'Price'}</small><strong>{order.price} <span>{order.currency==='XTR'?'⭐':'TON'}</span></strong></div><button class="asset-offer-button" onclick={()=>{if(!signedIn){notice=t.authHint;haptic('error');}else{offerAmount=String(order.price);offerNote='';view='offers';haptic();}}}>{lang==='ru'?'Make offer':'Make offer'} ↗</button></div>
+                </div>
+              </article>
+            {/each}
+          </div>
+          {#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}
+        {/if}
+      </section>
      {:else if view==='offers'}
        <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.offersTitle}</h1></section>
       <section class="market-section account-offers">
@@ -668,18 +736,52 @@
           {/each}</div>{/if}
         {#if offers.length < offersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOffers} disabled={offersLoadingMore}>{offersLoadingMore?'…':t.loadMore}</button></div>{/if}
 
+        <div class="activity-history-panel">
+          <div class="section-title"><div><div class="eyebrow">TRADE JOURNAL</div><h2>{lang==='ru'?'История операций':'Recent activity'}</h2></div><span>{accountActivity.length} / {activityTotal}</span></div>
+          {#if accountActivity.length}
+            <div class="activity-timeline">{#each accountActivity as item (item.id)}<div class="activity-row"><span class="activity-marker"></span><div class="activity-row-main"><strong>{activityLabel(item)}</strong><span>{item.title}</span><small>{item.actor_name} · {new Date(item.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</small></div><div class="activity-row-value"><strong>{item.amount} {item.currency==='XTR'?'⭐':'TON'}</strong></div></div>{/each}</div>
+            {#if accountActivity.length<activityTotal}<button class="refresh-button activity-more" onclick={loadMoreActivity} disabled={activityBusy}>{activityBusy?'…':t.loadMoreActivity}</button>{/if}
+          {:else}<div class="state-panel">{t.noActivity}</div>{/if}
+        </div>
        </section>
     
      {:else if view==='create'}
-      <section class="page-heading compact-heading"><div class="eyebrow">HASSLE NFT</div><h1>{t.createTitle}</h1></section>
-      <section class="create-layout"><div class="create-form">
-        <div class="segmented"><button class:chosen={createKind==='listing'} onclick={()=>createKind='listing'}>{t.sell}</button><button class:chosen={createKind==='buy-order'} onclick={()=>createKind='buy-order'}>{t.buy}</button></div>
-        <label>{t.titleLabel}<input class="form-input" bind:value={createTitle} placeholder="Plush Pepe #042"/></label>
-        <label>{t.priceLabel}<div class="currency-choice"><button class:chosen={createCurrency==='TON'} onclick={()=>createCurrency='TON'}>TON</button><button class:chosen={createCurrency==='XTR'} onclick={()=>createCurrency='XTR'}>⭐ Telegram Stars</button></div><input class="form-input" type="number" min="0" step="0.01" bind:value={createPrice} placeholder={createCurrency==='TON'?'1.25':'100'}/></label>
-        <label>{t.noteLabel}<textarea class="form-input note-input" bind:value={createNote} placeholder="..."></textarea></label>
-        <button class="publish-button" onclick={createOrder}>{t.publish} <span>→</span></button>
-        
-      </div></section>
+      <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>Inventory</h1><p>{lang==='ru'?'Твои активы и позиции, выставленные на HASSLE NFT':'Your assets and active positions on HASSLE NFT'}</p></section>
+      <div class="inventory-note"><span>◈</span><div><strong>{lang==='ru'?'Подключение кошелька':'Wallet inventory'}</strong><p>{lang==='ru'?'Здесь пока отображаются активы, которые ты уже выставил на маркет. Импорт NFT из TON-кошелька появится после подключения TON Connect.':'This view currently shows assets you have listed on the marketplace. Wallet NFT import will appear when TON Connect inventory is integrated.'}</p></div></div>
+      <div class="inventory-toolbar"><div><strong>{inventoryAssets.length}</strong><span>{lang==='ru'?'активов выставлено':'listed assets'}</span></div><button class="ton-primary" onclick={()=>{showSellModal=true;haptic();}}>{lang==='ru'?'＋ Выставить актив':'＋ List an asset'}</button></div>
+      {#if inventoryAssets.length}
+        <div class="asset-grid inventory-grid">
+          {#each inventoryAssets as order (order.id)}
+            <article class="asset-card">
+              <div class={'asset-art asset-art-'+assetTypeOf(order.title)}>
+                {#if assetTypeOf(order.title)==='username'}<span class="asset-at">@</span><strong>{order.title.replace(/^@/,'')}</strong><small>TELEGRAM USERNAME</small>
+                {:else if assetTypeOf(order.title)==='number'}<span class="asset-number">{order.title.replace(/[^0-9+]/g,'') || '888'}</span><small>ANONYMOUS NUMBER</small>
+                {:else}<span class="asset-gift-symbol">✳</span><small>TELEGRAM NFT GIFT</small>{/if}
+                <span class="asset-type-pill">{order.status==='active'?(lang==='ru'?'На маркете':'Listed'):order.status}</span>
+              </div>
+              <div class="asset-card-content"><div class="asset-title-row"><h3>{order.title}</h3><span class="asset-id">#{order.id.slice(-5)}</span></div><div class="asset-card-footer"><div><small>{lang==='ru'?'Твоя цена':'Your price'}</small><strong>{order.price} <span>{order.currency==='XTR'?'⭐':'TON'}</span></strong></div><div class="inventory-actions">{#if order.status==='active'}<button class="asset-manage-button" onclick={()=>startEditOrder(order)}>{lang==='ru'?'Изменить':'Edit'}</button><button class="asset-remove-button" onclick={()=>cancelOrder(order.id)}>{lang==='ru'?'Снять':'Unlist'}</button>{:else}<span class="status-cancelled">{t.cancelled}</span>{/if}</div></div>
+                {#if editingOrderId===order.id}<div class="inventory-edit"><input class="form-input" bind:value={editTitle} aria-label="Asset name"/><input class="form-input" type="number" min="0.01" step="0.01" bind:value={editPrice} aria-label="Asset price"/><button class="asset-offer-button" onclick={()=>saveOrderEdit(order.id)} disabled={orderEditBusy}>{t.saveOrder}</button></div>{/if}
+              </div>
+            </article>
+          {/each}
+        </div>
+      {:else}
+        <div class="state-panel inventory-empty"><span class="state-icon">◈</span><strong>{lang==='ru'?'Твой инвентарь пока пуст':'Your inventory is empty'}</strong><small>{lang==='ru'?'Добавь первый актив или подключи TON-кошелёк, чтобы увидеть NFT':'List your first asset or connect a TON wallet to discover your NFTs'}</small><button class="asset-offer-button" onclick={()=>{showSellModal=true;haptic();}}>{lang==='ru'?'Выставить актив':'List an asset'} →</button></div>
+      {/if}
+      {#if showSellModal}
+        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showSellModal=false;}}>
+          <section class="sell-modal" role="dialog" aria-modal="true" aria-labelledby="sell-title">
+            <button class="modal-close" onclick={()=>showSellModal=false} aria-label="Close">×</button>
+            <div class="eyebrow">HASSLE NFT · SELL</div><h2 id="sell-title">{lang==='ru'?'Выставить актив':'List an asset'}</h2><p>{lang==='ru'?'Добавь актив в каталог маркетплейса':'Add an asset to the marketplace'}</p>
+            <div class="sell-type-grid"><button class="chosen" type="button">✳ <span>Telegram Gift</span></button><button type="button" disabled>＠ <span>Username</span></button><button type="button" disabled>888 <span>Number</span></button></div>
+            <label>{lang==='ru'?'Название актива':'Asset name'}<input class="form-input" bind:value={createTitle} maxlength="120" placeholder="Plush Pepe #042"/></label>
+            <label>{lang==='ru'?'Цена':'Price'}<div class="currency-choice"><button class:chosen={createCurrency==='TON'} onclick={()=>createCurrency='TON'}>TON</button><button class:chosen={createCurrency==='XTR'} onclick={()=>createCurrency='XTR'}>⭐ Stars</button></div><input class="form-input" type="number" min="0.01" step="0.01" bind:value={createPrice} placeholder="1.25"/></label>
+            <label>{lang==='ru'?'Описание':'Description'}<textarea class="form-input note-input" bind:value={createNote} maxlength="300"></textarea></label>
+            <button class="publish-button" onclick={createOrder}>{lang==='ru'?'Выставить на маркет':'List on market'} <span>→</span></button>
+            <small class="sell-modal-hint">{lang==='ru'?'Сейчас поддерживается создание позиции Telegram Gift. Username и номера будут включены после расширения серверной модели активов.':'Telegram Gift listings are supported now. Username and anonymous number assets require the server asset model upgrade.'}</small>
+          </section>
+        </div>
+      {/if}
     {:else if view==='favorites'}
       <section class="page-heading compact-heading"><div class="eyebrow">HASSLE NFT</div><h1>{t.favoritesTitle}</h1></section>
       {#if favoriteOrders.length}<div class="orders-list">{#each favoriteOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{order.owner}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div><button class="heart-button hearted" onclick={()=>toggleFavoriteOrder(order)}>♥</button></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='orders'}>{lang==='ru'?'К объявлениям':'Browse listings'}</button></div>{/if}
@@ -717,8 +819,7 @@
             {/each}
           </div>
           {#if accountActivity.length < activityTotal}<button class="refresh-button activity-more" onclick={loadMoreActivity} disabled={activityBusy}>{activityBusy?'…':t.loadMoreActivity}</button>{/if}
-        {:else}<div class="state-panel">{t.noActivity}</div>{/if}
-      </article>
+        {:else}<div class="state-panel">{t.noActivity}</div>{/if}      </article>
       <article class="profile-card notification-card">
         <div class="notification-heading"><div><div class="eyebrow">{t.notificationsTitle}</div><strong>{accountStats.unread_notifications} {lang==='ru'?'непрочитано':'unread'}</strong></div>
           {#if accountStats.unread_notifications}<button class="refresh-button" onclick={markAllNotificationsRead}>{t.markAllRead}</button>{/if}
@@ -774,8 +875,7 @@
 </div>
 
 <nav class="mobile-nav">
-  {#each [{id:'orders',label:t.orders,icon:'▦'},{id:'offers',label:t.offersTitle,icon:'↗'},{id:'create',label:t.create,icon:'＋'},{id:'favorites',label:t.favorites,icon:'♡'},{id:'profile',label:t.profile,icon:'◉'}] as item}
-    <button class:active={view===item.id} onclick={()=>{view=item.id as View;notice='';}}><span>{item.icon}</span><small>{item.label}</small></button>
+  {#each [{id:'orders',label:'Market',icon:'▦'},{id:'create',label:'Inventory',icon:'◈'},{id:'offers',label:'Activity',icon:'↗'},{id:'profile',label:t.profile,icon:'◉'}] as item}
+    <button class:active={view===item.id} onclick={()=>{haptic();view=item.id as View;notice='';}}><span>{item.icon}</span><small>{item.label}</small></button>
   {/each}
 </nav>
-
