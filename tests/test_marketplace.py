@@ -152,6 +152,60 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(item["asset_id"], asset["id"])
         self.assertEqual(item["image_url"], "https://cdn.example/gift.webp")
 
+    def test_verified_asset_metadata_is_immutable_and_cannot_be_claimed_by_another_owner(self):
+        asset = marketplace.register_verified_asset(
+            source="ton_nft", external_asset_id="EQB_immutable_asset",
+            owner_telegram_id="101", title="Immutable gift", asset_type="gift",
+            image_url="https://cdn.example/immutable.webp",
+            verification_method="ton_connect_proof",
+            verification_reference="one-time-server-verification-reference",
+        )
+        with marketplace._db() as conn:
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute("UPDATE verified_assets SET title = ? WHERE id = ?", ("Spoofed title", asset["id"]))
+        with self.assertRaises(ValueError):
+            marketplace.register_verified_asset(
+                source="ton_nft", external_asset_id="EQB_immutable_asset",
+                owner_telegram_id="202", title="Claimed by B", asset_type="gift",
+                image_url="", verification_method="ton_connect_proof",
+                verification_reference="different-one-time-verification-reference",
+            )
+
+    def test_public_catalog_hides_legacy_unverified_listings_but_keeps_verified_assets(self):
+        asset = marketplace.register_verified_asset(
+            source="ton_nft", external_asset_id="EQB_catalog_verified",
+            owner_telegram_id="101", title="Verified catalogue gift", asset_type="gift",
+            image_url="https://cdn.example/catalog.webp",
+            verification_method="ton_connect_proof",
+            verification_reference="one-time-server-verification-reference",
+        )
+        with patch.dict(os.environ, {"HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "false"}):
+            verified = self.client.post(
+                "/api/marketplace/orders", headers={"X-Telegram-Init-Data": "user-a"},
+                json={"kind": "listing", "asset_id": asset["id"], "title": "Ignore this title", "price": "2", "currency": "TON"},
+            )
+        self.assertEqual(verified.status_code, 201)
+        with patch.dict(os.environ, {"HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "true"}):
+            legacy = self.client.post(
+                "/api/marketplace/orders", headers={"X-Telegram-Init-Data": "user-b"},
+                json={"kind": "listing", "title": "Legacy unverified listing", "price": "1", "currency": "TON"},
+            )
+        self.assertEqual(legacy.status_code, 201)
+        with patch.dict(os.environ, {"HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "false"}):
+            catalog = self.client.get("/api/marketplace/orders?status=all")
+        titles = [item["title"] for item in catalog.json()["items"]]
+        self.assertIn("Verified catalogue gift", titles)
+        self.assertNotIn("Legacy unverified listing", titles)
+
+    def test_buy_request_does_not_require_owned_asset(self):
+        with patch.dict(os.environ, {"HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "false"}):
+            response = self.client.post(
+                "/api/marketplace/orders", headers={"X-Telegram-Init-Data": "user-a"},
+                json={"kind": "buy-order", "title": "Looking for a collectible gift", "price": "2", "currency": "TON"},
+            )
+        self.assertEqual(response.status_code, 201)
+        self.assertIsNone(response.json()["item"]["asset_id"])
+
     def test_verified_asset_cannot_be_listed_by_another_telegram_user(self):
         asset = marketplace.register_verified_asset(
             source="ton_nft", external_asset_id="EQB_owned_by_a",
