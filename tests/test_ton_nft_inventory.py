@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import httpx
 
-from ton_nft_inventory import fetch_wallet_nfts, _normalise_nft
+from ton_nft_inventory import fetch_wallet_nfts, fetch_nft_owner, _normalise_nft
 
 
 WALLET = "0:" + "a" * 64
@@ -66,6 +66,30 @@ class TonNftInventoryProviderTests(unittest.IsolatedAsyncioTestCase):
         }
         self.assertIsNone(_normalise_nft(blacklisted, WALLET))
         self.assertIsNone(_normalise_nft(scam, WALLET))
+
+    async def test_live_owner_lookup_returns_normalised_chain_owner(self):
+        def handler(request):
+            return httpx.Response(200, json={
+                "address": NFT,
+                "owner": {"address": WALLET, "is_scam": False},
+                "trust": "whitelist",
+            })
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://tonapi.io")
+        with patch.dict(os.environ, {"TONAPI_TOKEN": "test-token"}):
+            result = await fetch_nft_owner(NFT, client=client)
+        await client.aclose()
+        self.assertEqual(result["owner_address"], WALLET)
+        self.assertFalse(result["is_scam"])
+        self.assertEqual(result["trust"], "whitelist")
+
+    async def test_live_owner_lookup_treats_missing_nft_as_unowned(self):
+        def handler(request):
+            return httpx.Response(404, json={"error": "not found"})
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://tonapi.io")
+        with patch.dict(os.environ, {"TONAPI_TOKEN": "test-token"}):
+            result = await fetch_nft_owner(NFT, client=client)
+        await client.aclose()
+        self.assertIsNone(result["owner_address"])
 
     async def test_untrusted_image_schemes_are_not_rendered(self):
         item = {
