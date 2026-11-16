@@ -148,11 +148,12 @@
       const haystack = [order.title, order.owner, order.note || ''].join(' ').toLocaleLowerCase();
       return matchesType && (!query || haystack.includes(query));
     });
-    return [...filtered].sort((a,b) => marketSort === 'price-low'
-      ? Number(a.price)-Number(b.price)
-      : marketSort === 'price-high'
-        ? Number(b.price)-Number(a.price)
-        : b.createdAt-a.createdAt);
+    return [...filtered].sort((a,b) => {
+      if (marketSort === 'recent') return b.createdAt-a.createdAt;
+      if (a.currency !== b.currency) return a.currency === 'TON' ? -1 : 1;
+      const delta = Number(a.price)-Number(b.price);
+      return marketSort === 'price-low' ? delta : -delta;
+    });
   });
   const inventoryAssets = $derived(orders.filter(order => order.isMine && order.kind === 'listing'));
   const tonFloor = $derived.by(() => {
@@ -809,7 +810,7 @@
       {/if}
       {#if showSellModal}
         <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showSellModal=false;}}>
-          <section class="sell-modal" role="dialog" aria-modal="true" aria-labelledby="sell-title">
+          <div class="sell-modal" role="dialog" aria-modal="true" aria-labelledby="sell-title">
             <button class="modal-close" onclick={()=>showSellModal=false} aria-label="Close">×</button>
             <div class="eyebrow">HASSLE NFT · SELL</div><h2 id="sell-title">{lang==='ru'?'Выставить актив':'List an asset'}</h2><p>{lang==='ru'?'Добавь актив в каталог маркетплейса':'Add an asset to the marketplace'}</p>
             <div class="sell-type-grid"><button class:chosen={createAssetType==='gift'} type="button" onclick={()=>createAssetType='gift'}>✳ <span>Telegram Gift</span></button><button class:chosen={createAssetType==='username'} type="button" onclick={()=>createAssetType='username'}>＠ <span>Username</span></button><button class:chosen={createAssetType==='number'} type="button" onclick={()=>createAssetType='number'}>888 <span>Number</span></button></div>
@@ -818,7 +819,7 @@
             <label>{lang==='ru'?'Описание':'Description'}<textarea class="form-input note-input" bind:value={createNote} maxlength="300"></textarea></label>
             <button class="publish-button" onclick={createOrder}>{lang==='ru'?'Выставить на маркет':'List on market'} <span>→</span></button>
             <small class="sell-modal-hint">{lang==='ru'?'Тип актива определяется по его идентификатору. Передача и проверка владения через TON Connect ещё не подключены.':'Asset type is inferred from its identifier. On-chain ownership verification and TON Connect transfer are not connected yet.'}</small>
-          </section>
+          </div>
         </div>
       {/if}
     {:else if view==='favorites'}
@@ -827,6 +828,9 @@
     {:else}
       <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.profile}</h1></section>
       <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div><button class="publish-button" onclick={()=>telegramLogin()}>{t.signIn} →</button></article>
+      <article class="profile-card wallet-card">
+        <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">TON CONNECT</div><h2>{lang==='ru'?'Кошелёк':'Wallet'}</h2><p>{lang==='ru'?'Кошелёк ещё не подключён. Подключение и отображение баланса появятся после интеграции TON Connect.':'No wallet connected. Wallet connection and balance display will be enabled after TON Connect integration.'}</p></div><span class="wallet-status">{lang==='ru'?'Не подключён':'Not connected'}</span>
+      </article>
       {#if signedIn}
          <article class="profile-card seller-profile-editor">
            <div class="eyebrow">{t.sellerCardTitle}</div>
