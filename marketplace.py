@@ -728,6 +728,26 @@ def create_marketplace_router(
 ) -> APIRouter:
     router = APIRouter(prefix="/api/marketplace", tags=["marketplace"])
 
+    @router.get("/assets/me")
+    async def list_my_verified_assets(
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        user = _user(x_telegram_init_data, verify_telegram_init_data)
+        owner_id = str(user["id"])
+        with _db() as conn:
+            rows = conn.execute(
+                """SELECT a.id, a.source, a.external_asset_id, a.title, a.asset_type,
+                          a.image_url, a.verified_at,
+                          (SELECT o.id FROM demo_orders o
+                           WHERE o.asset_id = a.id AND o.status = 'active'
+                           ORDER BY o.created_at DESC LIMIT 1) AS active_listing_id
+                   FROM verified_assets a
+                   WHERE a.owner_telegram_id = ? AND a.status = 'verified'
+                   ORDER BY a.verified_at DESC LIMIT 200""",
+                (owner_id,),
+            ).fetchall()
+        return {"items": [dict(row) for row in rows], "total": len(rows)}
+
     @router.get("/profiles/me")
     async def get_my_seller_profile(
         x_telegram_init_data: str | None = Header(default=None),
