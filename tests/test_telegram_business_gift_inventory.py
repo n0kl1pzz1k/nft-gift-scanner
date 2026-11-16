@@ -10,6 +10,7 @@ import app
 import marketplace
 from telegram_business_gift_inventory import (
     fetch_business_account_gifts,
+    fetch_sticker_preview,
     normalise_business_owned_gift,
 )
 
@@ -24,11 +25,13 @@ class TelegramBusinessGiftInventoryTests(unittest.IsolatedAsyncioTestCase):
                 "name": "PlushPepe-42",
                 "base_name": "Plush Pepe",
                 "number": 42,
+                "model": {"sticker": {"file_id": "model-preview-file", "file_unique_id": "model-preview-unique"}},
             },
         })
         self.assertEqual(item["owned_gift_id"], "owned-unique-42")
         self.assertEqual(item["external_asset_id"], "PlushPepe-42")
         self.assertEqual(item["gift_url"], "https://t.me/nft/PlushPepe-42")
+        self.assertEqual(item["model_sticker_file_id"], "model-preview-file")
 
     def test_rejects_missing_owned_gift_id_and_blockchain_gifts(self):
         self.assertIsNone(normalise_business_owned_gift({
@@ -38,6 +41,21 @@ class TelegramBusinessGiftInventoryTests(unittest.IsolatedAsyncioTestCase):
             "type": "unique", "owned_gift_id": "id",
             "gift": {"name": "Gift-1", "number": 1, "is_from_blockchain": True},
         }))
+
+    async def test_downloads_only_small_static_image_previews(self):
+        image_bytes = b"RIFF\\x04\\x00\\x00\\x00WEBP"
+        def handler(request):
+            if request.method == "POST":
+                self.assertTrue(request.url.path.endswith("/getFile"))
+                return httpx.Response(200, json={"ok": True, "result": {"file_path": "photos/model.webp"}})
+            self.assertEqual(request.url.path, "/file/bot123456:test-token/photos/model.webp")
+            return httpx.Response(200, content=image_bytes, headers={"content-type": "image/webp"})
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.telegram.org")
+        with patch.dict(os.environ, {"BOT_TOKEN": "123456:test-token"}):
+            data, media_type = await fetch_sticker_preview("model-file-id", client=client)
+        await client.aclose()
+        self.assertEqual(data, image_bytes)
+        self.assertEqual(media_type, "image/webp")
 
     async def test_fetches_business_gifts_and_paginates(self):
         calls = []
@@ -130,6 +148,7 @@ class TelegramBusinessGiftImportApiTests(unittest.TestCase):
                 "title": "Plush Pepe #42",
                 "gift_url": "https://t.me/nft/PlushPepe-42",
                 "send_date": "1760000000",
+                "model_sticker_file_id": "model-preview-file",
             }],
         }
         with patch.object(app, "fetch_business_account_gifts", new=AsyncMock(return_value=snapshot)):
@@ -143,6 +162,35 @@ class TelegramBusinessGiftImportApiTests(unittest.TestCase):
         ref = marketplace.get_telegram_business_gift_ref(asset_id, "101")
         self.assertEqual(ref["owned_gift_id"], "owned-gift-instance-42")
         self.assertEqual(ref["gift_slug"], "PlushPepe-42")
+        preview_ref = marketplace.get_telegram_business_gift_preview_ref(asset_id, "101")
+        self.assertEqual(preview_ref["model_sticker_file_id"], "model-preview-file")
+
+    def test_owner_can_fetch_preview_with_view_permission_without_transfer_permission(self):
+        marketplace.upsert_telegram_business_connection({
+            "id": "business-connection-101",
+            "user": {"id": 101},
+            "user_chat_id": 101,
+            "is_enabled": True,
+            "rights": {"can_view_gifts_and_stars": True, "can_transfer_and_upgrade_gifts": False},
+        })
+        snapshot = {
+            "complete": True, "total_count": 1, "supported_unique_count": 1,
+            "items": [{
+                "owned_gift_id": "owned-preview-1", "external_asset_id": "PreviewGift-1",
+                "title": "Preview Gift #1", "gift_url": "https://t.me/nft/PreviewGift-1",
+                "send_date": "1760000000", "model_sticker_file_id": "preview-file-id",
+            }],
+        }
+        with patch.object(app, "fetch_business_account_gifts", new=AsyncMock(return_value=snapshot)):
+            imported = self.client.post("/api/marketplace/assets/import-business-gifts", headers={"X-Telegram-Init-Data": "verified-session"})
+        self.assertEqual(imported.status_code, 200, imported.text)
+        asset_id = imported.json()["items"][0]["id"]
+        image_bytes = b"RIFF\\x04\\x00\\x00\\x00WEBP"
+        with patch.object(app, "fetch_sticker_preview", new=AsyncMock(return_value=(image_bytes, "image/webp"))):
+            response = self.client.get(f"/api/marketplace/assets/{asset_id}/preview", headers={"X-Telegram-Init-Data": "verified-session"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.content, image_bytes)
+        self.assertEqual(response.headers["x-content-type-options"], "nosniff")
 
     def test_incomplete_snapshot_does_not_prune_previous_transfer_handles(self):
         marketplace.upsert_telegram_business_connection({
