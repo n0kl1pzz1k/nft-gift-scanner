@@ -95,18 +95,20 @@ def _normalise_nft(item: dict[str, Any], wallet_address: str) -> dict[str, str] 
     }
 
 
-async def fetch_nft_owner(item_address: str) -> dict[str, Any]:
+async def fetch_nft_owner(item_address: str, *, client: httpx.AsyncClient | None = None) -> dict[str, Any]:
     """Re-read the current on-chain owner of one NFT immediately before listing."""
     address = _raw_address(item_address)
     token = os.getenv("TONAPI_TOKEN", "").strip()
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    async with httpx.AsyncClient(
+    owns_client = client is None
+    session = client or httpx.AsyncClient(
         base_url=TONAPI_BASE_URL,
         timeout=httpx.Timeout(12.0, connect=5.0),
         follow_redirects=False,
-    ) as session:
+    )
+    try:
         # Keep the free public tier below its one-request-per-four-seconds limit.
         if not token:
             await asyncio.sleep(4.1)
@@ -115,19 +117,22 @@ async def fetch_nft_owner(item_address: str) -> dict[str, Any]:
             return {"owner_address": None, "is_scam": False, "trust": "none"}
         response.raise_for_status()
         body = response.json()
-    if not isinstance(body, dict):
-        raise ValueError("TON NFT provider returned an invalid item response")
-    owner = body.get("owner") if isinstance(body.get("owner"), dict) else {}
-    owner_address = owner.get("address")
-    try:
-        normalized_owner = _raw_address(owner_address) if owner_address else None
-    except Exception:
-        normalized_owner = None
-    return {
-        "owner_address": normalized_owner,
-        "is_scam": owner.get("is_scam") is True,
-        "trust": str(body.get("trust") or "none"),
-    }
+        if not isinstance(body, dict):
+            raise ValueError("TON NFT provider returned an invalid item response")
+        owner = body.get("owner") if isinstance(body.get("owner"), dict) else {}
+        owner_address = owner.get("address")
+        try:
+            normalized_owner = _raw_address(owner_address) if owner_address else None
+        except Exception:
+            normalized_owner = None
+        return {
+            "owner_address": normalized_owner,
+            "is_scam": owner.get("is_scam") is True,
+            "trust": str(body.get("trust") or "none"),
+        }
+    finally:
+        if owns_client:
+            await session.aclose()
 
 
 async def fetch_wallet_nfts(address: str, *, client: httpx.AsyncClient | None = None) -> dict[str, Any]:
