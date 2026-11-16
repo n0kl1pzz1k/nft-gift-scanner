@@ -396,6 +396,31 @@ def save_telegram_business_gift_ref(
         )
 
 
+
+def prune_telegram_business_gift_refs(
+    *, owner_telegram_id: str, business_connection_id: str, active_owned_gift_ids: set[str],
+) -> None:
+    """Remove stale transfer handles only after a complete provider snapshot."""
+    owner_id = str(owner_telegram_id).strip()
+    if not owner_id.isdigit() or not business_connection_id:
+        raise ValueError("A verified Business account is required")
+    with _db() as conn:
+        if active_owned_gift_ids:
+            placeholders = ",".join("?" for _ in active_owned_gift_ids)
+            conn.execute(
+                f"""DELETE FROM telegram_business_gift_refs
+                    WHERE owner_telegram_id = ? AND business_connection_id = ?
+                      AND owned_gift_id NOT IN ({placeholders})""",
+                (owner_id, business_connection_id, *sorted(active_owned_gift_ids)),
+            )
+        else:
+            conn.execute(
+                """DELETE FROM telegram_business_gift_refs
+                   WHERE owner_telegram_id = ? AND business_connection_id = ?""",
+                (owner_id, business_connection_id),
+            )
+
+
 def get_telegram_business_gift_ref(asset_id: str, owner_telegram_id: str | int) -> dict[str, Any] | None:
     owner_id = str(owner_telegram_id).strip()
     if not owner_id.isdigit():
