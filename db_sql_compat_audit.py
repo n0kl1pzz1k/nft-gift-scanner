@@ -13,12 +13,16 @@ from typing import Any
 
 SOURCE_FILES = ("marketplace.py", "demo_offers.py", "ton_connect.py")
 RULES = (
+    ("sqlite_connection_factory", re.compile(r"\bsqlite3\.connect\s*\("), "blocker",
+     "Replace direct SQLite connection factories with an explicit backend connection boundary."),
     ("sqlite_transaction_lock", re.compile(r"BEGIN\s+IMMEDIATE", re.IGNORECASE), "blocker",
      "PostgreSQL has no BEGIN IMMEDIATE; redesign locking and isolation explicitly."),
     ("sqlite_pragma", re.compile(r"\bPRAGMA\s+", re.IGNORECASE), "blocker",
      "PRAGMA is SQLite-specific; replace with engine-specific connection setup or metadata queries."),
     ("sqlite_script_execution", re.compile(r"\.executescript\s*\(", re.IGNORECASE), "blocker",
      "executescript transaction behavior must be replaced with explicit, portable migrations."),
+    ("sqlite_trigger_abort", re.compile(r"\bRAISE\s*\(\s*ABORT\b", re.IGNORECASE), "blocker",
+     "SQLite trigger RAISE(ABORT) bodies require PostgreSQL trigger functions and exception semantics."),
     ("sqlite_insert_or_ignore", re.compile(r"INSERT\s+OR\s+IGNORE", re.IGNORECASE), "review",
      "Translate conflict targets and ignored-constraint semantics deliberately."),
     ("sqlite_insert_or_replace", re.compile(r"INSERT\s+OR\s+REPLACE", re.IGNORECASE), "blocker",
@@ -33,6 +37,8 @@ RULES = (
      "Map driver-specific integrity exceptions to domain-level errors."),
     ("sqlite_lastrowid", re.compile(r"\.lastrowid\b"), "review",
      "Use INSERT ... RETURNING for PostgreSQL-generated identifiers."),
+    ("sqlite_rowid", re.compile(r"\browid\b", re.IGNORECASE), "blocker",
+     "SQLite rowid pseudocolumns do not exist in PostgreSQL; add an explicit stable sequence column."),
 )
 
 def audit_source_tree(root: str | Path) -> dict[str, Any]:
