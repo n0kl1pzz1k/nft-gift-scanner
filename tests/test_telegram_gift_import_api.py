@@ -72,7 +72,7 @@ class TelegramGiftImportApiTests(unittest.TestCase):
                            'gift', '', 'telegram_gift_owner', ?, 'verified', 1, 1)""",
                 ("f" * 64,),
             )
-        with patch.object(app, "fetch_user_telegram_gifts", new=AsyncMock(side_effect=RuntimeError("Telegram unavailable"))):
+        with patch.object(app, "fetch_user_telegram_gifts", new=AsyncMock(side_effect=ValueError("Telegram unavailable"))):
             response = self.client.post(
                 "/api/marketplace/assets/import-telegram",
                 headers={"X-Telegram-Init-Data": "verified-session"},
