@@ -592,3 +592,21 @@ html[data-telegram-color-scheme="light"] .offer-asset-preview strong{color:#1720
 html[data-telegram-color-scheme="light"] .price-filter{background:#fff;border-color:#dce4ee;color:#68798d}
 html[data-telegram-color-scheme="light"] .price-filter input{color:#17202b}
 @media(max-width:650px){.market-toolbar{flex-wrap:wrap}.market-toolbar .market-search{flex:1 1 100%}.price-filter{flex:1 1 72px}}
+
+.asset-title-button{display:block;max-width:100%;padding:0;border:0;background:none;color:inherit;text-align:left;font:inherit;font-size:inherit;font-weight:inherit;line-height:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.asset-title-button:focus-visible{outline:2px solid #59b8ff;outline-offset:3px;border-radius:4px}
+.asset-detail-modal{max-height:min(88dvh,760px);overflow-y:auto}
+.asset-detail-art{position:relative;display:grid;place-content:center;justify-items:center;gap:7px;min-height:190px;margin:24px 0 18px;border-radius:17px;overflow:hidden}
+.asset-detail-art>small{font-size:9px;letter-spacing:.16em;color:#b8c8dc}
+.asset-detail-meta{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
+.asset-detail-meta>span{display:grid;gap:4px;padding:10px;border:1px solid rgba(130,160,195,.16);border-radius:10px;color:#8294aa;font-size:9px}
+.asset-detail-meta b{overflow:hidden;text-overflow:ellipsis;color:#eaf3ff;font-size:11px;font-weight:600}
+.asset-detail-price{display:flex;justify-content:space-between;align-items:center;padding:13px;border-radius:12px;background:rgba(48,130,214,.12)}
+.asset-detail-price small{color:#8da3bb;font-size:10px}.asset-detail-price strong{color:#f4f8ff;font:700 17px 'Space Grotesk',sans-serif}
+.asset-detail-note{color:#aabbd0;font-size:11px;line-height:1.6}
+.asset-detail-unavailable{display:grid;gap:5px;margin:12px 0;padding:12px;border:1px solid rgba(130,160,195,.15);border-radius:11px}
+.asset-detail-unavailable strong{color:#eaf3ff;font-size:11px}
+.asset-detail-unavailable span{color:#879ab1;font-size:10px;line-height:1.5}
+.asset-buy-disabled{width:100%;margin-top:8px;padding:13px;border:1px solid rgba(130,160,195,.16);border-radius:12px;background:rgba(130,160,195,.08);color:#8294aa;font-size:11px;font-weight:700}
+html[data-telegram-color-scheme="light"] .asset-detail-meta b,html[data-telegram-color-scheme="light"] .asset-detail-unavailable strong{color:#17202b}
+html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202b}
