@@ -8,14 +8,14 @@ import secrets
 from urllib.parse import parse_qsl
 from pydantic import BaseModel
 
-from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi import FastAPI, HTTPException, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update, _enforce_user_rate_limit, sync_ton_nft_assets, sync_telegram_gift_assets, get_telegram_business_connection, get_telegram_business_connection_id, register_verified_asset, save_telegram_business_gift_ref, prune_telegram_business_gift_refs
+from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update, _enforce_user_rate_limit, sync_ton_nft_assets, sync_telegram_gift_assets, get_telegram_business_connection, get_telegram_business_connection_id, register_verified_asset, save_telegram_business_gift_ref, prune_telegram_business_gift_refs, get_telegram_business_gift_preview_ref
 from ton_connect import init_ton_connect_db, create_proof_challenge, verify_ton_proof, consume_challenge_and_link_wallet, list_verified_wallets
 from ton_nft_inventory import fetch_wallet_nfts
 from telegram_gift_inventory import fetch_user_telegram_gifts
-from telegram_business_gift_inventory import fetch_business_account_gifts
+from telegram_business_gift_inventory import fetch_business_account_gifts, fetch_sticker_preview
 import httpx
 from demo_offers import create_demo_offers_router, init_demo_offers_db
 
@@ -349,6 +349,35 @@ async def import_ton_wallet_assets(x_telegram_init_data: str | None = Header(def
     }
 
 
+@app.get("/api/marketplace/assets/{asset_id}/preview")
+async def get_verified_gift_preview(asset_id: str, x_telegram_init_data: str | None = Header(default=None)):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    owner_id = str(user["id"])
+    _enforce_user_rate_limit(owner_id, "gift_preview", 30)
+    try:
+        preview_ref = get_telegram_business_gift_preview_ref(asset_id, owner_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid asset owner") from exc
+    if not preview_ref:
+        raise HTTPException(status_code=404, detail="Verified gift preview not found")
+    file_id = str(preview_ref.get("model_sticker_file_id") or "")
+    if not file_id:
+        raise HTTPException(status_code=404, detail="Telegram has no static preview for this gift model")
+    try:
+        image_data, media_type = await fetch_sticker_preview(file_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="Telegram gift preview is temporarily unavailable", headers={"Retry-After": "30"}) from exc
+    return Response(
+        content=image_data,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "private, max-age=300",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        },
+    )
+
+
 @app.post("/api/marketplace/assets/import-telegram")
 async def import_telegram_gifts(x_telegram_init_data: str | None = Header(default=None)):
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
@@ -417,6 +446,7 @@ async def import_business_account_gifts(x_telegram_init_data: str | None = Heade
                 business_connection_id=connection_id,
                 owned_gift_id=owned_id,
                 gift_slug=str(item["external_asset_id"]),
+                model_sticker_file_id=str(item.get("model_sticker_file_id") or ""),
             )
             registered.append(asset)
         if snapshot["complete"]:
