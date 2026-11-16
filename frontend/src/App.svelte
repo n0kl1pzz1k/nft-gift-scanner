@@ -6,7 +6,7 @@
 
   type VerifiedAsset = { id:string; source:string; external_asset_id:string; title:string; asset_type:'gift'|'username'|'number'; image_url:string; verified_at:number; active_listing_id:string|null };
   type MarketplaceOrder = {
-    id: string; kind: 'listing' | 'buy-order'; title: string; asset_id?: string | null; image_url?: string; asset_type?: 'gift' | 'username' | 'number' | null;
+    id: string; external_asset_id?: string | null; collection?: string | null; kind: 'listing' | 'buy-order'; title: string; asset_id?: string | null; image_url?: string; asset_type?: 'gift' | 'username' | 'number' | null;
     price: string | number; currency: 'TON' | 'XTR'; status: 'active' | 'matched' | 'cancelled';
     createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; seller_profile_id?: string | null; events?: {type:string;createdAt:number}[];
   };
@@ -193,14 +193,14 @@
       const price = Number(order.price);
       const matchesMin = marketCurrency === 'all' || !marketMinPrice || price >= Number(marketMinPrice);
       const matchesMax = marketCurrency === 'all' || !marketMaxPrice || price <= Number(marketMaxPrice);
-      const haystack = [order.title, order.owner, order.note || ''].join(' ').toLocaleLowerCase();
-      const idHaystack = [order.id, order.asset_id || ''].join(' ').toLocaleLowerCase();
+      const haystack = [order.collection || '', order.title, order.owner, order.note || ''].join(' ').toLocaleLowerCase();
+      const idHaystack = [order.id, order.asset_id || '', order.external_asset_id || ''].join(' ').toLocaleLowerCase();
       return matchesType && matchesCurrency && matchesMin && matchesMax && (!query || haystack.includes(query)) && (!collectionQuery || haystack.includes(collectionQuery)) && (!nftIdQuery || idHaystack.includes(nftIdQuery));
     });
     return [...filtered].sort((a,b) => {
       if (marketSort === 'recent') return b.createdAt-a.createdAt;
-      if (marketSort === 'id-low') return a.id.localeCompare(b.id, undefined, {numeric:true});
-      if (marketSort === 'id-high') return b.id.localeCompare(a.id, undefined, {numeric:true});
+      if (marketSort === 'id-low') return (a.external_asset_id || a.id).localeCompare(b.external_asset_id || b.id, undefined, {numeric:true});
+      if (marketSort === 'id-high') return (b.external_asset_id || b.id).localeCompare(a.external_asset_id || a.id, undefined, {numeric:true});
       if (a.currency !== b.currency) return a.currency === 'TON' ? -1 : 1;
       const delta = Number(a.price)-Number(b.price);
       return marketSort === 'price-low' ? delta : -delta;
