@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import AssetCard from './lib/AssetCard.svelte';
   import BottomNav from './lib/BottomNav.svelte';
+  import TonWalletConnect from './lib/TonWalletConnect.svelte';
 
   type VerifiedAsset = { id:string; source:string; external_asset_id:string; title:string; asset_type:'gift'|'username'|'number'; image_url:string; verified_at:number; active_listing_id:string|null };
   type MarketplaceOrder = {
@@ -78,7 +79,7 @@
   let telegramPremium = $state(false);
   let signedIn = $state(false);
   let authBusy = $state(false);
-  const walletConnected = false;
+  let walletConnected = $state(false);
   let authToken = $state('');
   let isAdmin = $state(false);
   let notice = $state('');
@@ -805,7 +806,7 @@
     
      {:else if view==='create'}
        <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{lang==='ru'?'Инвентарь':'Inventory'}</h1><p>{lang==='ru'?'Только подтверждённые активы, принадлежащие твоему кошельку':'Only verified assets owned by your connected wallet'}</p></section>
-       <div class="inventory-connect-panel"><div class="inventory-connect-icon">◈</div><div><span class="eyebrow">TON CONNECT</span><h2>{lang==='ru'?'Твой инвентарь начинается с кошелька':'Your inventory starts with your wallet'}</h2><p>{lang==='ru'?'Подключи TON-кошелёк, затем импортируй или передай Telegram-подарок в инвентарь HASSLE NFT. Название, ID, модель, узор и анимация будут получены из данных самого подарка.':'Connect your TON wallet, then import or transfer a Telegram gift into HASSLE NFT inventory. Its name, ID, model, pattern and animation will come from the gift itself.'}</p><span class="wallet-status">{lang==='ru'?'Кошелёк не подключён':'Wallet not connected'}</span></div></div>
+       <div class="inventory-connect-panel"><div class="inventory-connect-icon">◈</div><div class="inventory-connect-copy"><span class="eyebrow">TON CONNECT · PROOF</span><h2>{lang==='ru'?'Подтверди свой TON-кошелёк':'Verify your TON wallet'}</h2><p>{lang==='ru'?'Подключение подтверждается подписью TON Proof. Маркетплейс не получает seed-фразу или приватный ключ. После проверки сможем загрузить реальные NFT из сети.':'Connection is verified with a TON Proof signature. The marketplace never receives your seed phrase or private key. Once verified, we can load real on-chain NFTs.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} onVerified={()=>{walletConnected=true;}} /></div></div>
        {#if verifiedAssetsLoading}
          <div class="inventory-empty-state"><span class="state-icon">◌</span><strong>{lang==='ru'?'Проверяем инвентарь…':'Checking inventory…'}</strong></div>
        {:else if verifiedAssets.length}
@@ -827,7 +828,7 @@
       <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.profile}</h1></section>
       <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div>{#if !signedIn}<button class="publish-button" onclick={()=>telegramLogin()} disabled={authBusy}>{authBusy?(lang==='ru'?'Подтверждаем…':'Verifying…'):t.signIn+' →'}</button>{:else}<span class="telegram-verified-state">✓ {lang==='ru'?'Подтверждено':'Verified'}</span>{/if}</article>
       <article class="profile-card wallet-card">
-        <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">TON CONNECT</div><h2>{lang==='ru'?'Кошелёк':'Wallet'}</h2><p>{lang==='ru'?'Кошелёк ещё не подключён. Подключение и отображение баланса появятся после интеграции TON Connect.':'No wallet connected. Wallet connection and balance display will be enabled after TON Connect integration.'}</p></div><span class="wallet-status">{lang==='ru'?'Не подключён':'Not connected'}</span>
+        <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">TON CONNECT · PROOF</div><h2>{lang==='ru'?'TON-кошелёк':'TON wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} onVerified={()=>{walletConnected=true;}} /></div>
       </article>
       {#if signedIn}
          <article class="profile-card seller-profile-editor">
