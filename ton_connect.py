@@ -199,10 +199,9 @@ def verify_ton_proof(
     )
     digest = hashlib.sha256(b"\xff\xffton-connect" + hashlib.sha256(message).digest()).digest()
     try:
-        from nacl.exceptions import BadSignatureError
         from nacl.signing import VerifyKey
         VerifyKey(public_key).verify(digest, signature)
-    except (BadSignatureError, ValueError, ImportError) as exc:
+    except Exception as exc:
         raise ValueError("TON proof signature verification failed") from exc
 
     return {
