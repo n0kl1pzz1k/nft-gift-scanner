@@ -748,7 +748,7 @@
         <div class="ton-hero-copy">
           <div class="ton-kicker"><span class="ton-live-dot"></span> HASSLE NFT MARKET <i>·</i> TON ECOSYSTEM</div>
           <h1>{lang==='ru'?'ТВОИ NFT. ТВОЯ СДЕЛКА.':'YOUR NFT. YOUR DEAL.'}</h1>
-          <p>{lang==='ru'?'Маркетплейс Telegram-подарков. Покупай, продавай и находи редкое в одном месте.':'The Telegram gift marketplace. Buy, sell and discover rare finds in one place.'}</p>
+          <p>{lang==='ru'?'Маркетплейс Telegram-подарков. Выставляй активы, предлагай цену и находи редкое в одном месте.':'The Telegram gift marketplace. List assets, make offers and discover rare finds in one place.'}</p>
           <div class="ton-hero-actions">
             <button class="ton-primary" onclick={()=>{document.getElementById('asset-feed')?.scrollIntoView({behavior:'smooth'});haptic();}}>{lang==='ru'?'Открыть маркет':'Explore market'} →</button>
             <button class="favorite-market-link" onclick={()=>{view='favorites';haptic();}}>{lang==='ru'?'Избранное':'Favorites'} ♥</button>
@@ -812,7 +812,7 @@
        </section>
     
      {:else if view==='create'}
-      <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>Inventory</h1><p>{lang==='ru'?'Твои активы и позиции, выставленные на HASSLE NFT':'Your assets and active positions on HASSLE NFT'}</p></section>
+      <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{lang==='ru'?'Инвентарь':'Inventory'}</h1><p>{lang==='ru'?'Твои активы и позиции, выставленные на HASSLE NFT':'Your assets and active positions on HASSLE NFT'}</p></section>
       <div class="inventory-note"><span>◈</span><div><strong>{lang==='ru'?'Подключение кошелька':'Wallet inventory'}</strong><p>{lang==='ru'?'Здесь пока отображаются активы, которые ты уже выставил на маркет. Импорт NFT из TON-кошелька появится после подключения TON Connect.':'This view currently shows assets you have listed on the marketplace. Wallet NFT import will appear when TON Connect inventory is integrated.'}</p></div></div>
       <div class="inventory-toolbar"><div><strong>{inventoryAssets.length}</strong><span>{lang==='ru'?'активов выставлено':'listed assets'}</span></div><button class="ton-primary" onclick={()=>{showSellModal=true;haptic();}}>{lang==='ru'?'＋ Выставить актив':'＋ List an asset'}</button></div>
       {#if inventoryAssets.length}
