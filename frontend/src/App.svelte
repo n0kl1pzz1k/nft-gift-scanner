@@ -3,6 +3,7 @@
   import AssetCard from './lib/AssetCard.svelte';
   import BottomNav from './lib/BottomNav.svelte';
 
+  type VerifiedAsset = { id:string; source:string; external_asset_id:string; title:string; asset_type:'gift'|'username'|'number'; image_url:string; verified_at:number; active_listing_id:string|null };
   type MarketplaceOrder = {
     id: string; kind: 'listing' | 'buy-order'; title: string; asset_type?: 'gift' | 'username' | 'number' | null;
     price: string | number; currency: 'TON' | 'XTR'; status: 'active' | 'matched' | 'cancelled';
@@ -43,6 +44,8 @@
   let showAssetDetails = $state(false);
   let offerSubmitBusy = $state(false);
   let orders = $state<MarketplaceOrder[]>([]);
+  let verifiedAssets = $state<VerifiedAsset[]>([]);
+  let verifiedAssetsLoading = $state(false);
   let favoriteOrderIds = $state<string[]>([]);
   let publicOrdersTotal = $state(0);
   let publicOrdersOffset = $state(0);
@@ -256,6 +259,20 @@
       notice = marketError;
     } finally {
       marketplaceLoading = false;
+    }
+  }
+
+  async function loadVerifiedInventory() {
+    if (!signedIn || !authToken) { verifiedAssets = []; return; }
+    verifiedAssetsLoading = true;
+    try {
+      const data = await request('/api/marketplace/assets/me');
+      verifiedAssets = Array.isArray(data.items) ? data.items as VerifiedAsset[] : [];
+    } catch (e) {
+      verifiedAssets = [];
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      verifiedAssetsLoading = false;
     }
   }
 
@@ -599,6 +616,7 @@
       await loadMarketplace();
       await loadOffersAndDeals();
       await loadSellerProfile();
+      await loadVerifiedInventory();
       return true;
     } catch {
       authToken = '';
@@ -787,8 +805,21 @@
      {:else if view==='create'}
        <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{lang==='ru'?'Инвентарь':'Inventory'}</h1><p>{lang==='ru'?'Только подтверждённые активы, принадлежащие твоему кошельку':'Only verified assets owned by your connected wallet'}</p></section>
        <div class="inventory-connect-panel"><div class="inventory-connect-icon">◈</div><div><span class="eyebrow">TON CONNECT</span><h2>{lang==='ru'?'Твой инвентарь начинается с кошелька':'Your inventory starts with your wallet'}</h2><p>{lang==='ru'?'Подключи TON-кошелёк, затем импортируй или передай Telegram-подарок в инвентарь HASSLE NFT. Название, ID, модель, узор и анимация будут получены из данных самого подарка.':'Connect your TON wallet, then import or transfer a Telegram gift into HASSLE NFT inventory. Its name, ID, model, pattern and animation will come from the gift itself.'}</p><span class="wallet-status">{lang==='ru'?'Кошелёк не подключён':'Wallet not connected'}</span></div></div>
-       <div class="inventory-empty-state"><span class="state-icon">✦</span><strong>{lang==='ru'?'Пока нет подтверждённых активов':'No verified assets yet'}</strong><small>{lang==='ru'?'Ручное создание карточек отключено. Выставление и офферы станут доступны только после проверки владения активом.':'Manual asset creation is disabled. Listings and offers unlock only after asset ownership is verified.'}</small></div>
-{:else if view==='favorites'}
+       {#if verifiedAssetsLoading}
+         <div class="inventory-empty-state"><span class="state-icon">◌</span><strong>{lang==='ru'?'Проверяем инвентарь…':'Checking inventory…'}</strong></div>
+       {:else if verifiedAssets.length}
+         <div class="verified-inventory-list">
+           {#each verifiedAssets as asset (asset.id)}
+             <article class="verified-inventory-item">
+               {#if asset.image_url}<img src={asset.image_url} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder">HASSLE</div>{/if}
+               <div><strong>{asset.title}</strong><small>{asset.asset_type==='gift'?'Telegram Gift':asset.asset_type==='username'?'Username':'Anonymous Number'} · {asset.external_asset_id}</small><span>{asset.active_listing_id?(lang==='ru'?'Уже выставлен':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</span></div>
+             </article>
+           {/each}
+         </div>
+       {:else}
+         <div class="inventory-empty-state"><span class="state-icon">✦</span><strong>{lang==='ru'?'Пока нет подтверждённых активов':'No verified assets yet'}</strong><small>{lang==='ru'?'Ручное создание карточек отключено. Активы появятся после подключения кошелька и серверной проверки владения.':'Manual asset creation is disabled. Assets appear only after wallet connection and server-side ownership verification.'}</small></div>
+       {/if}
+      {:else if view==='favorites'}
       <section class="page-heading compact-heading favorites-heading"><div><div class="eyebrow">HASSLE NFT</div><h1>{t.favoritesTitle}</h1></div><button class="refresh-button" onclick={()=>view='orders'}>{lang==='ru'?'Назад в маркет':'Back to market'}</button></section>
       {#if favoriteOrders.length}<div class="orders-list">{#each favoriteOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{order.owner}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div><button class="heart-button hearted" onclick={()=>toggleFavoriteOrder(order)}>♥</button></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='orders'}>{lang==='ru'?'К активам':'Browse assets'}</button></div>{/if}
     {:else}
