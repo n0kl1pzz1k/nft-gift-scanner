@@ -693,3 +693,11 @@ html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202
   .market-meta{flex-wrap:wrap;row-gap:8px}
   .market-meta .market-reset-filters{margin-left:0}
 }
+
+
+/* No fabricated gift artwork: neutral preview until verified media is imported. */
+.asset-preview-placeholder{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;width:min(82%,260px);min-height:112px;padding:18px;border:1px dashed #8ea4bb66;border-radius:14px;background:#0b1420a8;text-align:center;color:#a9bad0}
+.asset-preview-placeholder>span{font:800 10px 'Space Grotesk',Inter,sans-serif;letter-spacing:.22em;color:#75bfff}
+.asset-preview-placeholder>small{max-width:190px;margin:0;color:#8da1b8;font:500 9px/1.5 Manrope,Inter,sans-serif;letter-spacing:0}
+.asset-art-gift{background:linear-gradient(145deg,#15263a,#0c1420)}
+.asset-detail-art .asset-preview-placeholder{min-height:150px;width:100%;margin:auto}
