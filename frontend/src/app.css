@@ -624,3 +624,18 @@ html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202
 .report-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:16px}
 .report-actions .ton-primary{margin:0}
 @media(max-width:620px){.report-actions{display:grid;grid-template-columns:1fr 1fr}.report-actions button{min-height:42px}}
+
+
+/* Verified inventory-first flow */
+.inventory-connect-panel{display:flex;align-items:center;gap:18px;margin:22px 0 14px;padding:22px;border:1px solid #36a8ff55;border-radius:20px;background:radial-gradient(circle at 12% 10%,#176bff35,transparent 42%),linear-gradient(120deg,#132b46,#171d32 65%,#251a3a);box-shadow:0 16px 48px #006dff20}
+.inventory-connect-icon{display:grid;place-items:center;flex:0 0 58px;height:58px;border-radius:18px;background:linear-gradient(145deg,#38c7ff,#526dff 55%,#a05bff);color:white;font-size:30px;box-shadow:0 8px 28px #267fff66}
+.inventory-connect-panel h2{margin:5px 0 7px;color:#f5f8ff;font:700 19px Inter,sans-serif;letter-spacing:-.03em}
+.inventory-connect-panel p{max-width:650px;margin:0 0 12px;color:#b8c9e4;font-size:12px;line-height:1.65}
+.inventory-connect-panel .eyebrow{color:#69d7ff}
+.inventory-empty-state{display:grid;justify-items:center;gap:9px;padding:42px 20px;border:1px dashed #5489ce66;border-radius:18px;background:radial-gradient(circle at 50% 0,#2577ff1c,transparent 65%),#111b2a;text-align:center}
+.inventory-empty-state .state-icon{color:#69d7ff;font-size:28px}
+.inventory-empty-state strong{color:#edf5ff;font-size:16px}
+.inventory-empty-state small{max-width:430px;color:#94a9c5;font-size:11px;line-height:1.6}
+.telegram-verified-state{align-self:center;padding:9px 13px;border:1px solid #39d9a455;border-radius:999px;background:#12b98120;color:#62edc0;font-size:11px;font-weight:700;white-space:nowrap}
+.asset-offer-button:disabled{opacity:.55;filter:saturate(.55);cursor:not-allowed;background:linear-gradient(110deg,#33445d,#3c4560);color:#b7c6dc;box-shadow:none}
+@media(max-width:520px){.inventory-connect-panel{align-items:flex-start;padding:17px;gap:13px}.inventory-connect-icon{flex-basis:46px;height:46px;border-radius:14px;font-size:24px}.inventory-connect-panel h2{font-size:16px}.inventory-connect-panel p{font-size:11px}}
