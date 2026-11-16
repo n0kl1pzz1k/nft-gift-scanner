@@ -50,7 +50,7 @@ class TonConnectApiTests(unittest.TestCase):
             "state_init": "c3RhdGU=",
             "proof": {
                 "timestamp": 1800000000,
-                "domain": {"lengthBytes": 39, "value": "hassle-nft-market.fj7kmzkhn9.workers.dev"},
+                "domain": {"lengthBytes": 40, "value": "hassle-nft-market.fj7kmzkhn9.workers.dev"},
                 "signature": "c2ln",
                 "payload": challenge,
             },
