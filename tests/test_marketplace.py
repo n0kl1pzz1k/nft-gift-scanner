@@ -36,7 +36,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             },
         )
         self.auth_patch.start()
-        self.feature_flag_patch = patch.dict(os.environ, {"HASSLE_VERIFIED_ASSETS_ENABLED": "true"})
+        self.feature_flag_patch = patch.dict(os.environ, {"HASSLE_VERIFIED_ASSETS_ENABLED": "true", "HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "true"})
         self.feature_flag_patch.start()
         self.credential_patch = patch.object(
             api,
@@ -114,6 +114,58 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(regular.status_code, 200)
         self.assertFalse(regular.json()["is_admin"])
 
+
+    def test_production_listing_requires_verified_asset_even_if_feature_flag_is_enabled(self):
+        with patch.dict(os.environ, {
+            "HASSLE_VERIFIED_ASSETS_ENABLED": "true",
+            "HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "false",
+        }):
+            response = self.client.post(
+                "/api/marketplace/orders",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"kind": "listing", "title": "Invented gift", "price": "2", "currency": "TON"},
+            )
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("verified asset", response.json()["detail"].lower())
+
+    def test_verified_asset_registration_is_idempotent_and_listing_uses_server_metadata(self):
+        attestation = {
+            "source": "ton_nft", "external_asset_id": "EQB_verified_asset_001",
+            "owner_telegram_id": "101", "title": "Verified Telegram Gift",
+            "asset_type": "gift", "image_url": "https://cdn.example/gift.webp",
+            "verification_method": "ton_connect_proof",
+            "verification_reference": "one-time-server-verification-reference",
+        }
+        asset = marketplace.register_verified_asset(**attestation)
+        repeated = marketplace.register_verified_asset(**attestation)
+        self.assertEqual(asset["id"], repeated["id"])
+        with patch.dict(os.environ, {"HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "false"}):
+            response = self.client.post(
+                "/api/marketplace/orders",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"kind": "listing", "asset_id": asset["id"], "title": "Seller spoofed title", "price": "2", "currency": "TON"},
+            )
+        self.assertEqual(response.status_code, 201)
+        item = response.json()["item"]
+        self.assertEqual(item["title"], "Verified Telegram Gift")
+        self.assertEqual(item["asset_type"], "gift")
+        self.assertEqual(item["asset_id"], asset["id"])
+        self.assertEqual(item["image_url"], "https://cdn.example/gift.webp")
+
+    def test_verified_asset_cannot_be_listed_by_another_telegram_user(self):
+        asset = marketplace.register_verified_asset(
+            source="ton_nft", external_asset_id="EQB_owned_by_a",
+            owner_telegram_id="101", title="Owner A gift", asset_type="gift",
+            image_url="", verification_method="ton_connect_proof",
+            verification_reference="one-time-server-verification-reference",
+        )
+        with patch.dict(os.environ, {"HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "false"}):
+            response = self.client.post(
+                "/api/marketplace/orders",
+                headers={"X-Telegram-Init-Data": "user-b"},
+                json={"kind": "listing", "asset_id": asset["id"], "title": "Spoof", "price": "2", "currency": "TON"},
+            )
+        self.assertEqual(response.status_code, 403)
 
     def test_listing_and_offer_mutations_are_closed_without_verified_asset_pipeline(self):
         with patch.dict(os.environ, {"HASSLE_VERIFIED_ASSETS_ENABLED": "false"}):
