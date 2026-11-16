@@ -38,6 +38,8 @@
   let showSellModal = $state(false);
   let showOfferModal = $state(false);
   let selectedOfferOrder = $state<MarketplaceOrder | null>(null);
+  let selectedAsset = $state<MarketplaceOrder | null>(null);
+  let showAssetDetails = $state(false);
   let offerSubmitBusy = $state(false);
   let orders = $state<MarketplaceOrder[]>([]);
   let favoriteOrderIds = $state<string[]>([]);
@@ -759,7 +761,7 @@
         {:else}
           <div class="asset-grid">
             {#each marketAssets as order (order.id)}
-              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} {lang} onFavorite={()=>toggleFavoriteOrder(order)} onOffer={()=>{if(!signedIn){notice=t.authHint;haptic('error');}else{selectedOfferOrder=order;offerAmount=String(order.price);offerNote='';showOfferModal=true;haptic('medium');}}} />
+              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} {lang} onFavorite={()=>toggleFavoriteOrder(order)} onOffer={()=>{if(!signedIn){notice=t.authHint;haptic('error');}else{selectedOfferOrder=order;offerAmount=String(order.price);offerNote='';showOfferModal=true;haptic('medium');}}} onOpen={()=>{selectedAsset=order;showAssetDetails=true;haptic();}} />
             {/each}
           </div>
           {#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}
@@ -808,6 +810,25 @@
         </div>
       {:else}
         <div class="state-panel inventory-empty"><span class="state-icon">◈</span><strong>{lang==='ru'?'Твой инвентарь пока пуст':'Your inventory is empty'}</strong><small>{lang==='ru'?'Добавь первый актив или подключи TON-кошелёк, чтобы увидеть NFT':'List your first asset or connect a TON wallet to discover your NFTs'}</small><button class="asset-offer-button" onclick={()=>{showSellModal=true;haptic();}}>{lang==='ru'?'Выставить актив':'List an asset'} →</button></div>
+      {/if}
+      {#if showAssetDetails && selectedAsset}
+        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showAssetDetails=false;}}>
+          <div class="sell-modal asset-detail-modal" role="dialog" aria-modal="true" aria-labelledby="asset-detail-title">
+            <button class="modal-close" onclick={()=>showAssetDetails=false} aria-label="Close">×</button>
+            <div class={'asset-detail-art asset-art-'+assetTypeOf(selectedAsset.title)}>
+              {#if assetTypeOf(selectedAsset.title)==='username'}<span class="asset-at">@</span><strong>{selectedAsset.title.replace(/^@/,'')}</strong><small>TELEGRAM USERNAME</small>
+              {:else if assetTypeOf(selectedAsset.title)==='number'}<span class="asset-number">{selectedAsset.title.replace(/[^0-9+]/g,'') || '888'}</span><small>ANONYMOUS NUMBER</small>
+              {:else}<span class="asset-gift-symbol">✳</span><small>TELEGRAM NFT GIFT</small>{/if}
+            </div>
+            <div class="eyebrow">HASSLE NFT · ASSET</div><h2 id="asset-detail-title">{selectedAsset.title}</h2>
+            <div class="asset-detail-meta"><span>ID <b>#{selectedAsset.id}</b></span><span>{lang==='ru'?'Продавец':'Seller'} <b>{selectedAsset.owner}</b></span></div>
+            <div class="asset-detail-price"><small>{lang==='ru'?'Цена продавца':'Seller price'}</small><strong>{selectedAsset.price} {selectedAsset.currency==='XTR'?'⭐ Stars':'TON'}</strong></div>
+            {#if selectedAsset.note}<p class="asset-detail-note">{selectedAsset.note}</p>{/if}
+            <div class="asset-detail-unavailable"><strong>{lang==='ru'?'Характеристики актива':'Asset traits'}</strong><span>{lang==='ru'?'Метаданные и traits появятся после подключения источника NFT-метаданных.':'Metadata and traits will appear after an NFT metadata source is connected.'}</span></div>
+            <button class="ton-primary offer-submit" onclick={()=>{if(!signedIn){notice=t.authHint;haptic('error');return;}selectedOfferOrder=selectedAsset;offerAmount=String(selectedAsset.price);offerNote='';showAssetDetails=false;showOfferModal=true;}}>{t.sendOffer} ↗</button>
+            <button class="asset-buy-disabled" disabled title={lang==='ru'?'Покупка включится после запуска защищённой оплаты и escrow':'Buying will be enabled after secure payments and escrow are live'}>{lang==='ru'?'Покупка скоро':'Buy · Coming soon'}</button>
+          </div>
+        </div>
       {/if}
       {#if showOfferModal && selectedOfferOrder}
         <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !offerSubmitBusy)showOfferModal=false;}}>
