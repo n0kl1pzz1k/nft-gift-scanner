@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import AssetCard from './lib/AssetCard.svelte';
+  import BottomNav from './lib/BottomNav.svelte';
 
   type MarketplaceOrder = {
     id: string; kind: 'listing' | 'buy-order'; title: string;
@@ -745,20 +747,7 @@
         {:else}
           <div class="asset-grid">
             {#each marketAssets as order (order.id)}
-              <article class="asset-card">
-                <div class={'asset-art asset-art-'+assetTypeOf(order.title)}>
-                  {#if assetTypeOf(order.title)==='username'}<span class="asset-at">@</span><strong>{order.title.replace(/^@/,'')}</strong><small>TELEGRAM USERNAME</small>
-                  {:else if assetTypeOf(order.title)==='number'}<span class="asset-number">{order.title.replace(/[^0-9+]/g,'') || '888'}</span><small>ANONYMOUS NUMBER</small>
-                  {:else}<span class="asset-gift-symbol">✳</span><small>TELEGRAM NFT GIFT</small>{/if}
-                  <span class="asset-type-pill">{assetTypeName(assetTypeOf(order.title))}</span>
-                  <button class={'asset-favorite '+(favoriteOrderIds.includes(order.id)?'is-favorite':'')} onclick={()=>toggleFavoriteOrder(order)} aria-label="Toggle favorite">{favoriteOrderIds.includes(order.id)?'♥':'♡'}</button>
-                </div>
-                <div class="asset-card-content">
-                  <div class="asset-title-row"><h3>{order.title}</h3><span class="asset-id">#{order.id.slice(-5)}</span></div>
-                  <p class="asset-owner">{order.owner}{order.note?' · '+order.note:''}</p>
-                  <div class="asset-card-footer"><div><small>{lang==='ru'?'Цена':'Price'}</small><strong>{order.price} <span>{order.currency==='XTR'?'⭐':'TON'}</span></strong></div><button class="asset-offer-button" onclick={()=>{if(!signedIn){notice=t.authHint;haptic('error');}else{offerAmount=String(order.price);offerNote='';view='offers';haptic();}}}>{lang==='ru'?'Make offer':'Make offer'} ↗</button></div>
-                </div>
-              </article>
+              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} {lang} onFavorite={()=>toggleFavoriteOrder(order)} onOffer={()=>{if(!signedIn){notice=t.authHint;haptic('error');}else{offerAmount=String(order.price);offerNote='';view='offers';haptic();}}} />    </article>
             {/each}
           </div>
           {#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}
@@ -917,8 +906,4 @@
   </main>
 </div>
 
-<nav class="mobile-nav">
-  {#each [{id:'orders',label:'Market',icon:'▦'},{id:'create',label:'Inventory',icon:'◈'},{id:'offers',label:'Activity',icon:'↗'},{id:'profile',label:t.profile,icon:'◉'}] as item}
-    <button class:active={view===item.id} onclick={()=>{haptic();view=item.id as View;notice='';}}><span>{item.icon}</span><small>{item.label}</small></button>
-  {/each}
-</nav>
+<BottomNav active={view as 'orders'|'create'|'offers'|'profile'} onNavigate={(target)=>{haptic();view=target;notice='';}} />
