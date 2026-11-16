@@ -548,7 +548,16 @@ def register_verified_asset(*, source: str, external_asset_id: str, owner_telegr
             if existing["owner_telegram_id"] != owner_telegram_id:
                 raise ValueError("This asset is already registered to another owner")
             if existing["status"] != "verified":
-                raise ValueError("This asset verification has been revoked")
+                if existing["owner_telegram_id"] != owner_telegram_id:
+                    raise ValueError("This asset was previously registered to another owner")
+                conn.execute(
+                    "UPDATE verified_assets SET status = 'verified', revoked_at = NULL WHERE id = ?",
+                    (existing["id"],),
+                )
+                conn.commit()
+                existing = conn.execute(
+                    "SELECT * FROM verified_assets WHERE id = ?", (existing["id"],)
+                ).fetchone()
             return {"id": existing["id"], "source": existing["source"],
                     "external_asset_id": existing["external_asset_id"],
                     "owner_telegram_id": existing["owner_telegram_id"],
