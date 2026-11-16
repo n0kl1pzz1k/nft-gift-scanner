@@ -78,11 +78,11 @@
   let orderKindFilter = $state<'all' | 'listing' | 'buy-order'>('all');
 
   const ru = {
-    market: 'Каталог', orders: 'Маркет', offersTitle: 'Офферы', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'HASSLE NFT', catalogOnly: 'Маркетплейс Telegram NFT-подарков. Размещай объявления, отправляй офферы и находи подарки.',
-    headline: 'Подарки, которые находят своих владельцев', subtitle: 'Маркетплейс Telegram NFT-подарков от n0kl1pzz1k.',
-    brandEyebrow: 'ОТКРЫВАЙ РЕДКОЕ · HASSLE NFT', heroLine1: 'Telegram Gifts.', heroLine2: 'Открой редкие подарки.', heroDescription: 'Исследуй коллекции Telegram-подарков, объявления и историю характеристик в одном месте.', openCatalogue: 'Открыть каталог', connectedLabel: 'HASSLE NFT · HASSLE NFT MARKET', exploreMarket: 'ИССЛЕДУЙ МАРКЕТ', collectionsTitle: 'Коллекции', collectionsCount: 'коллекций в каталоге', discoverLabel: 'ОТКРЫВАЙ', portals: 'Каталог подарков', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
-    listings: 'Каталог подарков', results: 'найдено', loading: 'Загружаем каталог…', loadMore: 'Показать ещё',
-    empty: 'По этому запросу ничего не найдено.', failed: 'Не удалось загрузить каталог.',
+    market: 'Маркет', orders: 'Маркет', offersTitle: 'Офферы', create: 'Разместить', favorites: 'Избранное', profile: 'Профиль', readonly: 'HASSLE NFT', catalogOnly: 'Независимый маркетплейс Telegram NFT-подарков. Покупай, продавай и договаривайся напрямую.',
+    headline: 'Твой рынок Telegram NFT-подарков', subtitle: 'Маркетплейс Telegram NFT-подарков от n0kl1pzz1k.',
+    brandEyebrow: 'ПОКУПАЙ · ПРОДАВАЙ · HASSLE NFT', heroLine1: 'Telegram Gifts.', heroLine2: 'Твой маркет. Твои сделки.', heroDescription: 'Публикуй предложения, находи покупателей и отправляй офферы на Telegram NFT-подарки.', openCatalogue: 'Открыть маркет', connectedLabel: 'HASSLE NFT · HASSLE NFT MARKET', exploreMarket: 'МАРКЕТПЛЕЙС HASSLE NFT', collectionsTitle: 'Объявления', collectionsCount: 'предложений сообщества', discoverLabel: 'МАРКЕТ', portals: 'Объявления сообщества', search: 'Название или номер подарка', min: 'Цена от', max: 'Цена до',
+    listings: 'Объявления', results: 'найдено', loading: 'Загружаем маркетплейс…', loadMore: 'Показать ещё',
+    empty: 'Пока нет подходящих объявлений.', failed: 'Не удалось загрузить маркетплейс.',
     details: 'О подарке', floor: 'Флор', price: 'Цена', traits: 'Характеристики',
     createTitle: 'Создать объявление', sell: 'Предложение', buy: 'Заявка на поиск', titleLabel: 'Название подарка',
     priceLabel: 'Цена', noteLabel: 'Комментарий', publish: 'Опубликовать объявление',
@@ -96,16 +96,16 @@
     signIn: 'Подтвердить Telegram', guest: 'Гость', authHint: 'Открой Mini App через Telegram, чтобы подтвердить профиль.',
     signed: 'Telegram подтверждён', profileText: 'Профиль Telegram и управление публичной карточкой продавца.', sellerCardTitle: 'Публичная карточка продавца', sellerDisplayName: 'Отображаемое имя', sellerBio: 'О себе', sellerSave: 'Сохранить профиль', sellerSaved: 'Профиль продавца обновлён.', sellerProfileId: 'Публичный ID',
     favoritesTitle: 'Избранные подарки', noFavorites: 'Сохранённых объявлений пока нет.',
-    save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Объявление опубликовано.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Оборот', statsVolumeHint: 'По данным маркетплейса', statsCatalog: 'Подарков в каталоге', stars: 'Stars', ton: 'TON',
-    noImage: 'GIFT', online: 'Каталог подарков', refresh: 'Обновить', all: 'Все', orderStatus: 'Статус', orderKind: 'Тип заявки', activeOrders: 'Активные', matchedOrders: 'Закрытые', cancelledOrders: 'Снятые', listingsOnly: 'Предложения', buyRequestsOnly: 'Заявки на поиск', invalidPrice: 'Проверь диапазон цены: значения должны быть неотрицательными, а минимальная цена — не выше максимальной.',
+    save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Объявление опубликовано.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Оборот', statsVolumeHint: 'По данным маркетплейса', statsCatalog: 'Объявлений всего', stars: 'Stars', ton: 'TON',
+    noImage: 'GIFT', online: 'HASSLE NFT Market', refresh: 'Обновить', all: 'Все', orderStatus: 'Статус', orderKind: 'Тип заявки', activeOrders: 'Активные', matchedOrders: 'Закрытые', cancelledOrders: 'Снятые', listingsOnly: 'Предложения', buyRequestsOnly: 'Заявки на поиск', invalidPrice: 'Проверь диапазон цены: значения должны быть неотрицательными, а минимальная цена — не выше максимальной.',
     sourceStatusTitle: 'СОСТОЯНИЕ ИСТОЧНИКОВ', sourceStatusSubtitle: 'Что подключено к приложению', sourceCatalogue: 'Внешний каталог', sourceChanges: 'Изменения подарков', sourceDailyFloors: 'История floor-цен', sourceStatusChecked: 'Проверено', sourceStatusChecking: 'Проверяем статус…', sourceStatusUnavailable: 'Не удалось получить статус API.', sourceRefreshInterval: 'Интервал фонового обновления', sourceConfigured: 'Настроен · только чтение', sourceNeedsKey: 'Требуется API-ключ', sourcePublic: 'Публичный источник', sourceDaily: 'Публичная ежедневная история', sourceUnknown: 'Нет данных',
   };
   const en = {
-    market: 'Catalogue', orders: 'Market', offersTitle: 'Offers', create: 'Create listing', favorites: 'Favorites', profile: 'Profile', readonly: 'HASSLE NFT', catalogOnly: 'Telegram NFT gift marketplace. Browse listings and manage your offers in one place.',
+    market: 'Market', orders: 'Market', offersTitle: 'Offers', create: 'Create listing', favorites: 'Favorites', profile: 'Profile', readonly: 'HASSLE NFT', catalogOnly: 'An independent Telegram NFT gift marketplace. Buy, sell and negotiate directly.',
     headline: 'Discover gifts worth keeping', subtitle: 'HASSLE NFT is a Telegram NFT gift marketplace.',
-    brandEyebrow: 'DISCOVER THE RARE · HASSLE NFT', heroLine1: 'Telegram Gifts.', heroLine2: 'Discover rare finds.', heroDescription: 'Explore Telegram gift collections, marketplace listings and item history in one place.', openCatalogue: 'Explore catalogue', connectedLabel: 'HASSLE NFT MARKETPLACE', exploreMarket: 'EXPLORE THE MARKET', collectionsTitle: 'Collections', collectionsCount: 'collections in catalogue', discoverLabel: 'DISCOVER', portals: 'Single catalogue source · Gift Market', search: 'Gift name or number', min: 'Min price', max: 'Max price',
-    listings: 'Marketplace gifts', results: 'found', loading: 'Loading catalogue…', loadMore: 'Load more',
-    empty: 'No gifts match this search.', failed: 'Could not load the catalogue.',
+    brandEyebrow: 'BUY · SELL · HASSLE NFT', heroLine1: 'Telegram Gifts.', heroLine2: 'Your market. Your deals.', heroDescription: 'Publish listings, find buyers and send offers for Telegram NFT gifts.', openCatalogue: 'Open marketplace', connectedLabel: 'HASSLE NFT MARKETPLACE', exploreMarket: 'HASSLE NFT MARKETPLACE', collectionsTitle: 'Listings', collectionsCount: 'community offers', discoverLabel: 'MARKET', portals: 'Community listings', search: 'Gift name or number', min: 'Min price', max: 'Max price',
+    listings: 'Marketplace listings', results: 'found', loading: 'Loading marketplace…', loadMore: 'Load more',
+    empty: 'No matching listings yet.', failed: 'Could not load the marketplace.',
     details: 'Gift details', floor: 'Floor', price: 'Price', traits: 'Attributes',
     createTitle: 'Create an order', sell: 'Sell listing', buy: 'Buy request', titleLabel: 'Gift name',
     priceLabel: 'Price', noteLabel: 'Note', publish: 'Publish listing',
@@ -119,8 +119,8 @@
     signIn: 'Verify Telegram', guest: 'Guest', authHint: 'Open the Mini App in Telegram to verify your profile.',
     signed: 'Telegram verified', profileText: 'Your Telegram account and public seller card.', sellerCardTitle: 'Public seller card', sellerDisplayName: 'Display name', sellerBio: 'About', sellerSave: 'Save profile', sellerSaved: 'Seller profile updated.', sellerProfileId: 'Public ID',
     favoritesTitle: 'Saved gifts', noFavorites: 'No saved marketplace listings yet.',
-    save: 'Save', saved: 'Saved', currency: 'TON', success: 'Listing published.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Volume', statsVolumeHint: 'Marketplace records', statsCatalog: 'Catalogue gifts', stars: 'Stars', ton: 'TON',
-    noImage: 'GIFT', online: 'Gift marketplace', refresh: 'Refresh', all: 'All', orderStatus: 'Status', orderKind: 'Order type', activeOrders: 'Active', matchedOrders: 'Closed', cancelledOrders: 'Cancelled', listingsOnly: 'Listings', buyRequestsOnly: 'Buy requests', invalidPrice: 'Check the price range: values must be non-negative and the minimum cannot exceed the maximum.',
+    save: 'Save', saved: 'Saved', currency: 'TON', success: 'Listing published.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Volume', statsVolumeHint: 'Marketplace records', statsCatalog: 'Total listings', stars: 'Stars', ton: 'TON',
+    noImage: 'GIFT', online: 'HASSLE NFT Market', refresh: 'Refresh', all: 'All', orderStatus: 'Status', orderKind: 'Order type', activeOrders: 'Active', matchedOrders: 'Closed', cancelledOrders: 'Cancelled', listingsOnly: 'Listings', buyRequestsOnly: 'Buy requests', invalidPrice: 'Check the price range: values must be non-negative and the minimum cannot exceed the maximum.',
     sourceStatusTitle: 'SOURCE STATUS', sourceStatusSubtitle: 'Connected data sources', sourceCatalogue: 'Marketplace catalogue', sourceChanges: 'Gift metadata changes', sourceDailyFloors: 'Floor price history', sourceStatusChecked: 'Checked', sourceStatusChecking: 'Checking status…', sourceStatusUnavailable: 'Could not load API status.', sourceRefreshInterval: 'Background refresh interval', sourceConfigured: 'Configured · read-only', sourceNeedsKey: 'API key required', sourcePublic: 'Public source', sourceDaily: 'Public daily history', sourceUnknown: 'No data',
   };
   const t = $derived(lang === 'ru' ? ru : en);
