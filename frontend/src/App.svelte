@@ -493,8 +493,14 @@
       haptic('error');
       return;
     }
-    if (!createTitle.trim() || !Number.isFinite(price) || price <= 0 || (createCurrency === 'XTR' && !Number.isInteger(price))) {
-      notice = createCurrency === 'XTR' ? (lang === 'ru' ? 'Для Stars укажи целую положительную цену.' : 'Enter a positive whole-number price for Stars.') : (lang === 'ru' ? 'Укажи название актива и положительную цену.' : 'Enter an asset name and a positive price.');
+    if (!createTitle.trim()) {
+      notice = lang === 'ru' ? 'Укажи название актива.' : 'Enter an asset name.';
+      haptic('error');
+      return;
+    }
+    if (!Number.isFinite(price) || price <= 0 || (createCurrency === 'XTR' && !Number.isInteger(price))) {
+      notice = createCurrency === 'XTR' ? (lang === 'ru' ? 'Для Stars укажи целую положительную цену.' : 'Enter a positive whole-number price for Stars.') : (lang === 'ru' ? 'Укажи положительную цену.' : 'Enter a positive price.');
+      haptic('error');
       return;
     }
     if (!window.Telegram?.WebApp?.initData) {
