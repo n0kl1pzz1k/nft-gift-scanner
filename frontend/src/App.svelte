@@ -74,6 +74,7 @@
   let telegramUsername = $state('');
   let telegramPremium = $state(false);
   let signedIn = $state(false);
+  const walletConnected = false;
   let authToken = $state('');
   let isAdmin = $state(false);
   let notice = $state('');
@@ -451,6 +452,10 @@
   }
 
   async function createOffer(orderId: string): Promise<boolean> {
+    if (!walletConnected) {
+      notice = lang === 'ru' ? 'Офферы откроются после подключения TON-кошелька и подтверждения актива в инвентаре.' : 'Offers unlock after TON Connect and verified asset ownership in your inventory.';
+      return false;
+    }
     const amount = Number(offerAmount);
     if (!Number.isFinite(amount) || amount <= 0 || (selectedOfferOrder?.currency === 'XTR' && !Number.isInteger(amount))) { notice = selectedOfferOrder?.currency === 'XTR' ? (lang === 'ru' ? 'Сумма оффера в Stars должна быть целым числом.' : 'Star offers must be a whole number.') : (lang === 'ru' ? 'Укажи положительную сумму оффера.' : 'Enter a positive offer amount.'); return false; }
     try {
@@ -482,6 +487,8 @@
   }
 
   async function createOrder() {
+    notice = lang === 'ru' ? 'Сначала подключи TON-кошелёк и импортируй настоящий актив в инвентарь. Ручное создание карточек отключено.' : 'Connect TON Connect and import a real asset into inventory first. Manual asset creation is disabled.';
+    return;
     if (createOrderBusy) return;
     const price = Number(createPrice);
     if (createKind === 'listing' && assetTypeOf(createTitle) !== createAssetType) {
@@ -626,6 +633,7 @@
   }
 
   async function telegramLogin(showNotice = true) {
+    if (signedIn) return;
     const initData = window.Telegram?.WebApp?.initData || '';
     if (!initData) {
       isAdmin = false;
@@ -633,9 +641,8 @@
       if (showNotice) notice = t.authHint;
       return;
     }
-    // Fail closed while refreshing the signed Telegram session.
-    isAdmin = false;    signedIn = false;
-    authToken = '';
+    // Keep the successful session visible; never exchange the same initData twice from this view.
+    isAdmin = false;
     try {
       const response = await fetch(API + '/api/auth/telegram', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -784,7 +791,7 @@
         {:else}
           <div class="asset-grid">
             {#each marketAssets as order (order.id)}
-              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} {lang} sellerProfileId={order.seller_profile_id || null} onSeller={()=>openSellerProfile(order.seller_profile_id || '')} onFavorite={()=>toggleFavoriteOrder(order)} onOffer={()=>{if(!signedIn){notice=t.authHint;haptic('error');}else{selectedOfferOrder=order;offerAmount=String(order.price);offerNote='';showOfferModal=true;haptic('medium');}}} onOpen={()=>{selectedAsset=order;showAssetDetails=true;haptic();}} />
+              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} {lang} sellerProfileId={order.seller_profile_id || null} onSeller={()=>openSellerProfile(order.seller_profile_id || '')} onFavorite={()=>toggleFavoriteOrder(order)} canOffer={walletConnected} onOffer={()=>{notice=lang==='ru'?'Офферы откроются после подключения TON-кошелька и подтверждения актива в инвентаре.':'Offers unlock after TON Connect and verified inventory ownership.';haptic('error');}} onOpen={()=>{selectedAsset=order;showAssetDetails=true;haptic();}} />
             {/each}
           </div>
           {#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}
@@ -839,7 +846,7 @@
       {#if favoriteOrders.length}<div class="orders-list">{#each favoriteOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{order.owner}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div><button class="heart-button hearted" onclick={()=>toggleFavoriteOrder(order)}>♥</button></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='orders'}>{lang==='ru'?'К активам':'Browse assets'}</button></div>{/if}
     {:else}
       <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.profile}</h1></section>
-      <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div><button class="publish-button" onclick={()=>telegramLogin()}>{t.signIn} →</button></article>
+      <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div>{#if !signedIn}<button class="publish-button" onclick={()=>telegramLogin()}>{t.signIn} →</button>{:else}<span class="telegram-verified-state">✓ {lang==='ru'?'Подтверждено':'Verified'}</span>{/if}</article>
       <article class="profile-card wallet-card">
         <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">TON CONNECT</div><h2>{lang==='ru'?'Кошелёк':'Wallet'}</h2><p>{lang==='ru'?'Кошелёк ещё не подключён. Подключение и отображение баланса появятся после интеграции TON Connect.':'No wallet connected. Wallet connection and balance display will be enabled after TON Connect integration.'}</p></div><span class="wallet-status">{lang==='ru'?'Не подключён':'Not connected'}</span>
       </article>
@@ -938,7 +945,7 @@
             <div class="asset-detail-price"><small>{lang==='ru'?'Цена продавца':'Seller price'}</small><strong>{selectedAsset.price} {selectedAsset.currency==='XTR'?'⭐ Stars':'TON'}</strong></div>
             {#if selectedAsset.note}<p class="asset-detail-note">{selectedAsset.note}</p>{/if}
             <div class="asset-detail-unavailable"><strong>{lang==='ru'?'Характеристики актива':'Asset traits'}</strong><span>{lang==='ru'?'Метаданные и traits появятся после подключения источника NFT-метаданных.':'Metadata and traits will appear after an NFT metadata source is connected.'}</span></div>
-            <button class="ton-primary offer-submit" onclick={()=>{if(!signedIn){notice=t.authHint;haptic('error');return;}const asset=selectedAsset;if(!asset)return;selectedOfferOrder=asset;offerAmount=String(asset.price);offerNote='';showAssetDetails=false;showOfferModal=true;}}>{t.sendOffer} ↗</button>
+            <button class="ton-primary offer-submit" disabled={!walletConnected} title={lang==='ru'?'Сначала подключи кошелёк и подтверди владение активом':'Connect a wallet and verify asset ownership first'}>{lang==='ru'?'Офферы после TON Connect':'Offers after TON Connect'}</button>
             {#if selectedAsset && !selectedAsset.isMine}<button class="report-asset-button" onclick={()=>{const asset=selectedAsset;if(!asset)return;if(!signedIn){notice=t.authHint;haptic('error');return;}startOrderReport(asset.id);}}>{t.reportOrder}</button>{/if}
             <button class="asset-buy-disabled" disabled title={lang==='ru'?'Покупка включится после запуска защищённой оплаты и escrow':'Buying will be enabled after secure payments and escrow are live'}>{lang==='ru'?'Покупка скоро':'Buy · Coming soon'}</button>
           </div>
@@ -974,20 +981,7 @@
           </div>
         </div>
       {/if}
-      {#if showSellModal}
-        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !createOrderBusy)showSellModal=false;}}>
-          <div class="sell-modal" role="dialog" aria-modal="true" aria-labelledby="sell-title">
-            <button class="modal-close" onclick={()=>showSellModal=false} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={createOrderBusy}>×</button>
-            <div class="eyebrow">HASSLE NFT · SELL</div><h2 id="sell-title">{lang==='ru'?'Выставить актив':'List an asset'}</h2><p>{lang==='ru'?'Добавь актив в каталог маркетплейса':'Add an asset to the marketplace'}</p>
-            <div class="sell-type-grid"><button class:chosen={createAssetType==='gift'} type="button" onclick={()=>createAssetType='gift'}>✳ <span>Telegram Gift</span></button><button class:chosen={createAssetType==='username'} type="button" onclick={()=>createAssetType='username'}>＠ <span>Username</span></button><button class:chosen={createAssetType==='number'} type="button" onclick={()=>createAssetType='number'}>888 <span>Number</span></button></div>
-            <label>{lang==='ru'?'Название актива':'Asset name'}<input class="form-input" bind:value={createTitle} maxlength="120" placeholder={createAssetType==='username'?'@username':createAssetType==='number'?'+888 123 4567':'Plush Pepe #042'}/></label>
-            <label>{lang==='ru'?'Цена':'Price'}<div class="currency-choice"><button class:chosen={createCurrency==='TON'} onclick={()=>createCurrency='TON'}>TON</button><button class:chosen={createCurrency==='XTR'} onclick={()=>createCurrency='XTR'}>⭐ Stars</button></div><input class="form-input" type="number" min="0.01" step={createCurrency==='XTR'?'1':'0.01'} bind:value={createPrice} placeholder={createCurrency==='XTR'?'100':'1.25'}/></label>
-            <label>{lang==='ru'?'Описание':'Description'}<textarea class="form-input note-input" bind:value={createNote} maxlength="300"></textarea></label>
-            <button class="publish-button" onclick={createOrder} disabled={createOrderBusy}>{createOrderBusy?(lang==='ru'?'Публикуем…':'Publishing…'):(lang==='ru'?'Выставить на маркет':'List on market')} <span>→</span></button>
-            <small class="sell-modal-hint">{lang==='ru'?'Тип актива определяется по его идентификатору. Передача и проверка владения через TON Connect ещё не подключены.':'Asset type is inferred from its identifier. On-chain ownership verification and TON Connect transfer are not connected yet.'}</small>
-          </div>
-        </div>
-      {/if}
+
 
     {#if notice}<div class="toast" role="status">{notice}<button onclick={()=>notice=''}>×</button></div>{/if}
     <footer class="footer"><span>✳ HASSLE NFT</span><span>Telegram NFT Gift Marketplace · n0kl1pzz1k</span><span>© 2026</span></footer>
