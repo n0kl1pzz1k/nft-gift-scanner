@@ -501,6 +501,11 @@ def _test_unverified_assets_allowed() -> bool:
     return os.getenv("HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS", "false").strip().lower() == "true"
 
 
+def _test_ton_owner_recheck_skipped() -> bool:
+    """Never configure in production; allows isolated unit tests to bypass the indexer."""
+    return os.getenv("HASSLE_TEST_SKIP_TON_OWNER_RECHECK", "false").strip().lower() == "true"
+
+
 def register_verified_asset(*, source: str, external_asset_id: str, owner_telegram_id: str,
                             title: str, asset_type: str, image_url: str,
                             verification_method: str, verification_reference: str) -> dict[str, Any]:
@@ -1238,7 +1243,7 @@ def create_marketplace_router(
                 raise HTTPException(status_code=404, detail="Verified asset not found")
             if preflight_asset["owner_telegram_id"] != owner_id:
                 raise HTTPException(status_code=403, detail="Only the verified asset owner can list it")
-            if preflight_asset["source"] == "ton_nft":
+            if preflight_asset["source"] == "ton_nft" and not _test_ton_owner_recheck_skipped():
                 from ton_connect import list_verified_wallets
                 from ton_nft_inventory import fetch_nft_owner
                 linked_wallets = [
