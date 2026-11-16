@@ -584,6 +584,34 @@
     }
   }
 
+  async function restoreTelegramSession(): Promise<boolean> {
+    let savedToken = '';
+    try { savedToken = sessionStorage.getItem('hassle-nft-session-v1') || ''; } catch {}
+    if (!savedToken.startsWith('grs_')) return false;
+    authToken = savedToken;
+    try {
+      const response = await fetch(API + '/api/auth/me', { headers: authHeaders() });
+      const data = await response.json();
+      if (!response.ok || data.authenticated !== true || !data.user) throw new Error('Session expired');
+      telegramUser = data.user.first_name || 'Telegram user';
+      telegramPhoto = data.user.photo_url || '';
+      telegramUsername = data.user.username ? '@' + data.user.username : '';
+      telegramPremium = data.user.is_premium === true;
+      isAdmin = data.is_admin === true;
+      signedIn = true;
+      await loadMarketplace();
+      await loadOffersAndDeals();
+      await loadSellerProfile();
+      return true;
+    } catch {
+      authToken = '';
+      signedIn = false;
+      isAdmin = false;
+      try { sessionStorage.removeItem('hassle-nft-session-v1'); } catch {}
+      return false;
+    }
+  }
+
   async function telegramLogin(showNotice = true) {
     if (signedIn || authBusy) return;
     const initData = window.Telegram?.WebApp?.initData || '';
@@ -605,6 +633,7 @@
       if (!response.ok) throw new Error(data.detail || 'Authentication failed');
       if (typeof data.session_token !== 'string' || !data.session_token.startsWith('grs_')) throw new Error('Server did not issue a valid session');
       authToken = data.session_token;
+      try { sessionStorage.setItem('hassle-nft-session-v1', authToken); } catch {}
       telegramUser = data.user?.first_name || 'Telegram user';
       telegramPhoto = data.user?.photo_url || '';
       telegramUsername = data.user?.username ? '@' + data.user.username : '';
@@ -620,6 +649,7 @@
       isAdmin = false;
       signedIn = false;
       authToken = '';
+      try { sessionStorage.removeItem('hassle-nft-session-v1'); } catch {}
       telegramUser = '';
       telegramPhoto = '';
       telegramUsername = '';
@@ -656,8 +686,11 @@
       const savedOrders = JSON.parse(localStorage.getItem('hassle-nft-favorite-orders-v1') || '[]');
       if (Array.isArray(savedOrders)) favoriteOrderIds = savedOrders.filter((id): id is string => typeof id === 'string');
     } catch {}
-    void loadMarketplace();
-    if (window.Telegram?.WebApp?.initData) void telegramLogin(false);
+    void restoreTelegramSession().then(restored => {
+      if (restored) return;
+      if (window.Telegram?.WebApp?.initData) void telegramLogin(false);
+      else void loadMarketplace();
+    });
     return () => webApp?.offEvent?.('themeChanged', syncTelegramTheme);
   });
 </script>
