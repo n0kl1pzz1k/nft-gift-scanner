@@ -767,3 +767,22 @@ html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202
 
 
 .business-connection-card{margin:14px 0;padding:14px;border:1px solid #ffffff17;border-radius:14px;background:linear-gradient(135deg,#151b2b,#101522);display:flex;flex-direction:column;gap:10px}.business-connection-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.business-connection-heading strong{font-size:12px;color:#e7edff}.business-connection-heading>span{font-size:9px;padding:5px 8px;border-radius:7px;background:#f2b84b18;color:#e9bd70}.business-connection-heading>span.ready{background:#35c98a1b;color:#6ce0ae}.business-connection-card p,.business-connection-card small{margin:0;color:#8d9ab7;font-size:10px;line-height:1.55}.business-rights-list{display:flex;flex-wrap:wrap;gap:6px}.business-rights-list span{padding:6px 8px;border:1px solid #ffffff14;border-radius:8px;color:#7e8ba7;font-size:9px;background:#ffffff05}.business-rights-list span.granted{border-color:#35c98a45;background:#35c98a12;color:#75dcb1}.business-connection-card>.refresh-button{align-self:flex-start}
+
+
+/* Inventory polish: sharper asset hierarchy and calm, tactile interactions. */
+.verified-inventory-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.verified-inventory-item{position:relative;align-items:flex-start;gap:12px;min-height:112px;padding:14px;overflow:hidden;border-color:rgba(126,177,235,.18);background:linear-gradient(145deg,rgba(22,33,49,.94),rgba(12,19,31,.96));box-shadow:inset 0 1px 0 rgba(255,255,255,.035);transition:border-color .2s ease,transform .2s ease,background .2s ease}
+.verified-inventory-item:before{content:"";position:absolute;inset:0 auto 0 0;width:2px;background:linear-gradient(180deg,rgba(80,210,190,.7),rgba(72,137,230,.18));opacity:.65}
+.verified-inventory-item:hover{transform:translateY(-2px);border-color:rgba(105,190,220,.38);background:linear-gradient(145deg,rgba(25,40,59,.98),rgba(13,22,36,.98))}
+.verified-inventory-item img,.verified-inventory-placeholder{width:76px;height:76px;flex-basis:76px;border:1px solid rgba(255,255,255,.09);border-radius:16px;background:radial-gradient(circle at 30% 20%,rgba(83,185,207,.28),transparent 60%),linear-gradient(145deg,#1b2c42,#101a2a);box-shadow:0 8px 22px rgba(0,0,0,.22)}
+.verified-inventory-item>div:last-child{gap:6px;padding-top:2px}
+.verified-inventory-item strong{font-size:13px;line-height:1.35;letter-spacing:-.015em}
+.verified-inventory-item small{font-size:10px;line-height:1.45}
+.verified-inventory-item span{width:max-content;max-width:100%;padding:4px 7px;border:1px solid rgba(91,207,165,.18);border-radius:7px;background:rgba(53,201,138,.08);font-size:9px}
+.business-connection-card{position:relative;overflow:hidden;border-color:rgba(105,177,230,.2);background:radial-gradient(ellipse at 100% 0,rgba(50,130,190,.12),transparent 55%),linear-gradient(145deg,#151f30,#0f1725);box-shadow:inset 0 1px 0 rgba(255,255,255,.035)}
+.business-connection-card:before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:linear-gradient(180deg,#52d2bc,#4689e6);opacity:.7}
+.business-connection-card p{font-size:11px;line-height:1.6}
+.business-rights-list span{font-size:10px}
+.inventory-gift-link:focus-visible,.inventory-list-button:focus-visible,.business-connection-card button:focus-visible{outline:2px solid #67c8ef;outline-offset:3px}
+@media(max-width:680px){.verified-inventory-list{grid-template-columns:minmax(0,1fr);gap:10px}.verified-inventory-item{min-height:100px;padding:12px}.verified-inventory-item img,.verified-inventory-placeholder{width:68px;height:68px;flex-basis:68px}.business-connection-card{padding:13px}}
+@media(prefers-reduced-motion:reduce){.verified-inventory-item{transition:none}.verified-inventory-item:hover{transform:none}}
