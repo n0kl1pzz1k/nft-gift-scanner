@@ -16,7 +16,7 @@ from typing import Callable, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Query
 
-from marketplace import _enforce_user_rate_limit, _verified_asset_actions_enabled
+from marketplace import _enforce_user_rate_limit, _verified_asset_actions_enabled, _test_unverified_assets_allowed
 from pydantic import BaseModel, Field, field_validator
 
 DB_PATH = os.getenv("HASSLE_NFT_DB_PATH", os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3")))
@@ -319,6 +319,18 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             if order is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Marketplace listing not found")
+            if order["kind"] != "listing":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Offers can only be made on seller listings")
+            if not _test_unverified_assets_allowed():
+                verified_asset = conn.execute(
+                    """SELECT 1 FROM verified_assets
+                       WHERE id = ? AND owner_telegram_id = ? AND status = 'verified'""",
+                    (order["asset_id"], order["user_id"]),
+                ).fetchone()
+                if verified_asset is None:
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Offers require a currently verified asset listing")
             if order["status"] != "active":
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="This marketplace listing is no longer active")
