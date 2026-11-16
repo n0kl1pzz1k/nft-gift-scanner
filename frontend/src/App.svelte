@@ -100,7 +100,7 @@
   const ru = {
     market: 'Маркет', orders: 'Маркет', create: 'Инвентарь', favorites: 'Избранное', profile: 'Профиль', readonly: 'HASSLE NFT', catalogOnly: 'Независимый маркетплейс Telegram NFT-подарков. Покупай, продавай и договаривайся напрямую.',
     headline: 'Твой рынок Telegram NFT-подарков', subtitle: 'Маркетплейс Telegram NFT-подарков от n0kl1pzz1k.',
-    brandEyebrow: 'ПОКУПАЙ · ПРОДАВАЙ · HASSLE NFT', heroLine1: 'Telegram Gifts.', heroLine2: 'Твой маркет. Твои сделки.', heroDescription: 'Покупай, продавай и отправляй офферы на подарки, username и номера 888.', openCatalogue: 'Открыть маркет', connectedLabel: 'HASSLE NFT · HASSLE NFT MARKET', exploreMarket: 'МАРКЕТПЛЕЙС HASSLE NFT', collectionsTitle: 'Активы', collectionsCount: 'активов сообщества', discoverLabel: 'МАРКЕТ', portals: 'Активы сообщества', search: 'Название актива, username или номер', min: 'Цена от', max: 'Цена до',
+    brandEyebrow: 'ПОКУПАЙ · ПРОДАВАЙ · HASSLE NFT', heroLine1: 'Telegram Gifts.', heroLine2: 'Твой маркет. Твои сделки.', heroDescription: 'Покупай, продавай и отправляй офферы на подарки, username и номера 888.', openCatalogue: 'Открыть маркет', connectedLabel: 'HASSLE NFT · HASSLE NFT MARKET', exploreMarket: 'МАРКЕТПЛЕЙС HASSLE NFT', collectionsTitle: 'Активы', collectionsCount: 'активов сообщества', discoverLabel: 'МАРКЕТ', search: 'Название актива, username или номер', min: 'Цена от', max: 'Цена до',
     listings: 'Активы', results: 'найдено', loading: 'Загружаем маркетплейс…', loadMore: 'Показать ещё',
     empty: 'Пока нет подходящих активов.', failed: 'Не удалось загрузить маркетплейс.',
     details: 'Об активе', floor: 'Флор', price: 'Цена', traits: 'Характеристики',
@@ -123,7 +123,7 @@
   const en = {
     market: 'Market', orders: 'Market', create: 'Inventory', favorites: 'Favorites', profile: 'Profile', readonly: 'HASSLE NFT', catalogOnly: 'An independent Telegram NFT gift marketplace. Buy, sell and negotiate directly.',
     headline: 'Discover gifts worth keeping', subtitle: 'HASSLE NFT is a Telegram NFT gift marketplace.',
-    brandEyebrow: 'BUY · SELL · HASSLE NFT', heroLine1: 'Telegram Gifts.', heroLine2: 'Your market. Your deals.', heroDescription: 'Buy, sell and make offers on Telegram gifts, usernames and anonymous numbers.', openCatalogue: 'Open marketplace', connectedLabel: 'HASSLE NFT MARKETPLACE', exploreMarket: 'HASSLE NFT MARKETPLACE', collectionsTitle: 'Assets', collectionsCount: 'community assets', discoverLabel: 'MARKET', portals: 'Community assets', search: 'Asset name, username or number', min: 'Min price', max: 'Max price',
+    brandEyebrow: 'BUY · SELL · HASSLE NFT', heroLine1: 'Telegram Gifts.', heroLine2: 'Your market. Your deals.', heroDescription: 'Buy, sell and make offers on Telegram gifts, usernames and anonymous numbers.', openCatalogue: 'Open marketplace', connectedLabel: 'HASSLE NFT MARKETPLACE', exploreMarket: 'HASSLE NFT MARKETPLACE', collectionsTitle: 'Assets', collectionsCount: 'community assets', discoverLabel: 'MARKET', search: 'Asset name, username or number', min: 'Min price', max: 'Max price',
     listings: 'Marketplace assets', results: 'found', loading: 'Loading marketplace…', loadMore: 'Load more',
     empty: 'No matching assets yet.', failed: 'Could not load the marketplace.',
     details: 'Asset details', floor: 'Floor', price: 'Price', traits: 'Attributes',
@@ -300,11 +300,16 @@
   }
 
   async function loadSellerProfile() {
-    if (!signedIn) { sellerProfile = null; return; }
-    const data = await request('/api/marketplace/profiles/me');
-    sellerProfile = data.profile as SellerProfile;
-    sellerDisplayName = sellerProfile.display_name || '';
-    sellerBio = sellerProfile.bio || '';
+    if (!signedIn) { sellerProfile = null; sellerDisplayName = ''; sellerBio = ''; return; }
+    try {
+      const data = await request('/api/marketplace/profiles/me');
+      sellerProfile = data.profile as SellerProfile;
+      sellerDisplayName = sellerProfile.display_name || '';
+      sellerBio = sellerProfile.bio || '';
+    } catch (e) {
+      sellerProfile = null;
+      notice = e instanceof Error ? e.message : String(e);
+    }
   }
 
   async function saveSellerProfile() {
@@ -642,6 +647,7 @@
       if (isAdmin) await loadAdminOverview();
       await loadMarketplace();
       await loadOffersAndDeals();
+      await loadSellerProfile();
       if (showNotice) notice = t.signed;
     } catch (e) {
       isAdmin = false;
@@ -707,7 +713,7 @@
 
   <main class="main-content">
     <header class="topbar">
-      <div class="crumb"><span>HASSLE NFT</span><b>/</b><span>{view==='orders'?'Market':view==='offers'?'Activity':view==='create'?'Inventory':view==='favorites'?'Saved':t.profile}</span></div>
+      <div class="crumb"><span>HASSLE NFT</span><b>/</b><span>{view==='orders'?'Market':view==='offers'?'Activity':view==='create'?'Inventory':view==='favorites'?'Saved':view==='seller'?(lang==='ru'?'Продавец':'Seller'):t.profile}</span></div>
       <div class="top-actions"><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>view='profile'}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
     </header>
 
@@ -962,4 +968,4 @@
   </main>
 </div>
 
-<BottomNav lang={lang} active={view==='favorites'?'orders':view as 'orders'|'create'|'offers'|'profile'} onNavigate={(target)=>{haptic();view=target;notice='';}} />
+<BottomNav lang={lang} active={view==='favorites'?'orders':view==='seller'?'profile':view as 'orders'|'create'|'offers'|'profile'} onNavigate={(target)=>{haptic();view=target;notice='';}} />
