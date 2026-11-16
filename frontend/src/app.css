@@ -645,3 +645,21 @@ html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202
 @media(prefers-reduced-motion:reduce){
   .market-app::after{filter:none}
 }
+
+
+/* iOS Telegram WebView zooms focused controls below 16px. Keep the layout compact without triggering viewport zoom. */
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 620px) {
+    .market-search input,
+    .market-select,
+    .price-filter input,
+    .filter-input,
+    .form-input,
+    textarea {
+      font-size: 16px !important;
+    }
+    .price-filter input {
+      min-height: 40px;
+    }
+  }
+}
