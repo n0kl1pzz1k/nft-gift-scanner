@@ -1018,6 +1018,7 @@ def _get_redis_rate_limit_client():
 
 
 def _enforce_sqlite_user_rate_limit(user_id: str, action: str, limit: int, window_seconds: int) -> None:
+    """Persistent per-Telegram-user mutation limit shared across app restarts."""
     now = int(time.time())
     with _db() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -1060,7 +1061,7 @@ def _enforce_user_rate_limit(user_id: str, action: str, limit: int, window_secon
     client = _get_redis_rate_limit_client()
     if client is not None:
         from redis.exceptions import RedisError
-        key_digest = hashlib.sha256(f"{user_id}\\0{action}".encode("utf-8")).hexdigest()
+        key_digest = hashlib.sha256(f"{user_id}|{action}".encode("utf-8")).hexdigest()
         key = f"hassle:rate-limit:{key_digest}"
         try:
             count, ttl = client.eval(_REDIS_RATE_LIMIT_SCRIPT, 1, key, max(1, window_seconds))
@@ -1079,38 +1080,6 @@ def _enforce_user_rate_limit(user_id: str, action: str, limit: int, window_secon
             # process-local only when the app is scaled beyond one SQLite writer.
             pass
     _enforce_sqlite_user_rate_limit(user_id, action, limit, window_seconds)
-    """Persistent per-Telegram-user mutation limit shared across app restarts."""
-    now = int(time.time())
-    with _db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute(
-            "SELECT window_started_at, request_count FROM api_rate_limits WHERE user_id = ? AND action = ?",
-            (user_id, action),
-        ).fetchone()
-        if row is None or now - row["window_started_at"] >= window_seconds:
-            conn.execute(
-                """INSERT INTO api_rate_limits(user_id, action, window_started_at, request_count)
-                   VALUES (?, ?, ?, 1)
-                   ON CONFLICT(user_id, action) DO UPDATE SET
-                   window_started_at=excluded.window_started_at, request_count=1""",
-                (user_id, action, now),
-            )
-            conn.commit()
-            return
-        if row["request_count"] >= limit:
-            retry_after = max(1, window_seconds - (now - row["window_started_at"]))
-            conn.rollback()
-            raise HTTPException(
-                status_code=429,
-                detail="Too many requests. Please wait before trying again.",
-                headers={"Retry-After": str(retry_after)},
-            )
-        conn.execute(
-            "UPDATE api_rate_limits SET request_count = request_count + 1 WHERE user_id = ? AND action = ?",
-            (user_id, action),
-        )
-        conn.commit()
-
 
 def _order_dict(row: sqlite3.Row, current_user_id: str | None = None) -> dict[str, Any]:
     return {
