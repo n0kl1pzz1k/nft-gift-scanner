@@ -51,6 +51,8 @@
   let selectedInventoryAsset = $state<VerifiedAsset | null>(null);
   let tonNftImportBusy = $state(false);
   let tonNftImportMessage = $state('');
+  let telegramGiftImportBusy = $state(false);
+  let telegramGiftImportMessage = $state('');
   let favoriteOrderIds = $state<string[]>([]);
   let publicOrdersTotal = $state(0);
   let publicOrdersOffset = $state(0);
@@ -292,8 +294,8 @@
       await loadVerifiedInventory();
       const count = Number(result.imported) || 0;
       tonNftImportMessage = lang === 'ru'
-        ? (count ? `Проверено NFT: ${count}` : 'NFT в этом TON-кошельке не найдены. Здесь отображаются только NFT, выпущенные в блокчейне TON. Обычные подарки Telegram пока не импортируются.')
-        : (count ? `NFT verified: ${count}` : 'No NFTs were found in this TON wallet. Only NFTs minted on the TON blockchain are supported; regular Telegram gifts are not imported yet.');
+        ? (count ? `Проверено TON NFT: ${count}` : 'В подключённом TON-кошельке не найдены NFT, выпущенные в блокчейне TON.')
+        : (count ? `TON NFTs verified: ${count}` : 'No NFTs minted on TON were found in the connected wallet.');
       if (result.ownership_scan_complete === false) {
         tonNftImportMessage += lang === 'ru' ? ' Проверка продолжится при следующем обновлении.' : ' The scan was partial; refresh again later.';
       }
@@ -301,6 +303,27 @@
       tonNftImportMessage = e instanceof Error ? e.message : String(e);
     } finally {
       tonNftImportBusy = false;
+    }
+  }
+
+  async function importTelegramGifts() {
+    if (!signedIn || !authToken || telegramGiftImportBusy) return;
+    telegramGiftImportBusy = true;
+    telegramGiftImportMessage = '';
+    try {
+      const result = await request('/api/marketplace/assets/import-telegram', undefined, { method: 'POST' });
+      await loadVerifiedInventory();
+      const count = Number(result.imported) || 0;
+      telegramGiftImportMessage = lang === 'ru'
+        ? (count ? `Подтверждено коллекционных подарков: ${count}` : 'Коллекционные подарки Telegram не найдены. Обычные подарки без уникального ID не добавляются.')
+        : (count ? `Verified collectible gifts: ${count}` : 'No collectible Telegram gifts found. Regular gifts without a stable item ID are not imported.');
+      if (result.ownership_scan_complete === false) {
+        telegramGiftImportMessage += lang === 'ru' ? ' Сканирование неполное, повтори позже.' : ' The scan was partial; try again later.';
+      }
+    } catch (e) {
+      telegramGiftImportMessage = e instanceof Error ? e.message : String(e);
+    } finally {
+      telegramGiftImportBusy = false;
     }
   }
 
@@ -880,7 +903,7 @@
     
      {:else if view==='create'}
        <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{lang==='ru'?'Инвентарь':'Inventory'}</h1><p>{lang==='ru'?'Только подтверждённые активы, принадлежащие твоему кошельку':'Only verified assets owned by your connected wallet'}</p></section>
-       <div class="inventory-connect-panel"><div class="inventory-connect-icon">◈</div><div class="inventory-connect-copy"><span class="eyebrow">TON CONNECT · PROOF</span><h2>{lang==='ru'?'Подтверди свой TON-кошелёк':'Verify your TON wallet'}</h2><p>{lang==='ru'?'Подключение подтверждается подписью TON Proof. Маркетплейс не получает seed-фразу или приватный ключ. После проверки нажми «Загрузить NFT из TON», чтобы получить реальные активы из сети.':'Connection is verified with a TON Proof signature. The marketplace never receives your seed phrase or private key. Once verified, select “Import NFTs from TON” to load real on-chain assets.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} onVerified={()=>{walletConnected=true;}} />{#if walletConnected}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTonWalletAssets} disabled={tonNftImportBusy}>{tonNftImportBusy?(lang==='ru'?'Сканируем блокчейн…':'Scanning the blockchain…'):(lang==='ru'?'↓ Загрузить NFT из TON':'↓ Import NFTs from TON')}</button>{/if}{#if tonNftImportMessage}<p class="ton-wallet-message">{tonNftImportMessage}</p>{/if}</div></div>
+       <div class="inventory-connect-panel"><div class="inventory-connect-icon">◈</div><div class="inventory-connect-copy"><span class="eyebrow">TELEGRAM GIFTS · TON CONNECT</span><h2>{lang==='ru'?'Импорт твоих активов':'Import your assets'}</h2><p>{lang==='ru'?'Подарки Telegram проверяются через официальный Bot API по твоему Telegram ID. TON NFT подтверждаются подписью TON Proof. Seed-фраза и приватный ключ не запрашиваются.':'Telegram gifts are checked through the official Bot API using your Telegram ID. TON NFTs are verified with TON Proof. Your seed phrase and private key are never requested.'}</p>{#if signedIn}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTelegramGifts} disabled={telegramGiftImportBusy}>{telegramGiftImportBusy?(lang==='ru'?'Проверяем подарки…':'Checking gifts…'):(lang==='ru'?'↓ Загрузить подарки Telegram':'↓ Import Telegram gifts')}</button>{/if}{#if telegramGiftImportMessage}<p class="ton-wallet-message">{telegramGiftImportMessage}</p>{/if}<TonWalletConnect api={API} authToken={authToken} {lang} onVerified={()=>{walletConnected=true;}} />{#if walletConnected}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTonWalletAssets} disabled={tonNftImportBusy}>{tonNftImportBusy?(lang==='ru'?'Сканируем блокчейн…':'Scanning the blockchain…'):(lang==='ru'?'↓ Загрузить NFT из TON':'↓ Import NFTs from TON')}</button>{/if}{#if tonNftImportMessage}<p class="ton-wallet-message">{tonNftImportMessage}</p>{/if}</div></div>
        {#if verifiedAssetsLoading}
          <div class="inventory-empty-state"><span class="state-icon">◌</span><strong>{lang==='ru'?'Проверяем инвентарь…':'Checking inventory…'}</strong></div>
        {:else if verifiedAssets.length}
@@ -888,7 +911,7 @@
            {#each verifiedAssets as asset (asset.id)}
              <article class="verified-inventory-item">
                {#if asset.image_url}<img src={asset.image_url} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder">HASSLE</div>{/if}
-               <div><strong>{asset.title}</strong><small>{asset.source==='ton_nft'?'TON NFT':asset.source==='telegram_gift'?'Telegram Gift':asset.asset_type==='username'?'Username':'Anonymous Number'} · {asset.external_asset_id}</small><span>{asset.active_listing_id?(lang==='ru'?'Уже выставлен':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</span>{#if asset.active_listing_id}<small class="inventory-listing-note">{lang==='ru'?'Объявление уже опубликовано':'Listing is already live'}</small>{:else if assetListingEnabled}<button class="inventory-list-button" type="button" onclick={()=>startAssetListing(asset)}>{lang==='ru'?'Выставить на продажу':'List for sale'} ↗</button>{:else}<small class="inventory-listing-note">{lang==='ru'?'Публикация откроется после завершения проверки':'Listing will open after final verification'}</small>{/if}</div>
+               <div><strong>{asset.title}</strong><small>{asset.source==='ton_nft'?'TON NFT':asset.source==='telegram_gift'?'Telegram Gift':asset.asset_type==='username'?'Username':'Anonymous Number'} · {asset.external_asset_id}</small><span>{asset.active_listing_id?(lang==='ru'?'Уже выставлен':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</span>{#if asset.active_listing_id}<small class="inventory-listing-note">{lang==='ru'?'Объявление уже опубликовано':'Listing is already live'}</small>{:else if asset.source==='telegram_gift'}<small class="inventory-listing-note">{lang==='ru'?'Выставление откроется после подключения безопасной передачи подарков':'Listing opens after secure Telegram gift transfers are implemented'}</small>{:else if assetListingEnabled}<button class="inventory-list-button" type="button" onclick={()=>startAssetListing(asset)}>{lang==='ru'?'Выставить на продажу':'List for sale'} ↗</button>{:else}<small class="inventory-listing-note">{lang==='ru'?'Публикация откроется после завершения проверки':'Listing will open after final verification'}</small>{/if}</div>
              </article>
            {/each}
          </div>
