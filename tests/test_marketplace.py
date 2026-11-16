@@ -237,18 +237,13 @@ class SharedMarketplaceTests(unittest.TestCase):
                 json={"kind": "listing", "asset_id": old_asset["id"], "title": "Ignored", "price": "3", "currency": "TON"},
             )
         self.assertEqual(listing.status_code, 201)
-        with marketplace._db() as conn:
-            conn.execute(
-                "UPDATE verified_assets SET status='revoked', revoked_at=? WHERE id=?",
-                (int(time.time()), old_asset["id"]),
-            )
-
         new_asset = marketplace.register_verified_asset(
             source="ton_nft", external_asset_id=nft_address,
             owner_telegram_id="202", title="NFT after transfer", asset_type="gift",
             image_url="https://cdn.example/after.webp",
             verification_method="ton_connect_proof",
             verification_reference="new-owner-one-time-verification-reference",
+            allow_owner_transfer=True,
         )
         self.assertEqual(new_asset["id"], old_asset["id"])
         self.assertEqual(new_asset["owner_telegram_id"], "202")
