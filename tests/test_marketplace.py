@@ -152,6 +152,56 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(item["asset_id"], asset["id"])
         self.assertEqual(item["image_url"], "https://cdn.example/gift.webp")
 
+    def test_ton_nft_listing_rechecks_current_owner_against_linked_wallet(self):
+        wallet_address = "0:" + "a" * 64
+        nft_address = "0:" + "b" * 64
+        asset = marketplace.register_verified_asset(
+            source="ton_nft", external_asset_id=nft_address,
+            owner_telegram_id="101", title="Live owner NFT", asset_type="gift",
+            image_url="", verification_method="ton_connect_proof",
+            verification_reference="one-time-server-verification-reference",
+        )
+        with patch.dict(os.environ, {"HASSLE_TEST_SKIP_TON_OWNER_RECHECK": "false"}), patch(
+            "ton_connect.list_verified_wallets",
+            return_value=[{"network": "-239", "address": wallet_address}],
+        ), patch(
+            "ton_nft_inventory.fetch_nft_owner",
+            new=AsyncMock(return_value={"owner_address": wallet_address, "is_scam": False, "trust": "whitelist"}),
+        ):
+            response = self.client.post(
+                "/api/marketplace/orders",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"kind": "listing", "asset_id": asset["id"], "title": "Spoof", "price": "2", "currency": "TON"},
+            )
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()["item"]["title"], "Live owner NFT")
+
+    def test_ton_nft_listing_is_rejected_and_asset_revoked_when_owner_changed(self):
+        wallet_address = "0:" + "a" * 64
+        nft_address = "0:" + "b" * 64
+        asset = marketplace.register_verified_asset(
+            source="ton_nft", external_asset_id=nft_address,
+            owner_telegram_id="101", title="Transferred NFT", asset_type="gift",
+            image_url="", verification_method="ton_connect_proof",
+            verification_reference="one-time-server-verification-reference",
+        )
+        with patch.dict(os.environ, {"HASSLE_TEST_SKIP_TON_OWNER_RECHECK": "false"}), patch(
+            "ton_connect.list_verified_wallets",
+            return_value=[{"network": "-239", "address": wallet_address}],
+        ), patch(
+            "ton_nft_inventory.fetch_nft_owner",
+            new=AsyncMock(return_value={"owner_address": "0:" + "c" * 64, "is_scam": False, "trust": "whitelist"}),
+        ):
+            response = self.client.post(
+                "/api/marketplace/orders",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"kind": "listing", "asset_id": asset["id"], "title": "Spoof", "price": "2", "currency": "TON"},
+            )
+        self.assertEqual(response.status_code, 409)
+        with marketplace._db() as conn:
+            row = conn.execute("SELECT status FROM verified_assets WHERE id = ?", (asset["id"],)).fetchone()
+        self.assertEqual(row["status"], "revoked")
+
     def test_verified_asset_metadata_is_immutable_and_cannot_be_claimed_by_another_owner(self):
         asset = marketplace.register_verified_asset(
             source="ton_nft", external_asset_id="EQB_immutable_asset",
