@@ -659,6 +659,7 @@
       await loadMarketplace();
       await loadOffersAndDeals();
       await loadSellerProfile();
+      await loadVerifiedInventory();
       if (showNotice) notice = t.signed;
     } catch (e) {
       isAdmin = false;
