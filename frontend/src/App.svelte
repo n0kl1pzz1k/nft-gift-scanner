@@ -120,7 +120,6 @@
     favoritesTitle: 'Избранные активы', noFavorites: 'Сохранённых активов пока нет.',
     save: 'В избранное', saved: 'В избранном', currency: 'TON', success: 'Актив выставлен на маркет.', statsListings: 'Активные предложения', statsBuys: 'Заявки на покупку', statsVolume: 'Оборот', statsVolumeHint: 'По данным маркетплейса', statsCatalog: 'Активов всего', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'HASSLE NFT Market', refresh: 'Обновить', all: 'Все', orderStatus: 'Статус', orderKind: 'Тип заявки', activeOrders: 'Активные', matchedOrders: 'Закрытые', cancelledOrders: 'Снятые', listingsOnly: 'Активы на продаже', buyRequestsOnly: 'Поиск активов', invalidPrice: 'Проверь диапазон цены: значения должны быть неотрицательными, а минимальная цена — не выше максимальной.',
-    sourceStatusTitle: 'СОСТОЯНИЕ ИСТОЧНИКОВ', sourceStatusSubtitle: 'Что подключено к приложению', sourceCatalogue: 'Внешний каталог', sourceChanges: 'Изменения подарков', sourceDailyFloors: 'История floor-цен', sourceStatusChecked: 'Проверено', sourceStatusChecking: 'Проверяем статус…', sourceStatusUnavailable: 'Не удалось получить статус API.', sourceRefreshInterval: 'Интервал фонового обновления', sourceConfigured: 'Настроен · только чтение', sourceNeedsKey: 'Требуется API-ключ', sourcePublic: 'Публичный источник', sourceDaily: 'Публичная ежедневная история', sourceUnknown: 'Нет данных',
   };
   const en = {
     market: 'Market', orders: 'Market', create: 'Inventory', favorites: 'Favorites', profile: 'Profile', readonly: 'HASSLE NFT', catalogOnly: 'An independent Telegram NFT gift marketplace. Assets are listed only after ownership verification.',
@@ -143,7 +142,6 @@
     favoritesTitle: 'Saved assets', noFavorites: 'No saved assets yet.',
     save: 'Save', saved: 'Saved', currency: 'TON', success: 'Asset listed on the market.', statsListings: 'Active listings', statsBuys: 'Buy requests', statsVolume: 'Volume', statsVolumeHint: 'Marketplace records', statsCatalog: 'Total assets', stars: 'Stars', ton: 'TON',
     noImage: 'GIFT', online: 'HASSLE NFT Market', refresh: 'Refresh', all: 'All', orderStatus: 'Status', orderKind: 'Order type', activeOrders: 'Active', matchedOrders: 'Closed', cancelledOrders: 'Cancelled', listingsOnly: 'Assets for sale', buyRequestsOnly: 'Wanted assets', invalidPrice: 'Check the price range: values must be non-negative and the minimum cannot exceed the maximum.',
-    sourceStatusTitle: 'SOURCE STATUS', sourceStatusSubtitle: 'Connected data sources', sourceCatalogue: 'Marketplace catalogue', sourceChanges: 'Gift metadata changes', sourceDailyFloors: 'Floor price history', sourceStatusChecked: 'Checked', sourceStatusChecking: 'Checking status…', sourceStatusUnavailable: 'Could not load API status.', sourceRefreshInterval: 'Background refresh interval', sourceConfigured: 'Configured · read-only', sourceNeedsKey: 'API key required', sourcePublic: 'Public source', sourceDaily: 'Public daily history', sourceUnknown: 'No data',
   };
   const t = $derived(lang === 'ru' ? ru : en);
   const favoriteOrders = $derived(orders.filter(order => favoriteOrderIds.includes(order.id)));
@@ -203,18 +201,6 @@
 
   function offerStatusLabel(status: MarketplaceOffer['status']) {
     return status === 'pending' ? t.offerPending : status === 'accepted' ? t.offerAccepted : status === 'declined' ? t.offerDeclined : t.offerWithdrawn;
-  }
-
-  function sourceStatusText(value?: string) {
-    if (value === 'configured_read_only') return t.sourceConfigured;
-    if (value === 'needs_api_key') return t.sourceNeedsKey;
-    if (value === 'public_read_only') return t.sourcePublic;
-    if (value === 'public_daily_read_only') return t.sourceDaily;
-    return t.sourceUnknown;
-  }
-
-  function sourceStatusClass(value?: string) {
-    return value && value !== 'needs_api_key' ? 'is-available' : 'is-pending';
   }
 
   const authHeaders = (): Record<string, string> => {
