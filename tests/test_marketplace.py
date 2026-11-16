@@ -127,6 +127,27 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(offer.status_code, 409)
         self.assertIn("verified inventory", offer.json()["detail"].lower())
 
+    def test_unverified_marketplace_hides_legacy_orders_offers_and_activity(self):
+        owner = {"X-Telegram-Init-Data": "user-a"}
+        sender = {"X-Telegram-Init-Data": "user-b"}
+        with patch.dict(os.environ, {"HASSLE_VERIFIED_ASSETS_ENABLED": "true"}):
+            order = self.client.post(
+                "/api/marketplace/orders", headers=owner,
+                json={"kind": "listing", "title": "Legacy Test Gift", "price": "2", "currency": "TON"},
+            )
+            self.assertEqual(order.status_code, 201)
+            offer = self.client.post(
+                "/api/marketplace/offers", headers=sender,
+                json={"order_id": order.json()["item"]["id"], "amount": "1"},
+            )
+            self.assertEqual(offer.status_code, 201)
+        with patch.dict(os.environ, {"HASSLE_VERIFIED_ASSETS_ENABLED": "false"}):
+            self.assertEqual(self.client.get("/api/marketplace/orders").json()["items"], [])
+            self.assertEqual(self.client.get("/api/marketplace/mine", headers=owner).json()["items"], [])
+            self.assertEqual(self.client.get("/api/marketplace/offers", headers=sender).json()["items"], [])
+            self.assertEqual(self.client.get("/api/marketplace/activity", headers=owner).json()["items"], [])
+            self.assertEqual(self.client.get("/api/marketplace/notifications", headers=owner).json()["items"], [])
+
     def test_orders_are_shared_and_stats_are_server_calculated(self):
         created = self.client.post(
             "/api/marketplace/orders",
