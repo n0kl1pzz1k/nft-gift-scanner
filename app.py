@@ -11,10 +11,11 @@ from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update, _enforce_user_rate_limit, sync_ton_nft_assets, sync_telegram_gift_assets, get_telegram_business_connection
+from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update, _enforce_user_rate_limit, sync_ton_nft_assets, sync_telegram_gift_assets, get_telegram_business_connection, get_telegram_business_connection_id, register_verified_asset, save_telegram_business_gift_ref, prune_telegram_business_gift_refs
 from ton_connect import init_ton_connect_db, create_proof_challenge, verify_ton_proof, consume_challenge_and_link_wallet, list_verified_wallets
 from ton_nft_inventory import fetch_wallet_nfts
 from telegram_gift_inventory import fetch_user_telegram_gifts
+from telegram_business_gift_inventory import fetch_business_account_gifts
 import httpx
 from demo_offers import create_demo_offers_router, init_demo_offers_db
 
@@ -369,6 +370,63 @@ async def import_telegram_gifts(x_telegram_init_data: str | None = Header(defaul
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "imported": len(registered),
+        "items": registered,
+        "ownership_scan_complete": snapshot["complete"],
+        "telegram_gifts_seen": snapshot["total_count"],
+        "supported_unique_gifts": snapshot["supported_unique_count"],
+    }
+
+
+@app.post("/api/marketplace/assets/import-business-gifts")
+async def import_business_account_gifts(x_telegram_init_data: str | None = Header(default=None)):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    owner_id = str(user["id"])
+    _enforce_user_rate_limit(owner_id, "import_business_gifts", 4)
+    connection_id = get_telegram_business_connection_id(owner_id)
+    if not connection_id:
+        raise HTTPException(status_code=409, detail="Connect Telegram Business and grant permission to view gifts first")
+    try:
+        snapshot = await fetch_business_account_gifts(connection_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail="Telegram Business gift inventory is temporarily unavailable") from exc
+    registered = []
+    active_owned_ids = set()
+    try:
+        for item in snapshot["items"]:
+            owned_id = str(item["owned_gift_id"])
+            active_owned_ids.add(owned_id)
+            asset = register_verified_asset(
+                source="telegram_gift",
+                external_asset_id=str(item["external_asset_id"]),
+                owner_telegram_id=owner_id,
+                title=str(item["title"]),
+                asset_type="gift",
+                image_url="",
+                verification_method="telegram_gift_owner",
+                verification_reference=(
+                    f"telegram-business-api:getBusinessAccountGifts:{owner_id}:"
+                    f"{connection_id}:{owned_id}:{item.get('send_date', '')}:{time.time()}"
+                ),
+                allow_owner_transfer=True,
+            )
+            save_telegram_business_gift_ref(
+                asset_id=asset["id"],
+                owner_telegram_id=owner_id,
+                business_connection_id=connection_id,
+                owned_gift_id=owned_id,
+                gift_slug=str(item["external_asset_id"]),
+            )
+            registered.append(asset)
+        if snapshot["complete"]:
+            prune_telegram_business_gift_refs(
+                owner_telegram_id=owner_id,
+                business_connection_id=connection_id,
+                active_owned_gift_ids=active_owned_ids,
+            )
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail="Telegram Business gift ownership could not be safely reconciled") from exc
     return {
         "imported": len(registered),
         "items": registered,
