@@ -462,6 +462,11 @@ def release_telegram_update(update_id: int) -> None:
         )
 
 
+def _verified_asset_actions_enabled() -> bool:
+    """Listing mutations stay closed until TON Connect ownership verification is live."""
+    return os.getenv("HASSLE_VERIFIED_ASSETS_ENABLED", "false").strip().lower() == "true"
+
+
 def _user(init_data: str | None, verify: Callable[[str], dict]) -> dict:
     if not init_data:
         raise HTTPException(status_code=401, detail="Open HASSLE NFT from Telegram to manage marketplace listings")
@@ -981,6 +986,11 @@ def create_marketplace_router(
         x_telegram_init_data: str | None = Header(default=None),
     ):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
+        if not _verified_asset_actions_enabled():
+            raise HTTPException(
+                status_code=409,
+                detail="Listing is unavailable until TON Connect ownership verification and real asset import are enabled",
+            )
         _enforce_user_rate_limit(str(user["id"]), "create_order", 8)
         now = int(time.time())
         order_id = "gr-" + uuid.uuid4().hex[:16]
@@ -1011,6 +1021,8 @@ def create_marketplace_router(
         actor_id = str(user["id"])
         _enforce_user_rate_limit(actor_id, "update_order", 12)
         changes = payload.model_dump(exclude_unset=True)
+        if "title" in changes:
+            raise HTTPException(status_code=422, detail="Asset metadata is immutable and comes from the verified Telegram gift")
         if not changes:
             raise HTTPException(status_code=422, detail="At least one order field must be provided")
         if any(value is None for value in changes.values()):
