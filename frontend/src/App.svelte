@@ -386,8 +386,9 @@
 
   async function importTelegramGifts() {
     if (!signedIn || !authToken || telegramGiftImportBusy) return;
-    // When Business gift viewing is authorised, use that source so each asset
-    // receives its owner-bound sticker preview reference.
+    // Always refresh Business permissions before choosing the import provider.
+    // The status may have changed since the inventory screen was first rendered.
+    await loadTelegramBusinessStatus();
     if (telegramBusinessStatus.gift_import_ready) {
       await importBusinessGifts();
       return;
