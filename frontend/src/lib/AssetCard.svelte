@@ -18,8 +18,9 @@
     onFavorite: () => void;
     onOffer: () => void;
     onOpen: () => void;
+    canOffer: boolean;
   };
-  let { order, favorite, lang, sellerProfileId, onSeller, onFavorite, onOffer, onOpen }: Props = $props();
+  let { order, favorite, lang, sellerProfileId, onSeller, onFavorite, onOffer, onOpen, canOffer }: Props = $props();
 
   function assetType(title: string): 'gift' | 'username' | 'number' {
     if (/888|anonymous.*number|number.*888/i.test(title)) return 'number';
@@ -50,7 +51,7 @@
     <p class="asset-owner">{#if sellerProfileId}<button class="asset-seller-link" onclick={onSeller}>{order.owner}</button>{:else}{order.owner}{/if}{order.note ? ' · ' + order.note : ''}</p>
     <div class="asset-card-footer">
       <div><small>{lang === 'ru' ? 'Цена' : 'Price'}</small><strong>{order.price} <span>{order.currency === 'XTR' ? '⭐' : 'TON'}</span></strong></div>
-      <button class="asset-offer-button" onclick={onOffer}>{lang === 'ru' ? 'Сделать оффер' : 'Make offer'} ↗</button>
+      <button class="asset-offer-button" onclick={onOffer} disabled={!canOffer} title={!canOffer ? (lang === 'ru' ? 'Нужны TON Connect и подтверждённый актив' : 'TON Connect and a verified asset are required') : undefined}>{canOffer ? (lang === 'ru' ? 'Сделать оффер' : 'Make offer') : (lang === 'ru' ? 'После TON Connect' : 'After TON Connect')}</button>
     </div>
   </div>
 </article>
