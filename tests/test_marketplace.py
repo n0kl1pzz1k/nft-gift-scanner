@@ -36,6 +36,8 @@ class SharedMarketplaceTests(unittest.TestCase):
             },
         )
         self.auth_patch.start()
+        self.feature_flag_patch = patch.dict(os.environ, {"HASSLE_VERIFIED_ASSETS_ENABLED": "true"})
+        self.feature_flag_patch.start()
         self.credential_patch = patch.object(
             api,
             "_authenticate_telegram_credential",
@@ -51,6 +53,7 @@ class SharedMarketplaceTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         self.credential_patch.stop()
+        self.feature_flag_patch.stop()
         self.auth_patch.stop()
         self.offers_db_patch.stop()
         self.db_patch.stop()
@@ -106,6 +109,23 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(regular.status_code, 200)
         self.assertFalse(regular.json()["is_admin"])
 
+
+    def test_listing_and_offer_mutations_are_closed_without_verified_asset_pipeline(self):
+        with patch.dict(os.environ, {"HASSLE_VERIFIED_ASSETS_ENABLED": "false"}):
+            listing = self.client.post(
+                "/api/marketplace/orders",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"kind": "listing", "title": "Invented Gift", "price": "2", "currency": "TON"},
+            )
+            offer = self.client.post(
+                "/api/marketplace/offers",
+                headers={"X-Telegram-Init-Data": "user-b"},
+                json={"order_id": "gr-does-not-exist", "amount": "1"},
+            )
+        self.assertEqual(listing.status_code, 409)
+        self.assertIn("ownership verification", listing.json()["detail"].lower())
+        self.assertEqual(offer.status_code, 409)
+        self.assertIn("verified inventory", offer.json()["detail"].lower())
 
     def test_orders_are_shared_and_stats_are_server_calculated(self):
         created = self.client.post(
@@ -429,6 +449,20 @@ class SharedMarketplaceTests(unittest.TestCase):
             json={"price": "4"},
         )
         self.assertEqual(inactive.status_code, 409)
+
+    def test_order_asset_metadata_cannot_be_edited(self):
+        headers = {"X-Telegram-Init-Data": "user-a"}
+        created = self.client.post(
+            "/api/marketplace/orders", headers=headers,
+            json={"kind": "listing", "title": "Original Gift", "price": "2", "currency": "TON"},
+        )
+        order_id = created.json()["item"]["id"]
+        response = self.client.patch(
+            f"/api/marketplace/orders/{order_id}", headers=headers,
+            json={"title": "Invented Gift"},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("immutable", response.json()["detail"].lower())
 
     def test_order_edit_validates_payload_and_requires_auth(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
