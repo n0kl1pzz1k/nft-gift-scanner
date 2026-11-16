@@ -85,6 +85,7 @@ def _normalise_nft(item: dict[str, Any], wallet_address: str) -> dict[str, str] 
 
     return {
         "address": item_address,
+        "wallet_address": wallet_address,
         "title": title,
         "image_url": image_url,
         "collection_address": str(collection.get("address") or "")[:128],
