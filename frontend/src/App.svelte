@@ -705,7 +705,7 @@
     <div class="nav-caption">{lang === 'ru' ? 'МЕНЮ' : 'MENU'}</div>
     <nav class="side-nav">
       {#each [{id:'orders',label:lang==='ru'?'Маркет':'Market',icon:'▦'},{id:'create',label:lang==='ru'?'Инвентарь':'Inventory',icon:'◈'},{id:'offers',label:lang==='ru'?'Активность':'Activity',icon:'↗'},{id:'profile',label:lang==='ru'?'Профиль':'Profile',icon:'◉'}] as item}
-        <button class:active={view===item.id || (view==='favorites' && item.id==='orders')} class="nav-item" onclick={()=>{haptic();view=item.id as View;notice='';}}><span>{item.icon}</span>{item.label}</button>
+        <button class:active={view===item.id || (view==='favorites' && item.id==='orders') || (view==='seller' && item.id==='profile')} class="nav-item" onclick={()=>{haptic();view=item.id as View;notice='';}}><span>{item.icon}</span>{item.label}</button>
       {/each}
     </nav>
     <div class="sidebar-bottom"><div class="sidebar-version">NFT GIFTS · TON · STARS</div></div>
