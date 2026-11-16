@@ -54,6 +54,7 @@
   let tonNftImportMessage = $state('');
   let telegramGiftImportBusy = $state(false);
   let telegramGiftImportMessage = $state('');
+  let telegramBusinessStatus = $state({connected:false,can_view_gifts_and_stars:false,can_transfer_and_upgrade_gifts:false,can_transfer_stars:false,gift_import_ready:false,gift_transfer_ready:false});
   let favoriteOrderIds = $state<string[]>([]);
   let publicOrdersTotal = $state(0);
   let publicOrdersOffset = $state(0);
@@ -270,6 +271,26 @@
     }
   }
 
+  async function loadTelegramBusinessStatus() {
+    if (!signedIn || !authToken) {
+      telegramBusinessStatus = {connected:false,can_view_gifts_and_stars:false,can_transfer_and_upgrade_gifts:false,can_transfer_stars:false,gift_import_ready:false,gift_transfer_ready:false};
+      return;
+    }
+    try {
+      const status = await request('/api/telegram-business/status');
+      telegramBusinessStatus = {
+        connected: status.connected === true,
+        can_view_gifts_and_stars: status.can_view_gifts_and_stars === true,
+        can_transfer_and_upgrade_gifts: status.can_transfer_and_upgrade_gifts === true,
+        can_transfer_stars: status.can_transfer_stars === true,
+        gift_import_ready: status.gift_import_ready === true,
+        gift_transfer_ready: status.gift_transfer_ready === true,
+      };
+    } catch {
+      telegramBusinessStatus = {connected:false,can_view_gifts_and_stars:false,can_transfer_and_upgrade_gifts:false,can_transfer_stars:false,gift_import_ready:false,gift_transfer_ready:false};
+    }
+  }
+
   async function loadVerifiedInventory() {
     if (!signedIn || !authToken) { verifiedAssets = []; assetListingEnabled = false; return; }
     verifiedAssetsLoading = true;
@@ -277,6 +298,7 @@
       const data = await request('/api/marketplace/assets/me');
       verifiedAssets = Array.isArray(data.items) ? data.items as VerifiedAsset[] : [];
       assetListingEnabled = data.listing_enabled === true;
+      await loadTelegramBusinessStatus();
     } catch (e) {
       verifiedAssets = [];
       assetListingEnabled = false;
@@ -904,7 +926,22 @@
     
      {:else if view==='create'}
        <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{lang==='ru'?'Инвентарь':'Inventory'}</h1><p>{lang==='ru'?'Подтверждённые подарки Telegram и NFT из твоего TON-кошелька':'Verified Telegram gifts and NFTs from your TON wallet'}</p></section>
-       <div class="inventory-connect-panel"><div class="inventory-connect-icon">◈</div><div class="inventory-connect-copy"><span class="eyebrow">TELEGRAM GIFTS · TON CONNECT</span><h2>{lang==='ru'?'Импорт твоих активов':'Import your assets'}</h2><p>{lang==='ru'?'Подарки Telegram проверяются через официальный Bot API по твоему Telegram ID. TON NFT подтверждаются подписью TON Proof. Seed-фраза и приватный ключ не запрашиваются.':'Telegram gifts are checked through the official Bot API using your Telegram ID. TON NFTs are verified with TON Proof. Your seed phrase and private key are never requested.'}</p>{#if signedIn}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTelegramGifts} disabled={telegramGiftImportBusy}>{telegramGiftImportBusy?(lang==='ru'?'Проверяем подарки…':'Checking gifts…'):(lang==='ru'?'↓ Загрузить подарки Telegram':'↓ Import Telegram gifts')}</button>{/if}{#if telegramGiftImportMessage}<p class="ton-wallet-message">{telegramGiftImportMessage}</p>{/if}<TonWalletConnect api={API} authToken={authToken} {lang} onVerified={()=>{walletConnected=true;}} />{#if walletConnected}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTonWalletAssets} disabled={tonNftImportBusy}>{tonNftImportBusy?(lang==='ru'?'Сканируем блокчейн…':'Scanning the blockchain…'):(lang==='ru'?'↓ Загрузить NFT из TON':'↓ Import NFTs from TON')}</button>{/if}{#if tonNftImportMessage}<p class="ton-wallet-message">{tonNftImportMessage}</p>{/if}</div></div>
+       <div class="inventory-connect-panel"><div class="inventory-connect-icon">◈</div><div class="inventory-connect-copy"><span class="eyebrow">TELEGRAM GIFTS · TON CONNECT</span><h2>{lang==='ru'?'Импорт твоих активов':'Import your assets'}</h2><p>{lang==='ru'?'Подарки Telegram проверяются через официальный Bot API по твоему Telegram ID. TON NFT подтверждаются подписью TON Proof. Seed-фраза и приватный ключ не запрашиваются.':'Telegram gifts are checked through the official Bot API using your Telegram ID. TON NFTs are verified with TON Proof. Your seed phrase and private key are never requested.'}</p>{#if signedIn}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTelegramGifts} disabled={telegramGiftImportBusy}>{telegramGiftImportBusy?(lang==='ru'?'Проверяем подарки…':'Checking gifts…'):(lang==='ru'?'↓ Загрузить подарки Telegram':'↓ Import Telegram gifts')}</button>{/if}{#if telegramGiftImportMessage}<p class="ton-wallet-message">{telegramGiftImportMessage}</p>{/if}
+        <div class="business-connection-card">
+          <div class="business-connection-heading"><strong>{lang==='ru'?'Telegram Business':'Telegram Business'}</strong><span class:ready={telegramBusinessStatus.gift_transfer_ready}>{telegramBusinessStatus.gift_transfer_ready?(lang==='ru'?'Передача доступна':'Transfer ready'):(telegramBusinessStatus.connected?(lang==='ru'?'Не все права выданы':'Missing permissions'):(lang==='ru'?'Не подключён':'Not connected'))}</span></div>
+          {#if telegramBusinessStatus.connected}
+            <div class="business-rights-list">
+              <span class:granted={telegramBusinessStatus.can_view_gifts_and_stars}>{lang==='ru'?'Просмотр подарков':'View gifts'}</span>
+              <span class:granted={telegramBusinessStatus.can_transfer_and_upgrade_gifts}>{lang==='ru'?'Передача подарков':'Transfer gifts'}</span>
+              <span class:granted={telegramBusinessStatus.can_transfer_stars}>{lang==='ru'?'Оплата передачи Stars':'Stars transfer fee'}</span>
+            </div>
+            {#if !telegramBusinessStatus.gift_transfer_ready}<small>{lang==='ru'?'Измени разрешения бота в настройках Telegram Business.':'Update the bot permissions in Telegram Business settings.'}</small>{/if}
+          {:else}
+            <p>{lang==='ru'?'Для автоматической передачи подключи HASSLE NFT как бизнес-бота: Настройки Telegram → Telegram для бизнеса → Чат-боты. Разреши просмотр подарков и передачу подарков.':'To enable automatic transfers, connect HASSLE NFT as a business bot: Telegram Settings → Telegram Business → Chatbots. Grant view gifts and transfer gifts permissions.'}</p>
+          {/if}
+          <button class="refresh-button" type="button" onclick={loadTelegramBusinessStatus}>{lang==='ru'?'Проверить подключение':'Check connection'} ↻</button>
+        </div>
+        <TonWalletConnect api={API} authToken={authToken} {lang} onVerified={()=>{walletConnected=true;}} />{#if walletConnected}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTonWalletAssets} disabled={tonNftImportBusy}>{tonNftImportBusy?(lang==='ru'?'Сканируем блокчейн…':'Scanning the blockchain…'):(lang==='ru'?'↓ Загрузить NFT из TON':'↓ Import NFTs from TON')}</button>{/if}{#if tonNftImportMessage}<p class="ton-wallet-message">{tonNftImportMessage}</p>{/if}</div></div>
        {#if verifiedAssetsLoading}
          <div class="inventory-empty-state"><span class="state-icon">◌</span><strong>{lang==='ru'?'Проверяем инвентарь…':'Checking inventory…'}</strong></div>
        {:else if verifiedAssets.length}
