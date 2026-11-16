@@ -186,12 +186,12 @@ class TelegramBusinessGiftImportApiTests(unittest.TestCase):
                 "model_sticker_file_id": "primary-preview-file",
             }],
         }
-        with patch.object(app, "fetch_business_account_gifts", new=AsyncMock(return_value=snapshot)) as business_fetch, \\
-             patch.object(app, "fetch_user_telegram_gifts", new=AsyncMock()) as regular_fetch:
-            response = self.client.post(
-                "/api/marketplace/assets/import-telegram",
-                headers={"X-Telegram-Init-Data": "verified-session"},
-            )
+        with patch.object(app, "fetch_business_account_gifts", new=AsyncMock(return_value=snapshot)) as business_fetch:
+            with patch.object(app, "fetch_user_telegram_gifts", new=AsyncMock()) as regular_fetch:
+                response = self.client.post(
+                    "/api/marketplace/assets/import-telegram",
+                    headers={"X-Telegram-Init-Data": "verified-session"},
+                )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["imported"], 1)
         business_fetch.assert_awaited_once_with("business-connection-101")
