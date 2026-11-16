@@ -206,6 +206,42 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertIsNone(response.json()["item"]["asset_id"])
 
+    def test_verified_inventory_is_private_to_its_telegram_owner(self):
+        asset = marketplace.register_verified_asset(
+            source="ton_nft", external_asset_id="EQB_private_inventory",
+            owner_telegram_id="101", title="Private inventory gift", asset_type="gift",
+            image_url="https://cdn.example/private.webp",
+            verification_method="ton_connect_proof",
+            verification_reference="one-time-server-verification-reference",
+        )
+        owner = self.client.get("/api/marketplace/assets/me", headers={"X-Telegram-Init-Data": "user-a"})
+        other = self.client.get("/api/marketplace/assets/me", headers={"X-Telegram-Init-Data": "user-b"})
+        anonymous = self.client.get("/api/marketplace/assets/me")
+        self.assertEqual(owner.status_code, 200)
+        self.assertEqual(owner.json()["items"][0]["id"], asset["id"])
+        self.assertEqual(other.json()["items"], [])
+        self.assertEqual(anonymous.status_code, 401)
+
+    def test_verified_asset_cannot_have_two_active_listings(self):
+        asset = marketplace.register_verified_asset(
+            source="ton_nft", external_asset_id="EQB_single_listing",
+            owner_telegram_id="101", title="One listing only", asset_type="gift",
+            image_url="", verification_method="ton_connect_proof",
+            verification_reference="one-time-server-verification-reference",
+        )
+        headers = {"X-Telegram-Init-Data": "user-a"}
+        with patch.dict(os.environ, {"HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "false"}):
+            first = self.client.post(
+                "/api/marketplace/orders", headers=headers,
+                json={"kind": "listing", "asset_id": asset["id"], "title": "Ignored", "price": "2", "currency": "TON"},
+            )
+            second = self.client.post(
+                "/api/marketplace/orders", headers=headers,
+                json={"kind": "listing", "asset_id": asset["id"], "title": "Ignored", "price": "3", "currency": "TON"},
+            )
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 409)
+
     def test_verified_asset_cannot_be_listed_by_another_telegram_user(self):
         asset = marketplace.register_verified_asset(
             source="ton_nft", external_asset_id="EQB_owned_by_a",
