@@ -207,6 +207,19 @@ def init_marketplace_db() -> None:
             setting_value TEXT NOT NULL,
             updated_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS telegram_business_connections (
+            telegram_id TEXT PRIMARY KEY,
+            business_connection_id TEXT NOT NULL UNIQUE,
+            user_chat_id TEXT NOT NULL,
+            is_enabled INTEGER NOT NULL DEFAULT 0,
+            can_view_gifts_and_stars INTEGER NOT NULL DEFAULT 0,
+            can_transfer_and_upgrade_gifts INTEGER NOT NULL DEFAULT 0,
+            can_transfer_stars INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_business_connections_enabled
+            ON telegram_business_connections(telegram_id, is_enabled);
+
         """)
         # Ownership may change only after the old owner snapshot was revoked and a
         # trusted verifier confirms the new owner. Preserve a permanent audit trail.
@@ -289,6 +302,71 @@ def init_marketplace_db() -> None:
         conn.commit()
 
 
+
+
+def upsert_telegram_business_connection(connection: dict[str, Any]) -> dict[str, Any]:
+    """Persist only the minimal owner-bound Telegram Business connection rights."""
+    if not isinstance(connection, dict):
+        raise ValueError("A valid Telegram Business connection is required")
+    owner = connection.get("user") if isinstance(connection.get("user"), dict) else {}
+    telegram_id = str(owner.get("id") or "").strip()
+    connection_id = str(connection.get("id") or "").strip()
+    user_chat_id = str(connection.get("user_chat_id") or "").strip()
+    if not telegram_id.isdigit() or not connection_id or len(connection_id) > 256 or not user_chat_id.isdigit():
+        raise ValueError("Telegram Business connection identity is invalid")
+    rights = connection.get("rights") if isinstance(connection.get("rights"), dict) else {}
+    enabled = connection.get("is_enabled") is True
+    now = int(time.time())
+    values = (
+        telegram_id, connection_id, user_chat_id, 1 if enabled else 0,
+        1 if rights.get("can_view_gifts_and_stars") is True else 0,
+        1 if rights.get("can_transfer_and_upgrade_gifts") is True else 0,
+        1 if rights.get("can_transfer_stars") is True else 0, now,
+    )
+    with _db() as conn:
+        conn.execute(
+            """INSERT INTO telegram_business_connections
+               (telegram_id, business_connection_id, user_chat_id, is_enabled,
+                can_view_gifts_and_stars, can_transfer_and_upgrade_gifts,
+                can_transfer_stars, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(telegram_id) DO UPDATE SET
+                 business_connection_id=excluded.business_connection_id,
+                 user_chat_id=excluded.user_chat_id,
+                 is_enabled=excluded.is_enabled,
+                 can_view_gifts_and_stars=excluded.can_view_gifts_and_stars,
+                 can_transfer_and_upgrade_gifts=excluded.can_transfer_and_upgrade_gifts,
+                 can_transfer_stars=excluded.can_transfer_stars,
+                 updated_at=excluded.updated_at""",
+            values,
+        )
+    return get_telegram_business_connection(telegram_id) or {}
+
+
+def get_telegram_business_connection(telegram_id: str | int) -> dict[str, Any] | None:
+    owner_id = str(telegram_id).strip()
+    if not owner_id.isdigit():
+        raise ValueError("A verified Telegram owner ID is required")
+    with _db() as conn:
+        row = conn.execute(
+            """SELECT telegram_id, is_enabled, can_view_gifts_and_stars,
+                      can_transfer_and_upgrade_gifts, can_transfer_stars, updated_at
+               FROM telegram_business_connections WHERE telegram_id = ?""",
+            (owner_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    result = dict(row)
+    result["connected"] = bool(result.pop("is_enabled"))
+    result["can_view_gifts_and_stars"] = bool(result["can_view_gifts_and_stars"])
+    result["can_transfer_and_upgrade_gifts"] = bool(result["can_transfer_and_upgrade_gifts"])
+    result["can_transfer_stars"] = bool(result["can_transfer_stars"])
+    result["gift_import_ready"] = result["connected"] and result["can_view_gifts_and_stars"]
+    result["gift_transfer_ready"] = (
+        result["connected"] and result["can_view_gifts_and_stars"]
+        and result["can_transfer_and_upgrade_gifts"]
+    )
+    return result
 
 def get_app_setting(key: str, default: str = "") -> str:
     """Read a small durable runtime setting from SQLite."""
