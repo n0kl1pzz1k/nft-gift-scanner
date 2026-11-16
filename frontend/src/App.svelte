@@ -74,6 +74,7 @@
   let telegramUsername = $state('');
   let telegramPremium = $state(false);
   let signedIn = $state(false);
+  let authBusy = $state(false);
   const walletConnected = false;
   let authToken = $state('');
   let isAdmin = $state(false);
@@ -584,7 +585,7 @@
   }
 
   async function telegramLogin(showNotice = true) {
-    if (signedIn) return;
+    if (signedIn || authBusy) return;
     const initData = window.Telegram?.WebApp?.initData || '';
     if (!initData) {
       isAdmin = false;
@@ -593,6 +594,7 @@
       return;
     }
     // Keep the successful session visible; never exchange the same initData twice from this view.
+    authBusy = true;
     isAdmin = false;
     try {
       const response = await fetch(API + '/api/auth/telegram', {
@@ -623,6 +625,8 @@
       telegramUsername = '';
       telegramPremium = false;
       if (showNotice) notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      authBusy = false;
     }
   }
 
@@ -778,7 +782,7 @@
       {#if favoriteOrders.length}<div class="orders-list">{#each favoriteOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{order.owner}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div><button class="heart-button hearted" onclick={()=>toggleFavoriteOrder(order)}>♥</button></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='orders'}>{lang==='ru'?'К активам':'Browse assets'}</button></div>{/if}
     {:else}
       <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.profile}</h1></section>
-      <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div>{#if !signedIn}<button class="publish-button" onclick={()=>telegramLogin()}>{t.signIn} →</button>{:else}<span class="telegram-verified-state">✓ {lang==='ru'?'Подтверждено':'Verified'}</span>{/if}</article>
+      <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div>{#if !signedIn}<button class="publish-button" onclick={()=>telegramLogin()} disabled={authBusy}>{authBusy?(lang==='ru'?'Подтверждаем…':'Verifying…'):t.signIn+' →'}</button>{:else}<span class="telegram-verified-state">✓ {lang==='ru'?'Подтверждено':'Verified'}</span>{/if}</article>
       <article class="profile-card wallet-card">
         <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">TON CONNECT</div><h2>{lang==='ru'?'Кошелёк':'Wallet'}</h2><p>{lang==='ru'?'Кошелёк ещё не подключён. Подключение и отображение баланса появятся после интеграции TON Connect.':'No wallet connected. Wallet connection and balance display will be enabled after TON Connect integration.'}</p></div><span class="wallet-status">{lang==='ru'?'Не подключён':'Not connected'}</span>
       </article>
