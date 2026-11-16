@@ -985,8 +985,19 @@
          <div class="verified-inventory-list">
            {#each verifiedAssets.filter(asset=>inventoryFilter==='all'||asset.source===inventoryFilter) as asset (asset.id)}
              <article class="verified-inventory-item">
-               {#if asset.image_url}<img src={asset.image_url} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder">HASSLE</div>{/if}
-               <div><strong>{asset.title}</strong><small>{asset.source==='ton_nft'?'TON NFT':asset.source==='telegram_gift'?'Telegram Gift':asset.asset_type==='username'?'Username':'Anonymous Number'} · {asset.external_asset_id}</small>{#if asset.source==='telegram_gift'}<a class="inventory-gift-link" href={'https://t.me/nft/'+encodeURIComponent(asset.external_asset_id)} target="_blank" rel="noopener noreferrer">{lang==='ru'?'Открыть подарок в Telegram':'View gift in Telegram'} ↗</a>{/if}<span>{asset.active_listing_id?(lang==='ru'?'Уже выставлен':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</span>{#if asset.active_listing_id}<small class="inventory-listing-note">{lang==='ru'?'Объявление уже опубликовано':'Listing is already live'}</small>{:else if asset.source==='telegram_gift'}<small class="inventory-listing-note">{lang==='ru'?'Выставление откроется после подключения безопасной передачи подарков':'Listing opens after secure Telegram gift transfers are implemented'}</small>{:else if assetListingEnabled}<button class="inventory-list-button" type="button" onclick={()=>startAssetListing(asset)}>{lang==='ru'?'Выставить на продажу':'List for sale'} ↗</button>{:else}<small class="inventory-listing-note">{lang==='ru'?'Публикация откроется после завершения проверки':'Listing will open after final verification'}</small>{/if}</div>
+               {#if asset.image_url}<img src={asset.image_url} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder"><span>HASSLE</span><small>{asset.source==='telegram_gift'?(lang==='ru'?'КОЛЛЕКЦИОННЫЙ ПОДАРОК':'COLLECTIBLE GIFT'):'VERIFIED ASSET'}</small></div>{/if}
+               <div class="verified-inventory-details">
+                 <div class="verified-inventory-title-row"><strong>{asset.title}</strong><span class="verified-asset-status">{lang==='ru'?'ПОДТВЕРЖДЁН':'VERIFIED'}</span></div>
+                 {#if asset.source==='telegram_gift'}
+                   <div class="verified-gift-number">{lang==='ru'?'Коллекционный номер':'Collectible number'} <b>{asset.title.match(/#(\\d+)$/)?.[1] || '—'}</b></div>
+                   <small class="verified-gift-id">{lang==='ru'?'Уникальный ID':'Unique ID'} · {asset.external_asset_id}</small>
+                   <a class="inventory-gift-link" href={'https://t.me/nft/'+encodeURIComponent(asset.external_asset_id)} target="_blank" rel="noopener noreferrer">{lang==='ru'?'Открыть оригинал в Telegram':'Open original in Telegram'} ↗</a>
+                 {:else}
+                   <small>{asset.source==='ton_nft'?'TON NFT':asset.asset_type==='username'?'Username':'Anonymous Number'} · {asset.external_asset_id}</small>
+                 {/if}
+                 <span>{asset.active_listing_id?(lang==='ru'?'Уже выставлен':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</span>
+                 {#if asset.active_listing_id}<small class="inventory-listing-note">{lang==='ru'?'Объявление уже опубликовано':'Listing is already live'}</small>{:else if asset.source==='telegram_gift'}<small class="inventory-listing-note">{lang==='ru'?'Продажа откроется после проверки безопасной передачи подарка':'Sales unlock after secure gift transfer is verified'}</small>{:else if assetListingEnabled}<button class="inventory-list-button" type="button" onclick={()=>startAssetListing(asset)}>{lang==='ru'?'Выставить на продажу':'List for sale'} ↗</button>{:else}<small class="inventory-listing-note">{lang==='ru'?'Публикация откроется после завершения проверки':'Listing will open after final verification'}</small>{/if}
+               </div>
              </article>
            {/each}
          </div>
