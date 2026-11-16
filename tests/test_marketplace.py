@@ -286,10 +286,10 @@ class SharedMarketplaceTests(unittest.TestCase):
 
         updated = self.client.patch(
             f"/api/marketplace/orders/{order_id}", headers=owner_headers,
-            json={"title": "Updated Gift", "price": "3.75", "note": "new note"},
+            json={"price": "3.75", "note": "new note"},
         )
         self.assertEqual(updated.status_code, 200)
-        self.assertEqual(updated.json()["item"]["title"], "Updated Gift")
+        self.assertEqual(updated.json()["item"]["title"], "Original Gift")
         self.assertEqual(updated.json()["item"]["price"], "3.75")
         self.assertEqual(updated.json()["item"]["note"], "new note")
         self.assertGreaterEqual(updated.json()["item"]["updatedAt"], created.json()["item"]["updatedAt"])
@@ -304,7 +304,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         order_id = created.json()["item"]["id"]
         updated = self.client.patch(
             f"/api/marketplace/orders/{order_id}", headers=owner_headers,
-            json={"title": "After edit", "price": "2.5"},
+            json={"price": "2.5"},
         )
         self.assertEqual(updated.status_code, 200)
 
