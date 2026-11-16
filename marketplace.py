@@ -794,6 +794,8 @@ def create_marketplace_router(
                 """SELECT p.profile_id, p.display_name, p.bio, p.created_at,
                           u.username,
                           (SELECT COUNT(*) FROM demo_orders o
+                           JOIN verified_assets a ON a.id = o.asset_id
+                             AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
                            WHERE o.user_id = p.telegram_id AND o.kind = 'listing'
                              AND o.status = 'active') AS active_listings
                    FROM user_profiles p JOIN telegram_users u ON u.telegram_id = p.telegram_id
@@ -808,6 +810,8 @@ def create_marketplace_router(
                 """SELECT o.id, o.title, o.price, o.currency, o.created_at, o.note
                    FROM demo_orders o
                    JOIN user_profiles p ON p.telegram_id = o.user_id
+                   JOIN verified_assets a ON a.id = o.asset_id
+                     AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
                    WHERE p.profile_id = ? AND o.kind = 'listing' AND o.status = 'active'
                    ORDER BY o.created_at DESC LIMIT 100""",
                 (profile_id,),
