@@ -986,7 +986,38 @@ def _user(init_data: str | None, verify: Callable[[str], dict]) -> dict:
     return verify(init_data)
 
 
-def _enforce_user_rate_limit(user_id: str, action: str, limit: int, window_seconds: int = 60) -> None:
+_REDIS_RATE_LIMIT_SCRIPT = """
+local current = redis.call("INCR", KEYS[1])
+if current == 1 then
+    redis.call("EXPIRE", KEYS[1], ARGV[1])
+end
+local ttl = redis.call("TTL", KEYS[1])
+return {current, ttl}
+"""
+_redis_rate_limit_client = None
+_redis_rate_limit_url = None
+
+
+def _get_redis_rate_limit_client():
+    """Return a process-wide Redis client when REDIS_URL is configured."""
+    global _redis_rate_limit_client, _redis_rate_limit_url
+    redis_url = os.getenv("REDIS_URL", "").strip()
+    if not redis_url:
+        return None
+    if _redis_rate_limit_client is None or _redis_rate_limit_url != redis_url:
+        from redis import Redis
+        _redis_rate_limit_client = Redis.from_url(
+            redis_url,
+            socket_connect_timeout=0.5,
+            socket_timeout=0.5,
+            health_check_interval=30,
+            decode_responses=True,
+        )
+        _redis_rate_limit_url = redis_url
+    return _redis_rate_limit_client
+
+
+def _enforce_sqlite_user_rate_limit(user_id: str, action: str, limit: int, window_seconds: int) -> None:
     """Persistent per-Telegram-user mutation limit shared across app restarts."""
     now = int(time.time())
     with _db() as conn:
@@ -1019,6 +1050,36 @@ def _enforce_user_rate_limit(user_id: str, action: str, limit: int, window_secon
         )
         conn.commit()
 
+
+def _enforce_user_rate_limit(user_id: str, action: str, limit: int, window_seconds: int = 60) -> None:
+    """Enforce a fixed-window limit with Redis, retaining SQLite as safe fallback.
+
+    Redis uses one atomic Lua operation for INCR + EXPIRE so a crash cannot leave
+    a permanent counter without a TTL. If Redis is unavailable, the existing
+    persistent SQLite limiter remains active.
+    """
+    client = _get_redis_rate_limit_client()
+    if client is not None:
+        from redis.exceptions import RedisError
+        key_digest = hashlib.sha256(f"{user_id}|{action}".encode("utf-8")).hexdigest()
+        key = f"hassle:rate-limit:{key_digest}"
+        try:
+            count, ttl = client.eval(_REDIS_RATE_LIMIT_SCRIPT, 1, key, max(1, window_seconds))
+            if int(count) > limit:
+                retry_after = max(1, int(ttl) if int(ttl) > 0 else window_seconds)
+                raise HTTPException(
+                    status_code=429,
+                    detail="Too many requests. Please wait before trying again.",
+                    headers={"Retry-After": str(retry_after)},
+                )
+            return
+        except HTTPException:
+            raise
+        except RedisError:
+            # Preserve rate limiting during a Redis outage; this fallback is
+            # process-local only when the app is scaled beyond one SQLite writer.
+            pass
+    _enforce_sqlite_user_rate_limit(user_id, action, limit, window_seconds)
 
 def _order_dict(row: sqlite3.Row, current_user_id: str | None = None) -> dict[str, Any]:
     return {
