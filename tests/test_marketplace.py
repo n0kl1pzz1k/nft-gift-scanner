@@ -221,6 +221,50 @@ class SharedMarketplaceTests(unittest.TestCase):
                 verification_reference="different-one-time-verification-reference",
             )
 
+    def test_revoked_ton_nft_can_move_to_new_verified_owner_without_resurrecting_old_listing(self):
+        nft_address = "0:" + "b" * 64
+        old_asset = marketplace.register_verified_asset(
+            source="ton_nft", external_asset_id=nft_address,
+            owner_telegram_id="101", title="NFT before transfer", asset_type="gift",
+            image_url="https://cdn.example/before.webp",
+            verification_method="ton_connect_proof",
+            verification_reference="old-owner-one-time-verification-reference",
+        )
+        with patch.dict(os.environ, {"HASSLE_TEST_SKIP_TON_OWNER_RECHECK": "true"}):
+            listing = self.client.post(
+                "/api/marketplace/orders",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"kind": "listing", "asset_id": old_asset["id"], "title": "Ignored", "price": "3", "currency": "TON"},
+            )
+        self.assertEqual(listing.status_code, 201)
+        with marketplace._db() as conn:
+            conn.execute(
+                "UPDATE verified_assets SET status='revoked', revoked_at=? WHERE id=?",
+                (int(time.time()), old_asset["id"]),
+            )
+
+        new_asset = marketplace.register_verified_asset(
+            source="ton_nft", external_asset_id=nft_address,
+            owner_telegram_id="202", title="NFT after transfer", asset_type="gift",
+            image_url="https://cdn.example/after.webp",
+            verification_method="ton_connect_proof",
+            verification_reference="new-owner-one-time-verification-reference",
+        )
+        self.assertEqual(new_asset["id"], old_asset["id"])
+        self.assertEqual(new_asset["owner_telegram_id"], "202")
+        self.assertEqual(new_asset["title"], "NFT after transfer")
+        with marketplace._db() as conn:
+            old_listing = conn.execute(
+                "SELECT status FROM demo_orders WHERE id = ?", (listing.json()["item"]["id"],)
+            ).fetchone()
+            history = conn.execute(
+                "SELECT previous_owner_id, new_owner_id FROM asset_ownership_history WHERE asset_id = ?",
+                (old_asset["id"],),
+            ).fetchone()
+        self.assertEqual(old_listing["status"], "cancelled")
+        self.assertEqual(history["previous_owner_id"], "101")
+        self.assertEqual(history["new_owner_id"], "202")
+
     def test_public_catalog_hides_legacy_unverified_listings_but_keeps_verified_assets(self):
         asset = marketplace.register_verified_asset(
             source="ton_nft", external_asset_id="EQB_catalog_verified",
