@@ -200,6 +200,27 @@ def init_marketplace_db() -> None:
             conn.execute("DELETE FROM demo_orders WHERE id = ?", (test_id,))
         conn.commit()
 
+        # One-time deletion of the exact owner-approved test listing.
+        # Match its immutable order ID plus the observed public fields so no
+        # unrelated production asset can be affected.
+        conn.execute("BEGIN IMMEDIATE")
+        stale_test = conn.execute(
+            """SELECT id FROM demo_orders
+               WHERE id = 'gr-9a3110edee11434a'
+                 AND TRIM(title) = 'ndmd'
+                 AND LOWER(TRIM(owner_name)) = 'n0kl1pzz1k'
+                 AND currency = 'TON'
+                 AND CAST(price AS REAL) = 999999
+                 AND status = 'active'"""
+        ).fetchone()
+        if stale_test is not None:
+            stale_id = stale_test["id"]
+            conn.execute("DELETE FROM demo_order_reports WHERE order_id = ?", (stale_id,))
+            conn.execute("DELETE FROM demo_order_events WHERE order_id = ?", (stale_id,))
+            conn.execute("DELETE FROM demo_order_revisions WHERE order_id = ?", (stale_id,))
+            conn.execute("DELETE FROM demo_orders WHERE id = ?", (stale_id,))
+        conn.commit()
+
 
 
 def get_app_setting(key: str, default: str = "") -> str:
