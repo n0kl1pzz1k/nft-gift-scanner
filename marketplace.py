@@ -1021,8 +1021,6 @@ def create_marketplace_router(
         actor_id = str(user["id"])
         _enforce_user_rate_limit(actor_id, "update_order", 12)
         changes = payload.model_dump(exclude_unset=True)
-        if "title" in changes:
-            raise HTTPException(status_code=422, detail="Asset metadata is immutable and comes from the verified Telegram gift")
         if not changes:
             raise HTTPException(status_code=422, detail="At least one order field must be provided")
         if any(value is None for value in changes.values()):
@@ -1048,6 +1046,9 @@ def create_marketplace_router(
             if row["status"] != "active":
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Only active orders can be edited")
+            if "title" in changes:
+                conn.rollback()
+                raise HTTPException(status_code=422, detail="Asset metadata is immutable and comes from the verified Telegram gift")
             conn.execute(
                 f"UPDATE demo_orders SET {', '.join(assignments)} WHERE id = ? AND status = 'active'",
                 values,
