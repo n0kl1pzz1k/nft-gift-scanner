@@ -4,6 +4,7 @@
   type AssetOrder = {
     id: string;
     title: string;
+    asset_type?: 'gift' | 'username' | 'number' | null;
     owner: string;
     price: string | number;
     currency: 'TON' | 'XTR';
@@ -22,16 +23,17 @@
   };
   let { order, favorite, lang, sellerProfileId, onSeller, onFavorite, onOffer, onOpen, canOffer }: Props = $props();
 
-  function assetType(title: string): 'gift' | 'username' | 'number' {
-    if (/888|anonymous.*number|number.*888/i.test(title)) return 'number';
-    if (/^@|t[.]me[/]|username/i.test(title)) return 'username';
-    return 'gift';
+  function assetType(order: AssetOrder): 'gift' | 'username' | 'number' | 'unknown' {
+    return order.asset_type === 'gift' || order.asset_type === 'username' || order.asset_type === 'number'
+      ? order.asset_type
+      : 'unknown';
   }
-  const kind = $derived(assetType(order.title));
+  const kind = $derived(assetType(order));
   const typeLabel = $derived(kind === 'number'
     ? (lang === 'ru' ? 'Номер 888' : 'Anonymous number')
     : kind === 'username' ? 'Username'
-      : (lang === 'ru' ? 'NFT-подарок' : 'NFT Gift'));
+      : kind === 'unknown' ? (lang === 'ru' ? 'Актив' : 'Asset')
+        : (lang === 'ru' ? 'NFT-подарок' : 'NFT Gift'));
 </script>
 
 <article class="asset-card" in:fade={{ duration: 160 }}>
@@ -40,8 +42,10 @@
       <span class="asset-at">@</span><strong>{order.title.replace(/^@/, '')}</strong><small>TELEGRAM USERNAME</small>
     {:else if kind === 'number'}
       <span class="asset-number">{order.title.replace(/[^0-9+]/g, '') || '888'}</span><small>ANONYMOUS NUMBER</small>
-    {:else}
+    {:else if kind === 'gift'}
       <div class="asset-preview-placeholder"><span>PREVIEW</span><small>{lang === 'ru' ? 'Изображение появится после импорта подарка' : 'Gift preview appears after verified import'}</small></div>
+    {:else}
+      <div class="asset-preview-placeholder"><span>ASSET</span><small>{lang === 'ru' ? 'Тип актива ещё не подтверждён' : 'Asset type is not verified yet'}</small></div>
     {/if}
     <span class="asset-type-pill">{typeLabel}</span>
     <button class={'asset-favorite ' + (favorite ? 'is-favorite' : '')} onclick={onFavorite} aria-label={lang === 'ru' ? (favorite ? 'Убрать из избранного' : 'Добавить в избранное') : (favorite ? 'Remove from favorites' : 'Add to favorites')}>{favorite ? '♥' : '♡'}</button>
