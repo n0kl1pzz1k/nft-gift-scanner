@@ -453,9 +453,8 @@ input,textarea,select,.hero p,.section-title p,.page-heading p,.gift-card-meta,.
 /* HASSLE NFT marketplace system: compact asset-first mobile experience */
 :root{
   color-scheme:dark;
-  --h-bg:#0e1116;--h-panel:#171c24;--h-panel-2:#1b222d;--h-line:rgba(160,190,225,.13);
+  --h-bg:var(--tg-theme-bg-color,#0e1116);--h-panel:var(--tg-theme-secondary-bg-color,#171c24);--h-panel-2:#1b222d;--h-line:rgba(160,190,225,.13);
   --h-muted:#8794a7;--h-text:#f2f6fc;--h-blue:#3298ff;--h-cyan:#42d5ed;--h-gold:#f4c76b;--h-violet:#a88bff;
-  --tg-theme-bg-color:var(--tg-theme-bg-color,#0e1116);
 }
 html,body{background:var(--h-bg);color:var(--h-text);overscroll-behavior-y:none}
 body{background:radial-gradient(ellipse at 82% -8%,rgba(36,125,255,.16),transparent 38%),radial-gradient(ellipse at 0% 58%,rgba(92,66,180,.09),transparent 34%),var(--h-bg);text-shadow:none}
@@ -538,3 +537,20 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 @media(max-width:620px){.main-content{padding-left:11px;padding-right:11px}.ton-hero{min-height:290px;margin:12px 0 21px;padding:23px 17px 48px}.ton-hero h1{font-size:31px}.ton-hero-copy{max-width:72%}.ton-stage{right:-110px;opacity:.42;transform:translateY(-50%) scale(.78)}.market-heading-row{align-items:flex-start;margin:20px 0 15px}.market-heading-row h2{font-size:21px}.market-heading-row p{max-width:220px;font-size:9px}.floor-chip{min-width:94px;padding:9px}.floor-chip strong{font-size:15px}.market-toolbar{grid-template-columns:1fr 1fr;gap:7px}.market-search{grid-column:1/-1;height:42px}.market-select{height:40px;font-size:9px}.asset-grid,.asset-grid-skeleton{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.asset-card{border-radius:13px}.asset-card-content{padding:9px}.asset-title-row h3{font-size:10px}.asset-owner{font-size:8px;margin-bottom:9px}.asset-card-footer>div>strong{font-size:13px}.asset-offer-button{min-height:29px;padding:0 7px;font-size:8px}.asset-gift-symbol{font-size:56px}.asset-art-username strong{font-size:15px}.asset-number{font-size:30px}.inventory-toolbar .ton-primary{padding:10px 11px;font-size:9px}.sell-modal{padding:20px}.inventory-edit{grid-template-columns:1fr 85px}.inventory-edit button{grid-column:1/-1}.state-panel{min-height:140px;padding:18px}.market-meta{font-size:8px}}
 @media(max-width:360px){.asset-grid,.asset-grid-skeleton{gap:6px}.asset-card-content{padding:8px}.asset-card-footer{align-items:flex-start;flex-direction:column}.asset-offer-button{width:100%}.mobile-nav button small{font-size:7px}}
 @media(prefers-reduced-motion:reduce){.asset-skeleton span{animation:none}.asset-card,.asset-offer-button,.ton-primary{transition:none}}
+
+html[data-telegram-color-scheme="light"]{color-scheme:light}
+html[data-telegram-color-scheme="light"] body{background:radial-gradient(ellipse at 82% -8%,rgba(50,152,255,.10),transparent 38%),#f4f6f9;color:#17202b}
+html[data-telegram-color-scheme="light"] .sidebar{background:rgba(250,252,255,.94);border-color:#dce4ee}
+html[data-telegram-color-scheme="light"] .brand,html[data-telegram-color-scheme="light"] .main-content{color:#17202b}
+html[data-telegram-color-scheme="light"] .topbar{border-color:#dce4ee}
+html[data-telegram-color-scheme="light"] .market-heading-row h2,html[data-telegram-color-scheme="light"] .asset-title-row h3,html[data-telegram-color-scheme="light"] .state-panel strong{color:#17202b}
+html[data-telegram-color-scheme="light"] .asset-card,html[data-telegram-color-scheme="light"] .asset-skeleton{background:#fff;border-color:#dce4ee;box-shadow:0 8px 24px #1b35500b}
+html[data-telegram-color-scheme="light"] .asset-card-footer>div>strong{color:#17202b}
+html[data-telegram-color-scheme="light"] .market-search,html[data-telegram-color-scheme="light"] .market-select{background:#fff;border-color:#dce4ee;color:#26374a}
+html[data-telegram-color-scheme="light"] .market-search input{color:#17202b}
+html[data-telegram-color-scheme="light"] .inventory-note{background:#edf5ff;border-color:#d0e4fa}
+html[data-telegram-color-scheme="light"] .sell-modal{background:#fff;color:#17202b;border-color:#dce4ee}
+html[data-telegram-color-scheme="light"] .sell-modal h2{color:#17202b}
+html[data-telegram-color-scheme="light"] .sell-modal .form-input{background:#f6f8fb;color:#17202b;border-color:#dce4ee}
+html[data-telegram-color-scheme="light"] .mobile-nav{background:rgba(250,252,255,.96);border-color:#dce4ee}
+html[data-telegram-color-scheme="light"] .ton-hero{color:#fff}
