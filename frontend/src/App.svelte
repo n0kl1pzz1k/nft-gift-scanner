@@ -907,7 +907,7 @@
             <div class={'asset-detail-art asset-art-'+assetTypeOf(selectedAsset)}>
               {#if assetTypeOf(selectedAsset)==='username'}<span class="asset-at">@</span><strong>{selectedAsset.title.replace(/^@/,'')}</strong><small>TELEGRAM USERNAME</small>
               {:else if assetTypeOf(selectedAsset)==='number'}<span class="asset-number">{selectedAsset.title.replace(/[^0-9+]/g,'') || '888'}</span><small>ANONYMOUS NUMBER</small>
-              {:else if assetTypeOf(selectedAsset)==='gift'}<div class="asset-preview-placeholder"><span>PREVIEW</span><small>{lang==='ru'?'Изображение появится после импорта подарка':'Gift preview appears after verified import'}</small></div>
+              {:else if assetTypeOf(selectedAsset)==='gift'}{#if selectedAsset.image_url}<img class="asset-detail-gift-image" src={selectedAsset.image_url} alt={selectedAsset.title} />{:else}<div class="asset-preview-placeholder"><span>PREVIEW</span><small>{lang==='ru'?'Изображение появится после импорта подарка':'Gift preview appears after verified import'}</small></div>{/if}
                {:else}<div class="asset-preview-placeholder"><span>ASSET</span><small>{lang==='ru'?'Тип актива ещё не подтверждён':'Asset type is not verified yet'}</small></div>{/if}
             </div>
             <div class="eyebrow">HASSLE NFT · ASSET</div><h2 id="asset-detail-title">{selectedAsset.title}</h2>
