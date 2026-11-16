@@ -36,7 +36,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             },
         )
         self.auth_patch.start()
-        self.feature_flag_patch = patch.dict(os.environ, {"HASSLE_VERIFIED_ASSETS_ENABLED": "true", "HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "true"})
+        self.feature_flag_patch = patch.dict(os.environ, {"HASSLE_VERIFIED_ASSETS_ENABLED": "true", "HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "true", "HASSLE_TEST_SKIP_TON_OWNER_RECHECK": "true"})
         self.feature_flag_patch.start()
         self.credential_patch = patch.object(
             api,
