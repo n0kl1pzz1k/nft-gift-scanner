@@ -106,6 +106,19 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(response.json()["dependency"], "database_schema")
         self.assertIn("demo_notifications", response.json()["missing_tables"])
 
+    def test_database_initializers_are_idempotent_and_foreign_keys_are_valid(self):
+        marketplace.init_marketplace_db()
+        demo_offers.init_demo_offers_db()
+        api.init_ton_connect_db()
+
+        with marketplace._db() as connection:
+            violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+            self.assertEqual(violations, [])
+
+        response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ready")
+
     def test_database_connections_enforce_durability_and_lock_wait_policy(self):
         with marketplace._db() as conn:
             self.assertEqual(conn.execute("PRAGMA foreign_keys").fetchone()[0], 1)
