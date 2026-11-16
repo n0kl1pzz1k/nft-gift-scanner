@@ -359,6 +359,9 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
+        if not _verified_asset_actions_enabled():
+            _require_user(x_telegram_init_data, verify_telegram_init_data)
+            return {"items": [], "total": 0, "limit": limit, "offset": offset}
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         user_id = str(user["id"])
         where = "f.sender_user_id = ? OR o.user_id = ?"
@@ -532,6 +535,9 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
+        if not _verified_asset_actions_enabled():
+            _require_user(x_telegram_init_data, verify_telegram_init_data)
+            return {"items": [], "total": 0, "limit": limit, "offset": offset, "payments_enabled": False}
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         user_id = str(user["id"])
         with _db() as conn:
@@ -574,6 +580,9 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
+        if not _verified_asset_actions_enabled():
+            _require_user(x_telegram_init_data, verify_telegram_init_data)
+            return {"items": [], "total": 0, "limit": limit, "offset": offset, "unread_count": 0}
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         user_id = str(user["id"])
         clause = " AND read_at IS NULL" if unread_only else ""
@@ -640,6 +649,9 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
 
     @router.get("/account/stats")
     async def account_stats(x_telegram_init_data: str | None = Header(default=None)):
+        if not _verified_asset_actions_enabled():
+            _require_user(x_telegram_init_data, verify_telegram_init_data)
+            return {"active_orders": 0, "completed_orders": 0, "pending_offers_sent": 0, "pending_offers_received": 0, "simulated_deals": 0, "unread_notifications": 0, "simulation_only": False}
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         user_id = str(user["id"])
         with _db() as conn:
@@ -683,6 +695,9 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         x_telegram_init_data: str | None = Header(default=None),
     ):
         """Unified, account-scoped timeline of demo order and offer events."""
+        if not _verified_asset_actions_enabled():
+            _require_user(x_telegram_init_data, verify_telegram_init_data)
+            return {"items": [], "total": 0, "limit": limit, "offset": offset}
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         user_id = str(user["id"])
         query = """
