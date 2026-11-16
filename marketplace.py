@@ -1225,6 +1225,52 @@ def create_marketplace_router(
         order_id = "gr-" + uuid.uuid4().hex[:16]
         owner_id = str(user["id"])
         owner = (user.get("first_name") or user.get("username") or "Telegram user")[:64]
+
+        # Re-check the live chain owner before a TON NFT can become a listing.
+        # The initial import is a snapshot; it must not authorize stale ownership.
+        if payload.kind == "listing" and payload.asset_id:
+            with _db() as conn:
+                preflight_asset = conn.execute(
+                    "SELECT * FROM verified_assets WHERE id = ? AND status = 'verified'",
+                    (payload.asset_id,),
+                ).fetchone()
+            if preflight_asset is None:
+                raise HTTPException(status_code=404, detail="Verified asset not found")
+            if preflight_asset["owner_telegram_id"] != owner_id:
+                raise HTTPException(status_code=403, detail="Only the verified asset owner can list it")
+            if preflight_asset["source"] == "ton_nft":
+                from ton_connect import list_verified_wallets
+                from ton_nft_inventory import fetch_nft_owner
+                linked_wallets = [
+                    wallet for wallet in list_verified_wallets(owner_id)
+                    if wallet.get("network") == "-239"
+                ]
+                if not linked_wallets:
+                    raise HTTPException(status_code=403, detail="A verified TON mainnet wallet is required")
+                try:
+                    live_owner = await fetch_nft_owner(preflight_asset["external_asset_id"])
+                except Exception as exc:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Could not re-check NFT ownership on TON; listing was not created",
+                        headers={"Retry-After": "30"},
+                    ) from exc
+                linked_addresses = {wallet["address"] for wallet in linked_wallets}
+                if (
+                    live_owner.get("owner_address") not in linked_addresses
+                    or live_owner.get("is_scam")
+                    or live_owner.get("trust") == "blacklist"
+                ):
+                    with _db() as conn:
+                        conn.execute(
+                            "UPDATE verified_assets SET status = 'revoked', revoked_at = ? WHERE id = ? AND status = 'verified'",
+                            (int(time.time()), preflight_asset["id"]),
+                        )
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Current TON ownership no longer matches this Telegram account; asset was removed from inventory",
+                    )
+
         with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             asset = None
