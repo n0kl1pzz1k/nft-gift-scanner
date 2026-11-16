@@ -386,6 +386,8 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
     async def update_offer(offer_id: str, payload: OfferAction,
                            x_telegram_init_data: str | None = Header(default=None)):
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        if not _verified_asset_actions_enabled():
+            raise HTTPException(status_code=409, detail="Offer actions are disabled until verified inventory is enabled")
         actor_id = str(user["id"])
         _enforce_user_rate_limit(actor_id, "update_offer", 30)
         now = int(time.time())
@@ -435,6 +437,8 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
     ):
         """Allow participants to release an unpaid demo reservation atomically."""
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        if not _verified_asset_actions_enabled():
+            raise HTTPException(status_code=409, detail="Deal actions are disabled until verified inventory is enabled")
         actor_id = str(user["id"])
         _enforce_user_rate_limit(actor_id, "deal_action", 10)
         now = int(time.time())
@@ -494,6 +498,8 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         x_telegram_init_data: str | None = Header(default=None),
     ):
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        if not _verified_asset_actions_enabled():
+            raise HTTPException(status_code=404, detail="Deal not found")
         user_id = str(user["id"])
         with _db() as conn:
             deal = conn.execute(
