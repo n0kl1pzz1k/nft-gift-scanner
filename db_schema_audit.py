@@ -147,5 +147,89 @@ def main() -> int:
     return 0
 
 
+
+
+def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Classify schema features that need explicit PostgreSQL migration work.
+
+    This is a schema-only assessment: it does not inspect row data or claim
+    that application SQL/transaction semantics are PostgreSQL-compatible.
+    """
+    tables = manifest.get("tables", [])
+    objects = manifest.get("objects", [])
+    trigger_items = [
+        {"name": str(item.get("name", "")), "table": str(item.get("table", ""))}
+        for item in objects
+        if item.get("type") == "trigger"
+    ]
+    view_items = [
+        {"name": str(item.get("name", "")), "table": str(item.get("table", ""))}
+        for item in objects
+        if item.get("type") == "view"
+    ]
+    autoincrement_columns: list[dict[str, str]] = []
+    partial_indexes: list[dict[str, str]] = []
+    check_constraints: list[dict[str, str]] = []
+
+    for table in tables:
+        table_name = str(table.get("name", ""))
+        ddl = str(table.get("sql") or "")
+        if "AUTOINCREMENT" in ddl.upper():
+            for column in table.get("columns", []):
+                if int(column.get("primary_key_position", 0)) > 0 and str(column.get("type", "")).upper() == "INTEGER":
+                    autoincrement_columns.append({
+                        "table": table_name,
+                        "column": str(column.get("name", "")),
+                    })
+        if "CHECK" in ddl.upper():
+            check_constraints.append({"table": table_name})
+        for index in table.get("indexes", []):
+            if index.get("partial"):
+                partial_indexes.append({
+                    "table": table_name,
+                    "name": str(index.get("name", "")),
+                    "sql": str(index.get("sql") or ""),
+                })
+
+    blockers = []
+    if trigger_items:
+        blockers.append({
+            "feature": "sqlite_triggers",
+            "count": len(trigger_items),
+            "reason": "SQLite trigger bodies and functions must be reviewed and rewritten for PostgreSQL.",
+            "items": trigger_items,
+        })
+    if autoincrement_columns:
+        blockers.append({
+            "feature": "sqlite_autoincrement",
+            "count": len(autoincrement_columns),
+            "reason": "Map SQLite AUTOINCREMENT columns to PostgreSQL identity/sequence semantics and preserve IDs.",
+            "items": autoincrement_columns,
+        })
+
+    return {
+        "format_version": 1,
+        "source_engine": str(manifest.get("engine", "unknown")),
+        "target_engine": "postgresql",
+        "schema_sha256": manifest.get("schema_sha256"),
+        "table_count": len(tables),
+        "foreign_key_count": sum(len(table.get("foreign_keys", [])) for table in tables),
+        "trigger_count": len(trigger_items),
+        "view_count": len(view_items),
+        "partial_indexes": partial_indexes,
+        "check_constraint_tables": check_constraints,
+        "blockers": blockers,
+        "review_items": [
+            "Recreate and verify all foreign keys, unique constraints and CHECK constraints.",
+            "Translate partial-index predicates and confirm their intended NULL/status behavior.",
+            "Recreate views and validate their SQL against PostgreSQL.",
+            "Audit application SQL, placeholders, row access, conflict handling and transaction boundaries separately.",
+            "Verify sequence values after importing preserved primary keys.",
+        ],
+        "ready_for_cutover": False,
+        "scope_note": "Schema-only report. A clean report does not establish application-query, transaction, data, or operational compatibility.",
+    }
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
