@@ -43,7 +43,7 @@ class TelegramBusinessGiftInventoryTests(unittest.IsolatedAsyncioTestCase):
         }))
 
     async def test_downloads_only_small_static_image_previews(self):
-        image_bytes = b"RIFF\\x04\\x00\\x00\\x00WEBP"
+        image_bytes = b"RIFF" + bytes.fromhex("04000000") + b"WEBP"
         def handler(request):
             if request.method == "POST":
                 self.assertTrue(request.url.path.endswith("/getFile"))
@@ -185,7 +185,7 @@ class TelegramBusinessGiftImportApiTests(unittest.TestCase):
             imported = self.client.post("/api/marketplace/assets/import-business-gifts", headers={"X-Telegram-Init-Data": "verified-session"})
         self.assertEqual(imported.status_code, 200, imported.text)
         asset_id = imported.json()["items"][0]["id"]
-        image_bytes = b"RIFF\\x04\\x00\\x00\\x00WEBP"
+        image_bytes = b"RIFF" + bytes.fromhex("04000000") + b"WEBP"
         with patch.object(app, "fetch_sticker_preview", new=AsyncMock(return_value=(image_bytes, "image/webp"))):
             response = self.client.get(f"/api/marketplace/assets/{asset_id}/preview", headers={"X-Telegram-Init-Data": "verified-session"})
         self.assertEqual(response.status_code, 200, response.text)
