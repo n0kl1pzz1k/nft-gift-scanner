@@ -553,6 +553,25 @@ _READINESS_TABLES = (
     "verified_wallets",
 )
 
+# Required columns are checked separately from table presence so an incomplete
+# or unexpectedly old schema cannot pass readiness and receive production traffic.
+_READINESS_COLUMNS = {
+    "telegram_users": {"telegram_id", "updated_at"},
+    "telegram_sessions": {"token_hash", "telegram_id", "expires_at"},
+    "telegram_update_inbox": {"update_id", "payload_hash", "status", "lease_until"},
+    "demo_orders": {"id", "user_id", "status", "asset_type", "asset_id"},
+    "verified_assets": {"id", "source", "external_asset_id", "owner_telegram_id", "status"},
+    "demo_offers": {"id", "order_id", "sender_user_id", "amount", "currency", "status"},
+    "demo_deals": {"id", "order_id", "offer_id", "status"},
+    "demo_deal_events": {"id", "deal_id", "event_type"},
+    "demo_deal_lifecycle_events": {"id", "deal_id", "event_type"},
+    "demo_notifications": {"id", "user_id", "offer_id", "order_id", "read_at"},
+    "telegram_business_connections": {"telegram_id", "business_connection_id", "is_enabled"},
+    "telegram_business_gift_refs": {"asset_id", "owner_telegram_id", "owned_gift_id"},
+    "ton_proof_challenges": {"payload_hash", "telegram_id", "session_hash", "expires_at"},
+    "verified_wallets": {"network", "address", "telegram_id", "state_init_hash", "revoked_at"},
+}
+
 
 @app.get("/ready")
 async def readiness():
@@ -567,7 +586,21 @@ async def readiness():
                 ).fetchall()
             }
             missing = [table for table in _READINESS_TABLES if table not in existing]
-            if missing:
+            missing_columns = []
+            for table, required_columns in _READINESS_COLUMNS.items():
+                if table not in existing:
+                    continue
+                actual_columns = {
+                    row["name"]
+                    for row in connection.execute(
+                        f"PRAGMA table_info(\"{table}\")"
+                    ).fetchall()
+                }
+                missing_columns.extend(
+                    f"{table}.{column}"
+                    for column in sorted(required_columns - actual_columns)
+                )
+            if missing or missing_columns:
                 return JSONResponse(
                     status_code=503,
                     content={
@@ -575,6 +608,7 @@ async def readiness():
                         "service": "hassle-nft-market",
                         "dependency": "database_schema",
                         "missing_tables": missing,
+                        "missing_columns": missing_columns,
                     },
                 )
     except Exception:
