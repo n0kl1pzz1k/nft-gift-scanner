@@ -6,6 +6,7 @@ No client-supplied NFT metadata is accepted.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 from urllib.parse import urlparse
@@ -112,6 +113,9 @@ async def fetch_wallet_nfts(address: str, *, client: httpx.AsyncClient | None = 
     complete = False
     try:
         for offset in range(0, MAX_ITEMS, PAGE_SIZE):
+            # The unauthenticated TonAPI tier is limited to one request every four seconds.
+            if offset and not token:
+                await asyncio.sleep(4.1)
             response = await session.get(
                 f"/v2/accounts/{wallet_address}/nfts",
                 params={"limit": PAGE_SIZE, "offset": offset, "indirect_ownership": "false"},
