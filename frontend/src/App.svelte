@@ -47,6 +47,8 @@
   let orders = $state<MarketplaceOrder[]>([]);
   let verifiedAssets = $state<VerifiedAsset[]>([]);
   let verifiedAssetsLoading = $state(false);
+  let tonNftImportBusy = $state(false);
+  let tonNftImportMessage = $state('');
   let favoriteOrderIds = $state<string[]>([]);
   let publicOrdersTotal = $state(0);
   let publicOrdersOffset = $state(0);
@@ -274,6 +276,27 @@
       notice = e instanceof Error ? e.message : String(e);
     } finally {
       verifiedAssetsLoading = false;
+    }
+  }
+
+  async function importTonWalletAssets() {
+    if (!signedIn || !authToken || !walletConnected || tonNftImportBusy) return;
+    tonNftImportBusy = true;
+    tonNftImportMessage = '';
+    try {
+      const result = await request('/api/marketplace/assets/import-ton', undefined, { method: 'POST' });
+      await loadVerifiedInventory();
+      const count = Number(result.imported) || 0;
+      tonNftImportMessage = lang === 'ru'
+        ? (count ? `Добавлено NFT: ${count}` : 'Новых NFT не найдено. Проверь, что в кошельке есть NFT.')
+        : (count ? `NFT imported: ${count}` : 'No NFTs found in this wallet.');
+      if (result.ownership_scan_complete === false) {
+        tonNftImportMessage += lang === 'ru' ? ' Проверка продолжится при следующем обновлении.' : ' The scan was partial; refresh again later.';
+      }
+    } catch (e) {
+      tonNftImportMessage = e instanceof Error ? e.message : String(e);
+    } finally {
+      tonNftImportBusy = false;
     }
   }
 
@@ -807,7 +830,7 @@
     
      {:else if view==='create'}
        <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{lang==='ru'?'Инвентарь':'Inventory'}</h1><p>{lang==='ru'?'Только подтверждённые активы, принадлежащие твоему кошельку':'Only verified assets owned by your connected wallet'}</p></section>
-       <div class="inventory-connect-panel"><div class="inventory-connect-icon">◈</div><div class="inventory-connect-copy"><span class="eyebrow">TON CONNECT · PROOF</span><h2>{lang==='ru'?'Подтверди свой TON-кошелёк':'Verify your TON wallet'}</h2><p>{lang==='ru'?'Подключение подтверждается подписью TON Proof. Маркетплейс не получает seed-фразу или приватный ключ. После проверки сможем загрузить реальные NFT из сети.':'Connection is verified with a TON Proof signature. The marketplace never receives your seed phrase or private key. Once verified, we can load real on-chain NFTs.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} onVerified={()=>{walletConnected=true;}} /></div></div>
+       <div class="inventory-connect-panel"><div class="inventory-connect-icon">◈</div><div class="inventory-connect-copy"><span class="eyebrow">TON CONNECT · PROOF</span><h2>{lang==='ru'?'Подтверди свой TON-кошелёк':'Verify your TON wallet'}</h2><p>{lang==='ru'?'Подключение подтверждается подписью TON Proof. Маркетплейс не получает seed-фразу или приватный ключ. После проверки нажми «Загрузить NFT из TON», чтобы получить реальные активы из сети.':'Connection is verified with a TON Proof signature. The marketplace never receives your seed phrase or private key. Once verified, select “Import NFTs from TON” to load real on-chain assets.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} onVerified={()=>{walletConnected=true;}} />{#if walletConnected}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTonWalletAssets} disabled={tonNftImportBusy}>{tonNftImportBusy?(lang==='ru'?'Сканируем блокчейн…':'Scanning the blockchain…'):(lang==='ru'?'↓ Загрузить NFT из TON':'↓ Import NFTs from TON')}</button>{/if}{#if tonNftImportMessage}<p class="ton-wallet-message">{tonNftImportMessage}</p>{/if}</div></div>
        {#if verifiedAssetsLoading}
          <div class="inventory-empty-state"><span class="state-icon">◌</span><strong>{lang==='ru'?'Проверяем инвентарь…':'Checking inventory…'}</strong></div>
        {:else if verifiedAssets.length}
