@@ -217,8 +217,7 @@ def init_marketplace_db() -> None:
                              image_url, verification_method, verification_reference_hash, verified_at
             ON verified_assets
             WHEN NOT (
-                OLD.status = 'revoked'
-                AND NEW.status = 'verified'
+                NEW.status = 'verified'
                 AND NEW.owner_telegram_id != OLD.owner_telegram_id
                 AND NEW.source = OLD.source
                 AND NEW.external_asset_id = OLD.external_asset_id
@@ -542,7 +541,8 @@ def _test_ton_owner_recheck_skipped() -> bool:
 
 def register_verified_asset(*, source: str, external_asset_id: str, owner_telegram_id: str,
                             title: str, asset_type: str, image_url: str,
-                            verification_method: str, verification_reference: str) -> dict[str, Any]:
+                            verification_method: str, verification_reference: str,
+                            allow_owner_transfer: bool = False) -> dict[str, Any]:
     """Persist an asset only after a trusted upstream verifier has validated ownership.
 
     This function is intentionally not an HTTP endpoint. A TON Connect / Telegram
@@ -584,16 +584,16 @@ def register_verified_asset(*, source: str, external_asset_id: str, owner_telegr
         ).fetchone()
         if existing is not None:
             if existing["owner_telegram_id"] != owner_telegram_id:
-                if existing["status"] != "revoked":
+                if not allow_owner_transfer:
                     conn.rollback()
-                    raise ValueError("This asset is already registered to another active owner")
+                    raise ValueError("This asset is already registered to another owner")
                 previous_owner_id = existing["owner_telegram_id"]
                 changed = conn.execute(
                     """UPDATE verified_assets
                        SET owner_telegram_id = ?, title = ?, asset_type = ?, image_url = ?,
                            verification_method = ?, verification_reference_hash = ?,
                            verified_at = ?, status = 'verified', revoked_at = NULL
-                       WHERE id = ? AND status = 'revoked'""",
+                       WHERE id = ? AND status IN ('verified', 'revoked')""",
                     (owner_telegram_id, title, asset_type, image_url, verification_method,
                      reference_hash, now, existing["id"]),
                 )
@@ -611,6 +611,7 @@ def register_verified_asset(*, source: str, external_asset_id: str, owner_telegr
                     "SELECT id FROM demo_orders WHERE asset_id = ? AND status = 'active'",
                     (existing["id"],),
                 ).fetchall()
+                stale_listing_ids = [row["id"] for row in stale_listings]
                 for listing in stale_listings:
                     conn.execute(
                         "UPDATE demo_orders SET status = 'cancelled', updated_at = ? WHERE id = ?",
@@ -620,6 +621,19 @@ def register_verified_asset(*, source: str, external_asset_id: str, owner_telegr
                         """INSERT INTO demo_order_events(order_id, actor_user_id, event_type, created_at)
                            VALUES (?, ?, 'cancelled', ?)""",
                         (listing["id"], owner_telegram_id, now),
+                    )
+                if stale_listing_ids:
+                    placeholders = ",".join("?" for _ in stale_listing_ids)
+                    conn.execute(
+                        f"""UPDATE demo_offers SET status = 'declined', updated_at = ?
+                            WHERE order_id IN ({placeholders}) AND status IN ('pending', 'accepted')""",
+                        (now, *stale_listing_ids),
+                    )
+                    conn.execute(
+                        f"""UPDATE demo_deals SET status = 'cancelled'
+                            WHERE order_id IN ({placeholders})
+                              AND status NOT IN ('cancelled', 'expired', 'completed')""",
+                        tuple(stale_listing_ids),
                     )
                 conn.commit()
                 existing = conn.execute(
@@ -684,6 +698,7 @@ def sync_ton_nft_assets(*, owner_telegram_id: str, wallets: list[dict[str, Any]]
             image_url=str(item.get("image_url") or ""),
             verification_method="ton_connect_proof",
             verification_reference=f"tonapi-owner-index:{evidence_wallet}:{address}:{int(time.time())}",
+            allow_owner_transfer=True,
         ))
     if complete:
         now = int(time.time())
