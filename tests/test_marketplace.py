@@ -98,6 +98,14 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(response.json()["dependency"], "database_schema")
         self.assertIn("verified_wallets", response.json()["missing_tables"])
 
+    def test_readiness_probe_checks_marketplace_offers_and_notifications_schema(self):
+        with marketplace._db() as connection:
+            connection.execute("DROP TABLE demo_notifications")
+        response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["dependency"], "database_schema")
+        self.assertIn("demo_notifications", response.json()["missing_tables"])
+
     def test_database_connections_enforce_durability_and_lock_wait_policy(self):
         with marketplace._db() as conn:
             self.assertEqual(conn.execute("PRAGMA foreign_keys").fetchone()[0], 1)

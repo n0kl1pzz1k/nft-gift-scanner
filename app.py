@@ -523,12 +523,32 @@ async def health():
 
 
 _READINESS_TABLES = (
+    # Identity, sessions, Telegram update processing, and user data.
     "telegram_users",
+    "user_profiles",
     "telegram_sessions",
+    "telegram_initdata_uses",
+    "telegram_update_inbox",
+    "user_favorites",
+    # Verified assets and marketplace listings.
     "demo_orders",
     "verified_assets",
+    "demo_order_events",
+    "demo_order_revisions",
+    "demo_order_reports",
+    "asset_ownership_history",
+    # Offers, deals, lifecycle, and notifications.
     "demo_offers",
     "demo_deals",
+    "demo_deal_events",
+    "demo_deal_lifecycle_events",
+    "demo_notifications",
+    # Application controls and Telegram Business ownership links.
+    "api_rate_limits",
+    "app_settings",
+    "telegram_business_connections",
+    "telegram_business_gift_refs",
+    # TON Connect proof and verified wallet bindings.
     "ton_proof_challenges",
     "verified_wallets",
 )
