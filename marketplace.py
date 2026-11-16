@@ -689,6 +689,8 @@ def create_marketplace_router(
             ).fetchone()
             if row is None:
                 raise HTTPException(status_code=404, detail="Seller profile not found")
+            if not _verified_asset_actions_enabled():
+                return {"profile": {**dict(row), "active_listings": 0, "completed_trades": 0, "rating": None, "listings": []}}
             listing_rows = conn.execute(
                 """SELECT o.id, o.title, o.price, o.currency, o.created_at, o.note
                    FROM demo_orders o
