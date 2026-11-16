@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { fade } from 'svelte/transition';
+
   type AssetOrder = {
     id: string;
     title: string;
@@ -28,7 +30,7 @@
       : (lang === 'ru' ? 'NFT-подарок' : 'NFT Gift'));
 </script>
 
-<article class="asset-card">
+<article class="asset-card" in:fade={{ duration: 160 }}>
   <div class={'asset-art asset-art-' + kind}>
     {#if kind === 'username'}
       <span class="asset-at">@</span><strong>{order.title.replace(/^@/, '')}</strong><small>TELEGRAM USERNAME</small>
