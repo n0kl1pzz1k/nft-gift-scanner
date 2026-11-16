@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
+import httpx
+
 from fastapi.testclient import TestClient
 
 import app
@@ -87,7 +89,7 @@ class TonNftImportApiTests(unittest.TestCase):
                            'ton_connect_proof', ?, 'verified', 1, 1)""",
                 ("0:" + "e" * 64, "f" * 64),
             )
-        with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(side_effect=RuntimeError("provider unavailable"))):
+        with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(side_effect=httpx.ConnectError("provider unavailable"))):
             response = self.client.post(
                 "/api/marketplace/assets/import-ton",
                 headers={"X-Telegram-Init-Data": "verified-session"},
