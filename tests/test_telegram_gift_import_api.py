@@ -83,5 +83,63 @@ class TelegramGiftImportApiTests(unittest.TestCase):
         self.assertEqual(row["status"], "verified")
 
 
+    def test_incomplete_scan_does_not_revoke_assets_missing_from_partial_snapshot(self):
+        with marketplace._db() as conn:
+            conn.execute(
+                """INSERT INTO verified_assets
+                   (id, source, external_asset_id, owner_telegram_id, title, asset_type,
+                    image_url, verification_method, verification_reference_hash,
+                    status, created_at, verified_at)
+                   VALUES ('gift_partial', 'telegram_gift', 'Gift-Old', '101', 'Gift Old',
+                           'gift', '', 'telegram_gift_owner', ?, 'verified', 1, 1)""",
+                ("e" * 64,),
+            )
+        partial = {
+            "complete": False,
+            "total_count": 200,
+            "supported_unique_count": 0,
+            "items": [],
+        }
+        with patch.object(app, "fetch_user_telegram_gifts", new=AsyncMock(return_value=partial)):
+            response = self.client.post(
+                "/api/marketplace/assets/import-telegram",
+                headers={"X-Telegram-Init-Data": "verified-session"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertFalse(response.json()["ownership_scan_complete"])
+        with marketplace._db() as conn:
+            row = conn.execute(
+                "SELECT status FROM verified_assets WHERE id='gift_partial'"
+            ).fetchone()
+        self.assertEqual(row["status"], "verified")
+
+    def test_telegram_gift_listing_remains_blocked_even_when_global_listing_flag_is_enabled(self):
+        asset = marketplace.sync_telegram_gift_assets(
+            owner_telegram_id="101",
+            gifts=[{
+                "external_asset_id": "Gift-Unique-9",
+                "title": "Gift Unique #9",
+                "asset_type": "gift",
+                "image_url": "",
+                "send_date": "1760000000",
+            }],
+            complete=True,
+        )[0]
+        with patch.dict(os.environ, {"HASSLE_VERIFIED_ASSETS_ENABLED": "true"}):
+            response = self.client.post(
+                "/api/marketplace/orders",
+                headers={"X-Telegram-Init-Data": "verified-session"},
+                json={
+                    "kind": "listing",
+                    "asset_id": asset["id"],
+                    "title": "Gift Unique #9",
+                    "price": "2",
+                    "currency": "TON",
+                },
+            )
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("transfer", response.json()["detail"].lower())
+
+
 if __name__ == "__main__":
     unittest.main()
