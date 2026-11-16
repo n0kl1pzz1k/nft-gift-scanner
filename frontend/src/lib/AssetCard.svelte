@@ -41,14 +41,14 @@
       <span class="asset-gift-symbol">✳</span><small>TELEGRAM NFT GIFT</small>
     {/if}
     <span class="asset-type-pill">{typeLabel}</span>
-    <button class={'asset-favorite ' + (favorite ? 'is-favorite' : '')} onclick={onFavorite} aria-label={favorite ? 'Remove from favorites' : 'Add to favorites'}>{favorite ? '♥' : '♡'}</button>
+    <button class={'asset-favorite ' + (favorite ? 'is-favorite' : '')} onclick={onFavorite} aria-label={lang === 'ru' ? (favorite ? 'Убрать из избранного' : 'Добавить в избранное') : (favorite ? 'Remove from favorites' : 'Add to favorites')}>{favorite ? '♥' : '♡'}</button>
   </div>
   <div class="asset-card-content">
     <div class="asset-title-row"><button class="asset-title-button" onclick={onOpen}>{order.title}</button><span class="asset-id">#{order.id.slice(-5)}</span></div>
     <p class="asset-owner">{order.owner}{order.note ? ' · ' + order.note : ''}</p>
     <div class="asset-card-footer">
       <div><small>{lang === 'ru' ? 'Цена' : 'Price'}</small><strong>{order.price} <span>{order.currency === 'XTR' ? '⭐' : 'TON'}</span></strong></div>
-      <button class="asset-offer-button" onclick={onOffer}>Make offer ↗</button>
+      <button class="asset-offer-button" onclick={onOffer}>{lang === 'ru' ? 'Сделать оффер' : 'Make offer'} ↗</button>
     </div>
   </div>
 </article>
