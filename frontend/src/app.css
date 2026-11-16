@@ -554,3 +554,8 @@ html[data-telegram-color-scheme="light"] .sell-modal h2{color:#17202b}
 html[data-telegram-color-scheme="light"] .sell-modal .form-input{background:#f6f8fb;color:#17202b;border-color:#dce4ee}
 html[data-telegram-color-scheme="light"] .mobile-nav{background:rgba(250,252,255,.96);border-color:#dce4ee}
 html[data-telegram-color-scheme="light"] .ton-hero{color:#fff}
+
+/* Scroll rendering budget: defer off-screen asset cards without list layout shifts */
+.asset-card{content-visibility:auto;contain-intrinsic-size:320px 360px}
+.asset-card,.asset-skeleton{contain:layout paint style}
+.sell-modal{overscroll-behavior:contain}
