@@ -622,6 +622,7 @@
     } catch {
       authToken = '';
       signedIn = false;
+      walletConnected = false;
       isAdmin = false;
       try { sessionStorage.removeItem('hassle-nft-session-v1'); } catch {}
       return false;
