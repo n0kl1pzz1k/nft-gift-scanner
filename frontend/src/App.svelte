@@ -873,10 +873,11 @@
         <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showAssetDetails=false;}}>
           <div class="sell-modal asset-detail-modal" role="dialog" aria-modal="true" aria-labelledby="asset-detail-title">
             <button class="modal-close" onclick={()=>showAssetDetails=false} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button>
-            <div class={'asset-detail-art asset-art-'+assetTypeOf(selectedAsset.title)}>
-              {#if assetTypeOf(selectedAsset.title)==='username'}<span class="asset-at">@</span><strong>{selectedAsset.title.replace(/^@/,'')}</strong><small>TELEGRAM USERNAME</small>
-              {:else if assetTypeOf(selectedAsset.title)==='number'}<span class="asset-number">{selectedAsset.title.replace(/[^0-9+]/g,'') || '888'}</span><small>ANONYMOUS NUMBER</small>
-              {:else}<div class="asset-preview-placeholder"><span>PREVIEW</span><small>{lang==='ru'?'Изображение появится после импорта подарка':'Gift preview appears after verified import'}</small></div>{/if}
+            <div class={'asset-detail-art asset-art-'+assetTypeOf(selectedAsset)}>
+              {#if assetTypeOf(selectedAsset)==='username'}<span class="asset-at">@</span><strong>{selectedAsset.title.replace(/^@/,'')}</strong><small>TELEGRAM USERNAME</small>
+              {:else if assetTypeOf(selectedAsset)==='number'}<span class="asset-number">{selectedAsset.title.replace(/[^0-9+]/g,'') || '888'}</span><small>ANONYMOUS NUMBER</small>
+              {:else if assetTypeOf(selectedAsset)==='gift'}<div class="asset-preview-placeholder"><span>PREVIEW</span><small>{lang==='ru'?'Изображение появится после импорта подарка':'Gift preview appears after verified import'}</small></div>
+               {:else}<div class="asset-preview-placeholder"><span>ASSET</span><small>{lang==='ru'?'Тип актива ещё не подтверждён':'Asset type is not verified yet'}</small></div>{/if}
             </div>
             <div class="eyebrow">HASSLE NFT · ASSET</div><h2 id="asset-detail-title">{selectedAsset.title}</h2>
             <div class="asset-detail-meta"><span>ID <b>#{selectedAsset.id}</b></span><span>{lang==='ru'?'Продавец':'Seller'} <b>{selectedAsset.owner}</b></span></div>
@@ -911,7 +912,7 @@
             <button class="modal-close" onclick={()=>showOfferModal=false} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={offerSubmitBusy}>×</button>
             <div class="eyebrow">HASSLE NFT · OFFER</div>
             <h2 id="offer-title">{lang==='ru'?'Предложить цену':'Make an offer'}</h2>
-            <div class="offer-asset-preview"><span>{assetTypeOf(selectedOfferOrder.title)==='username'?'＠':assetTypeOf(selectedOfferOrder.title)==='number'?'888':'NFT'}</span><div><strong>{selectedOfferOrder.title}</strong><small>{lang==='ru'?'Цена продавца':'Seller price'}: {selectedOfferOrder.price} {selectedOfferOrder.currency==='XTR'?'⭐':'TON'}</small></div></div>
+            <div class="offer-asset-preview"><span>{assetTypeOf(selectedOfferOrder)==='username'?'＠':assetTypeOf(selectedOfferOrder)==='number'?'888':assetTypeOf(selectedOfferOrder)==='gift'?'NFT':'ASSET'}</span><div><strong>{selectedOfferOrder.title}</strong><small>{lang==='ru'?'Цена продавца':'Seller price'}: {selectedOfferOrder.price} {selectedOfferOrder.currency==='XTR'?'⭐':'TON'}</small></div></div>
             <label>{lang==='ru'?'Твоё предложение':'Your offer'}<input class="form-input" type="number" min="0.01" step={selectedOfferOrder.currency==='XTR'?'1':'0.01'} bind:value={offerAmount} placeholder={selectedOfferOrder.currency==='XTR'?'100':'1.25'}/></label>
             <label>{lang==='ru'?'Сообщение продавцу':'Message to seller'}<textarea class="form-input note-input" bind:value={offerNote} maxlength="500" placeholder={lang==='ru'?'Необязательно':'Optional'}></textarea></label>
             <button class="ton-primary offer-submit" disabled={offerSubmitBusy} onclick={async()=>{if(!selectedOfferOrder)return;offerSubmitBusy=true;try{const sent=await createOffer(selectedOfferOrder.id);if(sent){showOfferModal=false;selectedOfferOrder=null;}}finally{offerSubmitBusy=false;}}}>{offerSubmitBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendOffer+' →'}</button>
