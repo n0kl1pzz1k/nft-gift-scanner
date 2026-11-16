@@ -717,6 +717,21 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 UNION ALL
 
                 SELECT
+                    'sent-offer-' || f.id AS id,
+                    'offer_sent' AS type,
+                    o.id AS order_id,
+                    o.title AS title,
+                    'You' AS actor_name,
+                    f.created_at AS created_at,
+                    f.amount AS amount,
+                    f.currency AS currency
+                FROM demo_offers f
+                JOIN demo_orders o ON o.id = f.order_id
+                WHERE f.sender_user_id = ?
+
+                UNION ALL
+
+                SELECT
                     'revision-' || r.id AS id,
                     'order_updated' AS type,
                     o.id AS order_id,
@@ -753,13 +768,15 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                      id DESC
             LIMIT ? OFFSET ?
         """
-        params = (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, limit, offset)
+        params = (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, limit, offset)
         count_query = """
             WITH activity AS (
                 SELECT e.id FROM demo_order_events e JOIN demo_orders o ON o.id=e.order_id
                 WHERE o.user_id=? OR e.actor_user_id=?
                 UNION ALL
                 SELECT n.id FROM demo_notifications n WHERE n.user_id=?
+                UNION ALL
+                SELECT f.id FROM demo_offers f WHERE f.sender_user_id=?
                 UNION ALL
                 SELECT r.id FROM demo_order_revisions r JOIN demo_orders o ON o.id=r.order_id
                 WHERE o.user_id=? OR r.actor_user_id=?
@@ -771,7 +788,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         with _db() as conn:
             rows = conn.execute(query, params).fetchall()
             total = conn.execute(
-                count_query, (user_id, user_id, user_id, user_id, user_id, user_id, user_id)
+                count_query, (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id)
             ).fetchone()[0]
         return {
             "items": [{
