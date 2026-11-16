@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Orbitron:wght@500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Manrope:wght@400;500;600;700;800&family=Orbitron:wght@500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 :root{font-family:Manrope,ui-sans-serif,system-ui,sans-serif;color:#f7f8ff;background:#090b18;font-synthesis:none;text-rendering:optimizeLegibility}
 *{box-sizing:border-box}html{min-width:320px;background:#090b18}body{margin:0;min-width:320px;min-height:100vh;background:radial-gradient(ellipse at 80% -5%,#5736a844,transparent 34%),radial-gradient(ellipse at 8% 30%,#087f9c22,transparent 30%),#090b18}button,input,textarea{font:inherit}button{cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}
@@ -343,7 +343,7 @@ body{background:radial-gradient(ellipse at 92% 0%,#d9e4ff 0%,transparent 34%),ra
 @media(max-width:520px){.page-heading{margin:24px 0 15px}.page-heading h1{font-size:25px}.order-card{gap:8px;padding:10px}.order-main h3{font-size:11px}.profile-card,.create-form,.create-aside{padding:15px}.search-button,.publish-button,.load-more{min-height:34px;padding:8px 11px;font-size:9px}}
 
 /* HASSLE NFT: electric TON visual system */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap');
+
 :root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#eef5ff;background:#070b14;font-synthesis:none;text-rendering:optimizeLegibility}
 html,body{background:#070b14;color:#eef5ff}
 body{background:radial-gradient(ellipse at 78% 0%,#087bff20,transparent 36%),radial-gradient(ellipse at 0% 68%,#123e7020,transparent 34%),#070b14}
