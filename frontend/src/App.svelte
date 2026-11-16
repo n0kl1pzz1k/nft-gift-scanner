@@ -150,9 +150,10 @@
     (orderKindFilter === 'all' || order.kind === orderKindFilter)
   ));
   const visibleOffers = $derived(offers.filter(offer => offerStatusFilter === 'all' || offer.status === offerStatusFilter));
+  const invalidPriceRange = $derived(marketCurrency !== 'all' && ((marketMinPrice !== '' && (!Number.isFinite(Number(marketMinPrice)) || Number(marketMinPrice) < 0)) || (marketMaxPrice !== '' && (!Number.isFinite(Number(marketMaxPrice)) || Number(marketMaxPrice) < 0)) || (marketMinPrice !== '' && marketMaxPrice !== '' && Number(marketMinPrice) > Number(marketMaxPrice))));
   const marketAssets = $derived.by(() => {
     const filtered = orders.filter(order => {
-      if (order.kind !== 'listing' || order.status !== 'active') return false;
+      if (order.kind !== 'listing' || order.status !== 'active' || invalidPriceRange) return false;
       const type = assetTypeOf(order.title);
       const query = marketSearch.trim().toLocaleLowerCase();
       const matchesType = assetTypeFilter === 'all' || type === assetTypeFilter;
@@ -451,7 +452,7 @@
 
   async function createOffer(orderId: string): Promise<boolean> {
     const amount = Number(offerAmount);
-    if (!Number.isFinite(amount) || amount <= 0) { notice = lang === 'ru' ? 'Укажи положительную сумму оффера.' : 'Enter a positive offer amount.'; return false; }
+    if (!Number.isFinite(amount) || amount <= 0 || (selectedOfferOrder?.currency === 'XTR' && !Number.isInteger(amount))) { notice = selectedOfferOrder?.currency === 'XTR' ? (lang === 'ru' ? 'Сумма оффера в Stars должна быть целым числом.' : 'Star offers must be a whole number.') : (lang === 'ru' ? 'Укажи положительную сумму оффера.' : 'Enter a positive offer amount.'); return false; }
     try {
       await request('/api/marketplace/offers', undefined, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order_id:orderId,amount,note:offerNote.trim()}) });
       offerAmount = ''; offerNote = '';
@@ -492,8 +493,8 @@
       haptic('error');
       return;
     }
-    if (!createTitle.trim() || !Number.isFinite(price) || price <= 0) {
-      notice = lang === 'ru' ? 'Укажи название подарка и положительную цену.' : 'Enter a gift name and a positive price.';
+    if (!createTitle.trim() || !Number.isFinite(price) || price <= 0 || (createCurrency === 'XTR' && !Number.isInteger(price))) {
+      notice = createCurrency === 'XTR' ? (lang === 'ru' ? 'Для Stars укажи целую положительную цену.' : 'Enter a positive whole-number price for Stars.') : (lang === 'ru' ? 'Укажи название актива и положительную цену.' : 'Enter an asset name and a positive price.');
       return;
     }
     if (!window.Telegram?.WebApp?.initData) {
@@ -766,6 +767,7 @@
           <label class="price-filter"><span>{lang==='ru'?'От':'Min'}</span><input type="number" min="0" step="any" bind:value={marketMinPrice} disabled={marketCurrency==='all'} placeholder="0"/></label>
           <label class="price-filter"><span>{lang==='ru'?'До':'Max'}</span><input type="number" min="0" step="any" bind:value={marketMaxPrice} disabled={marketCurrency==='all'} placeholder="∞"/></label>
         </div>
+        {#if invalidPriceRange}<div class="state-panel filter-error" role="alert">{t.invalidPrice}</div>{/if}
         <div class="market-meta"><span>{marketAssets.length} {lang==='ru'?'активов в каталоге':'assets in market'}</span><span>{lang==='ru'?'Сделки в TON и Stars':'TON & Stars'}</span></div>
         {#if marketplaceLoading && orders.length===0}
           <div class="asset-grid-skeleton">{#each [1,2,3,4,5,6] as item}<div class="asset-skeleton"><span></span><i></i><b></b></div>{/each}</div>
@@ -852,7 +854,7 @@
             <div class="eyebrow">HASSLE NFT · OFFER</div>
             <h2 id="offer-title">{lang==='ru'?'Предложить цену':'Make an offer'}</h2>
             <div class="offer-asset-preview"><span>{assetTypeOf(selectedOfferOrder.title)==='username'?'＠':assetTypeOf(selectedOfferOrder.title)==='number'?'888':'✳'}</span><div><strong>{selectedOfferOrder.title}</strong><small>{lang==='ru'?'Цена продавца':'Seller price'}: {selectedOfferOrder.price} {selectedOfferOrder.currency==='XTR'?'⭐':'TON'}</small></div></div>
-            <label>{lang==='ru'?'Твоё предложение':'Your offer'}<input class="form-input" type="number" min="0.01" step="0.01" bind:value={offerAmount} placeholder="1.25"/></label>
+            <label>{lang==='ru'?'Твоё предложение':'Your offer'}<input class="form-input" type="number" min="0.01" step={selectedOfferOrder.currency==='XTR'?'1':'0.01'} bind:value={offerAmount} placeholder={selectedOfferOrder.currency==='XTR'?'100':'1.25'}/></label>
             <label>{lang==='ru'?'Сообщение продавцу':'Message to seller'}<textarea class="form-input note-input" bind:value={offerNote} maxlength="500" placeholder={lang==='ru'?'Необязательно':'Optional'}></textarea></label>
             <button class="ton-primary offer-submit" disabled={offerSubmitBusy} onclick={async()=>{if(!selectedOfferOrder)return;offerSubmitBusy=true;try{const sent=await createOffer(selectedOfferOrder.id);if(sent){showOfferModal=false;selectedOfferOrder=null;}}finally{offerSubmitBusy=false;}}}>{offerSubmitBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendOffer+' →'}</button>
             <small class="sell-modal-hint">{lang==='ru'?'Оффер отправится владельцу актива. Это не перевод средств и не завершение сделки.':'The offer goes to the asset owner. It does not transfer funds or complete a trade.'}</small>
@@ -866,7 +868,7 @@
             <div class="eyebrow">HASSLE NFT · SELL</div><h2 id="sell-title">{lang==='ru'?'Выставить актив':'List an asset'}</h2><p>{lang==='ru'?'Добавь актив в каталог маркетплейса':'Add an asset to the marketplace'}</p>
             <div class="sell-type-grid"><button class:chosen={createAssetType==='gift'} type="button" onclick={()=>createAssetType='gift'}>✳ <span>Telegram Gift</span></button><button class:chosen={createAssetType==='username'} type="button" onclick={()=>createAssetType='username'}>＠ <span>Username</span></button><button class:chosen={createAssetType==='number'} type="button" onclick={()=>createAssetType='number'}>888 <span>Number</span></button></div>
             <label>{lang==='ru'?'Название актива':'Asset name'}<input class="form-input" bind:value={createTitle} maxlength="120" placeholder={createAssetType==='username'?'@username':createAssetType==='number'?'+888 123 4567':'Plush Pepe #042'}/></label>
-            <label>{lang==='ru'?'Цена':'Price'}<div class="currency-choice"><button class:chosen={createCurrency==='TON'} onclick={()=>createCurrency='TON'}>TON</button><button class:chosen={createCurrency==='XTR'} onclick={()=>createCurrency='XTR'}>⭐ Stars</button></div><input class="form-input" type="number" min="0.01" step="0.01" bind:value={createPrice} placeholder="1.25"/></label>
+            <label>{lang==='ru'?'Цена':'Price'}<div class="currency-choice"><button class:chosen={createCurrency==='TON'} onclick={()=>createCurrency='TON'}>TON</button><button class:chosen={createCurrency==='XTR'} onclick={()=>createCurrency='XTR'}>⭐ Stars</button></div><input class="form-input" type="number" min="0.01" step={createCurrency==='XTR'?'1':'0.01'} bind:value={createPrice} placeholder={createCurrency==='XTR'?'100':'1.25'}/></label>
             <label>{lang==='ru'?'Описание':'Description'}<textarea class="form-input note-input" bind:value={createNote} maxlength="300"></textarea></label>
             <button class="publish-button" onclick={createOrder} disabled={createOrderBusy}>{createOrderBusy?(lang==='ru'?'Публикуем…':'Publishing…'):(lang==='ru'?'Выставить на маркет':'List on market')} <span>→</span></button>
             <small class="sell-modal-hint">{lang==='ru'?'Тип актива определяется по его идентификатору. Передача и проверка владения через TON Connect ещё не подключены.':'Asset type is inferred from its identifier. On-chain ownership verification and TON Connect transfer are not connected yet.'}</small>
