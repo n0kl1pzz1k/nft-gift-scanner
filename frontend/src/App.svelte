@@ -46,6 +46,7 @@
   let offerSubmitBusy = $state(false);
   let orders = $state<MarketplaceOrder[]>([]);
   let verifiedAssets = $state<VerifiedAsset[]>([]);
+  let giftPreviewUrls = $state<Record<string,string>>({});
   let verifiedAssetsLoading = $state(false);
   let inventoryFilter = $state<'all'|'telegram_gift'|'ton_nft'>('all');
   let assetListingEnabled = $state(false);
@@ -293,6 +294,26 @@
     }
   }
 
+  function assetPreviewUrl(asset: VerifiedAsset | null) {
+    if (!asset) return '';
+    return asset.image_url || giftPreviewUrls[asset.id] || '';
+  }
+
+  async function loadGiftPreviews(items: VerifiedAsset[]) {
+    const candidates = items.filter(asset => asset.source === 'telegram_gift' && !asset.image_url && !giftPreviewUrls[asset.id]).slice(0, 24);
+    await Promise.all(candidates.map(async asset => {
+      try {
+        const response = await fetch(API + '/api/marketplace/assets/' + encodeURIComponent(asset.id) + '/preview', { headers: authHeaders() });
+        if (!response.ok) return;
+        const blob = await response.blob();
+        if (!['image/webp','image/png','image/jpeg'].includes(blob.type) || !blob.size || blob.size > 2_500_000) return;
+        giftPreviewUrls = { ...giftPreviewUrls, [asset.id]: URL.createObjectURL(blob) };
+      } catch {
+        // A missing model thumbnail should leave the designed placeholder in place.
+      }
+    }));
+  }
+
   async function loadVerifiedInventory() {
     if (!signedIn || !authToken) { verifiedAssets = []; assetListingEnabled = false; return; }
     verifiedAssetsLoading = true;
@@ -300,7 +321,7 @@
       const data = await request('/api/marketplace/assets/me');
       verifiedAssets = Array.isArray(data.items) ? data.items as VerifiedAsset[] : [];
       assetListingEnabled = data.listing_enabled === true;
-      await loadTelegramBusinessStatus();
+      await Promise.all([loadTelegramBusinessStatus(), loadGiftPreviews(verifiedAssets)]);
     } catch (e) {
       verifiedAssets = [];
       assetListingEnabled = false;
@@ -985,7 +1006,7 @@
          <div class="verified-inventory-list">
            {#each verifiedAssets.filter(asset=>inventoryFilter==='all'||asset.source===inventoryFilter) as asset (asset.id)}
              <article class="verified-inventory-item">
-               {#if asset.image_url}<img src={asset.image_url} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder"><span>HASSLE</span><small>{asset.source==='telegram_gift'?(lang==='ru'?'КОЛЛЕКЦИОННЫЙ ПОДАРОК':'COLLECTIBLE GIFT'):'VERIFIED ASSET'}</small></div>{/if}
+               {#if assetPreviewUrl(asset)}<img src={assetPreviewUrl(asset)} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder"><span>HASSLE</span><small>{asset.source==='telegram_gift'?(lang==='ru'?'КОЛЛЕКЦИОННЫЙ ПОДАРОК':'COLLECTIBLE GIFT'):'VERIFIED ASSET'}</small></div>{/if}
                <div class="verified-inventory-details">
                  <div class="verified-inventory-title-row"><strong>{asset.title}</strong><span class="verified-asset-status">{lang==='ru'?'ПОДТВЕРЖДЁН':'VERIFIED'}</span></div>
                  {#if asset.source==='telegram_gift'}
@@ -1116,7 +1137,7 @@
             <div class="eyebrow">HASSLE NFT · NEW LISTING</div>
             <h2 id="inventory-list-title">{lang==='ru'?'Выставить NFT':'List NFT for sale'}</h2>
             <div class="offer-asset-preview">
-              {#if selectedInventoryAsset.image_url}<img src={selectedInventoryAsset.image_url} alt={selectedInventoryAsset.title}/>{:else}<span>◈</span>{/if}
+              {#if assetPreviewUrl(selectedInventoryAsset)}<img src={assetPreviewUrl(selectedInventoryAsset)} alt={selectedInventoryAsset.title}/>{:else}<span>◈</span>{/if}
               <div><strong>{selectedInventoryAsset.title}</strong><small>{selectedInventoryAsset.source==='ton_nft'?'TON NFT':'Verified asset'} · {selectedInventoryAsset.external_asset_id}</small></div>
             </div>
             <label>{lang==='ru'?'Цена':'Price'}<input class="form-input" type="number" min="0.01" step={createCurrency==='XTR'?'1':'0.01'} bind:value={createPrice} placeholder={createCurrency==='XTR'?'100':'1.25'} /></label>
