@@ -21,8 +21,9 @@
     onOffer: () => void;
     onOpen: () => void;
     canOffer: boolean;
+    backgroundColor: 'midnight'|'violet'|'blue'|'emerald'|'rose'|'gold';
   };
-  let { order, favorite, lang, sellerProfileId, onSeller, onFavorite, onOffer, onOpen, canOffer }: Props = $props();
+  let { order, favorite, lang, sellerProfileId, onSeller, onFavorite, onOffer, onOpen, canOffer, backgroundColor }: Props = $props();
 
   function assetType(order: AssetOrder): 'gift' | 'username' | 'number' | 'unknown' {
     return order.asset_type === 'gift' || order.asset_type === 'username' || order.asset_type === 'number'
@@ -38,7 +39,7 @@
 </script>
 
 <article class="asset-card" in:fade={{ duration: 160 }}>
-  <div class={'asset-art asset-art-' + kind}>
+  <div class={'asset-art asset-art-' + kind} style={`background-color: ${({midnight:'#171c24',violet:'#39245d',blue:'#173b62',emerald:'#164a3d',rose:'#5a293d',gold:'#59451d'})[backgroundColor]}`}>
     {#if kind === 'username'}
       <span class="asset-at">@</span><strong>{order.title.replace(/^@/, '')}</strong><small>TELEGRAM USERNAME</small>
     {:else if kind === 'number'}
