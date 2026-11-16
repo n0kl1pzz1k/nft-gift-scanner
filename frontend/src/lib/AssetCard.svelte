@@ -4,6 +4,7 @@
   type AssetOrder = {
     id: string;
     title: string;
+    image_url?: string;
     asset_type?: 'gift' | 'username' | 'number' | null;
     owner: string;
     price: string | number;
@@ -43,7 +44,7 @@
     {:else if kind === 'number'}
       <span class="asset-number">{order.title.replace(/[^0-9+]/g, '') || '888'}</span><small>ANONYMOUS NUMBER</small>
     {:else if kind === 'gift'}
-      <div class="asset-preview-placeholder"><span>PREVIEW</span><small>{lang === 'ru' ? 'Изображение появится после импорта подарка' : 'Gift preview appears after verified import'}</small></div>
+      {#if order.image_url}<img class="asset-gift-image" src={order.image_url} alt={order.title} loading="lazy" />{:else}<div class="asset-preview-placeholder"><span>PREVIEW</span><small>{lang === 'ru' ? 'Изображение появится после импорта подарка' : 'Gift preview appears after verified import'}</small></div>{/if}
     {:else}
       <div class="asset-preview-placeholder"><span>ASSET</span><small>{lang === 'ru' ? 'Тип актива ещё не подтверждён' : 'Asset type is not verified yet'}</small></div>
     {/if}
