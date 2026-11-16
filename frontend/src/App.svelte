@@ -47,6 +47,8 @@
   let orders = $state<MarketplaceOrder[]>([]);
   let verifiedAssets = $state<VerifiedAsset[]>([]);
   let verifiedAssetsLoading = $state(false);
+  let assetListingEnabled = $state(false);
+  let selectedInventoryAsset = $state<VerifiedAsset | null>(null);
   let tonNftImportBusy = $state(false);
   let tonNftImportMessage = $state('');
   let favoriteOrderIds = $state<string[]>([]);
@@ -266,13 +268,15 @@
   }
 
   async function loadVerifiedInventory() {
-    if (!signedIn || !authToken) { verifiedAssets = []; return; }
+    if (!signedIn || !authToken) { verifiedAssets = []; assetListingEnabled = false; return; }
     verifiedAssetsLoading = true;
     try {
       const data = await request('/api/marketplace/assets/me');
       verifiedAssets = Array.isArray(data.items) ? data.items as VerifiedAsset[] : [];
+      assetListingEnabled = data.listing_enabled === true;
     } catch (e) {
       verifiedAssets = [];
+      assetListingEnabled = false;
       notice = e instanceof Error ? e.message : String(e);
     } finally {
       verifiedAssetsLoading = false;
@@ -297,6 +301,52 @@
       tonNftImportMessage = e instanceof Error ? e.message : String(e);
     } finally {
       tonNftImportBusy = false;
+    }
+  }
+
+  function startAssetListing(asset: VerifiedAsset) {
+    if (!assetListingEnabled || asset.active_listing_id) return;
+    selectedInventoryAsset = asset;
+    createPrice = '';
+    createCurrency = 'TON';
+    createNote = '';
+    showSellModal = true;
+  }
+
+  async function submitAssetListing() {
+    const asset = selectedInventoryAsset;
+    const price = Number(createPrice);
+    if (!asset || !assetListingEnabled || createOrderBusy) return;
+    if (!Number.isFinite(price) || price <= 0 || (createCurrency === 'XTR' && !Number.isInteger(price))) {
+      notice = lang === 'ru'
+        ? (createCurrency === 'XTR' ? 'Цена в Stars должна быть целым числом.' : 'Укажи корректную цену больше нуля.')
+        : (createCurrency === 'XTR' ? 'Star prices must be whole numbers.' : 'Enter a valid price greater than zero.');
+      return;
+    }
+    createOrderBusy = true;
+    try {
+      await request('/api/marketplace/orders', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'listing',
+          asset_id: asset.id,
+          title: asset.title,
+          price,
+          currency: createCurrency,
+          note: createNote.trim(),
+        }),
+      });
+      showSellModal = false;
+      selectedInventoryAsset = null;
+      notice = lang === 'ru' ? 'NFT выставлен на маркетплейсе.' : 'NFT listing published.';
+      haptic('success');
+      await Promise.all([loadVerifiedInventory(), loadMarketplace()]);
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+      haptic('error');
+    } finally {
+      createOrderBusy = false;
     }
   }
 
@@ -838,7 +888,7 @@
            {#each verifiedAssets as asset (asset.id)}
              <article class="verified-inventory-item">
                {#if asset.image_url}<img src={asset.image_url} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder">HASSLE</div>{/if}
-               <div><strong>{asset.title}</strong><small>{asset.source==='ton_nft'?'TON NFT':asset.source==='telegram_gift'?'Telegram Gift':asset.asset_type==='username'?'Username':'Anonymous Number'} · {asset.external_asset_id}</small><span>{asset.active_listing_id?(lang==='ru'?'Уже выставлен':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</span></div>
+               <div><strong>{asset.title}</strong><small>{asset.source==='ton_nft'?'TON NFT':asset.source==='telegram_gift'?'Telegram Gift':asset.asset_type==='username'?'Username':'Anonymous Number'} · {asset.external_asset_id}</small><span>{asset.active_listing_id?(lang==='ru'?'Уже выставлен':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</span>{#if asset.active_listing_id}<small class="inventory-listing-note">{lang==='ru'?'Объявление уже опубликовано':'Listing is already live'}</small>{:else if assetListingEnabled}<button class="inventory-list-button" type="button" onclick={()=>startAssetListing(asset)}>{lang==='ru'?'Выставить на продажу':'List for sale'} ↗</button>{:else}<small class="inventory-listing-note">{lang==='ru'?'Публикация откроется после завершения проверки':'Listing will open after final verification'}</small>{/if}</div>
              </article>
            {/each}
          </div>
@@ -944,6 +994,29 @@
             <button class="ton-primary offer-submit" disabled={!walletConnected} title={lang==='ru'?'Сначала подключи кошелёк и подтверди владение активом':'Connect a wallet and verify asset ownership first'}>{lang==='ru'?'Офферы после TON Connect':'Offers after TON Connect'}</button>
             {#if selectedAsset && !selectedAsset.isMine}<button class="report-asset-button" onclick={()=>{const asset=selectedAsset;if(!asset)return;if(!signedIn){notice=t.authHint;haptic('error');return;}startOrderReport(asset.id);}}>{t.reportOrder}</button>{/if}
             <button class="asset-buy-disabled" disabled title={lang==='ru'?'Покупка включится после запуска защищённой оплаты и escrow':'Buying will be enabled after secure payments and escrow are live'}>{lang==='ru'?'Покупка скоро':'Buy · Coming soon'}</button>
+          </div>
+        </div>
+      {/if}
+      {#if showSellModal && selectedInventoryAsset}
+        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !createOrderBusy){showSellModal=false;selectedInventoryAsset=null;}}}>
+          <div class="sell-modal inventory-list-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-list-title">
+            <button class="modal-close" onclick={()=>{showSellModal=false;selectedInventoryAsset=null;}} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={createOrderBusy}>×</button>
+            <div class="eyebrow">HASSLE NFT · NEW LISTING</div>
+            <h2 id="inventory-list-title">{lang==='ru'?'Выставить NFT':'List NFT for sale'}</h2>
+            <div class="offer-asset-preview">
+              {#if selectedInventoryAsset.image_url}<img src={selectedInventoryAsset.image_url} alt={selectedInventoryAsset.title}/>{:else}<span>◈</span>{/if}
+              <div><strong>{selectedInventoryAsset.title}</strong><small>{selectedInventoryAsset.source==='ton_nft'?'TON NFT':'Verified asset'} · {selectedInventoryAsset.external_asset_id}</small></div>
+            </div>
+            <label>{lang==='ru'?'Цена':'Price'}<input class="form-input" type="number" min="0.01" step={createCurrency==='XTR'?'1':'0.01'} bind:value={createPrice} placeholder={createCurrency==='XTR'?'100':'1.25'} /></label>
+            <label>{lang==='ru'?'Валюта':'Currency'}
+              <select class="form-input" bind:value={createCurrency}>
+                <option value="TON">TON</option>
+                <option value="XTR">⭐ Telegram Stars</option>
+              </select>
+            </label>
+            <label>{lang==='ru'?'Описание (необязательно)':'Description (optional)'}<textarea class="form-input note-input" bind:value={createNote} maxlength="300" placeholder={lang==='ru'?'Краткая информация об активе':'A short note about this asset'}></textarea></label>
+            <button class="ton-primary offer-submit" onclick={submitAssetListing} disabled={createOrderBusy || !assetListingEnabled}>{createOrderBusy?(lang==='ru'?'Публикуем…':'Publishing…'):(lang==='ru'?'Опубликовать объявление →':'Publish listing →')}</button>
+            <small class="sell-modal-hint">{lang==='ru'?'Название и изображение берутся из подтверждённого NFT. Оплата и передача актива пока отключены.':'Name and artwork come from the verified NFT. Payment and asset transfer remain disabled.'}</small>
           </div>
         </div>
       {/if}
