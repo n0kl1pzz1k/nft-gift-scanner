@@ -2,7 +2,7 @@
   type NavId = 'orders' | 'create' | 'offers' | 'profile';
   type Props = { active: NavId; lang: 'ru' | 'en'; onNavigate: (id: NavId) => void };
   let { active, lang, onNavigate }: Props = $props();
-  const items = $derived<{id: NavId; label: string; icon: string}[]>([
+  const items: {id: NavId; label: string; icon: string}[] = $derived([
     {id:'orders',label:lang === 'ru' ? 'Маркет' : 'Market',icon:'▦'},
     {id:'create',label:lang === 'ru' ? 'Инвентарь' : 'Inventory',icon:'◈'},
     {id:'offers',label:lang === 'ru' ? 'Активность' : 'Activity',icon:'↗'},
