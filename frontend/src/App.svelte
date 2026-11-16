@@ -720,7 +720,7 @@
 
   <main class="main-content">
     <header class="topbar">
-      <div class="crumb"><span>HASSLE NFT</span><b>/</b><span>{view==='orders'?'Market':view==='offers'?'Activity':view==='create'?'Inventory':view==='favorites'?'Saved':view==='seller'?(lang==='ru'?'Продавец':'Seller'):t.profile}</span></div>
+      <div class="crumb"><span>HASSLE NFT</span><b>/</b><span>{view==='orders'?(lang==='ru'?'Маркет':'Market'):view==='offers'?(lang==='ru'?'Активность':'Activity'):view==='create'?(lang==='ru'?'Инвентарь':'Inventory'):view==='favorites'?(lang==='ru'?'Избранное':'Saved'):view==='seller'?(lang==='ru'?'Продавец':'Seller'):t.profile}</span></div>
       <div class="top-actions"><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>view='profile'}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
     </header>
 
@@ -766,10 +766,10 @@
       <section class="market-overview" id="asset-feed">
         <div class="market-heading-row"><div><div class="eyebrow">LIVE ASSET MARKET</div><h2>{lang==='ru'?'Найди свой следующий актив':'Discover your next asset'}</h2><p>{lang==='ru'?'Подарки, username и номера 888 в одном каталоге':'Gifts, usernames and anonymous numbers in one curated feed'}</p></div><div class="floor-chip"><div><small>TON FLOOR</small><strong>{tonFloor} <span>TON</span></strong></div><i></i><div><small>STARS FLOOR</small><strong>{starsFloor} <span>⭐</span></strong></div></div></div>
         <div class="market-toolbar">
-          <label class="market-search"><span>⌕</span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label="Search assets"/></label>
-          <select class="market-select" bind:value={assetTypeFilter} aria-label="Asset type"><option value="all">{lang==='ru'?'Все активы':'All assets'}</option><option value="gift">{lang==='ru'?'NFT-подарки':'NFT Gifts'}</option><option value="username">Username</option><option value="number">{lang==='ru'?'Номера 888':'Anonymous numbers'}</option></select>
-          <select class="market-select" bind:value={marketCurrency} aria-label="Price currency"><option value="all">{lang==='ru'?'Любая валюта':'Any currency'}</option><option value="TON">TON</option><option value="XTR">⭐ Stars</option></select>
-          <select class="market-select" bind:value={marketSort} aria-label="Sort assets"><option value="recent">{lang==='ru'?'Сначала новые':'Recently listed'}</option><option value="price-low">{lang==='ru'?'Сначала дешевле':'Price: low to high'}</option><option value="price-high">{lang==='ru'?'Сначала дороже':'Price: high to low'}</option></select>
+          <label class="market-search"><span>⌕</span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label={lang==='ru'?'Поиск активов':'Search assets'}/></label>
+          <select class="market-select" bind:value={assetTypeFilter} aria-label={lang==='ru'?'Тип актива':'Asset type'}><option value="all">{lang==='ru'?'Все активы':'All assets'}</option><option value="gift">{lang==='ru'?'NFT-подарки':'NFT Gifts'}</option><option value="username">Username</option><option value="number">{lang==='ru'?'Номера 888':'Anonymous numbers'}</option></select>
+          <select class="market-select" bind:value={marketCurrency} aria-label={lang==='ru'?'Валюта цены':'Price currency'}><option value="all">{lang==='ru'?'Любая валюта':'Any currency'}</option><option value="TON">TON</option><option value="XTR">⭐ Stars</option></select>
+          <select class="market-select" bind:value={marketSort} aria-label={lang==='ru'?'Сортировка активов':'Sort assets'}><option value="recent">{lang==='ru'?'Сначала новые':'Recently listed'}</option><option value="price-low">{lang==='ru'?'Сначала дешевле':'Price: low to high'}</option><option value="price-high">{lang==='ru'?'Сначала дороже':'Price: high to low'}</option></select>
           <label class="price-filter"><span>{lang==='ru'?'От':'Min'}</span><input type="number" min="0" step="any" bind:value={marketMinPrice} disabled={marketCurrency==='all'} placeholder="0"/></label>
           <label class="price-filter"><span>{lang==='ru'?'До':'Max'}</span><input type="number" min="0" step="any" bind:value={marketMaxPrice} disabled={marketCurrency==='all'} placeholder="∞"/></label>
         </div>
@@ -826,7 +826,7 @@
                 <span class="asset-type-pill">{order.status==='active'?(lang==='ru'?'На маркете':'Listed'):order.status}</span>
               </div>
               <div class="asset-card-content"><div class="asset-title-row"><h3>{order.title}</h3><span class="asset-id">#{order.id.slice(-5)}</span></div><div class="asset-card-footer"><div><small>{lang==='ru'?'Твоя цена':'Your price'}</small><strong>{order.price} <span>{order.currency==='XTR'?'⭐':'TON'}</span></strong></div><div class="inventory-actions">{#if order.status==='active'}<button class="asset-manage-button" onclick={()=>startEditOrder(order)}>{lang==='ru'?'Изменить':'Edit'}</button><button class="asset-remove-button" onclick={()=>cancelOrder(order.id)}>{lang==='ru'?'Снять':'Unlist'}</button>{:else}<span class="status-cancelled">{t.cancelled}</span>{/if}</div></div>
-                {#if editingOrderId===order.id}<div class="inventory-edit"><input class="form-input" bind:value={editTitle} aria-label="Asset name"/><input class="form-input" type="number" min="0.01" step="0.01" bind:value={editPrice} aria-label="Asset price"/><button class="asset-offer-button" onclick={()=>saveOrderEdit(order.id)} disabled={orderEditBusy}>{t.saveOrder}</button></div>{/if}
+                {#if editingOrderId===order.id}<div class="inventory-edit"><input class="form-input" bind:value={editTitle} aria-label={lang==='ru'?'Название актива':'Asset name'}/><input class="form-input" type="number" min="0.01" step="0.01" bind:value={editPrice} aria-label={lang==='ru'?'Цена актива':'Asset price'}/><button class="asset-offer-button" onclick={()=>saveOrderEdit(order.id)} disabled={orderEditBusy}>{t.saveOrder}</button></div>{/if}
               </div>
             </article>
           {/each}
@@ -837,7 +837,7 @@
       {#if showAssetDetails && selectedAsset}
         <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showAssetDetails=false;}}>
           <div class="sell-modal asset-detail-modal" role="dialog" aria-modal="true" aria-labelledby="asset-detail-title">
-            <button class="modal-close" onclick={()=>showAssetDetails=false} aria-label="Close">×</button>
+            <button class="modal-close" onclick={()=>showAssetDetails=false} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button>
             <div class={'asset-detail-art asset-art-'+assetTypeOf(selectedAsset.title)}>
               {#if assetTypeOf(selectedAsset.title)==='username'}<span class="asset-at">@</span><strong>{selectedAsset.title.replace(/^@/,'')}</strong><small>TELEGRAM USERNAME</small>
               {:else if assetTypeOf(selectedAsset.title)==='number'}<span class="asset-number">{selectedAsset.title.replace(/[^0-9+]/g,'') || '888'}</span><small>ANONYMOUS NUMBER</small>
@@ -873,7 +873,7 @@
       {#if showOfferModal && selectedOfferOrder}
         <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !offerSubmitBusy)showOfferModal=false;}}>
           <div class="sell-modal offer-modal" role="dialog" aria-modal="true" aria-labelledby="offer-title">
-            <button class="modal-close" onclick={()=>showOfferModal=false} aria-label="Close" disabled={offerSubmitBusy}>×</button>
+            <button class="modal-close" onclick={()=>showOfferModal=false} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={offerSubmitBusy}>×</button>
             <div class="eyebrow">HASSLE NFT · OFFER</div>
             <h2 id="offer-title">{lang==='ru'?'Предложить цену':'Make an offer'}</h2>
             <div class="offer-asset-preview"><span>{assetTypeOf(selectedOfferOrder.title)==='username'?'＠':assetTypeOf(selectedOfferOrder.title)==='number'?'888':'✳'}</span><div><strong>{selectedOfferOrder.title}</strong><small>{lang==='ru'?'Цена продавца':'Seller price'}: {selectedOfferOrder.price} {selectedOfferOrder.currency==='XTR'?'⭐':'TON'}</small></div></div>
