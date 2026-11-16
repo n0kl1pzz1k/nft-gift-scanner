@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Orbitron:wght@500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 :root{font-family:Manrope,ui-sans-serif,system-ui,sans-serif;color:#f7f8ff;background:#090b18;font-synthesis:none;text-rendering:optimizeLegibility}
 *{box-sizing:border-box}html{min-width:320px;background:#090b18}body{margin:0;min-width:320px;min-height:100vh;background:radial-gradient(ellipse at 80% -5%,#5736a844,transparent 34%),radial-gradient(ellipse at 8% 30%,#087f9c22,transparent 30%),#090b18}button,input,textarea{font:inherit}button{cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}
@@ -400,3 +400,51 @@ body{background:radial-gradient(ellipse at 78% 0%,#087bff20,transparent 36%),rad
 @media(max-width:900px){.ton-hero{min-height:330px}.ton-stage{right:-55px;opacity:.65;width:310px}.ton-hero-copy{max-width:65%}}
 @media(max-width:600px){.ton-hero{min-height:355px;margin:15px 0 25px;padding:25px 20px 58px;border-radius:19px}.ton-hero h1{font-size:35px;max-width:300px}.ton-hero-copy>p{font-size:11px;max-width:260px}.ton-stage{right:-108px;top:58%;opacity:.42;transform:translateY(-50%) scale(.85)}.ton-hero-foot{left:20px;right:20px;font-size:6px}.ton-hero-foot span:nth-child(2){display:none}.ton-primary{font-size:10px;padding:11px 12px}.ton-network{font-size:7px}}
 @media(prefers-reduced-motion:reduce){.ton-coin,.ton-orbit,.ton-aura,.ton-live-dot,.ton-particle{animation:none!important}}
+
+
+/* HASSLE NFT: unified dimensional typography */
+:root{
+  font-family:"Space Grotesk",Manrope,ui-sans-serif,system-ui,sans-serif;
+  font-optical-sizing:auto;
+  font-synthesis:none;
+  text-rendering:optimizeLegibility;
+}
+body,button,input,textarea,select{
+  font-family:"Space Grotesk",Manrope,ui-sans-serif,system-ui,sans-serif;
+  letter-spacing:-.012em;
+}
+body{ text-shadow:0 1px 0 rgba(255,255,255,.035),0 2px 5px rgba(0,0,0,.24); }
+h1,h2,h3,.brand,.nav-item,.crumb,.demo-pill,.eyebrow,.nav-caption,.section-title,.page-heading,.gift-card-title,.order-kind,.profile-premium{
+  font-family:"Orbitron","Space Grotesk",sans-serif;
+  font-weight:700;
+  letter-spacing:-.035em;
+}
+.hero h1,.page-heading h1,.section-title h2,.create-aside h2{
+  color:#f5f0ff;
+  background:linear-gradient(180deg,#ffffff 0%,#d8d0ff 48%,#8da9ff 100%);
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+  text-shadow:0 1px 0 rgba(255,255,255,.32),0 3px 0 rgba(104,91,190,.22),0 8px 22px rgba(75,105,220,.24);
+  filter:drop-shadow(0 5px 12px rgba(101,92,205,.2));
+}
+.gift-card-title,.order-main h3,.profile-card h2{
+  color:#f3f2ff;
+  text-shadow:0 1px 0 rgba(255,255,255,.2),0 2px 5px rgba(0,0,0,.48);
+}
+.nav-item,.search-button,.publish-button,.refresh-button,.load-more,.language,.avatar-button{
+  letter-spacing:.015em;
+}
+input,textarea,select,.hero p,.section-title p,.page-heading p,.gift-card-meta,.gift-card-bottom small,.create-form label,.create-aside p,.profile-card p,.order-main p{
+  font-family:"Space Grotesk",Manrope,ui-sans-serif,system-ui,sans-serif;
+  letter-spacing:0;
+}
+@media(prefers-reduced-motion:no-preference){
+  .hero h1,.page-heading h1,.section-title h2{
+    animation:metallic-rise .65s cubic-bezier(.2,.75,.25,1) both;
+  }
+}
+@keyframes metallic-rise{
+  from{opacity:.65;transform:translateY(7px);filter:drop-shadow(0 0 0 rgba(101,92,205,0))}
+  to{opacity:1;transform:translateY(0);filter:drop-shadow(0 5px 12px rgba(101,92,205,.2))}
+}
