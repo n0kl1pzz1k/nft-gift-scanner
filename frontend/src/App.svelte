@@ -989,7 +989,7 @@
                <div class="verified-inventory-details">
                  <div class="verified-inventory-title-row"><strong>{asset.title}</strong><span class="verified-asset-status">{lang==='ru'?'ПОДТВЕРЖДЁН':'VERIFIED'}</span></div>
                  {#if asset.source==='telegram_gift'}
-                   <div class="verified-gift-number">{lang==='ru'?'Коллекционный номер':'Collectible number'} <b>{asset.title.match(/#(\\d+)$/)?.[1] || '—'}</b></div>
+                    <div class="verified-gift-number">{lang==='ru'?'Коллекционный номер':'Collectible number'} <b>{asset.title.match(/[#-](\d+)$/)?.[1] || '—'}</b></div>
                    <small class="verified-gift-id">{lang==='ru'?'Уникальный ID':'Unique ID'} · {asset.external_asset_id}</small>
                    <a class="inventory-gift-link" href={'https://t.me/nft/'+encodeURIComponent(asset.external_asset_id)} target="_blank" rel="noopener noreferrer">{lang==='ru'?'Открыть оригинал в Telegram':'Open original in Telegram'} ↗</a>
                  {:else}
