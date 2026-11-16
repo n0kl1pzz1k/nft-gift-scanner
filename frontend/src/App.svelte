@@ -151,6 +151,15 @@
   ));
   const visibleOffers = $derived(offers.filter(offer => offerStatusFilter === 'all' || offer.status === offerStatusFilter));
   const invalidPriceRange = $derived(marketCurrency !== 'all' && ((marketMinPrice !== '' && (!Number.isFinite(Number(marketMinPrice)) || Number(marketMinPrice) < 0)) || (marketMaxPrice !== '' && (!Number.isFinite(Number(marketMaxPrice)) || Number(marketMaxPrice) < 0)) || (marketMinPrice !== '' && marketMaxPrice !== '' && Number(marketMinPrice) > Number(marketMaxPrice))));
+  const hasMarketFilters = $derived(Boolean(marketSearch.trim() || assetTypeFilter !== 'all' || marketCurrency !== 'all' || marketMinPrice !== '' || marketMaxPrice !== ''));
+  function resetMarketFilters() {
+    marketSearch = '';
+    assetTypeFilter = 'all';
+    marketCurrency = 'all';
+    marketMinPrice = '';
+    marketMaxPrice = '';
+    marketSort = 'recent';
+  }
   const marketAssets = $derived.by(() => {
     const filtered = orders.filter(order => {
       if (order.kind !== 'listing' || order.status !== 'active' || invalidPriceRange) return false;
@@ -736,13 +745,13 @@
           <label class="price-filter"><span>{lang==='ru'?'До':'Max'}</span><input type="number" min="0" step="any" bind:value={marketMaxPrice} disabled={marketCurrency==='all'} placeholder="∞"/></label>
         </div>
         {#if invalidPriceRange}<div class="state-panel filter-error" role="alert">{t.invalidPrice}</div>{/if}
-        <div class="market-meta"><span>{marketAssets.length} {lang==='ru'?'активов в каталоге':'assets in market'}</span><span>{lang==='ru'?'Сделки в TON и Stars':'TON & Stars'}</span></div>
+        <div class="market-meta"><span>{marketAssets.length} {lang==='ru'?'активов в каталоге':'assets in market'}</span><span>{lang==='ru'?'Сделки в TON и Stars':'TON & Stars'}</span>{#if hasMarketFilters}<button class="market-reset-filters" onclick={resetMarketFilters}>{lang==='ru'?'Сбросить фильтры':'Clear filters'} ×</button>{/if}</div>
         {#if marketplaceLoading && orders.length===0}
           <div class="asset-grid-skeleton">{#each [1,2,3,4,5,6] as item}<div class="asset-skeleton"><span></span><i></i><b></b></div>{/each}</div>
         {:else if marketError && orders.length===0}
           <div class="state-panel"><strong>{lang==='ru'?'Не удалось загрузить маркет':'Market failed to load'}</strong><small>{marketError}</small><button class="asset-offer-button" onclick={()=>loadMarketplace()}>{t.refresh} ↻</button></div>
         {:else if marketAssets.length===0}
-          <div class="state-panel"><span class="state-icon">⌕</span><strong>{lang==='ru'?'Пока нет выставленных NFT-подарков':'No NFT gifts listed yet'}</strong><small>{lang==='ru'?'Здесь появятся реальные подарки, когда владельцы выставят их на маркетплейс.':'Real gifts will appear here when their owners list them on the marketplace.'}</small></div>
+          <div class="state-panel market-empty"><span class="state-icon">⌕</span><strong>{hasMarketFilters ? (lang==='ru'?'По этим фильтрам ничего не найдено':'No assets match these filters') : (lang==='ru'?'Пока нет выставленных NFT-подарков':'No NFT gifts listed yet')}</strong><small>{hasMarketFilters ? (lang==='ru'?'Попробуй изменить запрос или сбросить фильтры.':'Try changing your search or clearing the filters.') : (lang==='ru'?'Здесь появятся реальные подарки, когда владельцы выставят их на маркетплейс.':'Real gifts will appear here when their owners list them on the marketplace.')}</small>{#if hasMarketFilters}<button class="market-empty-reset" onclick={resetMarketFilters}>{lang==='ru'?'Сбросить фильтры':'Clear filters'}</button>{/if}</div>
         {:else}
           <div class="asset-grid">
             {#each marketAssets as order (order.id)}
