@@ -59,6 +59,19 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.db_patch.stop()
         self.temp_dir.cleanup()
 
+    def test_readiness_probe_confirms_database_is_queryable(self):
+        response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ready")
+        self.assertEqual(response.json()["dependencies"]["database"], "ok")
+
+    def test_readiness_probe_returns_503_when_database_is_unavailable(self):
+        with patch("marketplace._db", side_effect=RuntimeError("database unavailable")):
+            response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["status"], "not_ready")
+        self.assertEqual(response.json()["dependency"], "database")
+
     def test_database_connections_enforce_durability_and_lock_wait_policy(self):
         with marketplace._db() as conn:
             self.assertEqual(conn.execute("PRAGMA foreign_keys").fetchone()[0], 1)
