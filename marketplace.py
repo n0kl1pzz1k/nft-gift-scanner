@@ -208,6 +208,40 @@ def init_marketplace_db() -> None:
             updated_at INTEGER NOT NULL
         );
         """)
+        # Ownership may change only after the old owner snapshot was revoked and a
+        # trusted verifier confirms the new owner. Preserve a permanent audit trail.
+        conn.execute("DROP TRIGGER IF EXISTS verified_assets_metadata_immutable")
+        conn.execute("""
+            CREATE TRIGGER verified_assets_metadata_immutable
+            BEFORE UPDATE OF source, external_asset_id, owner_telegram_id, title, asset_type,
+                             image_url, verification_method, verification_reference_hash, verified_at
+            ON verified_assets
+            WHEN NOT (
+                OLD.status = 'revoked'
+                AND NEW.status = 'verified'
+                AND NEW.owner_telegram_id != OLD.owner_telegram_id
+                AND NEW.source = OLD.source
+                AND NEW.external_asset_id = OLD.external_asset_id
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'verified asset metadata is immutable');
+            END;
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS asset_ownership_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                asset_id TEXT NOT NULL,
+                previous_owner_id TEXT NOT NULL,
+                new_owner_id TEXT NOT NULL,
+                verification_reference_hash TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY(asset_id) REFERENCES verified_assets(id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_asset_ownership_history_asset
+            ON asset_ownership_history(asset_id, created_at DESC)
+        """)
         # Asset category is server-owned metadata. Older rows remain unknown instead
         # of guessing the category from a seller-editable title.
         order_columns = {row["name"] for row in conn.execute("PRAGMA table_info(demo_orders)").fetchall()}
@@ -549,12 +583,49 @@ def register_verified_asset(*, source: str, external_asset_id: str, owner_telegr
             (source, external_asset_id),
         ).fetchone()
         if existing is not None:
-            conn.rollback()
             if existing["owner_telegram_id"] != owner_telegram_id:
-                raise ValueError("This asset is already registered to another owner")
-            if existing["status"] != "verified":
-                if existing["owner_telegram_id"] != owner_telegram_id:
-                    raise ValueError("This asset was previously registered to another owner")
+                if existing["status"] != "revoked":
+                    conn.rollback()
+                    raise ValueError("This asset is already registered to another active owner")
+                previous_owner_id = existing["owner_telegram_id"]
+                changed = conn.execute(
+                    """UPDATE verified_assets
+                       SET owner_telegram_id = ?, title = ?, asset_type = ?, image_url = ?,
+                           verification_method = ?, verification_reference_hash = ?,
+                           verified_at = ?, status = 'verified', revoked_at = NULL
+                       WHERE id = ? AND status = 'revoked'""",
+                    (owner_telegram_id, title, asset_type, image_url, verification_method,
+                     reference_hash, now, existing["id"]),
+                )
+                if changed.rowcount != 1:
+                    conn.rollback()
+                    raise ValueError("Asset ownership changed during verification")
+                conn.execute(
+                    """INSERT INTO asset_ownership_history
+                       (asset_id, previous_owner_id, new_owner_id, verification_reference_hash, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (existing["id"], previous_owner_id, owner_telegram_id, reference_hash, now),
+                )
+                # A listing from the previous owner must never become visible again.
+                stale_listings = conn.execute(
+                    "SELECT id FROM demo_orders WHERE asset_id = ? AND status = 'active'",
+                    (existing["id"],),
+                ).fetchall()
+                for listing in stale_listings:
+                    conn.execute(
+                        "UPDATE demo_orders SET status = 'cancelled', updated_at = ? WHERE id = ?",
+                        (now, listing["id"]),
+                    )
+                    conn.execute(
+                        """INSERT INTO demo_order_events(order_id, actor_user_id, event_type, created_at)
+                           VALUES (?, ?, 'cancelled', ?)""",
+                        (listing["id"], owner_telegram_id, now),
+                    )
+                conn.commit()
+                existing = conn.execute(
+                    "SELECT * FROM verified_assets WHERE id = ?", (existing["id"],)
+                ).fetchone()
+            elif existing["status"] != "verified":
                 conn.execute(
                     "UPDATE verified_assets SET status = 'verified', revoked_at = NULL WHERE id = ?",
                     (existing["id"],),
@@ -563,6 +634,8 @@ def register_verified_asset(*, source: str, external_asset_id: str, owner_telegr
                 existing = conn.execute(
                     "SELECT * FROM verified_assets WHERE id = ?", (existing["id"],)
                 ).fetchone()
+            else:
+                conn.rollback()
             return {"id": existing["id"], "source": existing["source"],
                     "external_asset_id": existing["external_asset_id"],
                     "owner_telegram_id": existing["owner_telegram_id"],
