@@ -499,18 +499,51 @@ async def health():
     return {"status": "ok", "service": "hassle-nft-market"}
 
 
+_READINESS_TABLES = (
+    "telegram_users",
+    "telegram_sessions",
+    "demo_orders",
+    "verified_assets",
+    "demo_offers",
+    "demo_deals",
+    "ton_proof_challenges",
+    "verified_wallets",
+)
+
+
 @app.get("/ready")
 async def readiness():
-    """Readiness probe: confirms the application database accepts queries."""
+    """Readiness probe: verify database connectivity and critical marketplace schema."""
     try:
         with marketplace._db() as connection:
             connection.execute("SELECT 1").fetchone()
+            existing = {
+                row["name"]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            missing = [table for table in _READINESS_TABLES if table not in existing]
+            if missing:
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "status": "not_ready",
+                        "service": "hassle-nft-market",
+                        "dependency": "database_schema",
+                        "missing_tables": missing,
+                    },
+                )
     except Exception:
         return JSONResponse(
             status_code=503,
             content={"status": "not_ready", "service": "hassle-nft-market", "dependency": "database"},
         )
-    return {"status": "ready", "service": "hassle-nft-market", "dependencies": {"database": "ok"}}
+    return {
+        "status": "ready",
+        "service": "hassle-nft-market",
+        "dependencies": {"database": "ok", "database_schema": "ok"},
+    }
 
 
 @app.on_event("startup")
