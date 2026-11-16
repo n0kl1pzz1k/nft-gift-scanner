@@ -294,7 +294,7 @@
     }
   }
 
-  function assetPreviewUrl(asset: VerifiedAsset | null) {
+  function assetPreviewUrl(asset: { id: string; image_url?: string | null } | null) {
     if (!asset) return '';
     return asset.image_url || giftPreviewUrls[asset.id] || '';
   }
