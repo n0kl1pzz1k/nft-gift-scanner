@@ -4,7 +4,7 @@
   import BottomNav from './lib/BottomNav.svelte';
 
   type MarketplaceOrder = {
-    id: string; kind: 'listing' | 'buy-order'; title: string;
+    id: string; kind: 'listing' | 'buy-order'; title: string; asset_type?: 'gift' | 'username' | 'number' | null;
     price: string | number; currency: 'TON' | 'XTR'; status: 'active' | 'matched' | 'cancelled';
     createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; seller_profile_id?: string | null; events?: {type:string;createdAt:number}[];
   };
@@ -163,7 +163,7 @@
   const marketAssets = $derived.by(() => {
     const filtered = orders.filter(order => {
       if (order.kind !== 'listing' || order.status !== 'active' || invalidPriceRange) return false;
-      const type = assetTypeOf(order.title);
+      const type = assetTypeOf(order);
       const query = marketSearch.trim().toLocaleLowerCase();
       const matchesType = assetTypeFilter === 'all' || type === assetTypeFilter;
       const matchesCurrency = marketCurrency === 'all' || order.currency === marketCurrency;
@@ -183,10 +183,12 @@
   const inventoryAssets = $derived(orders.filter(order => order.isMine && order.kind === 'listing'));
   const tonFloor = $derived(marketplaceStats.floor_ton && marketplaceStats.floor_ton > 0 ? marketplaceStats.floor_ton.toFixed(2) : '—');
   const starsFloor = $derived(marketplaceStats.floor_stars && marketplaceStats.floor_stars > 0 ? marketplaceStats.floor_stars.toFixed(0) : '—');
-  function assetTypeOf(title: string): AssetTypeFilter {
-    if (/888|anonymous.*number|number.*888/i.test(title)) return 'number';
-    if (/^@|t[.]me[/]|username/i.test(title)) return 'username';
-    return 'gift';
+  function assetTypeOf(order: MarketplaceOrder): AssetTypeFilter | 'unknown' {
+    // Never infer an asset category from a display title. Only server-owned
+    // metadata supplied by the verified asset import pipeline is authoritative.
+    return order.asset_type === 'gift' || order.asset_type === 'username' || order.asset_type === 'number'
+      ? order.asset_type
+      : 'unknown';
   }
   function assetTypeName(type: AssetTypeFilter) {
     return type === 'number' ? (lang === 'ru' ? 'Номер 888' : 'Anonymous number')
