@@ -583,15 +583,11 @@ def sync_ton_nft_assets(*, owner_telegram_id: str, wallets: list[dict[str, Any]]
     wallet_addresses = {str(wallet.get("address") or "") for wallet in wallets}
     for item in nft_items:
         address = str(item.get("address") or "").strip()
-        if not address:
+        evidence_wallet = str(item.get("wallet_address") or "").strip()
+        if not address or evidence_wallet not in wallet_addresses:
             continue
         # Wallet proof binds the Telegram account to this address; TonAPI's
         # direct-owner NFT response supplies the current on-chain owner assertion.
-        evidence_wallet = next(
-            (str(wallet.get("address")) for wallet in wallets
-             if str(wallet.get("address")) in wallet_addresses),
-            "",
-        )
         registered.append(register_verified_asset(
             source="ton_nft",
             external_asset_id=address,
