@@ -292,8 +292,8 @@
       await loadVerifiedInventory();
       const count = Number(result.imported) || 0;
       tonNftImportMessage = lang === 'ru'
-        ? (count ? `Добавлено NFT: ${count}` : 'Новых NFT не найдено. Проверь, что в кошельке есть NFT.')
-        : (count ? `NFT imported: ${count}` : 'No NFTs found in this wallet.');
+        ? (count ? `Проверено NFT: ${count}` : 'NFT в этом TON-кошельке не найдены. Здесь отображаются только NFT, выпущенные в блокчейне TON. Обычные подарки Telegram пока не импортируются.')
+        : (count ? `NFT verified: ${count}` : 'No NFTs were found in this TON wallet. Only NFTs minted on the TON blockchain are supported; regular Telegram gifts are not imported yet.');
       if (result.ownership_scan_complete === false) {
         tonNftImportMessage += lang === 'ru' ? ' Проверка продолжится при следующем обновлении.' : ' The scan was partial; refresh again later.';
       }
