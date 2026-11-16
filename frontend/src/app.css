@@ -610,3 +610,11 @@ html[data-telegram-color-scheme="light"] .price-filter input{color:#17202b}
 .asset-buy-disabled{width:100%;margin-top:8px;padding:13px;border:1px solid rgba(130,160,195,.16);border-radius:12px;background:rgba(130,160,195,.08);color:#8294aa;font-size:11px;font-weight:700}
 html[data-telegram-color-scheme="light"] .asset-detail-meta b,html[data-telegram-color-scheme="light"] .asset-detail-unavailable strong{color:#17202b}
 html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202b}
+
+
+/* Saved assets entry point and return path for the four-tab navigation. */
+.favorite-market-link{border:1px solid #9acaff35;border-radius:10px;padding:12px 15px;background:#ffffff08;color:#d9eaff;font-size:11px;font-weight:700;transition:background .18s,border-color .18s,transform .18s}
+.favorite-market-link:hover{background:#6caeff18;border-color:#79bdff70;transform:translateY(-2px)}
+.favorites-heading{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.favorites-heading h1{margin-bottom:0}
+@media(max-width:600px){.favorite-market-link{padding:11px 12px;font-size:10px}.favorites-heading{align-items:flex-start}}
