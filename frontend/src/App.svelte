@@ -32,6 +32,9 @@
   let createAssetType = $state<'gift'|'username'|'number'>('gift');
   let assetTypeFilter = $state<AssetTypeFilter>('all');
   let marketSort = $state<'recent'|'price-low'|'price-high'>('recent');
+  let marketCurrency = $state<'all'|'TON'|'XTR'>('all');
+  let marketMinPrice = $state('');
+  let marketMaxPrice = $state('');
   let showSellModal = $state(false);
   let showOfferModal = $state(false);
   let selectedOfferOrder = $state<MarketplaceOrder | null>(null);
@@ -150,8 +153,12 @@
       const type = assetTypeOf(order.title);
       const query = marketSearch.trim().toLocaleLowerCase();
       const matchesType = assetTypeFilter === 'all' || type === assetTypeFilter;
+      const matchesCurrency = marketCurrency === 'all' || order.currency === marketCurrency;
+      const price = Number(order.price);
+      const matchesMin = marketCurrency === 'all' || !marketMinPrice || price >= Number(marketMinPrice);
+      const matchesMax = marketCurrency === 'all' || !marketMaxPrice || price <= Number(marketMaxPrice);
       const haystack = [order.title, order.owner, order.note || ''].join(' ').toLocaleLowerCase();
-      return matchesType && (!query || haystack.includes(query));
+      return matchesType && matchesCurrency && matchesMin && matchesMax && (!query || haystack.includes(query));
     });
     return [...filtered].sort((a,b) => {
       if (marketSort === 'recent') return b.createdAt-a.createdAt;
@@ -737,7 +744,10 @@
         <div class="market-toolbar">
           <label class="market-search"><span>⌕</span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label="Search assets"/></label>
           <select class="market-select" bind:value={assetTypeFilter} aria-label="Asset type"><option value="all">{lang==='ru'?'Все активы':'All assets'}</option><option value="gift">{lang==='ru'?'NFT-подарки':'NFT Gifts'}</option><option value="username">Username</option><option value="number">{lang==='ru'?'Номера 888':'Anonymous numbers'}</option></select>
+          <select class="market-select" bind:value={marketCurrency} aria-label="Price currency"><option value="all">{lang==='ru'?'Любая валюта':'Any currency'}</option><option value="TON">TON</option><option value="XTR">⭐ Stars</option></select>
           <select class="market-select" bind:value={marketSort} aria-label="Sort assets"><option value="recent">{lang==='ru'?'Сначала новые':'Recently listed'}</option><option value="price-low">{lang==='ru'?'Сначала дешевле':'Price: low to high'}</option><option value="price-high">{lang==='ru'?'Сначала дороже':'Price: high to low'}</option></select>
+          <label class="price-filter"><span>{lang==='ru'?'От':'Min'}</span><input type="number" min="0" step="any" bind:value={marketMinPrice} disabled={marketCurrency==='all'} placeholder="0"/></label>
+          <label class="price-filter"><span>{lang==='ru'?'До':'Max'}</span><input type="number" min="0" step="any" bind:value={marketMaxPrice} disabled={marketCurrency==='all'} placeholder="∞"/></label>
         </div>
         <div class="market-meta"><span>{marketAssets.length} {lang==='ru'?'активов в каталоге':'assets in market'}</span><span>{lang==='ru'?'Сделки в TON и Stars':'TON & Stars'}</span></div>
         {#if marketplaceLoading && orders.length===0}
