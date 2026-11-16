@@ -11,9 +11,10 @@ from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update, _enforce_user_rate_limit, sync_ton_nft_assets
+from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update, _enforce_user_rate_limit, sync_ton_nft_assets, sync_telegram_gift_assets
 from ton_connect import init_ton_connect_db, create_proof_challenge, verify_ton_proof, consume_challenge_and_link_wallet, list_verified_wallets
 from ton_nft_inventory import fetch_wallet_nfts
+from telegram_gift_inventory import fetch_user_telegram_gifts
 import httpx
 from demo_offers import create_demo_offers_router, init_demo_offers_db
 
@@ -344,6 +345,36 @@ async def import_ton_wallet_assets(x_telegram_init_data: str | None = Header(def
         "items": registered,
         "ownership_scan_complete": complete,
         "wallets_scanned": len(snapshots),
+    }
+
+
+@app.post("/api/marketplace/assets/import-telegram")
+async def import_telegram_gifts(x_telegram_init_data: str | None = Header(default=None)):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    telegram_id = str(user["id"])
+    _enforce_user_rate_limit(telegram_id, "import_telegram_gifts", 3, 60)
+    try:
+        snapshot = await fetch_user_telegram_gifts(telegram_id)
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Telegram gift inventory is temporarily unavailable; no ownership records were changed",
+            headers={"Retry-After": "30"},
+        ) from exc
+    try:
+        registered = sync_telegram_gift_assets(
+            owner_telegram_id=telegram_id,
+            gifts=snapshot["items"],
+            complete=snapshot["complete"],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "imported": len(registered),
+        "items": registered,
+        "ownership_scan_complete": snapshot["complete"],
+        "telegram_gifts_seen": snapshot["total_count"],
+        "supported_unique_gifts": snapshot["supported_unique_count"],
     }
 
 
