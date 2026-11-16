@@ -688,9 +688,9 @@
 <div class="market-app">
   <aside class="sidebar">
     <a class="brand" href="#marketplace"><span class="brand-symbol">H</span><span>HASSLE NFT<small>THE GIFT MARKET</small></span></a>
-    <div class="nav-caption">MENU</div>
+    <div class="nav-caption">{lang === 'ru' ? 'МЕНЮ' : 'MENU'}</div>
     <nav class="side-nav">
-      {#each [{id:'orders',label:'Market',icon:'▦'},{id:'create',label:'Inventory',icon:'◈'},{id:'offers',label:'Activity',icon:'↗'},{id:'profile',label:'Profile',icon:'◉'}] as item}
+      {#each [{id:'orders',label:lang==='ru'?'Маркет':'Market',icon:'▦'},{id:'create',label:lang==='ru'?'Инвентарь':'Inventory',icon:'◈'},{id:'offers',label:lang==='ru'?'Активность':'Activity',icon:'↗'},{id:'profile',label:lang==='ru'?'Профиль':'Profile',icon:'◉'}] as item}
         <button class:active={view===item.id} class="nav-item" onclick={()=>{haptic();view=item.id as View;notice='';}}><span>{item.icon}</span>{item.label}</button>
       {/each}
     </nav>
