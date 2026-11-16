@@ -375,6 +375,12 @@
 
   async function importTelegramGifts() {
     if (!signedIn || !authToken || telegramGiftImportBusy) return;
+    // When Business gift viewing is authorised, use that source so each asset
+    // receives its owner-bound sticker preview reference.
+    if (telegramBusinessStatus.gift_import_ready) {
+      await importBusinessGifts();
+      return;
+    }
     telegramGiftImportBusy = true;
     telegramGiftImportMessage = '';
     try {
@@ -382,10 +388,10 @@
       await loadVerifiedInventory();
       const count = Number(result.imported) || 0;
       telegramGiftImportMessage = lang === 'ru'
-        ? (count ? `Подтверждено коллекционных подарков: ${count}` : 'Коллекционные подарки Telegram не найдены. Обычные подарки без уникального ID не добавляются.')
-        : (count ? `Verified collectible gifts: ${count}` : 'No collectible Telegram gifts found. Regular gifts without a stable item ID are not imported.');
+        ? (count ? 'Подтверждено коллекционных подарков: ' + count : 'Коллекционные подарки Telegram не найдены. Обычные подарки без уникального ID не добавляются.')
+        : (count ? 'Verified collectible gifts: ' + count : 'No collectible Telegram gifts found. Regular gifts without a stable item ID are not imported.');
       if (result.ownership_scan_complete === false) {
-        telegramGiftImportMessage += lang === 'ru' ? ' Сканирование неполное, повтори позже.' : ' The scan was partial; try again later.';
+        telegramGiftImportMessage += lang === 'ru' ? ' Сканирование неполное; попробуй позже.' : ' The scan was partial; try again later.';
       }
     } catch (e) {
       telegramGiftImportMessage = e instanceof Error ? e.message : String(e);
@@ -393,7 +399,6 @@
       telegramGiftImportBusy = false;
     }
   }
-
   function startAssetListing(asset: VerifiedAsset) {
     if (!assetListingEnabled || asset.active_listing_id) return;
     selectedInventoryAsset = asset;
@@ -1116,7 +1121,7 @@
             <div class={'asset-detail-art asset-art-'+assetTypeOf(selectedAsset)}>
               {#if assetTypeOf(selectedAsset)==='username'}<span class="asset-at">@</span><strong>{selectedAsset.title.replace(/^@/,'')}</strong><small>TELEGRAM USERNAME</small>
               {:else if assetTypeOf(selectedAsset)==='number'}<span class="asset-number">{selectedAsset.title.replace(/[^0-9+]/g,'') || '888'}</span><small>ANONYMOUS NUMBER</small>
-              {:else if assetTypeOf(selectedAsset)==='gift'}{#if selectedAsset.image_url}<img class="asset-detail-gift-image" src={selectedAsset.image_url} alt={selectedAsset.title} />{:else}<div class="asset-preview-placeholder"><span>PREVIEW</span><small>{lang==='ru'?'Изображение появится после импорта подарка':'Gift preview appears after verified import'}</small></div>{/if}
+              {:else if assetTypeOf(selectedAsset)==='gift'}{#if assetPreviewUrl(selectedAsset)}<img class="asset-detail-gift-image" src={assetPreviewUrl(selectedAsset)} alt={selectedAsset.title} />{:else}<div class="asset-preview-placeholder"><span>PREVIEW</span><small>{lang==='ru'?'Изображение появится после импорта подарка':'Gift preview appears after verified import'}</small></div>{/if}
                {:else}<div class="asset-preview-placeholder"><span>ASSET</span><small>{lang==='ru'?'Тип актива ещё не подтверждён':'Asset type is not verified yet'}</small></div>{/if}
             </div>
             <div class="eyebrow">HASSLE NFT · ASSET</div><h2 id="asset-detail-title">{selectedAsset.title}</h2>
