@@ -584,3 +584,11 @@ html[data-telegram-color-scheme="light"] .floor-chip>div>strong{color:#17202b}
 .offer-submit{width:100%;justify-content:center;margin-top:5px}
 html[data-telegram-color-scheme="light"] .offer-asset-preview{background:#f2f7fc;border-color:#dce7f2}
 html[data-telegram-color-scheme="light"] .offer-asset-preview strong{color:#17202b}
+
+.price-filter{display:flex;align-items:center;gap:5px;min-width:0;padding:0 9px;border:1px solid rgba(131,157,190,.19);border-radius:11px;background:rgba(255,255,255,.035);color:#8294aa;font-size:9px}
+.price-filter input{width:54px;min-width:0;padding:10px 0;border:0;outline:0;background:transparent;color:#edf5ff;font:600 11px 'Space Grotesk',sans-serif}
+.price-filter input:disabled{opacity:.35}
+.price-filter input::placeholder{color:#687b91}
+html[data-telegram-color-scheme="light"] .price-filter{background:#fff;border-color:#dce4ee;color:#68798d}
+html[data-telegram-color-scheme="light"] .price-filter input{color:#17202b}
+@media(max-width:650px){.market-toolbar{flex-wrap:wrap}.market-toolbar .market-search{flex:1 1 100%}.price-filter{flex:1 1 72px}}
