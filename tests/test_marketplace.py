@@ -237,6 +237,12 @@ class SharedMarketplaceTests(unittest.TestCase):
                 json={"kind": "listing", "asset_id": old_asset["id"], "title": "Ignored", "price": "3", "currency": "TON"},
             )
         self.assertEqual(listing.status_code, 201)
+        offer = self.client.post(
+            "/api/marketplace/offers",
+            headers={"X-Telegram-Init-Data": "user-b"},
+            json={"order_id": listing.json()["item"]["id"], "amount": "2", "note": "Interested"},
+        )
+        self.assertEqual(offer.status_code, 201, offer.text)
         new_asset = marketplace.register_verified_asset(
             source="ton_nft", external_asset_id=nft_address,
             owner_telegram_id="202", title="NFT after transfer", asset_type="gift",
@@ -256,7 +262,11 @@ class SharedMarketplaceTests(unittest.TestCase):
                 "SELECT previous_owner_id, new_owner_id FROM asset_ownership_history WHERE asset_id = ?",
                 (old_asset["id"],),
             ).fetchone()
+            old_offer = conn.execute(
+                "SELECT status FROM demo_offers WHERE id = ?", (offer.json()["offer"]["id"],)
+            ).fetchone()
         self.assertEqual(old_listing["status"], "cancelled")
+        self.assertEqual(old_offer["status"], "declined")
         self.assertEqual(history["previous_owner_id"], "101")
         self.assertEqual(history["new_owner_id"], "202")
 
