@@ -47,6 +47,7 @@
   let orders = $state<MarketplaceOrder[]>([]);
   let verifiedAssets = $state<VerifiedAsset[]>([]);
   let verifiedAssetsLoading = $state(false);
+  let inventoryFilter = $state<'all'|'telegram_gift'|'ton_nft'>('all');
   let assetListingEnabled = $state(false);
   let selectedInventoryAsset = $state<VerifiedAsset | null>(null);
   let tonNftImportBusy = $state(false);
@@ -907,14 +908,26 @@
        {#if verifiedAssetsLoading}
          <div class="inventory-empty-state"><span class="state-icon">◌</span><strong>{lang==='ru'?'Проверяем инвентарь…':'Checking inventory…'}</strong></div>
        {:else if verifiedAssets.length}
+         <div class="inventory-toolbar">
+           <div class="inventory-filter-group" role="group" aria-label={lang==='ru'?'Фильтр инвентаря':'Inventory filter'}>
+             <button class:active={inventoryFilter==='all'} type="button" onclick={()=>inventoryFilter='all'}>{lang==='ru'?'Все':'All'} <span>{verifiedAssets.length}</span></button>
+             <button class:active={inventoryFilter==='telegram_gift'} type="button" onclick={()=>inventoryFilter='telegram_gift'}>Telegram <span>{verifiedAssets.filter(asset=>asset.source==='telegram_gift').length}</span></button>
+             <button class:active={inventoryFilter==='ton_nft'} type="button" onclick={()=>inventoryFilter='ton_nft'}>TON NFT <span>{verifiedAssets.filter(asset=>asset.source==='ton_nft').length}</span></button>
+           </div>
+           <button class="refresh-button" type="button" onclick={loadVerifiedInventory} disabled={verifiedAssetsLoading}>{lang==='ru'?'Обновить':'Refresh'} ↻</button>
+         </div>
+         {#if verifiedAssets.filter(asset=>inventoryFilter==='all'||asset.source===inventoryFilter).length}
          <div class="verified-inventory-list">
-           {#each verifiedAssets as asset (asset.id)}
+           {#each verifiedAssets.filter(asset=>inventoryFilter==='all'||asset.source===inventoryFilter) as asset (asset.id)}
              <article class="verified-inventory-item">
                {#if asset.image_url}<img src={asset.image_url} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder">HASSLE</div>{/if}
                <div><strong>{asset.title}</strong><small>{asset.source==='ton_nft'?'TON NFT':asset.source==='telegram_gift'?'Telegram Gift':asset.asset_type==='username'?'Username':'Anonymous Number'} · {asset.external_asset_id}</small>{#if asset.source==='telegram_gift'}<a class="inventory-gift-link" href={'https://t.me/nft/'+encodeURIComponent(asset.external_asset_id)} target="_blank" rel="noopener noreferrer">{lang==='ru'?'Открыть подарок в Telegram':'View gift in Telegram'} ↗</a>{/if}<span>{asset.active_listing_id?(lang==='ru'?'Уже выставлен':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</span>{#if asset.active_listing_id}<small class="inventory-listing-note">{lang==='ru'?'Объявление уже опубликовано':'Listing is already live'}</small>{:else if asset.source==='telegram_gift'}<small class="inventory-listing-note">{lang==='ru'?'Выставление откроется после подключения безопасной передачи подарков':'Listing opens after secure Telegram gift transfers are implemented'}</small>{:else if assetListingEnabled}<button class="inventory-list-button" type="button" onclick={()=>startAssetListing(asset)}>{lang==='ru'?'Выставить на продажу':'List for sale'} ↗</button>{:else}<small class="inventory-listing-note">{lang==='ru'?'Публикация откроется после завершения проверки':'Listing will open after final verification'}</small>{/if}</div>
              </article>
            {/each}
          </div>
+         {:else}
+           <div class="inventory-empty-state"><span class="state-icon">⌕</span><strong>{lang==='ru'?'В этой категории пока пусто':'No assets in this category yet'}</strong><small>{lang==='ru'?'Выбери другой источник или обнови инвентарь после импорта.':'Choose another source or refresh after importing assets.'}</small></div>
+         {/if}
        {:else}
          <div class="inventory-empty-state"><span class="state-icon">✦</span><strong>{lang==='ru'?'Пока нет подтверждённых активов':'No verified assets yet'}</strong><small>{lang==='ru'?'Ручное создание карточек отключено. Импортируй подарки Telegram или подключи TON-кошелёк для проверки NFT.':'Manual asset creation is disabled. Import Telegram gifts or connect a TON wallet to verify on-chain NFTs.'}</small></div>
        {/if}
