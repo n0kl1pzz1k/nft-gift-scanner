@@ -486,55 +486,6 @@
     try { localStorage.setItem('hassle-nft-favorite-orders-v1', JSON.stringify(favoriteOrderIds)); } catch {}
   }
 
-  async function createOrder() {
-    notice = lang === 'ru' ? 'Сначала подключи TON-кошелёк и импортируй настоящий актив в инвентарь. Ручное создание карточек отключено.' : 'Connect TON Connect and import a real asset into inventory first. Manual asset creation is disabled.';
-    return;
-    if (createOrderBusy) return;
-    const price = Number(createPrice);
-    if (createKind === 'listing' && assetTypeOf(createTitle) !== createAssetType) {
-      notice = createAssetType === 'username'
-        ? (lang === 'ru' ? 'Для Username укажи @username или ссылку t.me/username.' : 'Enter @username or a t.me/username link.')
-        : createAssetType === 'number'
-          ? (lang === 'ru' ? 'Укажи номер 888 в названии актива.' : 'Include the 888 number in the asset name.')
-          : (lang === 'ru' ? 'Укажи название Telegram-подарка.' : 'Enter the Telegram gift name.');
-      haptic('error');
-      return;
-    }
-    if (!createTitle.trim()) {
-      notice = lang === 'ru' ? 'Укажи название актива.' : 'Enter an asset name.';
-      haptic('error');
-      return;
-    }
-    if (!Number.isFinite(price) || price <= 0 || (createCurrency === 'XTR' && !Number.isInteger(price))) {
-      notice = createCurrency === 'XTR' ? (lang === 'ru' ? 'Для Stars укажи целую положительную цену.' : 'Enter a positive whole-number price for Stars.') : (lang === 'ru' ? 'Укажи положительную цену.' : 'Enter a positive price.');
-      haptic('error');
-      return;
-    }
-    if (!window.Telegram?.WebApp?.initData) {
-      notice = lang === 'ru' ? 'Открой приложение через Telegram, чтобы выставлять активы.' : 'Open the app in Telegram to publish listings.';
-      return;
-    }
-    createOrderBusy = true;
-    try {
-      await request('/api/marketplace/orders', undefined, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({kind:createKind,title:createTitle.trim(),price,currency:createCurrency,note:createNote.trim()}),
-      });
-      createTitle = ''; createPrice = ''; createNote = ''; createCurrency = 'TON'; createAssetType = 'gift';
-      notice = t.success;
-      showSellModal = false;
-      haptic('success');
-      view = 'orders';
-      await loadMarketplace();
-      await loadOffersAndDeals();
-    } catch (e) {
-      notice = e instanceof Error ? e.message : String(e);
-      haptic('error');
-    } finally {
-      createOrderBusy = false;
-    }
-  }
-
   function startEditOrder(order: MarketplaceOrder) {
     editingOrderId = order.id;
     editTitle = order.title;
