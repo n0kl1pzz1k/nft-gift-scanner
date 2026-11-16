@@ -807,7 +807,8 @@ def create_marketplace_router(
             if not _verified_asset_actions_enabled():
                 return {"profile": {**dict(row), "active_listings": 0, "completed_trades": 0, "rating": None, "listings": []}}
             listing_rows = conn.execute(
-                """SELECT o.id, o.title, o.price, o.currency, o.created_at, o.note
+                """SELECT o.id, o.title, o.price, o.currency, o.created_at, o.note,
+                          a.image_url AS image_url, a.asset_type AS asset_type
                    FROM demo_orders o
                    JOIN user_profiles p ON p.telegram_id = o.user_id
                    JOIN verified_assets a ON a.id = o.asset_id
@@ -821,6 +822,7 @@ def create_marketplace_router(
         public_listings = [{
             "id": item["id"], "title": item["title"], "price": item["price"],
             "currency": item["currency"], "createdAt": item["created_at"], "note": item["note"],
+            "image_url": item["image_url"], "asset_type": item["asset_type"],
         } for item in listing_rows]
         return {"profile": {
             **dict(row), "completed_trades": 0, "rating": None, "listings": public_listings
@@ -1062,7 +1064,7 @@ def create_marketplace_router(
             qualified_where = where.replace("status", "o.status").replace("kind", "o.kind")
             asset_filter = "" if _test_unverified_assets_allowed() else " AND (o.kind != 'listing' OR a.id IS NOT NULL)"
             if asset_filter and not qualified_where:
-                qualified_where = " WHERE a.id IS NOT NULL"
+                qualified_where = " WHERE (o.kind != 'listing' OR a.id IS NOT NULL)"
             elif asset_filter:
                 qualified_where += asset_filter
             rows = conn.execute(
