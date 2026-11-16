@@ -353,7 +353,18 @@
   }
 
   async function importBusinessGifts() {
-    if (!signedIn || !authToken || businessGiftImportBusy || !telegramBusinessStatus.gift_import_ready) return;
+    if (!signedIn || !authToken || businessGiftImportBusy) return;
+    // Business permission can become available after the panel was rendered.
+    // Refresh it on demand instead of silently returning on stale UI state.
+    if (!telegramBusinessStatus.gift_import_ready) {
+      await loadTelegramBusinessStatus();
+    }
+    if (!telegramBusinessStatus.gift_import_ready) {
+      businessGiftImportMessage = lang === 'ru'
+        ? 'Нет разрешения на просмотр подарков Telegram Business. Проверь подключение Business и доступ к подаркам.'
+        : 'Telegram Business gift-view permission is missing. Check the Business connection and gift access.';
+      return;
+    }
     businessGiftImportBusy = true;
     businessGiftImportMessage = '';
     try {
