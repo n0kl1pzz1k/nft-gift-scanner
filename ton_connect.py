@@ -73,6 +73,10 @@ def create_proof_challenge(telegram_id: str, session_token: str, now: int | None
         conn.execute("BEGIN IMMEDIATE")
         conn.execute("DELETE FROM ton_proof_challenges WHERE expires_at <= ? OR consumed_at IS NOT NULL", (issued_at,))
         conn.execute(
+            "DELETE FROM ton_proof_challenges WHERE telegram_id = ? AND session_hash = ? AND consumed_at IS NULL",
+            (user_id, session_hash),
+        )
+        conn.execute(
             """INSERT INTO ton_proof_challenges
                (payload_hash, telegram_id, session_hash, created_at, expires_at)
                VALUES (?, ?, ?, ?, ?)""",
@@ -113,7 +117,9 @@ def _parse_state_init(state_init_b64: str) -> tuple[bytes, bytes, str]:
         if len(public_key) != 32:
             raise ValueError("Invalid wallet public key")
         return state_hash, public_key, code_hash
-    except (binascii.Error, IndexError, TypeError, AttributeError) as exc:
+    except ValueError:
+        raise
+    except Exception as exc:
         raise ValueError("Could not parse wallet StateInit") from exc
 
 
