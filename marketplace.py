@@ -219,6 +219,19 @@ def init_marketplace_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_business_connections_enabled
             ON telegram_business_connections(telegram_id, is_enabled);
+        CREATE TABLE IF NOT EXISTS telegram_business_gift_refs (
+            asset_id TEXT PRIMARY KEY,
+            owner_telegram_id TEXT NOT NULL,
+            business_connection_id TEXT NOT NULL,
+            owned_gift_id TEXT NOT NULL,
+            gift_slug TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            UNIQUE(business_connection_id, owned_gift_id),
+            FOREIGN KEY(asset_id) REFERENCES verified_assets(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_business_gift_refs_owner
+            ON telegram_business_gift_refs(owner_telegram_id, updated_at DESC);
+
 
         """)
         # Ownership may change only after the old owner snapshot was revoked and a
@@ -342,6 +355,65 @@ def upsert_telegram_business_connection(connection: dict[str, Any]) -> dict[str,
         )
     return get_telegram_business_connection(telegram_id) or {}
 
+
+
+def get_telegram_business_connection_id(telegram_id: str | int) -> str | None:
+    """Return a connection ID only to trusted server code after checking current rights."""
+    owner_id = str(telegram_id).strip()
+    if not owner_id.isdigit():
+        raise ValueError("A verified Telegram owner ID is required")
+    with _db() as conn:
+        row = conn.execute(
+            """SELECT business_connection_id FROM telegram_business_connections
+               WHERE telegram_id = ? AND is_enabled = 1
+                 AND can_view_gifts_and_stars = 1""",
+            (owner_id,),
+        ).fetchone()
+    return str(row["business_connection_id"]) if row else None
+
+
+def save_telegram_business_gift_ref(
+    *, asset_id: str, owner_telegram_id: str, business_connection_id: str,
+    owned_gift_id: str, gift_slug: str,
+) -> None:
+    """Bind the Telegram-issued owned_gift_id to a verified marketplace asset."""
+    owner_id = str(owner_telegram_id).strip()
+    if not owner_id.isdigit() or not all((asset_id, business_connection_id, owned_gift_id, gift_slug)):
+        raise ValueError("A complete verified Business gift reference is required")
+    now = int(time.time())
+    with _db() as conn:
+        conn.execute(
+            """INSERT INTO telegram_business_gift_refs
+               (asset_id, owner_telegram_id, business_connection_id, owned_gift_id, gift_slug, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(asset_id) DO UPDATE SET
+                 owner_telegram_id=excluded.owner_telegram_id,
+                 business_connection_id=excluded.business_connection_id,
+                 owned_gift_id=excluded.owned_gift_id,
+                 gift_slug=excluded.gift_slug,
+                 updated_at=excluded.updated_at""",
+            (asset_id, owner_id, business_connection_id, owned_gift_id, gift_slug, now),
+        )
+
+
+def get_telegram_business_gift_ref(asset_id: str, owner_telegram_id: str | int) -> dict[str, Any] | None:
+    owner_id = str(owner_telegram_id).strip()
+    if not owner_id.isdigit():
+        raise ValueError("A verified Telegram owner ID is required")
+    with _db() as conn:
+        row = conn.execute(
+            """SELECT r.asset_id, r.owned_gift_id, r.gift_slug, r.business_connection_id
+               FROM telegram_business_gift_refs r
+               JOIN telegram_business_connections c
+                 ON c.telegram_id = r.owner_telegram_id
+                AND c.business_connection_id = r.business_connection_id
+               JOIN verified_assets a ON a.id = r.asset_id
+               WHERE r.asset_id = ? AND r.owner_telegram_id = ?
+                 AND c.is_enabled = 1 AND c.can_transfer_and_upgrade_gifts = 1
+                 AND a.owner_telegram_id = ? AND a.status = 'verified'""",
+            (str(asset_id), owner_id, owner_id),
+        ).fetchone()
+    return dict(row) if row else None
 
 def get_telegram_business_connection(telegram_id: str | int) -> dict[str, Any] | None:
     owner_id = str(telegram_id).strip()
