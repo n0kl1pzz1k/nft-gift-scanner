@@ -947,6 +947,8 @@ def create_marketplace_router(
                     SUM(CASE WHEN status='matched' THEN 1 ELSE 0 END) AS matched_orders,
                     SUM(CASE WHEN status='matched' AND currency='TON' THEN CAST(price AS REAL) ELSE 0 END) AS volume_ton,
                     SUM(CASE WHEN status='matched' AND currency='XTR' THEN CAST(price AS REAL) ELSE 0 END) AS volume_stars,
+                    MIN(CASE WHEN status='active' AND kind='listing' AND currency='TON' THEN CAST(price AS REAL) END) AS floor_ton,
+                    MIN(CASE WHEN status='active' AND kind='listing' AND currency='XTR' THEN CAST(price AS REAL) END) AS floor_stars,
                     COUNT(*) AS total_orders
                 FROM demo_orders
             """).fetchone()
