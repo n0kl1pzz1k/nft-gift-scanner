@@ -157,8 +157,8 @@
     return prices.length ? Math.min(...prices).toFixed(2) : '—';
   });
   function assetTypeOf(title: string): AssetTypeFilter {
-    if (/(?:\\+?888|anonymous\\s*number|number\\s*888)/i.test(title)) return 'number';
-    if (/^@|t\\.me\\/|username/i.test(title)) return 'username';
+    if (/888|anonymous.*number|number.*888/i.test(title)) return 'number';
+    if (/^@|t[.]me[/]|username/i.test(title)) return 'username';
     return 'gift';
   }
   function assetTypeName(type: AssetTypeFilter) {
@@ -617,14 +617,34 @@
   }
 
   onMount(() => {
-    window.Telegram?.WebApp?.ready?.();
-    window.Telegram?.WebApp?.expand?.();
+    const webApp = (window as any).Telegram?.WebApp;
+    webApp?.ready?.();
+    webApp?.expand?.();
+    const syncTelegramTheme = () => {
+      const params = webApp?.themeParams || {};
+      const root = document.documentElement;
+      const themeMap: Record<string,string> = {
+        '--tg-theme-bg-color': params.bg_color || '#0e1116',
+        '--tg-theme-secondary-bg-color': params.secondary_bg_color || '#171c24',
+        '--tg-theme-text-color': params.text_color || '#f2f6fc',
+        '--tg-theme-hint-color': params.hint_color || '#8794a7',
+        '--tg-theme-button-color': params.button_color || '#3298ff',
+        '--tg-theme-button-text-color': params.button_text_color || '#ffffff',
+        '--tg-theme-link-color': params.link_color || '#62b8ff',
+      };
+      for (const [key,value] of Object.entries(themeMap)) root.style.setProperty(key,value);
+      root.dataset.telegramColorScheme = webApp?.colorScheme === 'light' ? 'light' : 'dark';
+      root.style.colorScheme = webApp?.colorScheme === 'light' ? 'light' : 'dark';
+    };
+    syncTelegramTheme();
+    webApp?.onEvent?.('themeChanged', syncTelegramTheme);
     try {
       const savedOrders = JSON.parse(localStorage.getItem('hassle-nft-favorite-orders-v1') || '[]');
       if (Array.isArray(savedOrders)) favoriteOrderIds = savedOrders.filter((id): id is string => typeof id === 'string');
     } catch {}
     void loadMarketplace();
     if (window.Telegram?.WebApp?.initData) void telegramLogin(false);
+    return () => webApp?.offEvent?.('themeChanged', syncTelegramTheme);
   });
 </script>
 
