@@ -135,11 +135,43 @@ def test_postgres_portability_report_flags_sqlite_only_schema_features():
     assert report["table_count"] == 2
     assert report["foreign_key_count"] == 1
     assert report["trigger_count"] == 1
+    trigger = report["blockers"][0]["items"][0]
+    assert trigger["name"] == "child_no_delete"
+    assert trigger["timing"] == "BEFORE"
+    assert trigger["event"] == "DELETE"
+    assert trigger["behavior"] == "immutable_guard"
     assert report["view_count"] == 1
     assert report["partial_indexes"][0]["name"] == "idx_child_open"
     assert report["check_constraint_tables"] == [{"table": "child"}]
     blocker_features = {item["feature"] for item in report["blockers"]}
     assert blocker_features == {"sqlite_triggers", "sqlite_autoincrement"}
+
+
+def test_postgres_portability_report_classifies_notification_trigger_ids():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE marketplace_orders (id TEXT PRIMARY KEY, user_id TEXT);
+        CREATE TABLE marketplace_offers (id TEXT PRIMARY KEY, order_id TEXT, sender_user_id TEXT);
+        CREATE TABLE marketplace_notifications (id TEXT PRIMARY KEY, user_id TEXT);
+        CREATE TRIGGER trg_offer_notification AFTER INSERT ON marketplace_offers
+        BEGIN
+            INSERT INTO marketplace_notifications(id, user_id)
+            SELECT 'nt-' || lower(hex(randomblob(8))), o.user_id
+            FROM marketplace_orders o WHERE o.id = NEW.order_id;
+        END;
+        """
+    )
+    report = build_postgres_portability_report(build_schema_manifest(connection))
+    connection.close()
+
+    triggers = report["blockers"][0]["items"]
+    assert triggers[0]["timing"] == "AFTER"
+    assert triggers[0]["event"] == "INSERT"
+    assert triggers[0]["behavior"] == "notification_side_effect"
+    random_ids = next(item for item in report["blockers"] if item["feature"] == "sqlite_randomblob_trigger_ids")
+    assert random_ids["count"] == 1
+    assert report["ready_for_cutover"] is False
 
 
 def test_postgres_portability_report_contains_no_table_rows():
