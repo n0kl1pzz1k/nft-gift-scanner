@@ -145,8 +145,11 @@ class _FunctionScanner(ast.NodeVisitor):
                 context = item.context_expr
                 if isinstance(context, ast.Name) and context.id.lower() in {'conn', 'connection', 'db', 'database'}:
                     self.current['connection_context_count'] += 1
-                elif isinstance(context, ast.Call) and isinstance(context.func, ast.Name) and context.func.id.lower() in {'connect', 'connection'}:
-                    self.current['connection_context_count'] += 1
+                elif isinstance(context, ast.Call):
+                    function = context.func
+                    function_name = function.id if isinstance(function, ast.Name) else function.attr if isinstance(function, ast.Attribute) else ''
+                    if function_name.lower() in {'connect', 'connection', '_db', 'get_db', 'open_db'}:
+                        self.current['connection_context_count'] += 1
         self.generic_visit(node)
 
     def visit_AsyncWith(self, node: ast.AsyncWith) -> None:
