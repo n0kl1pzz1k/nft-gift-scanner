@@ -396,13 +396,15 @@ def build_postgres_data_preflight(
                 f"FROM {quoted_table}"
             ).fetchone()
             total_rows, invalid_values, null_values = (int(value) for value in aggregate)
+            nullable = not bool(column.get("not_null")) and int(column.get("primary_key_position", 0)) == 0
             profiles.append({
                 "table": table_name,
                 "column": column_name,
                 "total_rows": total_rows,
                 "invalid_value_count": invalid_values,
                 "null_value_count": null_values,
-                "boolean_conversion_safe": invalid_values == 0 and null_values == 0,
+                "nullable": nullable,
+                "boolean_conversion_safe": invalid_values == 0 and (nullable or null_values == 0),
             })
 
     return {
