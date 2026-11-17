@@ -175,7 +175,10 @@ def test_runtime_inventory_reports_counts_and_schema_without_row_values():
     assert inventory["total_rows"] == 2
     assert inventory["tables"][0]["name"] == "accounts"
     assert inventory["tables"][0]["row_count"] == 2
+    assert "CREATE TABLE accounts" in inventory["tables"][0]["create_sql"]
+    assert inventory["postgresql_portability"]["target_engine"] == "postgresql"
     assert [column["name"] for column in inventory["tables"][0]["columns"]] == ["id", "private_note"]
     assert "PRIVATE_ROW_SENTINEL" not in rendered
     assert "ANOTHER_PRIVATE_VALUE" not in rendered
+    assert "DO_NOT_EXPORT_THIS" not in rendered
 

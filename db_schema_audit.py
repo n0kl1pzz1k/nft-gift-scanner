@@ -133,6 +133,7 @@ def build_runtime_inventory(connection: sqlite3.Connection) -> dict[str, Any]:
         ).fetchone()[0])
         tables.append({
             "name": table["name"],
+            "create_sql": table["sql"],
             "row_count": row_count,
             "columns": [
                 {"name": column["name"], "type": column["type"],
@@ -155,6 +156,7 @@ def build_runtime_inventory(connection: sqlite3.Connection) -> dict[str, Any]:
         object_names.setdefault(kind, []).append({
             "name": str(item["name"]),
             "table": str(item["table"]),
+            "create_sql": item["sql"],
         })
     return {
         "engine": manifest["engine"],
@@ -166,6 +168,7 @@ def build_runtime_inventory(connection: sqlite3.Connection) -> dict[str, Any]:
         "tables": tables,
         "object_counts": object_counts,
         "objects": object_names,
+        "postgresql_portability": build_postgres_portability_report(manifest),
         "scope_note": "Schema metadata and row counts only; no application row values are read or returned.",
     }
 
