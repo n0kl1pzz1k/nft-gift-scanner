@@ -128,6 +128,19 @@ def managed_single_write(conn):
         self.assertEqual(by_name['managed_single_write']['connection_context_count'], 1)
         self.assertFalse(by_name['managed_single_write']['single_statement_autocommit_write'])
 
+    def test_database_factory_context_manager_is_detected(self):
+        (self.root / 'marketplace.py').write_text('''
+def _db():
+    pass
+def operation():
+    with _db() as conn:
+        conn.execute("UPDATE listings SET status = 'sold'")
+''', encoding='utf-8')
+        report = audit_transaction_boundaries(self.root)
+        item = report['functions'][0]
+        self.assertEqual(item['connection_context_count'], 1)
+        self.assertFalse(item['single_statement_autocommit_write'])
+        self.assertFalse(item['multi_statement_mutation_without_explicit_begin'])
     def test_audit_handles_missing_sources_and_reports_no_false_readiness(self):
         report = audit_transaction_boundaries(self.root)
 
