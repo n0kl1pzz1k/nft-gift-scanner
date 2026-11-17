@@ -12,7 +12,6 @@ import sqlite3
 import time
 import uuid
 from urllib.parse import urlparse
-from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Callable, Literal, Any
@@ -78,20 +77,6 @@ def _migrate_legacy_marketplace_table_names(conn: sqlite3.Connection) -> None:
         conn.execute(f'DROP TRIGGER IF EXISTS "{trigger_name}"')
     for index_name in _LEGACY_MARKETPLACE_INDEXES:
         conn.execute(f'DROP INDEX IF EXISTS "{index_name}"')
-
-
-def _connect() -> sqlite3.Connection:
-    return _connect_database(DB_PATH)
-
-
-@contextmanager
-def _db():
-    conn = _connect()
-    try:
-        yield conn
-    finally:
-        conn.close()
-
 
 
 def _migrate_legacy_order_event_types(conn: sqlite3.Connection) -> None:
