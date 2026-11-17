@@ -129,3 +129,67 @@ def test_preflight_report_does_not_overwrite_racing_destination(tmp_path, monkey
 
     assert report_path.read_text(encoding="utf-8") == "created-by-another-process"
     assert not list(tmp_path.glob(".preflight.json.*.tmp"))
+
+
+def test_preflight_profiles_boolean_candidates_for_source_and_backup(tmp_path):
+    source_path = tmp_path / "source_boolean.sqlite3"
+    backup_path = tmp_path / "backup_boolean.sqlite3"
+    connection = sqlite3.connect(source_path)
+    connection.executescript(
+        """
+        CREATE TABLE telegram_users (
+            id INTEGER PRIMARY KEY,
+            is_premium INTEGER
+        );
+        INSERT INTO telegram_users VALUES (1, 0);
+        INSERT INTO telegram_users VALUES (2, 1);
+        INSERT INTO telegram_users VALUES (3, NULL);
+        """
+    )
+    connection.commit()
+    connection.close()
+    backup_database(source_path, backup_path)
+    source, backup = _read_only(source_path), _read_only(backup_path)
+    try:
+        report = build_migration_preflight(source, backup, tmp_path)
+    finally:
+        source.close()
+        backup.close()
+
+    profile = report["postgresql_boolean_data_preflight"]
+    assert profile["profiles_match"] is True
+    assert profile["conversion_safe_in_both"] is True
+    assert profile["source"]["columns"][0]["nullable"] is True
+    assert profile["source"]["columns"][0]["null_value_count"] == 1
+    assert report["postgresql_cutover_allowed"] is False
+
+
+def test_preflight_marks_non_boolean_values_as_conversion_blocker(tmp_path):
+    source_path = tmp_path / "source_invalid_boolean.sqlite3"
+    backup_path = tmp_path / "backup_invalid_boolean.sqlite3"
+    connection = sqlite3.connect(source_path)
+    connection.executescript(
+        """
+        CREATE TABLE telegram_users (
+            id INTEGER PRIMARY KEY,
+            is_premium INTEGER
+        );
+        INSERT INTO telegram_users VALUES (1, 0);
+        INSERT INTO telegram_users VALUES (2, 7);
+        """
+    )
+    connection.commit()
+    connection.close()
+    backup_database(source_path, backup_path)
+    source, backup = _read_only(source_path), _read_only(backup_path)
+    try:
+        report = build_migration_preflight(source, backup, tmp_path)
+    finally:
+        source.close()
+        backup.close()
+
+    profile = report["postgresql_boolean_data_preflight"]
+    assert profile["profiles_match"] is True
+    assert profile["conversion_safe_in_both"] is False
+    assert profile["source"]["columns"][0]["invalid_value_count"] == 1
+    assert report["postgresql_cutover_allowed"] is False
