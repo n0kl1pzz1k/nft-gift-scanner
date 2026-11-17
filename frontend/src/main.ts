@@ -2,11 +2,13 @@ import { mount } from 'svelte';
 import App from './App.svelte';
 import './app.css';
 
-const target = document.getElementById('app');
+const targetElement = document.getElementById('app');
 
-if (!target) {
+if (!targetElement) {
   throw new Error('HASSLE NFT mount target #app was not found');
 }
+
+const target: HTMLElement = targetElement;
 
 function renderBootError(error: unknown) {
   const details = error instanceof Error ? error.message : String(error);
