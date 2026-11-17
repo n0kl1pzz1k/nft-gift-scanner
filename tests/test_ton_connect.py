@@ -113,6 +113,43 @@ class TonConnectProofTests(unittest.TestCase):
         )
         self.assertEqual(len(ton_connect.list_verified_wallets(self.user_id)), 1)
 
+    def test_failed_challenge_replacement_preserves_previous_valid_challenge(self):
+        original_payload_hash = hashlib.sha256(self.payload.encode("utf-8")).hexdigest()
+        with marketplace._db() as conn:
+            conn.execute(
+                """CREATE TRIGGER fail_ton_challenge_insert
+                   BEFORE INSERT ON ton_proof_challenges
+                   BEGIN SELECT RAISE(ABORT, 'injected challenge persistence failure'); END"""
+            )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            ton_connect.create_proof_challenge(
+                self.user_id, self.session, now=self.now + 1,
+            )
+
+        with marketplace._db() as conn:
+            challenge = conn.execute(
+                """SELECT consumed_at FROM ton_proof_challenges
+                   WHERE payload_hash = ? AND telegram_id = ?""",
+                (original_payload_hash, self.user_id),
+            ).fetchone()
+            challenge_count = conn.execute(
+                "SELECT COUNT(*) FROM ton_proof_challenges WHERE telegram_id = ?",
+                (self.user_id,),
+            ).fetchone()[0]
+        self.assertIsNotNone(challenge)
+        self.assertIsNone(challenge["consumed_at"])
+        self.assertEqual(challenge_count, 1)
+
+        with marketplace._db() as conn:
+            conn.execute("DROP TRIGGER fail_ton_challenge_insert")
+        verified = self._verify()
+        self.assertTrue(
+            ton_connect.consume_challenge_and_link_wallet(
+                verified, self.user_id, self.session, now=self.now + 1,
+            )
+        )
+
     def test_proof_rejects_wrong_domain(self):
         bad = dict(self.proof)
         bad["domain"] = {"lengthBytes": len(b"evil.example"), "value": "evil.example"}
