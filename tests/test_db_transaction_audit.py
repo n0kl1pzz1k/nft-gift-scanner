@@ -171,8 +171,10 @@ def operation():
 ''', encoding='utf-8')
         report = audit_transaction_boundaries(self.root)
         item = report['functions'][0]
-        self.assertEqual(item['connection_context_count'], 0)
-        self.assertTrue(item['multi_statement_mutation_without_explicit_begin'])
+        self.assertEqual(item['connection_context_count'], 1)
+        self.assertEqual(item['connection_context_mutation_count'], 2)
+        self.assertEqual(item['mutations_outside_connection_context'], 0)
+        self.assertFalse(item['multi_statement_mutation_without_explicit_begin'])
     def test_audit_handles_missing_sources_and_reports_no_false_readiness(self):
         report = audit_transaction_boundaries(self.root)
 
