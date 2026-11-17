@@ -19,7 +19,7 @@ class TonNftImportApiTests(unittest.TestCase):
         self.db_path = os.path.join(self.temp_dir.name, "import.sqlite3")
         self.db_patch = patch.object(marketplace, "DB_PATH", self.db_path)
         self.db_patch.start()
-        self.offers_patch = patch.object(demo_offers, "DB_PATH", self.db_path)
+        self.offers_patch = patch.object(marketplace_offers, "DB_PATH", self.db_path)
         self.offers_patch.start()
         marketplace.init_marketplace_db()
         ton_connect.init_ton_connect_db()
