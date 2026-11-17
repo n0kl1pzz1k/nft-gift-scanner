@@ -291,6 +291,7 @@ def test_postgres_boolean_data_preflight_reports_aggregate_counts_only():
         "total_rows": 4,
         "invalid_value_count": 1,
         "null_value_count": 1,
+        "nullable": True,
         "boolean_conversion_safe": False,
     }]
     rendered = json.dumps(report, ensure_ascii=False)
@@ -317,3 +318,23 @@ def test_postgres_boolean_data_preflight_accepts_only_zero_one_non_null_values()
     assert report["safe_column_count"] == 1
     assert report["unsafe_column_count"] == 0
     assert report["columns"][0]["boolean_conversion_safe"] is True
+
+
+def test_postgres_boolean_data_preflight_preserves_nullable_column_semantics():
+    from db_schema_audit import build_postgres_data_preflight
+
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE telegram_users (is_premium INTEGER);
+        INSERT INTO telegram_users VALUES (NULL);
+        INSERT INTO telegram_users VALUES (0);
+        """
+    )
+    report = build_postgres_data_preflight(connection)
+    connection.close()
+
+    column = report["columns"][0]
+    assert column["nullable"] is True
+    assert column["null_value_count"] == 1
+    assert column["boolean_conversion_safe"] is True
