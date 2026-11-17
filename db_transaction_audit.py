@@ -15,7 +15,6 @@ from typing import Any
 
 SOURCE_FILES = ("app.py", "marketplace.py", "marketplace_offers.py", "ton_connect.py")
 MUTATION_KINDS = {"INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "ALTER", "DROP"}
-SQL_COMMENT_RE = re.compile(r"/\*.*?\*/|--[^\n]*", re.DOTALL)
 
 
 def _literal_sql(node: ast.AST) -> tuple[str | None, bool]:
@@ -115,20 +114,21 @@ class _FunctionScanner(ast.NodeVisitor):
             "rollback_count": 0,
             "executescript_count": 0,
             "dynamic_sql_count": 0,
+            "connection_context_count": 0,
         }
         self.current = record
         for child in node.body:
             self.visit(child)
         if record["mutation_count"] or record["transaction_start_count"] or record["executescript_count"]:
             record["multi_statement_mutation_without_explicit_begin"] = (
-                record["mutation_count"] > 1 and record["transaction_start_count"] == 0
+                record["mutation_count"] > 1 and record["transaction_start_count"] == 0 and record["connection_context_count"] == 0
             )
             record["transaction_without_explicit_end"] = (
                 record["transaction_start_count"] > 0
-                and record["commit_count"] + record["rollback_count"] == 0
+                and record["commit_count"] + record["rollback_count"] + record["connection_context_count"] == 0
             )
             record["single_statement_autocommit_write"] = (
-                record["mutation_count"] == 1 and record["transaction_start_count"] == 0
+                record["mutation_count"] == 1 and record["transaction_start_count"] == 0 and record["connection_context_count"] == 0
             )
             self.functions.append(record)
         self.current = previous
@@ -139,6 +139,18 @@ class _FunctionScanner(ast.NodeVisitor):
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self._visit_function(node)
 
+    def visit_With(self, node: ast.With) -> None:
+        if self.current is not None:
+            for item in node.items:
+                context = item.context_expr
+                if isinstance(context, ast.Name) and context.id.lower() in {'conn', 'connection', 'db', 'database'}:
+                    self.current['connection_context_count'] += 1
+                elif isinstance(context, ast.Call) and isinstance(context.func, ast.Name) and context.func.id.lower() in {'connect', 'connection'}:
+                    self.current['connection_context_count'] += 1
+        self.generic_visit(node)
+
+    def visit_AsyncWith(self, node: ast.AsyncWith) -> None:
+        self.visit_With(node)
     def visit_Call(self, node: ast.Call) -> None:
         if self.current is None or not isinstance(node.func, ast.Attribute):
             self.generic_visit(node)
