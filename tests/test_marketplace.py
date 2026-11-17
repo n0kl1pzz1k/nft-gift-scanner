@@ -681,6 +681,63 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(unrelated.json()["items"], [])
         self.assertEqual(unrelated.json()["total"], 0)
 
+    def test_deal_cancellation_rolls_back_when_lifecycle_event_insert_fails(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        sender_headers = {"X-Telegram-Init-Data": "user-b"}
+        order = self.client.post(
+            "/api/marketplace/orders", headers=owner_headers,
+            json={"kind": "listing", "title": "Rollback deal gift", "price": "2", "currency": "TON"},
+        )
+        self.assertEqual(order.status_code, 201, order.text)
+        order_id = order.json()["item"]["id"]
+        offer = self.client.post(
+            "/api/marketplace/offers", headers=sender_headers,
+            json={"order_id": order_id, "amount": "1.8"},
+        )
+        self.assertEqual(offer.status_code, 201, offer.text)
+        offer_id = offer.json()["item"]["id"]
+        deal_id = "deal-rollback-atomicity"
+
+        with marketplace._db() as conn:
+            conn.execute(
+                "UPDATE marketplace_orders SET status = 'matched' WHERE id = ?",
+                (order_id,),
+            )
+            conn.execute(
+                """INSERT INTO marketplace_deals
+                   (id, order_id, offer_id, listing_owner_id, offer_sender_id,
+                    agreed_amount, currency, created_at, status)
+                   VALUES (?, ?, ?, '101', '202', '1.8', 'TON', ?, 'payment_not_enabled')""",
+                (deal_id, order_id, offer_id, int(time.time())),
+            )
+            conn.execute(
+                """CREATE TRIGGER fail_deal_lifecycle_insert
+                   BEFORE INSERT ON marketplace_deal_lifecycle_events
+                   BEGIN SELECT RAISE(ABORT, 'injected lifecycle write failure'); END"""
+            )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.client.post(
+                f"/api/marketplace/deals/{deal_id}/actions",
+                headers=sender_headers,
+                json={"action": "cancel"},
+            )
+
+        with marketplace._db() as conn:
+            deal = conn.execute(
+                "SELECT status FROM marketplace_deals WHERE id = ?", (deal_id,)
+            ).fetchone()
+            listing = conn.execute(
+                "SELECT status FROM marketplace_orders WHERE id = ?", (order_id,)
+            ).fetchone()
+            lifecycle_count = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_deal_lifecycle_events WHERE deal_id = ?",
+                (deal_id,),
+            ).fetchone()[0]
+        self.assertEqual(deal["status"], "payment_not_enabled")
+        self.assertEqual(listing["status"], "matched")
+        self.assertEqual(lifecycle_count, 0)
+
     def test_cancelling_order_declines_pending_offers_and_notifies_senders(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         sender_headers = {"X-Telegram-Init-Data": "user-b"}
