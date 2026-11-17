@@ -1101,3 +1101,27 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(accepted.status_code, 409)
         self.assertEqual(self.client.get("/api/marketplace/deals", headers=headers_a).json()["items"], [])
         self.assertEqual(self.client.get("/api/marketplace/deals", headers=headers_b).json()["items"], [])
+
+
+
+class DatabaseBackendConfigurationTests(unittest.TestCase):
+    def test_postgres_database_url_fails_closed_without_leaking_connection_string(self):
+        secret_url = "postgresql://user:secret-password@db.example.test:5432/hassle"
+        with patch.dict(os.environ, {"DATABASE_URL": secret_url}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "PostgreSQL runtime support is not enabled") as error:
+                marketplace._connect_database(":memory:")
+        self.assertNotIn("secret-password", str(error.exception))
+        self.assertNotIn("db.example.test", str(error.exception))
+
+    def test_non_sqlite_backend_flag_fails_closed(self):
+        with patch.dict(os.environ, {"HASSLE_NFT_DB_BACKEND": "postgres"}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "supports SQLite only"):
+                marketplace._connect_database(":memory:")
+
+    def test_explicit_sqlite_backend_remains_supported(self):
+        with patch.dict(os.environ, {"HASSLE_NFT_DB_BACKEND": "sqlite"}, clear=True):
+            connection = marketplace._connect_database(":memory:")
+            try:
+                self.assertEqual(connection.execute("SELECT 1").fetchone()[0], 1)
+            finally:
+                connection.close()
