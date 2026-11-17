@@ -74,23 +74,42 @@ def script_migration(conn):
         self.assertFalse(report["ready_for_postgresql_runtime"])
 
     def test_cte_writes_and_sql_transaction_end_statements_are_counted(self):
-        (self.root / 'marketplace.py').write_text("def cte_write(conn):\\n    conn.execute(\\\"WITH pending AS (SELECT id FROM listings) UPDATE listings SET status = 'sold' WHERE id IN (SELECT id FROM pending)\\\")\\ndef sql_transaction_end(conn):\\n    conn.execute('BEGIN IMMEDIATE')\\n    conn.execute(\\\"INSERT INTO events(id) VALUES ('x')\\\")\\n    conn.execute('COMMIT')\\ndef sql_rollback(conn):\\n    conn.execute('BEGIN')\\n    conn.executescript(\\\"UPDATE listings SET status = 'x'; ROLLBACK;\\")\\n", encoding='utf-8')
+        (self.root / "marketplace.py").write_text(
+            """
+def cte_write(conn):
+    conn.execute("WITH pending AS (SELECT id FROM listings) UPDATE listings SET status = 'sold' WHERE id IN (SELECT id FROM pending)")
+def sql_transaction_end(conn):
+    conn.execute("BEGIN IMMEDIATE")
+    conn.execute("INSERT INTO events(id) VALUES ('x')")
+    conn.execute("COMMIT")
+def sql_rollback(conn):
+    conn.execute("BEGIN")
+    conn.executescript("UPDATE listings SET status = 'x'; ROLLBACK;")
+""",
+            encoding="utf-8",
+        )
         report = audit_transaction_boundaries(self.root)
-        by_name = {item['function']: item for item in report['functions']}
-        self.assertEqual(by_name['cte_write']['mutation_count'], 1)
-        self.assertEqual(by_name['cte_write']['mutation_kinds'], ['UPDATE'])
-        self.assertEqual(by_name['sql_transaction_end']['commit_count'], 1)
-        self.assertFalse(by_name['sql_transaction_end']['transaction_without_explicit_end'])
-        self.assertEqual(by_name['sql_rollback']['rollback_count'], 1)
-        self.assertFalse(by_name['sql_rollback']['transaction_without_explicit_end'])
+        by_name = {item["function"]: item for item in report["functions"]}
+        self.assertEqual(by_name["cte_write"]["mutation_count"], 1)
+        self.assertEqual(by_name["cte_write"]["mutation_kinds"], ["UPDATE"])
+        self.assertEqual(by_name["sql_transaction_end"]["commit_count"], 1)
+        self.assertFalse(by_name["sql_transaction_end"]["transaction_without_explicit_end"])
+        self.assertEqual(by_name["sql_rollback"]["rollback_count"], 1)
+        self.assertFalse(by_name["sql_rollback"]["transaction_without_explicit_end"])
 
     def test_sql_comment_markers_inside_string_literals_do_not_hide_statements(self):
-        (self.root / 'marketplace.py').write_text("def two_writes_with_comment_text(conn):\\n    conn.execute(\\\"INSERT INTO notes(value) VALUES ('note -- tag'); DELETE FROM notes WHERE id = 1\\\")\\n", encoding='utf-8')
+        (self.root / "marketplace.py").write_text(
+            """
+def two_writes_with_comment_text(conn):
+    conn.execute("INSERT INTO notes(value) VALUES ('note -- tag'); DELETE FROM notes WHERE id = 1")
+""",
+            encoding="utf-8",
+        )
         report = audit_transaction_boundaries(self.root)
-        item = report['functions'][0]
-        self.assertEqual(item['mutation_count'], 2)
-        self.assertEqual(item['mutation_kinds'], ['INSERT', 'DELETE'])
-        self.assertTrue(item['multi_statement_mutation_without_explicit_begin'])
+        item = report["functions"][0]
+        self.assertEqual(item["mutation_count"], 2)
+        self.assertEqual(item["mutation_kinds"], ["INSERT", "DELETE"])
+        self.assertTrue(item["multi_statement_mutation_without_explicit_begin"])
 
     def test_audit_handles_missing_sources_and_reports_no_false_readiness(self):
         report = audit_transaction_boundaries(self.root)
