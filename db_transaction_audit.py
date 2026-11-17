@@ -40,16 +40,61 @@ def _literal_sql(node: ast.AST) -> tuple[str | None, bool]:
     return None, True
 
 
-def _statements(sql: str) -> list[str]:
-    without_comments = SQL_COMMENT_RE.sub(" ", sql)
-    return [part.strip() for part in without_comments.split(";") if part.strip()]
+def _strip_sql_comments(sql: str) -> str:
+    """Remove SQL comments without touching quoted strings."""
+    out: list[str] = []; i = 0; quote: str | None = None
+    while i < len(sql):
+        ch = sql[i]
+        if quote:
+            out.append(ch)
+            if ch == quote:
+                if i + 1 < len(sql) and sql[i + 1] == quote: out.append(sql[i + 1]); i += 1
+                else: quote = None
+            elif ch == chr(92) and quote in {chr(39), chr(34)} and i + 1 < len(sql): out.append(sql[i + 1]); i += 1
+            i += 1; continue
+        if ch in {chr(39), chr(34)}: quote = ch; out.append(ch); i += 1; continue
+        if ch == '[': quote = ']'; out.append(ch); i += 1; continue
+        if sql.startswith('--', i):
+            end = sql.find(chr(10), i)
+            if end < 0: break
+            out.append(chr(10)); i = end + 1; continue
+        if sql.startswith('/*', i):
+            end = sql.find('*/', i + 2)
+            if end < 0: break
+            out.append(' '); i = end + 2; continue
+        out.append(ch); i += 1
+    return ''.join(out)
 
+def _statements(sql: str) -> list[str]:
+    clean = _strip_sql_comments(sql); parts: list[str] = []; start = 0; i = 0; quote: str | None = None
+    while i < len(clean):
+        ch = clean[i]
+        if quote:
+            if ch == quote:
+                if i + 1 < len(clean) and clean[i + 1] == quote: i += 1
+                else: quote = None
+        elif ch in {chr(39), chr(34)}: quote = ch
+        elif ch == '[': quote = ']'
+        elif ch == ';':
+            if clean[start:i].strip(): parts.append(clean[start:i].strip())
+            start = i + 1
+        i += 1
+    if clean[start:].strip(): parts.append(clean[start:].strip())
+    return parts
 
 def _kind(statement: str) -> str | None:
-    normalized = re.sub(r"^\s+", "", statement).upper()
-    match = re.match(r"([A-Z]+)\b", normalized)
-    return match.group(1) if match else None
-
+    tokens = re.finditer(r'[A-Za-z_][A-Za-z_0-9]*|[()]', _strip_sql_comments(statement))
+    depth = 0; first: str | None = None
+    for match in tokens:
+        token = match.group(0).upper()
+        if token == '(': depth += 1; continue
+        if token == ')': depth = max(0, depth - 1); continue
+        if first is None:
+            first = token
+            if first != 'WITH': return first
+            continue
+        if depth == 0 and token in MUTATION_KINDS | {'SELECT', 'VALUES', 'BEGIN', 'START', 'COMMIT', 'ROLLBACK', 'END'}: return token
+    return first
 
 class _FunctionScanner(ast.NodeVisitor):
     def __init__(self, relative_path: str):
@@ -119,6 +164,10 @@ class _FunctionScanner(ast.NodeVisitor):
                     kind = _kind(statement)
                     if kind in {"BEGIN", "START"}:
                         self.current["transaction_start_count"] += 1
+                    elif kind == "COMMIT":
+                        self.current["commit_count"] += 1
+                    elif kind in {"ROLLBACK", "END"}:
+                        self.current["rollback_count"] += 1
                     elif kind in MUTATION_KINDS:
                         self.current["mutation_count"] += 1
                         if kind not in self.current["mutation_kinds"]:
