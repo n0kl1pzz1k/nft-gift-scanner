@@ -1,6 +1,6 @@
 """HASSLE NFT marketplace offers.
 
-Offer acceptance stays disabled until production escrow, verified TON/Stars settlement and NFT transfer are implemented. No simulated deals are created.
+Offer acceptance stays disabled until production escrow, verified TON/Stars settlement and NFT transfer are implemented. No deal is presented as completed before real settlement.
 """
 from __future__ import annotations
 
@@ -39,6 +39,7 @@ def _db():
 
 def init_marketplace_offers_db() -> None:
     with _db() as conn:
+        _migrate_legacy_marketplace_table_names(conn)
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS marketplace_offers (
             id TEXT PRIMARY KEY,
@@ -727,7 +728,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             FROM activity
             ORDER BY created_at DESC,
                      CASE WHEN type IN ('offer_received', 'offer_accepted', 'offer_declined', 'offer_withdrawn') THEN 0
-                          WHEN type = 'marketplace_deal_created' THEN 1 ELSE 2 END,
+                          ELSE 2 END,
                      id DESC
             LIMIT ? OFFSET ?
         """
