@@ -764,6 +764,40 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(offer_status, "pending")
         self.assertEqual(withdrawn_notifications, 0)
 
+    def test_order_creation_rolls_back_when_created_event_insert_fails(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        title = "Order creation rollback gift"
+
+        with marketplace._db() as conn:
+            conn.execute(
+                """CREATE TRIGGER fail_order_created_event
+                   BEFORE INSERT ON marketplace_order_events
+                   WHEN NEW.event_type = 'created'
+                   BEGIN SELECT RAISE(ABORT, 'injected order event failure'); END"""
+            )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.client.post(
+                "/api/marketplace/orders",
+                headers=owner_headers,
+                json={"kind": "listing", "title": title, "price": "2", "currency": "TON"},
+            )
+
+        with marketplace._db() as conn:
+            order_count = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_orders WHERE user_id = '101' AND title = ?",
+                (title,),
+            ).fetchone()[0]
+            event_count = conn.execute(
+                """SELECT COUNT(*) FROM marketplace_order_events
+                   WHERE order_id IN (
+                       SELECT id FROM marketplace_orders WHERE user_id = '101' AND title = ?
+                   ) AND event_type = 'created'""",
+                (title,),
+            ).fetchone()[0]
+        self.assertEqual(order_count, 0)
+        self.assertEqual(event_count, 0)
+
     def test_order_owner_can_edit_active_order_fields(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         created = self.client.post(
