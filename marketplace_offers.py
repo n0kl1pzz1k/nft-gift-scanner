@@ -631,10 +631,8 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                    WHERE f.sender_user_id = ? OR o.user_id = ?""",
                 (user_id, user_id, user_id, user_id),
             ).fetchone()
-            deals = conn.execute(
-                "SELECT COUNT(*) FROM marketplace_deals WHERE listing_owner_id = ? OR offer_sender_id = ?",
-                (user_id, user_id),
-            ).fetchone()[0]
+            # Deal totals remain zero until real escrow and delivery are enabled.
+            deals = 0
             unread = conn.execute(
                 "SELECT COUNT(*) FROM marketplace_notifications WHERE user_id = ? AND read_at IS NULL",
                 (user_id,),
@@ -724,21 +722,6 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                 JOIN marketplace_orders o ON o.id = r.order_id
                 WHERE o.user_id = ? OR r.actor_user_id = ?
 
-                UNION ALL
-
-                SELECT
-                    'deal-' || d.id AS id,
-                    'marketplace_deal_created' AS type,
-                    d.order_id AS order_id,
-                    o.title AS title,
-                    CASE WHEN d.listing_owner_id = ? THEN f.sender_name ELSE o.owner_name END AS actor_name,
-                    d.created_at AS created_at,
-                    d.agreed_amount AS amount,
-                    d.currency AS currency
-                FROM marketplace_deals d
-                JOIN marketplace_orders o ON o.id = d.order_id
-                JOIN marketplace_offers f ON f.id = d.offer_id
-                WHERE d.listing_owner_id = ? OR d.offer_sender_id = ?
             )
             SELECT id, type, order_id, title, actor_name, created_at, amount, currency
             FROM activity
@@ -748,7 +731,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                      id DESC
             LIMIT ? OFFSET ?
         """
-        params = (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, limit, offset)
+        params = (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, limit, offset)
         count_query = """
             WITH activity AS (
                 SELECT e.id FROM marketplace_order_events e JOIN marketplace_orders o ON o.id=e.order_id
@@ -760,15 +743,13 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                 UNION ALL
                 SELECT r.id FROM marketplace_order_revisions r JOIN marketplace_orders o ON o.id=r.order_id
                 WHERE o.user_id=? OR r.actor_user_id=?
-                UNION ALL
-                SELECT d.id FROM marketplace_deals d WHERE d.listing_owner_id=? OR d.offer_sender_id=?
             )
             SELECT COUNT(*) FROM activity
         """
         with _db() as conn:
             rows = conn.execute(query, params).fetchall()
             total = conn.execute(
-                count_query, (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id)
+                count_query, (user_id, user_id, user_id, user_id, user_id, user_id)
             ).fetchone()[0]
         return {
             "items": [{
