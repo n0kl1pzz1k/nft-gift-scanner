@@ -45,6 +45,22 @@ class DatabaseRestoreTests(unittest.TestCase):
         self.assertEqual(connection.execute("SELECT seq FROM sqlite_sequence WHERE name='users'").fetchone()[0], 3)
         connection.close()
 
+
+    def test_restore_inspection_detects_changed_row_content_with_same_row_count(self):
+        from db_restore import _inspect
+
+        connection = sqlite3.connect(":memory:")
+        connection.execute("CREATE TABLE sample (id INTEGER PRIMARY KEY, value TEXT NOT NULL)")
+        connection.execute("INSERT INTO sample VALUES (1, 'original')")
+        before = _inspect(connection)
+        connection.execute("UPDATE sample SET value = 'changed' WHERE id = 1")
+        after = _inspect(connection)
+        connection.close()
+
+        self.assertEqual(before["tables"], after["tables"])
+        self.assertEqual(before["schema_sha256"], after["schema_sha256"])
+        self.assertNotEqual(before["table_sha256"], after["table_sha256"])
+
     def test_restore_rejects_tampered_backup(self):
         with self.backup.open("ab") as stream:
             stream.write(b"tamper")
