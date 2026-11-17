@@ -15,7 +15,7 @@ HASSLE NFT is an independent Telegram Mini App marketplace focused on listings, 
 - `frontend/` - Svelte 5 Telegram Mini App.
 - `bot.py` - Telegram bot entry point and Mini App launcher.
 - `app.py`, `marketplace.py` - backend API and marketplace operations.
-- `offers.py` - real user-submitted offer endpoints. Acceptance stays disabled until real escrow and NFT transfer are implemented. No simulated settlement. Legacy demo-prefixed database tables are renamed in place at startup without copying or deleting marketplace records.
+- `marketplace_offers.py` - real user-submitted offer endpoints. Acceptance stays disabled until real escrow and NFT transfer are implemented. No simulated settlement. Legacy demo-prefixed database tables are renamed in place at startup without copying or deleting marketplace records.
 - `wrangler.toml` - Cloudflare Worker frontend deployment.
 - Railway hosts the backend API.
 
