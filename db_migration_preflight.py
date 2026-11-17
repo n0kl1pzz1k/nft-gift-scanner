@@ -14,7 +14,11 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from db_schema_audit import build_postgres_portability_report, build_schema_manifest
+from db_schema_audit import (
+    build_postgres_data_preflight,
+    build_postgres_portability_report,
+    build_schema_manifest,
+)
 from db_sql_compat_audit import audit_source_tree
 
 
@@ -114,6 +118,9 @@ def build_migration_preflight(
     exact_match = all((table_names_match, counts_match, hashes_match, sequences_match,
                        schema_match, source_healthy, backup_healthy))
     portability = build_postgres_portability_report(left["schema_manifest"])
+    source_boolean_profile = build_postgres_data_preflight(source, left["schema_manifest"])
+    backup_boolean_profile = build_postgres_data_preflight(backup, right["schema_manifest"])
+    boolean_profiles_match = source_boolean_profile["columns"] == backup_boolean_profile["columns"]
     runtime = audit_source_tree(repository_root)
     left.pop("schema_manifest")
     right.pop("schema_manifest")
@@ -134,6 +141,16 @@ def build_migration_preflight(
             "exact_match": exact_match,
         },
         "postgresql_schema_portability": portability,
+        "postgresql_boolean_data_preflight": {
+            "source": source_boolean_profile,
+            "backup": backup_boolean_profile,
+            "profiles_match": boolean_profiles_match,
+            "conversion_safe_in_both": (
+                source_boolean_profile["unsafe_column_count"] == 0
+                and backup_boolean_profile["unsafe_column_count"] == 0
+            ),
+            "scope_note": "Aggregate-only conditional BOOLEAN profile; this is not a full PostgreSQL data validation.",
+        },
         "postgresql_runtime_compatibility": runtime,
         "ready_for_shadow_migration": exact_match,
         "postgresql_cutover_allowed": False,
