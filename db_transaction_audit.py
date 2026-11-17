@@ -222,17 +222,17 @@ class _FunctionScanner(ast.NodeVisitor):
                     kind = _kind(statement)
                     if kind in {"BEGIN", "START"}:
                         self.current["transaction_start_count"] += 1
-                        mode = re.match(r"\s*(?:BEGIN|START\\s+TRANSACTION)(?:\\s+(IMMEDIATE|EXCLUSIVE|DEFERRED))?", statement, re.IGNORECASE)
+                        mode = re.match(r"\s*(?:BEGIN|START\s+TRANSACTION)(?:\s+(IMMEDIATE|EXCLUSIVE|DEFERRED))?", statement, re.IGNORECASE)
                         transaction_mode = (mode.group(1) or "DEFAULT").upper() if mode else "UNKNOWN"
                         if transaction_mode not in self.current["transaction_modes"]:
                             self.current["transaction_modes"].append(transaction_mode)
                         if self.connection_context_depth > 0:
                             self.current["transaction_starts_in_connection_context"] += 1
-                    elif re.match(r"\s*SAVEPOINT\\b", statement, re.IGNORECASE):
+                    elif re.match(r"\s*SAVEPOINT\b", statement, re.IGNORECASE):
                         self.current["savepoint_count"] += 1
-                    elif re.match(r"\s*RELEASE\\s+SAVEPOINT\\b", statement, re.IGNORECASE):
+                    elif re.match(r"\s*RELEASE\s+SAVEPOINT\b", statement, re.IGNORECASE):
                         self.current["release_savepoint_count"] += 1
-                    elif re.match(r"\s*ROLLBACK\\s+TO(?:\\s+SAVEPOINT)?\\b", statement, re.IGNORECASE):
+                    elif re.match(r"\s*ROLLBACK\s+TO(?:\s+SAVEPOINT)?\b", statement, re.IGNORECASE):
                         self.current["rollback_to_savepoint_count"] += 1
                     elif kind == "COMMIT":
                         self.current["commit_count"] += 1
