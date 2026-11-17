@@ -10,7 +10,7 @@
   };
 
   let { api, authToken, lang, onVerified }: Props = $props();
-  let tonConnect: TonConnectUIInstance | null = null;
+  let tonConnect = $state<TonConnectUIInstance | null>(null);
   let busy = $state(false);
   let address = $state('');
   let status = $state<'idle' | 'connected' | 'verified' | 'error'>('idle');
