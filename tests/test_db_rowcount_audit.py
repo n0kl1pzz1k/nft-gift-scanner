@@ -79,6 +79,24 @@ def cancel_order(conn, order_id):
         self.assertEqual(finding["comparison_operator"], "NotEq")
         self.assertEqual(finding["context"], "comparison")
 
+    def test_sql_attribution_does_not_leak_between_functions(self):
+        (self.root / "marketplace.py").write_text(
+            """
+def first(conn):
+    updated = conn.execute("UPDATE t SET v = 1")
+    return updated.rowcount
+def second(conn):
+    cursor = conn.execute("SELECT 1")
+    return cursor.rowcount
+""",
+            encoding="utf-8",
+        )
+        report = audit_rowcount_usage(self.root)
+        self.assertEqual(
+            [item["sql_operation"] for item in report["findings"]],
+            ["UPDATE", "SELECT"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
