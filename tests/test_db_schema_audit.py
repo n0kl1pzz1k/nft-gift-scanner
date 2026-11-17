@@ -432,3 +432,44 @@ def test_postgres_portability_report_preserves_composite_foreign_keys_and_unique
     assert report["ready_for_cutover"] is False
 
 
+
+def test_postgres_trigger_plan_classifies_atomic_side_effects_and_randomblob():
+    from db_schema_audit import build_postgres_portability_report
+
+    manifest = {
+        "engine": "sqlite",
+        "schema_sha256": "test",
+        "tables": [],
+        "objects": [
+            {
+                "type": "trigger",
+                "name": "trg_marketplace_offer_received",
+                "table": "marketplace_offers",
+                "sql": "CREATE TRIGGER trg_marketplace_offer_received AFTER INSERT ON marketplace_offers BEGIN INSERT INTO marketplace_notifications(id) VALUES ('nt-' || lower(hex(randomblob(8)))); END",
+            },
+            {
+                "type": "trigger",
+                "name": "trg_marketplace_deal_events_no_update",
+                "table": "marketplace_deal_events",
+                "sql": "CREATE TRIGGER trg_marketplace_deal_events_no_update BEFORE UPDATE ON marketplace_deal_events BEGIN SELECT RAISE(ABORT, 'immutable'); END",
+            },
+            {
+                "type": "trigger",
+                "name": "trg_marketplace_order_cancel_declines_offers",
+                "table": "marketplace_orders",
+                "sql": "CREATE TRIGGER trg_marketplace_order_cancel_declines_offers AFTER UPDATE OF status ON marketplace_orders BEGIN UPDATE marketplace_offers SET status='declined'; END",
+            },
+        ],
+    }
+    report = build_postgres_portability_report(manifest)
+    plans = {item["name"]: item for item in report["trigger_migration_plan"]}
+
+    assert plans["trg_marketplace_offer_received"]["category"] == "notification_side_effect"
+    assert plans["trg_marketplace_offer_received"]["uses_sqlite_randomblob"] is True
+    assert "gen_random_uuid()" in plans["trg_marketplace_offer_received"]["postgresql_strategy"]
+    assert plans["trg_marketplace_deal_events_no_update"]["category"] == "immutable_guard"
+    assert plans["trg_marketplace_order_cancel_declines_offers"]["category"] == "dependent_state_update"
+    assert report["sqlite_randomblob_trigger_count"] == 1
+    assert report["ready_for_cutover"] is False
+
+
