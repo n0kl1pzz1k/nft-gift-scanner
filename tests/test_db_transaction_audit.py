@@ -60,6 +60,19 @@ def script_migration(conn):
         self.assertNotIn("event_id", rendered)
         self.assertNotIn("CREATE TABLE sample", rendered)
 
+    def test_audit_scans_real_backend_sources_without_parse_errors(self):
+        repository_root = Path(__file__).resolve().parents[1]
+
+        report = audit_transaction_boundaries(repository_root)
+
+        self.assertEqual(
+            report["source_files"],
+            ["app.py", "marketplace.py", "marketplace_offers.py", "ton_connect.py"],
+        )
+        self.assertEqual(report["parse_errors"], [])
+        self.assertGreater(report["mutation_function_count"], 0)
+        self.assertFalse(report["ready_for_postgresql_runtime"])
+
     def test_audit_handles_missing_sources_and_reports_no_false_readiness(self):
         report = audit_transaction_boundaries(self.root)
 
