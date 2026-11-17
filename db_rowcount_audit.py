@@ -37,7 +37,35 @@ class _RowcountVisitor(ast.NodeVisitor):
     def __init__(self, relative: str):
         self.relative = relative
         self.function_stack: list[str] = []
+        self.sql_by_cursor: dict[str, str] = {}
         self.findings: list[dict[str, Any]] = []
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        previous = self.sql_by_cursor
+        self.sql_by_cursor = {}
+        self.function_stack.append(node.name)
+        self.generic_visit(node)
+        self.function_stack.pop()
+        self.sql_by_cursor = previous
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        previous = self.sql_by_cursor
+        self.sql_by_cursor = {}
+        self.function_stack.append(node.name)
+        self.generic_visit(node)
+        self.function_stack.pop()
+        self.sql_by_cursor = previous
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Attribute):
+            if node.value.func.attr in {"execute", "executemany"} and node.value.args:
+                sql_node = node.value.args[0]
+                if isinstance(sql_node, ast.Constant) and isinstance(sql_node.value, str):
+                    operation = sql_node.value.lstrip().split(None, 1)[0].upper() if sql_node.value.strip() else "UNKNOWN"
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            self.sql_by_cursor[target.id] = operation
+        self.generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self.function_stack.append(node.name)
@@ -56,6 +84,15 @@ class _RowcountVisitor(ast.NodeVisitor):
                 "line": node.lineno,
                 "function": self.function_stack[-1] if self.function_stack else "<module>",
                 "context": _rowcount_context(node),
+                "sql_operation": (
+                    self.sql_by_cursor.get(node.value.id, "unresolved")
+                    if isinstance(node.value, ast.Name) else "unresolved"
+                ),
+                "comparison_operator": (
+                    type(node.parent.ops[0]).__name__
+                    if isinstance(node.parent, ast.Compare) and len(node.parent.ops) == 1
+                    else None
+                ),
                 "severity": "review",
                 "remediation": (
                     "Confirm the selected database driver's rowcount semantics for this SQL "
