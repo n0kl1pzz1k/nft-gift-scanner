@@ -111,6 +111,23 @@ def two_writes_with_comment_text(conn):
         self.assertEqual(item["mutation_kinds"], ["INSERT", "DELETE"])
         self.assertTrue(item["multi_statement_mutation_without_explicit_begin"])
 
+    def test_connection_context_manager_is_counted_as_transaction_boundary(self):
+        (self.root / 'marketplace.py').write_text('''
+def managed_writes(conn):
+    with conn:
+        conn.execute("UPDATE listings SET status = 'sold'")
+        conn.execute("INSERT INTO events(id) VALUES ('x')")
+def managed_single_write(conn):
+    with conn:
+        conn.execute("INSERT INTO favorites(id) VALUES ('x')")
+''', encoding='utf-8')
+        report = audit_transaction_boundaries(self.root)
+        by_name = {item['function']: item for item in report['functions']}
+        self.assertEqual(by_name['managed_writes']['connection_context_count'], 1)
+        self.assertFalse(by_name['managed_writes']['multi_statement_mutation_without_explicit_begin'])
+        self.assertEqual(by_name['managed_single_write']['connection_context_count'], 1)
+        self.assertFalse(by_name['managed_single_write']['single_statement_autocommit_write'])
+
     def test_audit_handles_missing_sources_and_reports_no_false_readiness(self):
         report = audit_transaction_boundaries(self.root)
 
