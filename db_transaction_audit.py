@@ -136,28 +136,17 @@ class _FunctionScanner(ast.NodeVisitor):
         for child in node.body:
             self.visit(child)
         if record["mutation_count"] or record["transaction_start_count"] or record["executescript_count"]:
-            all_mutations_context_managed = (
-                record["mutation_count"] > 0
-                and record["connection_context_mutation_count"] == record["mutation_count"]
-            )
-            all_starts_context_managed = (
-                record["transaction_start_count"] > 0
-                and record["transaction_starts_in_connection_context"] == record["transaction_start_count"]
-            )
             record["multi_statement_mutation_without_explicit_begin"] = (
                 record["mutation_count"] > 1
                 and record["transaction_start_count"] == 0
-                and not all_mutations_context_managed
             )
             record["transaction_without_explicit_end"] = (
                 record["transaction_start_count"] > 0
                 and record["commit_count"] + record["rollback_count"] == 0
-                and not all_starts_context_managed
             )
             record["single_statement_autocommit_write"] = (
                 record["mutation_count"] == 1
                 and record["transaction_start_count"] == 0
-                and record["connection_context_mutation_count"] == 0
             )
             self.functions.append(record)
         self.current = previous
@@ -280,7 +269,8 @@ def audit_transaction_boundaries(root: str | Path) -> dict[str, Any]:
         "limitations": [
             "Static AST heuristic; dynamic SQL and SQL assembled in imported helpers may be missed.",
             "A function-level count does not prove control-flow atomicity or correct rollback behavior.",
-            "Single-statement autocommit writes are reported for review, not classified as unsafe.",
+            "A Python sqlite3.Connection context manager does not itself issue BEGIN; with isolation_level=None, writes remain autocommit unless explicit transaction SQL is used.",
+            "Single-statement writes without an explicit transaction are reported as autocommit candidates, including writes nested in connection context managers.",
             "SQLite triggers and transaction semantics require separate engine-specific analysis.",
         ],
     }
