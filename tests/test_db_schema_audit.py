@@ -383,3 +383,52 @@ def test_postgres_portability_report_exposes_check_expressions_without_rows():
     assert "one" not in json.dumps(report)
     assert report["ready_for_cutover"] is False
 
+
+def test_postgres_portability_report_preserves_composite_foreign_keys_and_unique_index_details():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE parent (
+            tenant_id TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            PRIMARY KEY (tenant_id, item_id)
+        );
+        CREATE TABLE child (
+            id TEXT PRIMARY KEY,
+            tenant_ref TEXT NOT NULL,
+            item_ref TEXT NOT NULL,
+            CONSTRAINT fk_parent_pair FOREIGN KEY (tenant_ref, item_ref)
+                REFERENCES parent (tenant_id, item_id)
+                ON UPDATE CASCADE ON DELETE RESTRICT
+        );
+        CREATE UNIQUE INDEX uq_child_pair ON child(tenant_ref, item_ref);
+        CREATE INDEX ix_child_item_desc ON child(item_ref DESC);
+        """
+    )
+    report = build_postgres_portability_report(build_schema_manifest(connection))
+    connection.close()
+
+    assert report["foreign_key_count"] == 1
+    assert report["foreign_keys"] == [{
+        "table": "child",
+        "id": 0,
+        "referenced_table": "parent",
+        "columns": [
+            {"from": "tenant_ref", "to": "tenant_id", "sequence": 0},
+            {"from": "item_ref", "to": "item_id", "sequence": 1},
+        ],
+        "on_update": "CASCADE",
+        "on_delete": "RESTRICT",
+        "match": "NONE",
+    }]
+    assert report["primary_keys"][0]["columns"] == [
+        {"column": "tenant_id", "position": 1},
+        {"column": "item_id", "position": 2},
+    ]
+    unique = next(index for index in report["unique_indexes"] if index["name"] == "uq_child_pair")
+    assert [column["name"] for column in unique["columns"] if column["key"]] == ["tenant_ref", "item_ref"]
+    ordinary = next(index for index in report["ordinary_indexes"] if index["name"] == "ix_child_item_desc")
+    assert ordinary["columns"][0]["descending"] is True
+    assert report["ready_for_cutover"] is False
+
+
