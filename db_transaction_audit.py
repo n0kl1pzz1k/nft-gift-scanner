@@ -15,7 +15,7 @@ from typing import Any
 
 SOURCE_FILES = ("app.py", "marketplace.py", "marketplace_offers.py", "ton_connect.py")
 MUTATION_KINDS = {"INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "ALTER", "DROP"}
-SQL_COMMENT_RE = re.compile(r"/\\*.*?\\*/|--[^\\n]*", re.DOTALL)
+SQL_COMMENT_RE = re.compile(r"/\*.*?\*/|--[^\n]*", re.DOTALL)
 
 
 def _literal_sql(node: ast.AST) -> tuple[str | None, bool]:
@@ -46,8 +46,8 @@ def _statements(sql: str) -> list[str]:
 
 
 def _kind(statement: str) -> str | None:
-    normalized = re.sub(r"^\\s+", "", statement).upper()
-    match = re.match(r"([A-Z]+)\\b", normalized)
+    normalized = re.sub(r"^\s+", "", statement).upper()
+    match = re.match(r"([A-Z]+)\b", normalized)
     return match.group(1) if match else None
 
 
@@ -183,7 +183,7 @@ def main() -> int:
     parser.add_argument("--output", help="Optional JSON output path")
     args = parser.parse_args()
     report = audit_transaction_boundaries(args.root)
-    rendered = json.dumps(report, ensure_ascii=False, indent=2) + "\\n"
+    rendered = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
     if args.output:
         Path(args.output).write_text(rendered, encoding="utf-8")
     else:
