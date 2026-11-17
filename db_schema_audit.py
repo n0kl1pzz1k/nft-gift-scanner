@@ -354,6 +354,46 @@ def _extract_check_constraints(table_ddl: str) -> list[str]:
     return expressions
 
 
+
+def _trigger_postgres_migration_plan(name: str, table: str, ddl: str) -> dict[str, Any]:
+    """Classify a SQLite trigger and describe its PostgreSQL rewrite requirements."""
+    normalized_name = name.lower()
+    normalized_sql = ddl.lower()
+    if "no_delete" in normalized_name or "no_update" in normalized_name:
+        category = "immutable_guard"
+        strategy = "PostgreSQL BEFORE trigger function that raises an exception; preserve both UPDATE and DELETE protections."
+        confidence = "high"
+    elif "offer_received" in normalized_name or "offer_status_notification" in normalized_name:
+        category = "notification_side_effect"
+        strategy = "PostgreSQL AFTER trigger function inserting the notification in the same transaction; replace randomblob IDs with gen_random_uuid() or an approved cryptographic ID generator."
+        confidence = "high"
+    elif "cancel_declines_offers" in normalized_name:
+        category = "dependent_state_update"
+        strategy = "PostgreSQL AFTER UPDATE trigger with a guarded UPDATE of pending offers; verify transition predicates and affected-row semantics."
+        confidence = "high"
+    elif "verified_assets_metadata_immutable" in normalized_name:
+        category = "conditional_immutability_guard"
+        strategy = "PostgreSQL BEFORE UPDATE trigger function comparing protected metadata and allowing only the explicitly approved ownership-transfer transition."
+        confidence = "high"
+    else:
+        category = "custom_trigger"
+        strategy = "Manual rewrite required; review source DDL and prove equivalent timing, predicates, side effects and rollback behavior."
+        confidence = "low"
+
+    uses_randomblob = "randomblob(" in normalized_sql
+    if uses_randomblob:
+        strategy += " SQLite randomblob() is unsupported; use PostgreSQL gen_random_uuid() or pgcrypto gen_random_bytes() with a tested text encoding."
+    return {
+        "name": name,
+        "table": table,
+        "category": category,
+        "postgresql_strategy": strategy,
+        "uses_sqlite_randomblob": uses_randomblob,
+        "review_confidence": confidence,
+        "source_ddl": ddl,
+    }
+
+
 def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any]:
     """Classify schema features that need explicit PostgreSQL migration work.
 
@@ -363,7 +403,11 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
     tables = manifest.get("tables", [])
     objects = manifest.get("objects", [])
     trigger_items = [
-        {"name": str(item.get("name", "")), "table": str(item.get("table", ""))}
+        _trigger_postgres_migration_plan(
+            str(item.get("name", "")),
+            str(item.get("table", "")),
+            str(item.get("sql") or ""),
+        )
         for item in objects
         if item.get("type") == "trigger"
     ]
@@ -479,7 +523,7 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
         blockers.append({
             "feature": "sqlite_triggers",
             "count": len(trigger_items),
-            "reason": "SQLite trigger bodies and functions must be reviewed and rewritten for PostgreSQL.",
+            "reason": "SQLite trigger bodies and functions must be rewritten and behaviorally verified for PostgreSQL.",
             "items": trigger_items,
         })
     if autoincrement_columns:
@@ -502,6 +546,8 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
         "unique_indexes": unique_indexes,
         "ordinary_indexes": ordinary_indexes,
         "trigger_count": len(trigger_items),
+        "trigger_migration_plan": trigger_items,
+        "sqlite_randomblob_trigger_count": sum(item["uses_sqlite_randomblob"] for item in trigger_items),
         "view_count": len(view_items),
         "partial_indexes": partial_indexes,
         "check_constraint_tables": check_constraints,
