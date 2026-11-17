@@ -635,7 +635,7 @@ async def start_services():
     # This records schema metadata and row counts only, never row contents.
     with marketplace._db() as connection:
         inventory = build_runtime_inventory(connection)
-    logging.getLogger("hassle_nft.database").info(
+    logging.getLogger("hassle_nft.database").warning(
         "sqlite_runtime_inventory=%s",
         json.dumps(inventory, ensure_ascii=False, sort_keys=True),
     )
