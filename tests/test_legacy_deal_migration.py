@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import demo_offers
+import marketplace_offers
 import marketplace
 
 
@@ -87,7 +87,7 @@ class LegacyDealMigrationTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_rebuild_preserves_legacy_rows_and_adds_default_status(self):
-        demo_offers.init_demo_offers_db()
+        marketplace_offers.init_marketplace_offers_db()
 
         with marketplace._db() as conn:
             deal = conn.execute(
@@ -127,7 +127,7 @@ class LegacyDealMigrationTests(unittest.TestCase):
             self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
 
         # Re-running initialization must remain safe and preserve both deals.
-        demo_offers.init_demo_offers_db()
+        marketplace_offers.init_marketplace_offers_db()
         with marketplace._db() as conn:
             self.assertEqual(
                 conn.execute("SELECT COUNT(*) FROM demo_deals").fetchone()[0],
