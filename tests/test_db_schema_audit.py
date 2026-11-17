@@ -262,3 +262,58 @@ def test_postgres_type_candidates_do_not_claim_json_or_numeric_text_conversion()
     assert candidates["gift_json"]["postgresql_type_candidate"] == "TEXT"
     assert "JSONB conversion requires separate validation" in candidates["gift_json"]["mapping_reason"]
     assert candidates["price"]["postgresql_type_candidate"] == "TEXT"
+
+
+def test_postgres_boolean_data_preflight_reports_aggregate_counts_only():
+    from db_schema_audit import build_postgres_data_preflight
+
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE telegram_users (
+            id INTEGER PRIMARY KEY,
+            is_premium INTEGER
+        );
+        INSERT INTO telegram_users VALUES (1, 0);
+        INSERT INTO telegram_users VALUES (2, 1);
+        INSERT INTO telegram_users VALUES (3, 2);
+        INSERT INTO telegram_users VALUES (4, NULL);
+        """
+    )
+    report = build_postgres_data_preflight(connection)
+    connection.close()
+
+    assert report["profiled_column_count"] == 1
+    assert report["unsafe_column_count"] == 1
+    assert report["columns"] == [{
+        "table": "telegram_users",
+        "column": "is_premium",
+        "total_rows": 4,
+        "invalid_value_count": 1,
+        "null_value_count": 1,
+        "boolean_conversion_safe": False,
+    }]
+    rendered = json.dumps(report, ensure_ascii=False)
+    assert '"2"' not in rendered
+    assert report["ready_for_cutover"] is False
+
+
+def test_postgres_boolean_data_preflight_accepts_only_zero_one_non_null_values():
+    from db_schema_audit import build_postgres_data_preflight
+
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE telegram_business_connections (
+            is_enabled INTEGER NOT NULL
+        );
+        INSERT INTO telegram_business_connections VALUES (0);
+        INSERT INTO telegram_business_connections VALUES (1);
+        """
+    )
+    report = build_postgres_data_preflight(connection)
+    connection.close()
+
+    assert report["safe_column_count"] == 1
+    assert report["unsafe_column_count"] == 0
+    assert report["columns"][0]["boolean_conversion_safe"] is True
