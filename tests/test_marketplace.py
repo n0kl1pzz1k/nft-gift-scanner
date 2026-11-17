@@ -635,6 +635,51 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(withdrawn.status_code, 200)
         self.assertEqual(withdrawn.json()["item"]["status"], "withdrawn")
 
+    def test_offer_decline_rolls_back_when_notification_insert_fails(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        sender_headers = {"X-Telegram-Init-Data": "user-b"}
+        order = self.client.post(
+            "/api/marketplace/orders",
+            headers=owner_headers,
+            json={"kind": "listing", "title": "Offer notification rollback", "price": "2", "currency": "TON"},
+        )
+        self.assertEqual(order.status_code, 201, order.text)
+        order_id = order.json()["item"]["id"]
+        offer = self.client.post(
+            "/api/marketplace/offers",
+            headers=sender_headers,
+            json={"order_id": order_id, "amount": "1.8"},
+        )
+        self.assertEqual(offer.status_code, 201, offer.text)
+        offer_id = offer.json()["item"]["id"]
+
+        with marketplace._db() as conn:
+            conn.execute(
+                """CREATE TRIGGER fail_direct_offer_decline_notification
+                   BEFORE INSERT ON marketplace_notifications
+                   WHEN NEW.event_type = 'offer_declined'
+                   BEGIN SELECT RAISE(ABORT, 'injected notification write failure'); END"""
+            )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.client.patch(
+                f"/api/marketplace/offers/{offer_id}",
+                headers=owner_headers,
+                json={"action": "decline"},
+            )
+
+        with marketplace._db() as conn:
+            offer_status = conn.execute(
+                "SELECT status FROM marketplace_offers WHERE id = ?", (offer_id,)
+            ).fetchone()["status"]
+            declined_notifications = conn.execute(
+                """SELECT COUNT(*) FROM marketplace_notifications
+                   WHERE offer_id = ? AND event_type = 'offer_declined'""",
+                (offer_id,),
+            ).fetchone()[0]
+        self.assertEqual(offer_status, "pending")
+        self.assertEqual(declined_notifications, 0)
+
     def test_order_owner_can_edit_active_order_fields(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         created = self.client.post(
