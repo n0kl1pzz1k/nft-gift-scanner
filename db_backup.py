@@ -102,6 +102,12 @@ def backup_database(source_path: str | Path, destination_path: str | Path) -> di
     if source == destination:
         raise ValueError("Backup destination must differ from the source database")
 
+    manifest_path = Path(str(destination) + ".manifest.json")
+    if destination.exists() or manifest_path.exists():
+        raise FileExistsError(
+            "Backup destination or manifest already exists; choose a new unique output path"
+        )
+
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary_name = tempfile.mkstemp(
         prefix=f".{destination.name}.", suffix=".sqlite3.tmp", dir=str(destination.parent)
@@ -154,7 +160,6 @@ def backup_database(source_path: str | Path, destination_path: str | Path) -> di
             "schema_objects": schema,
         }
 
-        manifest_path = Path(str(destination) + ".manifest.json")
         os.replace(temporary_backup, destination)
         _atomic_write_json(manifest_path, manifest)
         return manifest
