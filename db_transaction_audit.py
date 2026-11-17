@@ -121,6 +121,10 @@ class _FunctionScanner(ast.NodeVisitor):
             "mutation_count": 0,
             "mutation_kinds": [],
             "transaction_start_count": 0,
+            "transaction_modes": [],
+            "savepoint_count": 0,
+            "release_savepoint_count": 0,
+            "rollback_to_savepoint_count": 0,
             "commit_count": 0,
             "rollback_count": 0,
             "executescript_count": 0,
@@ -218,8 +222,18 @@ class _FunctionScanner(ast.NodeVisitor):
                     kind = _kind(statement)
                     if kind in {"BEGIN", "START"}:
                         self.current["transaction_start_count"] += 1
+                        mode = re.match(r"\\s*(?:BEGIN|START\\s+TRANSACTION)(?:\\s+(IMMEDIATE|EXCLUSIVE|DEFERRED))?", statement, re.IGNORECASE)
+                        transaction_mode = (mode.group(1) or "DEFAULT").upper() if mode else "UNKNOWN"
+                        if transaction_mode not in self.current["transaction_modes"]:
+                            self.current["transaction_modes"].append(transaction_mode)
                         if self.connection_context_depth > 0:
                             self.current["transaction_starts_in_connection_context"] += 1
+                    elif re.match(r"\\s*SAVEPOINT\\b", statement, re.IGNORECASE):
+                        self.current["savepoint_count"] += 1
+                    elif re.match(r"\\s*RELEASE\\s+SAVEPOINT\\b", statement, re.IGNORECASE):
+                        self.current["release_savepoint_count"] += 1
+                    elif re.match(r"\\s*ROLLBACK\\s+TO(?:\\s+SAVEPOINT)?\\b", statement, re.IGNORECASE):
+                        self.current["rollback_to_savepoint_count"] += 1
                     elif kind == "COMMIT":
                         self.current["commit_count"] += 1
                     elif kind in {"ROLLBACK", "END"}:
@@ -263,6 +277,12 @@ def audit_transaction_boundaries(root: str | Path) -> dict[str, Any]:
     open_transactions = [
         item for item in functions if item["transaction_without_explicit_end"]
     ]
+    immediate_transactions = [
+        item for item in functions if "IMMEDIATE" in item["transaction_modes"]
+    ]
+    savepoint_functions = [
+        item for item in functions if item["savepoint_count"] or item["rollback_to_savepoint_count"]
+    ]
     return {
         "format_version": 1,
         "source_files": scanned,
@@ -270,10 +290,14 @@ def audit_transaction_boundaries(root: str | Path) -> dict[str, Any]:
         "mutation_function_count": sum(item["mutation_count"] > 0 for item in functions),
         "multi_statement_mutation_without_explicit_begin_count": len(multi_without_begin),
         "transaction_without_explicit_end_count": len(open_transactions),
+        "begin_immediate_function_count": len(immediate_transactions),
+        "savepoint_function_count": len(savepoint_functions),
         "functions": functions,
         "review_items": {
             "multi_statement_mutation_without_explicit_begin": multi_without_begin,
             "transaction_without_explicit_end": open_transactions,
+            "begin_immediate": immediate_transactions,
+            "savepoints": savepoint_functions,
         },
         "parse_errors": parse_errors,
         "ready_for_postgresql_runtime": False,
@@ -281,6 +305,8 @@ def audit_transaction_boundaries(root: str | Path) -> dict[str, Any]:
             "Static AST heuristic; dynamic SQL and SQL assembled in imported helpers may be missed.",
             "A function-level count does not prove control-flow atomicity or correct rollback behavior.",
             "Single-statement autocommit writes are reported for review, not classified as unsafe.",
+            "BEGIN IMMEDIATE requests an early SQLite write reservation; PostgreSQL must use explicit row locking or conditional writes at the same invariant boundary.",
+            "Savepoint nesting and exception-path rollback behavior require runtime tests; statement counts cannot prove every branch is atomic.",
             "SQLite triggers and transaction semantics require separate engine-specific analysis.",
         ],
     }
