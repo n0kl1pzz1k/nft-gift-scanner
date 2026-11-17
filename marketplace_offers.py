@@ -736,7 +736,8 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
         count_query = """
             WITH activity AS (
                 SELECT e.id FROM marketplace_order_events e JOIN marketplace_orders o ON o.id=e.order_id
-                WHERE o.user_id=? OR e.actor_user_id=?
+                WHERE (o.user_id=? OR e.actor_user_id=?)
+                  AND e.event_type <> 'legacy_unverified'
                 UNION ALL
                 SELECT n.id FROM marketplace_notifications n WHERE n.user_id=?
                 UNION ALL
