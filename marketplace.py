@@ -111,9 +111,54 @@ def _db():
         conn.close()
 
 
+
+def _migrate_legacy_order_event_types(conn: sqlite3.Connection) -> None:
+    """Preserve old synthetic-fill history as non-public, unverified audit rows."""
+    table = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='marketplace_order_events'"
+    ).fetchone()
+    if table is None or "simulated_fill" not in (table["sql"] or ""):
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute("""
+            CREATE TABLE marketplace_order_events_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id TEXT NOT NULL,
+                actor_user_id TEXT NOT NULL,
+                event_type TEXT NOT NULL
+                    CHECK(event_type IN ('created', 'filled', 'cancelled', 'legacy_unverified')),
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY(order_id) REFERENCES marketplace_orders(id)
+            )
+        """)
+        conn.execute("""
+            INSERT INTO marketplace_order_events_new
+                (id, order_id, actor_user_id, event_type, created_at)
+            SELECT id, order_id, actor_user_id,
+                   CASE WHEN event_type='simulated_fill'
+                        THEN 'legacy_unverified' ELSE event_type END,
+                   created_at
+            FROM marketplace_order_events
+        """)
+        conn.execute("DROP TABLE marketplace_order_events")
+        conn.execute(
+            "ALTER TABLE marketplace_order_events_new RENAME TO marketplace_order_events"
+        )
+        conn.execute("""
+            CREATE INDEX idx_marketplace_order_events_order
+            ON marketplace_order_events(order_id, created_at DESC)
+        """)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def init_marketplace_db() -> None:
     with _db() as conn:
         _migrate_legacy_marketplace_table_names(conn)
+        _migrate_legacy_order_event_types(conn)
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA wal_autocheckpoint = 1000")
         conn.execute("PRAGMA optimize")
@@ -222,7 +267,7 @@ def init_marketplace_db() -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             order_id TEXT NOT NULL,
             actor_user_id TEXT NOT NULL,
-            event_type TEXT NOT NULL CHECK(event_type IN ('created', 'simulated_fill', 'cancelled')),
+            event_type TEXT NOT NULL CHECK(event_type IN ('created', 'filled', 'cancelled', 'legacy_unverified')),
             created_at INTEGER NOT NULL,
             FOREIGN KEY(order_id) REFERENCES marketplace_orders(id)
         );
@@ -1393,7 +1438,7 @@ def create_marketplace_router(
             order = conn.execute("SELECT * FROM marketplace_orders WHERE id = ?", (order_id,)).fetchone()
             if order is None:
                 conn.rollback()
-                raise HTTPException(status_code=404, detail="Demo order not found")
+                raise HTTPException(status_code=404, detail="Marketplace order not found")
             if order["user_id"] == reporter_id:
                 conn.rollback()
                 raise HTTPException(status_code=403, detail="You cannot report your own order")
