@@ -358,7 +358,7 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
             "Recreate and verify all foreign keys, unique constraints and CHECK constraints.",
             "Translate partial-index predicates and confirm their intended NULL/status behavior.",
             "Recreate views and validate their SQL against PostgreSQL.",
-            "Review every suggested PostgreSQL type against stored values and application semantics; suggestions are conservative and do not authorize cutover.",
+            "Review every suggested PostgreSQL type against stored values and application semantics; SQLite affinity is not a lossless type mapping, and suggestions do not authorize cutover.",
             "Audit application SQL, placeholders, row access, conflict handling and transaction boundaries separately.",
             "Verify sequence values after importing preserved primary keys.",
         ],
