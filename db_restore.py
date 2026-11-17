@@ -59,7 +59,7 @@ def restore_database(backup_path: str|Path, manifest_path: str|Path, destination
     try:
         source_report=_inspect(source)
         expected={"integrity_check":manifest.get("integrity_check"),"foreign_key_violations":manifest.get("foreign_key_violations"),"schema_sha256":manifest.get("schema_sha256"),"tables":manifest.get("tables"),"sequence_counters":manifest.get("sequence_counters",{})}
-        if source_report!=expected: raise RuntimeError("Backup contents do not match manifest metadata")
+        if any(source_report[key] != value for key, value in expected.items()): raise RuntimeError("Backup contents do not match manifest metadata")
         destination.parent.mkdir(parents=True,exist_ok=True)
         fd,temp_name=tempfile.mkstemp(prefix=f".{destination.name}.",suffix=".restore.tmp",dir=str(destination.parent)); os.close(fd)
         temporary=Path(temp_name); target=sqlite3.connect(str(temporary),timeout=30)
