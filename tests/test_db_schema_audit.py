@@ -72,15 +72,15 @@ def test_audit_opens_existing_database_read_only(tmp_path):
 
 def test_current_hassle_schema_inventory_covers_all_subsystems(tmp_path, monkeypatch):
     import marketplace
-    import demo_offers
+    import marketplace_offers
     import ton_connect
 
     database = tmp_path / "hassle.sqlite3"
     monkeypatch.setattr(marketplace, "DB_PATH", str(database))
-    monkeypatch.setattr(demo_offers, "DB_PATH", str(database))
+    monkeypatch.setattr(marketplace_offers, "DB_PATH", str(database))
 
     marketplace.init_marketplace_db()
-    demo_offers.init_demo_offers_db()
+    marketplace_offers.init_marketplace_offers_db()
     ton_connect.init_ton_connect_db()
 
     connection = sqlite3.connect(database)
@@ -91,19 +91,19 @@ def test_current_hassle_schema_inventory_covers_all_subsystems(tmp_path, monkeyp
     expected = {
         "telegram_users", "user_profiles", "telegram_sessions",
         "telegram_initdata_uses", "telegram_update_inbox", "user_favorites",
-        "demo_orders", "verified_assets", "demo_order_events",
-        "demo_order_revisions", "demo_order_reports", "asset_ownership_history",
+        "marketplace_orders", "verified_assets", "marketplace_order_events",
+        "marketplace_order_revisions", "marketplace_order_reports", "asset_ownership_history",
         "api_rate_limits", "app_settings", "telegram_business_connections",
-        "telegram_business_gift_refs", "demo_offers", "demo_deals",
-        "demo_deal_events", "demo_deal_lifecycle_events", "demo_notifications",
+        "telegram_business_gift_refs", "marketplace_offers", "marketplace_deals",
+        "marketplace_deal_events", "marketplace_deal_lifecycle_events", "marketplace_notifications",
         "ton_proof_challenges", "verified_wallets",
     }
     assert expected <= names
 
-    orders = next(table for table in manifest["tables"] if table["name"] == "demo_orders")
+    orders = next(table for table in manifest["tables"] if table["name"] == "marketplace_orders")
     assert {column["name"] for column in orders["columns"]} >= {"id", "asset_id", "asset_type"}
-    deals = next(table for table in manifest["tables"] if table["name"] == "demo_deals")
-    assert any(index["name"] == "idx_demo_deals_one_open_reservation" and index["partial"] for index in deals["indexes"])
+    deals = next(table for table in manifest["tables"] if table["name"] == "marketplace_deals")
+    assert any(index["name"] == "idx_marketplace_deals_one_open_reservation" and index["partial"] for index in deals["indexes"])
     assert manifest["schema_sha256"]
 
 
