@@ -4,8 +4,10 @@ import time
 import json
 import hmac
 import hashlib
+import logging
 
 import marketplace
+from db_schema_audit import build_runtime_inventory
 from urllib.parse import parse_qsl
 from pydantic import BaseModel
 
@@ -629,6 +631,14 @@ async def start_services():
     init_marketplace_db()
     init_marketplace_offers_db()
     init_ton_connect_db()
+    # Emit a privacy-safe inventory of the actual mounted SQLite database.
+    # This records schema metadata and row counts only, never row contents.
+    with marketplace._db() as connection:
+        inventory = build_runtime_inventory(connection)
+    logging.getLogger("hassle_nft.database").info(
+        "sqlite_runtime_inventory=%s",
+        json.dumps(inventory, ensure_ascii=False, sort_keys=True),
+    )
     token = os.getenv("BOT_TOKEN", "").strip()
     if token:
         try:
