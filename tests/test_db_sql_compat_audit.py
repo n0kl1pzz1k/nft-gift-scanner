@@ -16,7 +16,7 @@ def test_audit_finds_sqlite_runtime_assumptions_without_source_or_data_leaks(tmp
         "conn.execute('INSERT OR IGNORE INTO items(id) VALUES (?)', (item_id,))\n"
         "cursor = conn.execute('INSERT INTO items DEFAULT VALUES')\n"
         "new_id = cursor.lastrowid\n"
-        "conn.executescript('CREATE TRIGGER guard BEFORE INSERT ON x BEGIN SELECT RAISE(ABORT, \\"bad\\"); END')\n"
+        """conn.executescript("CREATE TRIGGER guard BEFORE INSERT ON x BEGIN SELECT RAISE(ABORT, 'bad'); END")\n"""
         "lower(hex(randomblob(8)))\n",
         encoding="utf-8",
     )
