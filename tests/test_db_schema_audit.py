@@ -338,3 +338,4 @@ def test_postgres_boolean_data_preflight_preserves_nullable_column_semantics():
     assert column["nullable"] is True
     assert column["null_value_count"] == 1
     assert column["boolean_conversion_safe"] is True
+
