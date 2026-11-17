@@ -1136,9 +1136,9 @@ class SharedMarketplaceTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            with patch.object(marketplace, "DB_PATH", database), patch.object(offers, "DB_PATH", database):
+            with patch.object(marketplace, "DB_PATH", database), patch.object(marketplace_offers, "DB_PATH", database):
                 marketplace.init_marketplace_db()
-                offers.init_offers_db()
+                marketplace_offers.init_marketplace_offers_db()
                 with marketplace._db() as migrated:
                     listing = migrated.execute(
                         "SELECT title FROM marketplace_orders WHERE id = ?",
