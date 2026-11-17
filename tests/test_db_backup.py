@@ -3,6 +3,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from db_backup import backup_database
@@ -128,6 +129,51 @@ class DatabaseBackupTests(unittest.TestCase):
             backup_database(self.source, self.destination)
         self.assertFalse(self.destination.exists())
         self.assertEqual(manifest_path.read_text(encoding="utf-8"), "keep-this-manifest")
+
+
+    def test_backup_does_not_clobber_destination_created_after_preflight(self):
+        self._create_source()
+
+        def create_racing_destination(source, destination):
+            Path(destination).write_bytes(b"created-by-another-process")
+            raise FileExistsError("destination appeared during publication")
+
+        with patch("db_backup.os.link", side_effect=create_racing_destination):
+            with self.assertRaises(FileExistsError):
+                backup_database(self.source, self.destination)
+
+        self.assertEqual(
+            self.destination.read_bytes(),
+            b"created-by-another-process",
+        )
+
+    def test_manifest_publication_does_not_clobber_racing_manifest(self):
+        self._create_source()
+        real_link = __import__("os").link
+        calls = 0
+        manifest_path = Path(str(self.destination) + ".manifest.json")
+
+        def create_racing_manifest(source, destination):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return real_link(source, destination)
+            Path(destination).write_text("created-by-another-process", encoding="utf-8")
+            raise FileExistsError("manifest appeared during publication")
+
+        with patch("db_backup.os.link", side_effect=create_racing_manifest):
+            with self.assertRaises(FileExistsError):
+                backup_database(self.source, self.destination)
+
+        self.assertEqual(
+            manifest_path.read_text(encoding="utf-8"),
+            "created-by-another-process",
+        )
+        snapshot = sqlite3.connect(self.destination)
+        try:
+            self.assertEqual(snapshot.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+        finally:
+            snapshot.close()
 
     def test_backup_rejects_overwriting_the_live_source(self):
         self._create_source()
