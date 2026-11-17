@@ -656,7 +656,6 @@ async def start_services():
                 allowed_updates=_telegram_dispatcher.resolve_used_update_types(),
             )
         except Exception:
-            import logging
             logging.exception("Could not configure Telegram webhook")
 
 
