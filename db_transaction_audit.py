@@ -100,6 +100,7 @@ class _FunctionScanner(ast.NodeVisitor):
         self.relative_path = relative_path
         self.current: dict[str, Any] | None = None
         self.functions: list[dict[str, Any]] = []
+        self.connection_context_depth = 0
 
     def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         previous = self.current
@@ -115,23 +116,42 @@ class _FunctionScanner(ast.NodeVisitor):
             "executescript_count": 0,
             "dynamic_sql_count": 0,
             "connection_context_count": 0,
+            "connection_context_mutation_count": 0,
+            "mutations_outside_connection_context": 0,
+            "transaction_starts_in_connection_context": 0,
         }
         self.current = record
+        previous_context_depth = self.connection_context_depth
+        self.connection_context_depth = 0
         for child in node.body:
             self.visit(child)
         if record["mutation_count"] or record["transaction_start_count"] or record["executescript_count"]:
+            all_mutations_context_managed = (
+                record["mutation_count"] > 0
+                and record["connection_context_mutation_count"] == record["mutation_count"]
+            )
+            all_starts_context_managed = (
+                record["transaction_start_count"] > 0
+                and record["transaction_starts_in_connection_context"] == record["transaction_start_count"]
+            )
             record["multi_statement_mutation_without_explicit_begin"] = (
-                record["mutation_count"] > 1 and record["transaction_start_count"] == 0 and record["connection_context_count"] == 0
+                record["mutation_count"] > 1
+                and record["transaction_start_count"] == 0
+                and not all_mutations_context_managed
             )
             record["transaction_without_explicit_end"] = (
                 record["transaction_start_count"] > 0
-                and record["commit_count"] + record["rollback_count"] + record["connection_context_count"] == 0
+                and record["commit_count"] + record["rollback_count"] == 0
+                and not all_starts_context_managed
             )
             record["single_statement_autocommit_write"] = (
-                record["mutation_count"] == 1 and record["transaction_start_count"] == 0 and record["connection_context_count"] == 0
+                record["mutation_count"] == 1
+                and record["transaction_start_count"] == 0
+                and record["connection_context_mutation_count"] == 0
             )
             self.functions.append(record)
         self.current = previous
+        self.connection_context_depth = previous_context_depth
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._visit_function(node)
@@ -140,17 +160,26 @@ class _FunctionScanner(ast.NodeVisitor):
         self._visit_function(node)
 
     def visit_With(self, node: ast.With) -> None:
+        recognized = False
         if self.current is not None:
             for item in node.items:
                 context = item.context_expr
                 if isinstance(context, ast.Name) and context.id.lower() in {'conn', 'connection', 'db', 'database'}:
-                    self.current['connection_context_count'] += 1
+                    recognized = True
                 elif isinstance(context, ast.Call):
                     function = context.func
                     function_name = function.id if isinstance(function, ast.Name) else function.attr if isinstance(function, ast.Attribute) else ''
                     if function_name.lower() == 'connect':
-                        self.current['connection_context_count'] += 1
-        self.generic_visit(node)
+                        recognized = True
+            if recognized:
+                self.current['connection_context_count'] += 1
+                self.connection_context_depth += 1
+        for statement in node.body:
+            self.visit(statement)
+        if recognized:
+            self.connection_context_depth -= 1
+        for item in node.items:
+            self.visit(item.context_expr)
 
     def visit_AsyncWith(self, node: ast.AsyncWith) -> None:
         self.visit_With(node)
@@ -179,12 +208,18 @@ class _FunctionScanner(ast.NodeVisitor):
                     kind = _kind(statement)
                     if kind in {"BEGIN", "START"}:
                         self.current["transaction_start_count"] += 1
+                        if self.connection_context_depth > 0:
+                            self.current["transaction_starts_in_connection_context"] += 1
                     elif kind == "COMMIT":
                         self.current["commit_count"] += 1
                     elif kind in {"ROLLBACK", "END"}:
                         self.current["rollback_count"] += 1
                     elif kind in MUTATION_KINDS:
                         self.current["mutation_count"] += 1
+                        if self.connection_context_depth > 0:
+                            self.current["connection_context_mutation_count"] += 1
+                        else:
+                            self.current["mutations_outside_connection_context"] += 1
                         if kind not in self.current["mutation_kinds"]:
                             self.current["mutation_kinds"].append(kind)
         self.generic_visit(node)
