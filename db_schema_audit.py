@@ -271,6 +271,89 @@ def _postgres_type_candidate(table_name: str, column: dict[str, Any], table_ddl:
     }
 
 
+
+def _extract_check_constraints(table_ddl: str) -> list[str]:
+    """Extract CHECK expressions from CREATE TABLE SQL without parsing literals.
+
+    Handles nested parentheses, quoted strings/identifiers, and SQL comments.
+    The returned expressions are source DDL fragments for migration review.
+    """
+    expressions: list[str] = []
+    index = 0
+    length = len(table_ddl)
+    while index < length:
+        char = table_ddl[index]
+        if char in ("'", '"', "`", "["):
+            closing = "]" if char == "[" else char
+            index += 1
+            while index < length:
+                if table_ddl[index] == closing:
+                    if closing in ("'", '"', "`") and index + 1 < length and table_ddl[index + 1] == closing:
+                        index += 2
+                        continue
+                    index += 1
+                    break
+                if closing == "'" and table_ddl[index] == "\\" and index + 1 < length:
+                    index += 2
+                else:
+                    index += 1
+            continue
+        if table_ddl.startswith("--", index):
+            newline = table_ddl.find("\n", index + 2)
+            index = length if newline < 0 else newline + 1
+            continue
+        if table_ddl.startswith("/*", index):
+            end_comment = table_ddl.find("*/", index + 2)
+            index = length if end_comment < 0 else end_comment + 2
+            continue
+        if table_ddl[index:index + 5].upper() == "CHECK":
+            before_ok = index == 0 or not (table_ddl[index - 1].isalnum() or table_ddl[index - 1] == "_")
+            after = index + 5
+            after_ok = after >= length or not (table_ddl[after].isalnum() or table_ddl[after] == "_")
+            if before_ok and after_ok:
+                cursor = after
+                while cursor < length and table_ddl[cursor].isspace():
+                    cursor += 1
+                if cursor < length and table_ddl[cursor] == "(":
+                    start = cursor + 1
+                    depth = 1
+                    cursor += 1
+                    quote: str | None = None
+                    while cursor < length and depth:
+                        current = table_ddl[cursor]
+                        if quote:
+                            closing = "]" if quote == "[" else quote
+                            if current == closing:
+                                if closing in ("'", '"', "`") and cursor + 1 < length and table_ddl[cursor + 1] == closing:
+                                    cursor += 2
+                                    continue
+                                quote = None
+                            elif quote == "'" and current == "\\" and cursor + 1 < length:
+                                cursor += 2
+                                continue
+                        elif current in ("'", '"', "`", "["):
+                            quote = current
+                        elif table_ddl.startswith("--", cursor):
+                            newline = table_ddl.find("\n", cursor + 2)
+                            cursor = length if newline < 0 else newline + 1
+                            continue
+                        elif table_ddl.startswith("/*", cursor):
+                            end_comment = table_ddl.find("*/", cursor + 2)
+                            cursor = length if end_comment < 0 else end_comment + 2
+                            continue
+                        elif current == "(":
+                            depth += 1
+                        elif current == ")":
+                            depth -= 1
+                        cursor += 1
+                    if depth == 0:
+                        expressions.append(table_ddl[start:cursor - 1].strip())
+                        index = cursor
+                        continue
+        index += 1
+    return expressions
+
+
 def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any]:
     """Classify schema features that need explicit PostgreSQL migration work.
 
@@ -292,6 +375,7 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
     autoincrement_columns: list[dict[str, str]] = []
     partial_indexes: list[dict[str, str]] = []
     check_constraints: list[dict[str, str]] = []
+    check_constraint_details: list[dict[str, Any]] = []
     column_type_affinities: list[dict[str, str]] = []
 
     for table in tables:
@@ -304,8 +388,15 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
                         "table": table_name,
                         "column": str(column.get("name", "")),
                     })
-        if "CHECK" in ddl.upper():
+        extracted_checks = _extract_check_constraints(ddl)
+        if extracted_checks:
             check_constraints.append({"table": table_name})
+            for ordinal, expression in enumerate(extracted_checks, start=1):
+                check_constraint_details.append({
+                    "table": table_name,
+                    "ordinal": ordinal,
+                    "expression": expression,
+                })
         for column in table.get("columns", []):
             declared_type = str(column.get("type", ""))
             mapping = _postgres_type_candidate(table_name, column, ddl)
@@ -351,6 +442,8 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
         "view_count": len(view_items),
         "partial_indexes": partial_indexes,
         "check_constraint_tables": check_constraints,
+        "check_constraint_count": len(check_constraint_details),
+        "check_constraints": check_constraint_details,
         "column_type_affinities": column_type_affinities,
         "type_mapping_review_count": len(column_type_affinities),
         "blockers": blockers,

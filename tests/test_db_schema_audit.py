@@ -339,3 +339,47 @@ def test_postgres_boolean_data_preflight_preserves_nullable_column_semantics():
     assert column["null_value_count"] == 1
     assert column["boolean_conversion_safe"] is True
 
+
+def test_extract_check_constraints_handles_nested_expressions_and_quoted_check_text():
+    from db_schema_audit import _extract_check_constraints
+
+    ddl = """
+        CREATE TABLE sample (
+            status TEXT CHECK (
+                status IN ('open', 'closed')
+                AND length(status) > 0
+                AND status <> 'literal CHECK (ignored)'
+            ),
+            amount INTEGER CONSTRAINT positive_amount CHECK ((amount >= 0) AND (amount <= 99)),
+            note TEXT DEFAULT 'CHECK(fake)'
+        )
+    """
+    assert _extract_check_constraints(ddl) == [
+        "status IN ('open', 'closed')\n                AND length(status) > 0\n                AND status <> 'literal CHECK (ignored)'",
+        "(amount >= 0) AND (amount <= 99)",
+    ]
+
+
+def test_postgres_portability_report_exposes_check_expressions_without_rows():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE guarded (
+            id TEXT PRIMARY KEY,
+            state TEXT NOT NULL CHECK(state IN ('pending', 'done')),
+            count INTEGER CHECK(count IS NULL OR (count >= 0 AND count <= 10))
+        );
+        INSERT INTO guarded VALUES ('one', 'pending', 2);
+        """
+    )
+    report = build_postgres_portability_report(build_schema_manifest(connection))
+    connection.close()
+
+    assert report["check_constraint_count"] == 2
+    assert report["check_constraints"] == [
+        {"table": "guarded", "ordinal": 1, "expression": "state IN ('pending', 'done')"},
+        {"table": "guarded", "ordinal": 2, "expression": "count IS NULL OR (count >= 0 AND count <= 10)"},
+    ]
+    assert "one" not in json.dumps(report)
+    assert report["ready_for_cutover"] is False
+
