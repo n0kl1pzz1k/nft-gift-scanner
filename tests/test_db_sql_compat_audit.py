@@ -20,7 +20,7 @@ def test_audit_finds_sqlite_runtime_assumptions_without_source_or_data_leaks(tmp
         "lower(hex(randomblob(8)))\n",
         encoding="utf-8",
     )
-    (tmp_path / "offers.py").write_text(
+    (tmp_path / "marketplace_offers.py").write_text(
         "conn.executescript('CREATE TABLE x(id INTEGER PRIMARY KEY AUTOINCREMENT)')\n"
         "SELECT rowid AS sequence FROM marketplace_deal_events\n",
         encoding="utf-8",
@@ -32,7 +32,7 @@ def test_audit_finds_sqlite_runtime_assumptions_without_source_or_data_leaks(tmp
 
     report = audit_source_tree(tmp_path)
 
-    assert report["source_files"] == ["app.py", "marketplace.py", "offers.py", "ton_connect.py"]
+    assert report["source_files"] == ["app.py", "marketplace.py", "marketplace_offers.py", "ton_connect.py"]
     assert report["ready_for_postgresql_runtime"] is False
     assert report["blocker_count"] >= 8
     features = {item["feature"] for item in report["findings"]}
