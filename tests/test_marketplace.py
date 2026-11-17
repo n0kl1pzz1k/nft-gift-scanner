@@ -1156,3 +1156,26 @@ class SharedMarketplaceTests(unittest.TestCase):
             self.assertEqual(event["event_type"], "legacy_unverified")
             self.assertIsNone(legacy_table)
             self.assertEqual(foreign_key_errors, [])
+
+
+    def test_legacy_unverified_events_are_excluded_from_activity_items_and_total(self):
+        headers = {"X-Telegram-Init-Data": "user-a"}
+        created = self.client.post(
+            "/api/marketplace/orders",
+            headers=headers,
+            json={"kind": "listing", "title": "Legacy activity count", "price": "2", "currency": "TON"},
+        )
+        self.assertEqual(created.status_code, 201)
+        order_id = created.json()["item"]["id"]
+        with marketplace._db() as conn:
+            conn.execute(
+                """INSERT INTO marketplace_order_events
+                   (order_id, actor_user_id, event_type, created_at)
+                   VALUES (?, ?, 'legacy_unverified', ?)""",
+                (order_id, "101", int(time.time()) + 1),
+            )
+        response = self.client.get("/api/marketplace/activity?limit=50", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["total"], len(payload["items"]))
+        self.assertNotIn("legacy_unverified", {item["type"] for item in payload["items"]})
