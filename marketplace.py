@@ -40,6 +40,64 @@ def _connect_database(database_path: str | Path) -> sqlite3.Connection:
     return conn
 
 
+
+_LEGACY_MARKETPLACE_TABLE_RENAMES = (
+    ("demo_orders", "marketplace_orders"),
+    ("demo_order_events", "marketplace_order_events"),
+    ("demo_order_revisions", "marketplace_order_revisions"),
+    ("demo_order_reports", "marketplace_order_reports"),
+    ("demo_offers", "marketplace_offers"),
+    ("demo_deals", "marketplace_deals"),
+    ("demo_deal_events", "marketplace_deal_events"),
+    ("demo_deal_lifecycle_events", "marketplace_deal_lifecycle_events"),
+    ("demo_notifications", "marketplace_notifications"),
+)
+_LEGACY_MARKETPLACE_INDEXES = (
+    "idx_demo_orders_status_created", "idx_demo_orders_user_created", "idx_demo_orders_asset",
+    "idx_demo_order_events_order", "idx_demo_order_revisions_order",
+    "idx_demo_order_reports_status_created", "idx_demo_offers_order",
+    "idx_demo_offers_sender", "idx_demo_offers_status",
+    "idx_demo_deal_events_deal_created", "idx_demo_deal_lifecycle_events_deal",
+    "idx_demo_notifications_user_created", "idx_demo_notifications_user_unread",
+    "idx_demo_deals_one_open_reservation",
+)
+_LEGACY_MARKETPLACE_TRIGGERS = (
+    "trg_demo_deal_events_no_update", "trg_demo_deal_events_no_delete",
+    "trg_demo_deal_lifecycle_events_no_update", "trg_demo_deal_lifecycle_events_no_delete",
+    "trg_demo_offer_received", "trg_demo_offer_status_notification",
+    "trg_demo_order_cancel_declines_offers",
+)
+
+
+def _migrate_legacy_marketplace_table_names(conn: sqlite3.Connection) -> None:
+    """Rename legacy demo-prefixed marketplace tables without copying or deleting rows.
+
+    SQLite updates foreign-key references during ALTER TABLE RENAME. If both names
+    exist, fail closed rather than guessing which table contains the authoritative
+    production records.
+    """
+    existing = {
+        row["name"] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    for legacy_name, canonical_name in _LEGACY_MARKETPLACE_TABLE_RENAMES:
+        if legacy_name in existing and canonical_name in existing:
+            raise RuntimeError(
+                f"Both legacy and canonical marketplace tables exist: {canonical_name}"
+            )
+        if legacy_name in existing:
+            conn.execute(
+                f'ALTER TABLE "{legacy_name}" RENAME TO "{canonical_name}"'
+            )
+            existing.remove(legacy_name)
+            existing.add(canonical_name)
+    for trigger_name in _LEGACY_MARKETPLACE_TRIGGERS:
+        conn.execute(f'DROP TRIGGER IF EXISTS "{trigger_name}"')
+    for index_name in _LEGACY_MARKETPLACE_INDEXES:
+        conn.execute(f'DROP INDEX IF EXISTS "{index_name}"')
+
+
 def _connect() -> sqlite3.Connection:
     return _connect_database(DB_PATH)
 
@@ -55,6 +113,7 @@ def _db():
 
 def init_marketplace_db() -> None:
     with _db() as conn:
+        _migrate_legacy_marketplace_table_names(conn)
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA wal_autocheckpoint = 1000")
         conn.execute("PRAGMA optimize")
@@ -117,7 +176,7 @@ def init_marketplace_db() -> None:
             PRIMARY KEY(telegram_id, gift_id)
         );
         CREATE INDEX IF NOT EXISTS idx_user_favorites_updated ON user_favorites(telegram_id, updated_at DESC);
-        CREATE TABLE IF NOT EXISTS demo_orders (
+        CREATE TABLE IF NOT EXISTS marketplace_orders (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
             owner_name TEXT NOT NULL,
@@ -130,10 +189,10 @@ def init_marketplace_db() -> None:
             updated_at INTEGER NOT NULL,
             note TEXT NOT NULL DEFAULT ''
         );
-        CREATE INDEX IF NOT EXISTS idx_demo_orders_status_created
-            ON demo_orders(status, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_demo_orders_user_created
-            ON demo_orders(user_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_marketplace_orders_status_created
+            ON marketplace_orders(status, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_marketplace_orders_user_created
+            ON marketplace_orders(user_id, created_at DESC);
         CREATE TABLE IF NOT EXISTS verified_assets (
             id TEXT PRIMARY KEY,
             source TEXT NOT NULL CHECK(source IN ('telegram_gift', 'ton_nft', 'telegram_username', 'anonymous_number')),
@@ -159,27 +218,27 @@ def init_marketplace_db() -> None:
         BEGIN
             SELECT RAISE(ABORT, 'verified asset metadata is immutable');
         END;
-        CREATE TABLE IF NOT EXISTS demo_order_events (
+        CREATE TABLE IF NOT EXISTS marketplace_order_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             order_id TEXT NOT NULL,
             actor_user_id TEXT NOT NULL,
             event_type TEXT NOT NULL CHECK(event_type IN ('created', 'simulated_fill', 'cancelled')),
             created_at INTEGER NOT NULL,
-            FOREIGN KEY(order_id) REFERENCES demo_orders(id)
+            FOREIGN KEY(order_id) REFERENCES marketplace_orders(id)
         );
-        CREATE INDEX IF NOT EXISTS idx_demo_order_events_order
-            ON demo_order_events(order_id, created_at DESC);
-        CREATE TABLE IF NOT EXISTS demo_order_revisions (
+        CREATE INDEX IF NOT EXISTS idx_marketplace_order_events_order
+            ON marketplace_order_events(order_id, created_at DESC);
+        CREATE TABLE IF NOT EXISTS marketplace_order_revisions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             order_id TEXT NOT NULL,
             actor_user_id TEXT NOT NULL,
             changed_fields TEXT NOT NULL DEFAULT '[]',
             created_at INTEGER NOT NULL,
-            FOREIGN KEY(order_id) REFERENCES demo_orders(id)
+            FOREIGN KEY(order_id) REFERENCES marketplace_orders(id)
         );
-        CREATE INDEX IF NOT EXISTS idx_demo_order_revisions_order
-            ON demo_order_revisions(order_id, created_at DESC);
-        CREATE TABLE IF NOT EXISTS demo_order_reports (
+        CREATE INDEX IF NOT EXISTS idx_marketplace_order_revisions_order
+            ON marketplace_order_revisions(order_id, created_at DESC);
+        CREATE TABLE IF NOT EXISTS marketplace_order_reports (
             id TEXT PRIMARY KEY,
             order_id TEXT NOT NULL,
             reporter_user_id TEXT NOT NULL,
@@ -191,10 +250,10 @@ def init_marketplace_db() -> None:
             resolved_at INTEGER,
             resolved_by TEXT,
             UNIQUE(order_id, reporter_user_id),
-            FOREIGN KEY(order_id) REFERENCES demo_orders(id)
+            FOREIGN KEY(order_id) REFERENCES marketplace_orders(id)
         );
-        CREATE INDEX IF NOT EXISTS idx_demo_order_reports_status_created
-            ON demo_order_reports(status, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_marketplace_order_reports_status_created
+            ON marketplace_order_reports(status, created_at DESC);
         CREATE TABLE IF NOT EXISTS api_rate_limits (
             user_id TEXT NOT NULL,
             action TEXT NOT NULL,
@@ -273,17 +332,17 @@ def init_marketplace_db() -> None:
         """)
         # Asset category is server-owned metadata. Older rows remain unknown instead
         # of guessing the category from a seller-editable title.
-        order_columns = {row["name"] for row in conn.execute("PRAGMA table_info(demo_orders)").fetchall()}
+        order_columns = {row["name"] for row in conn.execute("PRAGMA table_info(marketplace_orders)").fetchall()}
         if "asset_type" not in order_columns:
-            conn.execute("ALTER TABLE demo_orders ADD COLUMN asset_type TEXT CHECK(asset_type IS NULL OR asset_type IN ('gift', 'username', 'number'))")
+            conn.execute("ALTER TABLE marketplace_orders ADD COLUMN asset_type TEXT CHECK(asset_type IS NULL OR asset_type IN ('gift', 'username', 'number'))")
         if "asset_id" not in order_columns:
-            conn.execute("ALTER TABLE demo_orders ADD COLUMN asset_id TEXT")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_demo_orders_asset ON demo_orders(asset_id, status)")
+            conn.execute("ALTER TABLE marketplace_orders ADD COLUMN asset_id TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_marketplace_orders_asset ON marketplace_orders(asset_id, status)")
         # One-time cleanup of the explicitly identified test listing approved by the owner.
         # Match every identifying field so no other seller listing can be touched.
         conn.execute("BEGIN IMMEDIATE")
         test_rows = conn.execute(
-            """SELECT id FROM demo_orders
+            """SELECT id FROM marketplace_orders
                WHERE TRIM(title) = 'Plush Pepe #1'
                  AND LOWER(TRIM(owner_name)) = 'n0kl1pzz1k'
                  AND currency = 'TON'
@@ -291,10 +350,10 @@ def init_marketplace_db() -> None:
         ).fetchall()
         test_ids = [row["id"] for row in test_rows]
         for test_id in test_ids:
-            conn.execute("DELETE FROM demo_order_reports WHERE order_id = ?", (test_id,))
-            conn.execute("DELETE FROM demo_order_events WHERE order_id = ?", (test_id,))
-            conn.execute("DELETE FROM demo_order_revisions WHERE order_id = ?", (test_id,))
-            conn.execute("DELETE FROM demo_orders WHERE id = ?", (test_id,))
+            conn.execute("DELETE FROM marketplace_order_reports WHERE order_id = ?", (test_id,))
+            conn.execute("DELETE FROM marketplace_order_events WHERE order_id = ?", (test_id,))
+            conn.execute("DELETE FROM marketplace_order_revisions WHERE order_id = ?", (test_id,))
+            conn.execute("DELETE FROM marketplace_orders WHERE id = ?", (test_id,))
         conn.commit()
 
         # One-time deletion of the exact owner-approved test listing.
@@ -302,7 +361,7 @@ def init_marketplace_db() -> None:
         # unrelated production asset can be affected.
         conn.execute("BEGIN IMMEDIATE")
         stale_test = conn.execute(
-            """SELECT id FROM demo_orders
+            """SELECT id FROM marketplace_orders
                WHERE id = 'gr-9a3110edee11434a'
                  AND TRIM(title) = 'ndmd'
                  AND LOWER(TRIM(owner_name)) = 'n0kl1pzz1k'
@@ -312,10 +371,10 @@ def init_marketplace_db() -> None:
         ).fetchone()
         if stale_test is not None:
             stale_id = stale_test["id"]
-            conn.execute("DELETE FROM demo_order_reports WHERE order_id = ?", (stale_id,))
-            conn.execute("DELETE FROM demo_order_events WHERE order_id = ?", (stale_id,))
-            conn.execute("DELETE FROM demo_order_revisions WHERE order_id = ?", (stale_id,))
-            conn.execute("DELETE FROM demo_orders WHERE id = ?", (stale_id,))
+            conn.execute("DELETE FROM marketplace_order_reports WHERE order_id = ?", (stale_id,))
+            conn.execute("DELETE FROM marketplace_order_events WHERE order_id = ?", (stale_id,))
+            conn.execute("DELETE FROM marketplace_order_revisions WHERE order_id = ?", (stale_id,))
+            conn.execute("DELETE FROM marketplace_orders WHERE id = ?", (stale_id,))
         conn.commit()
 
 
@@ -809,29 +868,29 @@ def register_verified_asset(*, source: str, external_asset_id: str, owner_telegr
                 )
                 # A listing from the previous owner must never become visible again.
                 stale_listings = conn.execute(
-                    "SELECT id FROM demo_orders WHERE asset_id = ? AND status = 'active'",
+                    "SELECT id FROM marketplace_orders WHERE asset_id = ? AND status = 'active'",
                     (existing["id"],),
                 ).fetchall()
                 stale_listing_ids = [row["id"] for row in stale_listings]
                 for listing in stale_listings:
                     conn.execute(
-                        "UPDATE demo_orders SET status = 'cancelled', updated_at = ? WHERE id = ?",
+                        "UPDATE marketplace_orders SET status = 'cancelled', updated_at = ? WHERE id = ?",
                         (now, listing["id"]),
                     )
                     conn.execute(
-                        """INSERT INTO demo_order_events(order_id, actor_user_id, event_type, created_at)
+                        """INSERT INTO marketplace_order_events(order_id, actor_user_id, event_type, created_at)
                            VALUES (?, ?, 'cancelled', ?)""",
                         (listing["id"], owner_telegram_id, now),
                     )
                 if stale_listing_ids:
                     placeholders = ",".join("?" for _ in stale_listing_ids)
                     conn.execute(
-                        f"""UPDATE demo_offers SET status = 'declined', updated_at = ?
+                        f"""UPDATE marketplace_offers SET status = 'declined', updated_at = ?
                             WHERE order_id IN ({placeholders}) AND status IN ('pending', 'accepted')""",
                         (now, *stale_listing_ids),
                     )
                     conn.execute(
-                        f"""UPDATE demo_deals SET status = 'cancelled'
+                        f"""UPDATE marketplace_deals SET status = 'cancelled'
                             WHERE order_id IN ({placeholders})
                               AND status NOT IN ('cancelled', 'expired', 'completed')""",
                         tuple(stale_listing_ids),
@@ -1203,7 +1262,7 @@ def create_marketplace_router(
             rows = conn.execute(
                 """SELECT a.id, a.source, a.external_asset_id, a.title, a.asset_type,
                           a.image_url, a.verified_at,
-                          (SELECT o.id FROM demo_orders o
+                          (SELECT o.id FROM marketplace_orders o
                            WHERE o.asset_id = a.id AND o.status = 'active'
                            ORDER BY o.created_at DESC LIMIT 1) AS active_listing_id
                    FROM verified_assets a
@@ -1282,7 +1341,7 @@ def create_marketplace_router(
             row = conn.execute(
                 """SELECT p.profile_id, p.display_name, p.bio, p.created_at,
                           u.username,
-                          (SELECT COUNT(*) FROM demo_orders o
+                          (SELECT COUNT(*) FROM marketplace_orders o
                            JOIN verified_assets a ON a.id = o.asset_id
                              AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
                            WHERE o.user_id = p.telegram_id AND o.kind = 'listing'
@@ -1298,7 +1357,7 @@ def create_marketplace_router(
             listing_rows = conn.execute(
                 """SELECT o.id, o.title, o.price, o.currency, o.created_at, o.note,
                           a.image_url AS image_url, a.asset_type AS asset_type
-                   FROM demo_orders o
+                   FROM marketplace_orders o
                    JOIN user_profiles p ON p.telegram_id = o.user_id
                    JOIN verified_assets a ON a.id = o.asset_id
                      AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
@@ -1331,7 +1390,7 @@ def create_marketplace_router(
         now = int(time.time())
         with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            order = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (order_id,)).fetchone()
+            order = conn.execute("SELECT * FROM marketplace_orders WHERE id = ?", (order_id,)).fetchone()
             if order is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Demo order not found")
@@ -1342,14 +1401,14 @@ def create_marketplace_router(
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Only active orders can be reported")
             duplicate = conn.execute(
-                "SELECT 1 FROM demo_order_reports WHERE order_id = ? AND reporter_user_id = ?",
+                "SELECT 1 FROM marketplace_order_reports WHERE order_id = ? AND reporter_user_id = ?",
                 (order_id, reporter_id),
             ).fetchone()
             if duplicate:
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="You have already reported this order")
             report_count = conn.execute(
-                "SELECT COUNT(*) FROM demo_order_reports WHERE order_id = ? AND status = 'open'",
+                "SELECT COUNT(*) FROM marketplace_order_reports WHERE order_id = ? AND status = 'open'",
                 (order_id,),
             ).fetchone()[0]
             if report_count >= 25:
@@ -1358,7 +1417,7 @@ def create_marketplace_router(
             report_id = "rp-" + uuid.uuid4().hex[:16]
             reporter_name = (user.get("first_name") or user.get("username") or "Telegram user")[:64]
             conn.execute(
-                """INSERT INTO demo_order_reports
+                """INSERT INTO marketplace_order_reports
                    (id, order_id, reporter_user_id, reporter_name, reason, details, status, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, 'open', ?)""",
                 (report_id, order_id, reporter_id, reporter_name, payload.reason, payload.details, now),
@@ -1383,13 +1442,13 @@ def create_marketplace_router(
             values.append(status)
         with _db() as conn:
             total = conn.execute(
-                f"SELECT COUNT(*) FROM demo_order_reports r{where}", values,
+                f"SELECT COUNT(*) FROM marketplace_order_reports r{where}", values,
             ).fetchone()[0]
             rows = conn.execute(
                 f"""SELECT r.id, r.order_id, r.reporter_name, r.reason, r.details,
                            r.status, r.created_at, r.resolved_at, o.title AS order_title,
                            o.status AS order_status, o.owner_name AS order_owner
-                    FROM demo_order_reports r JOIN demo_orders o ON o.id = r.order_id
+                    FROM marketplace_order_reports r JOIN marketplace_orders o ON o.id = r.order_id
                     {where} ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?""",
                 (*values, limit, offset),
             ).fetchall()
@@ -1410,8 +1469,8 @@ def create_marketplace_router(
         with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             report = conn.execute(
-                """SELECT r.*, o.status AS order_status FROM demo_order_reports r
-                   JOIN demo_orders o ON o.id = r.order_id WHERE r.id = ?""",
+                """SELECT r.*, o.status AS order_status FROM marketplace_order_reports r
+                   JOIN marketplace_orders o ON o.id = r.order_id WHERE r.id = ?""",
                 (report_id,),
             ).fetchone()
             if report is None:
@@ -1425,18 +1484,18 @@ def create_marketplace_router(
                     conn.rollback()
                     raise HTTPException(status_code=409, detail="Only active orders can be removed")
                 conn.execute(
-                    "UPDATE demo_orders SET status='cancelled', updated_at=? WHERE id=? AND status='active'",
+                    "UPDATE marketplace_orders SET status='cancelled', updated_at=? WHERE id=? AND status='active'",
                     (now, report["order_id"]),
                 )
                 conn.execute(
-                    "INSERT INTO demo_order_events(order_id, actor_user_id, event_type, created_at) VALUES (?, ?, 'cancelled', ?)",
+                    "INSERT INTO marketplace_order_events(order_id, actor_user_id, event_type, created_at) VALUES (?, ?, 'cancelled', ?)",
                     (report["order_id"], admin_id, now),
                 )
                 new_status = "removed"
             else:
                 new_status = "dismissed"
             conn.execute(
-                "UPDATE demo_order_reports SET status=?, resolved_at=?, resolved_by=? WHERE id=? AND status='open'",
+                "UPDATE marketplace_order_reports SET status=?, resolved_at=?, resolved_by=? WHERE id=? AND status='open'",
                 (new_status, now, admin_id, report_id),
             )
             conn.commit()
@@ -1558,7 +1617,7 @@ def create_marketplace_router(
                 qualified_where += asset_filter
             rows = conn.execute(
                 f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url
-                    FROM demo_orders o
+                    FROM marketplace_orders o
                     LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
                     LEFT JOIN verified_assets a ON a.id = o.asset_id
                        AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
@@ -1572,7 +1631,7 @@ def create_marketplace_router(
             elif asset_filter:
                 count_where += asset_filter
             total = conn.execute(
-                f"""SELECT COUNT(*) FROM demo_orders o
+                f"""SELECT COUNT(*) FROM marketplace_orders o
                     LEFT JOIN verified_assets a ON a.id = o.asset_id
                        AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
                     {count_where}""", values,
@@ -1589,7 +1648,7 @@ def create_marketplace_router(
             verified_filter = "" if _test_unverified_assets_allowed() else " AND (o.kind != 'listing' OR a.id IS NOT NULL)"
             rows = conn.execute(
                 f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url
-                    FROM demo_orders o
+                    FROM marketplace_orders o
                     LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
                     LEFT JOIN verified_assets a ON a.id = o.asset_id
                        AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
@@ -1614,7 +1673,7 @@ def create_marketplace_router(
                     MIN(CASE WHEN status='active' AND kind='listing' AND currency='TON' THEN CAST(price AS REAL) END) AS floor_ton,
                     MIN(CASE WHEN status='active' AND kind='listing' AND currency='XTR' THEN CAST(price AS REAL) END) AS floor_stars,
                     COUNT(*) AS total_orders
-                FROM demo_orders
+                FROM marketplace_orders
             """).fetchone()
         return {key: (counts[key] or 0) for key in counts.keys()}
 
@@ -1720,24 +1779,24 @@ def create_marketplace_router(
                 asset_id = None
             if asset is not None:
                 already_listed = conn.execute(
-                    "SELECT 1 FROM demo_orders WHERE asset_id = ? AND status = 'active' LIMIT 1",
+                    "SELECT 1 FROM marketplace_orders WHERE asset_id = ? AND status = 'active' LIMIT 1",
                     (asset_id,),
                 ).fetchone()
                 if already_listed:
                     conn.rollback()
                     raise HTTPException(status_code=409, detail="This asset already has an active listing")
             conn.execute("""
-                INSERT INTO demo_orders
+                INSERT INTO marketplace_orders
                 (id, user_id, owner_name, kind, title, asset_id, asset_type, price, currency, status, created_at, updated_at, note)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
             """, (order_id, owner_id, owner, payload.kind, title, asset_id, asset_type,
                   format(payload.price, "f"), payload.currency, now, now, payload.note.strip()))
             conn.execute(
-                "INSERT INTO demo_order_events(order_id, actor_user_id, event_type, created_at) VALUES (?, ?, 'created', ?)",
+                "INSERT INTO marketplace_order_events(order_id, actor_user_id, event_type, created_at) VALUES (?, ?, 'created', ?)",
                 (order_id, str(user["id"]), now),
             )
             row = conn.execute(
-                """SELECT o.*, a.image_url AS asset_image_url FROM demo_orders o
+                """SELECT o.*, a.image_url AS asset_image_url FROM marketplace_orders o
                    LEFT JOIN verified_assets a ON a.id = o.asset_id
                    WHERE o.id = ?""", (order_id,),
             ).fetchone()
@@ -1769,7 +1828,7 @@ def create_marketplace_router(
         values.extend([now, order_id])
         with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (order_id,)).fetchone()
+            row = conn.execute("SELECT * FROM marketplace_orders WHERE id = ?", (order_id,)).fetchone()
             if row is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Order not found")
@@ -1783,12 +1842,12 @@ def create_marketplace_router(
                 conn.rollback()
                 raise HTTPException(status_code=422, detail="Asset metadata is immutable and comes from the verified Telegram gift")
             conn.execute(
-                f"UPDATE demo_orders SET {', '.join(assignments)} WHERE id = ? AND status = 'active'",
+                f"UPDATE marketplace_orders SET {', '.join(assignments)} WHERE id = ? AND status = 'active'",
                 values,
             )
-            updated = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (order_id,)).fetchone()
+            updated = conn.execute("SELECT * FROM marketplace_orders WHERE id = ?", (order_id,)).fetchone()
             conn.execute(
-                "INSERT INTO demo_order_revisions(order_id, actor_user_id, changed_fields, created_at) VALUES (?, ?, ?, ?)",
+                "INSERT INTO marketplace_order_revisions(order_id, actor_user_id, changed_fields, created_at) VALUES (?, ?, ?, ?)",
                 (order_id, actor_id, json.dumps(sorted(changes.keys()), separators=(",", ":")), now),
             )
             conn.commit()
@@ -1805,7 +1864,7 @@ def create_marketplace_router(
         now = int(time.time())
         with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (order_id,)).fetchone()
+            row = conn.execute("SELECT * FROM marketplace_orders WHERE id = ?", (order_id,)).fetchone()
             if row is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Order not found")
@@ -1813,17 +1872,17 @@ def create_marketplace_router(
                 conn.rollback()
                 raise HTTPException(status_code=403, detail="Only the author can cancel this order")
             updated = conn.execute(
-                "UPDATE demo_orders SET status='cancelled', updated_at=? WHERE id=? AND status='active'",
+                "UPDATE marketplace_orders SET status='cancelled', updated_at=? WHERE id=? AND status='active'",
                 (now, order_id),
             )
             if updated.rowcount != 1:
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="This order is no longer active")
             conn.execute(
-                "INSERT INTO demo_order_events(order_id, actor_user_id, event_type, created_at) VALUES (?, ?, 'cancelled', ?)",
+                "INSERT INTO marketplace_order_events(order_id, actor_user_id, event_type, created_at) VALUES (?, ?, 'cancelled', ?)",
                 (order_id, actor_id, now),
             )
-            row = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (order_id,)).fetchone()
+            row = conn.execute("SELECT * FROM marketplace_orders WHERE id = ?", (order_id,)).fetchone()
             conn.commit()
         return {"item": _order_dict(row, actor_id)}
 
@@ -1833,17 +1892,17 @@ def create_marketplace_router(
         user_id = str(user["id"])
         with _db() as conn:
             rows = conn.execute(
-                "SELECT * FROM demo_orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 200",
+                "SELECT * FROM marketplace_orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 200",
                 (user_id,),
             ).fetchall()
             result = []
             for row in rows:
                 events = conn.execute(
-                    "SELECT event_type, created_at FROM demo_order_events WHERE order_id = ? ORDER BY created_at ASC, id ASC",
+                    "SELECT event_type, created_at FROM marketplace_order_events WHERE order_id = ? ORDER BY created_at ASC, id ASC",
                     (row["id"],),
                 ).fetchall()
                 revisions = conn.execute(
-                    "SELECT created_at FROM demo_order_revisions WHERE order_id = ? ORDER BY created_at ASC, id ASC",
+                    "SELECT created_at FROM marketplace_order_revisions WHERE order_id = ? ORDER BY created_at ASC, id ASC",
                     (row["id"],),
                 ).fetchall()
                 item = _order_dict(row, user_id)
