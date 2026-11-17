@@ -121,7 +121,7 @@ def two_writes_with_comment_text(conn):
         self.assertEqual(item["mutation_kinds"], ["INSERT", "DELETE"])
         self.assertTrue(item["multi_statement_mutation_without_explicit_begin"])
 
-    def test_connection_context_manager_is_counted_as_transaction_boundary(self):
+    def test_connection_context_manager_is_not_mistaken_for_transaction(self):
         (self.root / 'marketplace.py').write_text('''
 def managed_writes(conn):
     with conn:
@@ -134,9 +134,9 @@ def managed_single_write(conn):
         report = audit_transaction_boundaries(self.root)
         by_name = {item['function']: item for item in report['functions']}
         self.assertEqual(by_name['managed_writes']['connection_context_count'], 1)
-        self.assertFalse(by_name['managed_writes']['multi_statement_mutation_without_explicit_begin'])
+        self.assertTrue(by_name['managed_writes']['multi_statement_mutation_without_explicit_begin'])
         self.assertEqual(by_name['managed_single_write']['connection_context_count'], 1)
-        self.assertFalse(by_name['managed_single_write']['single_statement_autocommit_write'])
+        self.assertTrue(by_name['managed_single_write']['single_statement_autocommit_write'])
 
     def test_writes_outside_connection_context_are_not_misclassified(self):
         (self.root / 'marketplace.py').write_text(''' 
@@ -158,7 +158,7 @@ def fully_managed(conn):
         managed = by_name['fully_managed']
         self.assertEqual(managed['connection_context_mutation_count'], 2)
         self.assertEqual(managed['mutations_outside_connection_context'], 0)
-        self.assertFalse(managed['multi_statement_mutation_without_explicit_begin'])
+        self.assertTrue(managed['multi_statement_mutation_without_explicit_begin'])
 
     def test_database_factory_context_manager_is_detected(self):
         (self.root / 'marketplace.py').write_text('''
@@ -177,6 +177,23 @@ def operation():
         self.assertEqual(item['connection_context_mutation_count'], 0)
         self.assertEqual(item['mutations_outside_connection_context'], 2)
         self.assertTrue(item['multi_statement_mutation_without_explicit_begin'])
+
+    def test_connection_context_does_not_create_transaction_for_autocommit_connection(self):
+        (self.root / "marketplace.py").write_text(
+            """
+def autocommit_connection(connect):
+    with connect() as conn:
+        conn.execute("UPDATE listings SET status = 'sold'")
+        conn.execute("INSERT INTO events(id) VALUES ('x')")
+""",
+            encoding="utf-8",
+        )
+        item = audit_transaction_boundaries(self.root)["functions"][0]
+        self.assertEqual(item["connection_context_count"], 1)
+        self.assertEqual(item["mutation_count"], 2)
+        self.assertTrue(item["multi_statement_mutation_without_explicit_begin"])
+        self.assertFalse(item["transaction_without_explicit_end"])
+
     def test_audit_handles_missing_sources_and_reports_no_false_readiness(self):
         report = audit_transaction_boundaries(self.root)
 
