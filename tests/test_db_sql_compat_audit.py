@@ -5,28 +5,28 @@ from db_sql_compat_audit import audit_source_tree
 
 def test_audit_finds_sqlite_runtime_assumptions_without_source_or_data_leaks(tmp_path):
     (tmp_path / "app.py").write_text(
-        "SELECT name FROM sqlite_master WHERE type = 'table'\\n"
-        "PRAGMA table_info(verified_wallets)\\n",
+        "SELECT name FROM sqlite_master WHERE type = 'table'\n"
+        "PRAGMA table_info(verified_wallets)\n",
         encoding="utf-8",
     )
     (tmp_path / "marketplace.py").write_text(
-        "conn = sqlite3.connect(path)\\n"
-        "conn.execute('BEGIN IMMEDIATE')\\n"
-        "conn.execute('PRAGMA foreign_keys = ON')\\n"
-        "conn.execute('INSERT OR IGNORE INTO items(id) VALUES (?)', (item_id,))\\n"
-        "cursor = conn.execute('INSERT INTO items DEFAULT VALUES')\\n"
-        "new_id = cursor.lastrowid\\n"
-        """conn.executescript("CREATE TRIGGER guard BEFORE INSERT ON x BEGIN SELECT RAISE(ABORT, 'bad'); END")\\n"""
-        "lower(hex(randomblob(8)))\\n",
+        "conn = sqlite3.connect(path)\n"
+        "conn.execute('BEGIN IMMEDIATE')\n"
+        "conn.execute('PRAGMA foreign_keys = ON')\n"
+        "conn.execute('INSERT OR IGNORE INTO items(id) VALUES (?)', (item_id,))\n"
+        "cursor = conn.execute('INSERT INTO items DEFAULT VALUES')\n"
+        "new_id = cursor.lastrowid\n"
+        """conn.executescript("CREATE TRIGGER guard BEFORE INSERT ON x BEGIN SELECT RAISE(ABORT, 'bad'); END")\n"""
+        "lower(hex(randomblob(8)))\n",
         encoding="utf-8",
     )
     (tmp_path / "marketplace_offers.py").write_text(
-        "conn.executescript('CREATE TABLE x(id INTEGER PRIMARY KEY AUTOINCREMENT)')\\n"
-        "SELECT rowid AS sequence FROM marketplace_deal_events\\n",
+        "conn.executescript('CREATE TABLE x(id INTEGER PRIMARY KEY AUTOINCREMENT)')\n"
+        "SELECT rowid AS sequence FROM marketplace_deal_events\n",
         encoding="utf-8",
     )
     (tmp_path / "ton_connect.py").write_text(
-        "conn.row_factory = sqlite3.Row\\n",
+        "conn.row_factory = sqlite3.Row\n",
         encoding="utf-8",
     )
 
@@ -60,16 +60,16 @@ def test_audit_finds_sqlite_runtime_assumptions_without_source_or_data_leaks(tmp
 
 def test_audit_handles_multiline_sql_and_ignores_python_comments(tmp_path):
     (tmp_path / "marketplace.py").write_text(
-        "# sqlite3.connect(comment_only)\\n"
-        "connection = sqlite3\\n"
-        "    .connect(\\n"
-        "        database_path\\n"
-        "    )\\n"
-        "query = \\\"\\\"\\\"INSERT\\n"
-        "    OR IGNORE INTO verified_wallets(address)\\n"
-        "    VALUES (?)\\n"
-        "\\\"\\\"\\\"\\n"
-        "connection.execute(query)\\n",
+        "# sqlite3.connect(comment_only)\n"
+        "connection = sqlite3\n"
+        "    .connect(\n"
+        "        database_path\n"
+        "    )\n"
+        'query = """INSERT\n'
+        "    OR IGNORE INTO verified_wallets(address)\n"
+        "    VALUES (?)\n"
+        '"""\n'
+        "connection.execute(query)\n",
         encoding="utf-8",
     )
 
