@@ -600,6 +600,45 @@ class SharedMarketplaceTests(unittest.TestCase):
         order = self.client.get("/api/marketplace/orders?status=active")
         self.assertTrue(any(item["id"] == order_id for item in order.json()["items"]))
 
+    def test_offer_creation_rolls_back_when_received_notification_insert_fails(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        sender_headers = {"X-Telegram-Init-Data": "user-b"}
+        order = self.client.post(
+            "/api/marketplace/orders",
+            headers=owner_headers,
+            json={"kind": "listing", "title": "Offer creation rollback", "price": "2", "currency": "TON"},
+        )
+        self.assertEqual(order.status_code, 201, order.text)
+        order_id = order.json()["item"]["id"]
+
+        with marketplace._db() as conn:
+            conn.execute(
+                """CREATE TRIGGER fail_offer_received_notification
+                   BEFORE INSERT ON marketplace_notifications
+                   WHEN NEW.event_type = 'offer_received'
+                   BEGIN SELECT RAISE(ABORT, 'injected offer notification failure'); END"""
+            )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.client.post(
+                "/api/marketplace/offers",
+                headers=sender_headers,
+                json={"order_id": order_id, "amount": "1.8"},
+            )
+
+        with marketplace._db() as conn:
+            offer_count = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_offers WHERE order_id = ?",
+                (order_id,),
+            ).fetchone()[0]
+            notification_count = conn.execute(
+                """SELECT COUNT(*) FROM marketplace_notifications
+                   WHERE order_id = ? AND event_type = 'offer_received'""",
+                (order_id,),
+            ).fetchone()[0]
+        self.assertEqual(offer_count, 0)
+        self.assertEqual(notification_count, 0)
+
     def test_offer_permissions_and_withdrawal_are_enforced(self):
         created = self.client.post(
             "/api/marketplace/orders",
