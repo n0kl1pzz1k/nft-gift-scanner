@@ -835,7 +835,16 @@ def release_telegram_update(update_id: int) -> None:
 
 
 def _test_unverified_assets_allowed() -> bool:
-    """Explicit compatibility switch used only by legacy automated tests."""
+    """Allow legacy unverified fixtures only in an explicitly isolated test runtime.
+
+    A stray HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS setting must never open listing
+    creation in production. Railway's production environment is an unconditional
+    deny, even if APP_ENV is accidentally set to "test".
+    """
+    app_env = os.getenv("APP_ENV", "").strip().lower()
+    railway_env = os.getenv("RAILWAY_ENVIRONMENT_NAME", "").strip().lower()
+    if app_env not in {"test", "testing"} or railway_env == "production":
+        return False
     return os.getenv("HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS", "false").strip().lower() == "true"
 
 
