@@ -67,16 +67,6 @@ class _RowcountVisitor(ast.NodeVisitor):
                             self.sql_by_cursor[target.id] = operation
         self.generic_visit(node)
 
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        self.function_stack.append(node.name)
-        self.generic_visit(node)
-        self.function_stack.pop()
-
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        self.function_stack.append(node.name)
-        self.generic_visit(node)
-        self.function_stack.pop()
-
     def visit_Attribute(self, node: ast.Attribute) -> None:
         if node.attr == "rowcount":
             self.findings.append({
