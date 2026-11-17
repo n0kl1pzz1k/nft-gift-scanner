@@ -182,3 +182,36 @@ def test_runtime_inventory_reports_counts_and_schema_without_row_values():
     assert "ANOTHER_PRIVATE_VALUE" not in rendered
     assert "DO_NOT_EXPORT_THIS" not in rendered
 
+def test_postgres_portability_report_classifies_declared_sqlite_type_affinities():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        """
+        CREATE TABLE affinity_samples (
+            integer_value INTEGER,
+            text_value VARCHAR(255),
+            blob_value BLOB,
+            real_value DOUBLE PRECISION,
+            numeric_value DECIMAL(12, 4),
+            no_type
+        )
+        """
+    )
+
+    report = build_postgres_portability_report(build_schema_manifest(connection))
+    connection.close()
+
+    affinities = {
+        item["column"]: item["sqlite_affinity"]
+        for item in report["column_type_affinities"]
+    }
+    assert affinities == {
+        "integer_value": "INTEGER",
+        "text_value": "TEXT",
+        "blob_value": "BLOB",
+        "real_value": "REAL",
+        "numeric_value": "NUMERIC",
+        "no_type": "BLOB",
+    }
+    assert report["type_mapping_review_count"] == 6
+    assert any("affinity is not a lossless type mapping" in item for item in report["review_items"])
+
