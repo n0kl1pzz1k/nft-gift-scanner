@@ -11,35 +11,37 @@ import re
 from pathlib import Path
 from typing import Any
 
-SOURCE_FILES = ("marketplace.py", "demo_offers.py", "ton_connect.py")
+SOURCE_FILES = ("app.py", "marketplace.py", "demo_offers.py", "ton_connect.py")
 RULES = (
-    ("sqlite_connection_factory", re.compile(r"\bsqlite3\.connect\s*\("), "blocker",
+    ("sqlite_connection_factory", re.compile(r"\\bsqlite3\\.connect\\s*\\("), "blocker",
      "Replace direct SQLite connection factories with an explicit backend connection boundary."),
-    ("sqlite_transaction_lock", re.compile(r"BEGIN\s+IMMEDIATE", re.IGNORECASE), "blocker",
+    ("sqlite_transaction_lock", re.compile(r"BEGIN\\s+IMMEDIATE", re.IGNORECASE), "blocker",
      "PostgreSQL has no BEGIN IMMEDIATE; redesign locking and isolation explicitly."),
-    ("sqlite_pragma", re.compile(r"\bPRAGMA\s+", re.IGNORECASE), "blocker",
+    ("sqlite_pragma", re.compile(r"\\bPRAGMA\\s+", re.IGNORECASE), "blocker",
      "PRAGMA is SQLite-specific; replace with engine-specific connection setup or metadata queries."),
-    ("sqlite_script_execution", re.compile(r"\.executescript\s*\(", re.IGNORECASE), "blocker",
+    ("sqlite_master_catalog", re.compile(r"\\bsqlite_master\\b", re.IGNORECASE), "blocker",
+     "SQLite catalog queries must be replaced with PostgreSQL information_schema or pg_catalog queries."),
+    ("sqlite_script_execution", re.compile(r"\\.executescript\\s*\\(", re.IGNORECASE), "blocker",
      "executescript transaction behavior must be replaced with explicit, portable migrations."),
-    ("sqlite_trigger_abort", re.compile(r"\bRAISE\s*\(\s*ABORT\b", re.IGNORECASE), "blocker",
+    ("sqlite_trigger_abort", re.compile(r"\\bRAISE\\s*\\(\\s*ABORT\\b", re.IGNORECASE), "blocker",
      "SQLite trigger RAISE(ABORT) bodies require PostgreSQL trigger functions and exception semantics."),
-    ("sqlite_randomblob_id", re.compile(r"\b(?:lower\s*\(\s*)?hex\s*\(\s*randomblob\s*\(", re.IGNORECASE), "blocker",
+    ("sqlite_randomblob_id", re.compile(r"\\b(?:lower\\s*\\(\\s*)?hex\\s*\\(\\s*randomblob\\s*\\(", re.IGNORECASE), "blocker",
      "SQLite randomblob()/hex() ID generation needs a PostgreSQL-compatible UUID or cryptographic ID strategy."),
-    ("sqlite_insert_or_ignore", re.compile(r"INSERT\s+OR\s+IGNORE", re.IGNORECASE), "review",
+    ("sqlite_insert_or_ignore", re.compile(r"INSERT\\s+OR\\s+IGNORE", re.IGNORECASE), "review",
      "Translate conflict targets and ignored-constraint semantics deliberately."),
-    ("sqlite_insert_or_replace", re.compile(r"INSERT\s+OR\s+REPLACE", re.IGNORECASE), "blocker",
+    ("sqlite_insert_or_replace", re.compile(r"INSERT\\s+OR\\s+REPLACE", re.IGNORECASE), "blocker",
      "SQLite REPLACE may delete then insert; PostgreSQL needs an explicit conflict-update policy."),
-    ("sqlite_autoincrement", re.compile(r"INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT", re.IGNORECASE), "review",
+    ("sqlite_autoincrement", re.compile(r"INTEGER\\s+PRIMARY\\s+KEY\\s+AUTOINCREMENT", re.IGNORECASE), "review",
      "Map generated identifiers and sequence preservation explicitly."),
-    ("sqlite_row_factory", re.compile(r"row_factory\s*=\s*sqlite3\.Row", re.IGNORECASE), "review",
+    ("sqlite_row_factory", re.compile(r"row_factory\\s*=\\s*sqlite3\\.Row", re.IGNORECASE), "review",
      "Preserve mapping-style row access in the PostgreSQL adapter."),
-    ("sqlite_qmark_parameters", re.compile(r"(?<!\?)\?(?!\?)"), "review",
+    ("sqlite_qmark_parameters", re.compile(r"(?<!\\?)\\?(?!\\?)"), "review",
      "Question-mark bind parameters need a safe driver-aware translation layer."),
-    ("sqlite_integrity_error", re.compile(r"sqlite3\.IntegrityError"), "review",
+    ("sqlite_integrity_error", re.compile(r"sqlite3\\.IntegrityError"), "review",
      "Map driver-specific integrity exceptions to domain-level errors."),
-    ("sqlite_lastrowid", re.compile(r"\.lastrowid\b"), "review",
+    ("sqlite_lastrowid", re.compile(r"\\.lastrowid\\b"), "review",
      "Use INSERT ... RETURNING for PostgreSQL-generated identifiers."),
-    ("sqlite_rowid", re.compile(r"\browid\b", re.IGNORECASE), "blocker",
+    ("sqlite_rowid", re.compile(r"\\browid\\b", re.IGNORECASE), "blocker",
      "SQLite rowid pseudocolumns do not exist in PostgreSQL; add an explicit stable sequence column."),
 )
 
@@ -88,7 +90,7 @@ def main() -> int:
     parser.add_argument("--output", help="Optional JSON output path")
     args = parser.parse_args()
     report = audit_source_tree(args.root)
-    rendered = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
+    rendered = json.dumps(report, indent=2, ensure_ascii=False) + "\\n"
     if args.output:
         Path(args.output).write_text(rendered, encoding="utf-8")
     else:
