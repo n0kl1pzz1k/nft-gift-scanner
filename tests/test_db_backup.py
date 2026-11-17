@@ -63,6 +63,35 @@ class DatabaseBackupTests(unittest.TestCase):
         self.assertEqual(snapshot.execute("PRAGMA foreign_key_check").fetchall(), [])
         snapshot.close()
 
+    def test_manifest_preserves_autoincrement_high_water_marks(self):
+        connection = sqlite3.connect(self.source)
+        connection.execute(
+            "CREATE TABLE audit_events (id INTEGER PRIMARY KEY AUTOINCREMENT, event TEXT NOT NULL)"
+        )
+        connection.execute("INSERT INTO audit_events(event) VALUES ('created')")
+        connection.execute("INSERT INTO audit_events(event) VALUES ('deleted later')")
+        connection.execute("DELETE FROM audit_events WHERE id = 2")
+        connection.commit()
+        connection.close()
+
+        manifest = backup_database(self.source, self.destination)
+
+        self.assertEqual(manifest["sequence_counters"], {"audit_events": 2})
+        snapshot = sqlite3.connect(self.destination)
+        try:
+            self.assertEqual(
+                snapshot.execute("SELECT COALESCE(MAX(id), 0) FROM audit_events").fetchone()[0],
+                1,
+            )
+            self.assertEqual(
+                snapshot.execute(
+                    "SELECT seq FROM sqlite_sequence WHERE name = 'audit_events'"
+                ).fetchone()[0],
+                2,
+            )
+        finally:
+            snapshot.close()
+
     def test_backup_rejects_source_with_foreign_key_violations(self):
         connection = sqlite3.connect(self.source)
         connection.executescript(
