@@ -1103,7 +1103,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/marketplace/deals", headers=headers_b).json()["items"], [])
 
 
-    def test_legacy_demo_table_names_migrate_without_losing_listing_or_event_rows(self):
+    def test_legacy_table_names_migrate_without_losing_listing_or_event_rows(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             database = os.path.join(temp_dir, "legacy.sqlite3")
             conn = sqlite3.connect(database)
