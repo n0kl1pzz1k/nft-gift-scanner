@@ -200,6 +200,20 @@ def main() -> int:
 
 
 
+def _sqlite_type_affinity(declared_type: str) -> str:
+    """Apply SQLite's documented declared-type affinity rules."""
+    normalized = declared_type.upper()
+    if "INT" in normalized:
+        return "INTEGER"
+    if any(token in normalized for token in ("CHAR", "CLOB", "TEXT")):
+        return "TEXT"
+    if not normalized or "BLOB" in normalized:
+        return "BLOB"
+    if any(token in normalized for token in ("REAL", "FLOA", "DOUB")):
+        return "REAL"
+    return "NUMERIC"
+
+
 def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any]:
     """Classify schema features that need explicit PostgreSQL migration work.
 
@@ -221,6 +235,7 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
     autoincrement_columns: list[dict[str, str]] = []
     partial_indexes: list[dict[str, str]] = []
     check_constraints: list[dict[str, str]] = []
+    column_type_affinities: list[dict[str, str]] = []
 
     for table in tables:
         table_name = str(table.get("name", ""))
@@ -234,6 +249,14 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
                     })
         if "CHECK" in ddl.upper():
             check_constraints.append({"table": table_name})
+        for column in table.get("columns", []):
+            declared_type = str(column.get("type", ""))
+            column_type_affinities.append({
+                "table": table_name,
+                "column": str(column.get("name", "")),
+                "declared_type": declared_type,
+                "sqlite_affinity": _sqlite_type_affinity(declared_type),
+            })
         for index in table.get("indexes", []):
             if index.get("partial"):
                 partial_indexes.append({
@@ -269,11 +292,14 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
         "view_count": len(view_items),
         "partial_indexes": partial_indexes,
         "check_constraint_tables": check_constraints,
+        "column_type_affinities": column_type_affinities,
+        "type_mapping_review_count": len(column_type_affinities),
         "blockers": blockers,
         "review_items": [
             "Recreate and verify all foreign keys, unique constraints and CHECK constraints.",
             "Translate partial-index predicates and confirm their intended NULL/status behavior.",
             "Recreate views and validate their SQL against PostgreSQL.",
+            "Review every declared SQLite type and affinity before selecting a PostgreSQL column type; affinity is not a lossless type mapping.",
             "Audit application SQL, placeholders, row access, conflict handling and transaction boundaries separately.",
             "Verify sequence values after importing preserved primary keys.",
         ],
