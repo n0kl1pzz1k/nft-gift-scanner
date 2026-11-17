@@ -49,3 +49,26 @@ def test_audit_handles_missing_sources(tmp_path):
     assert report["source_files"] == []
     assert report["rowcount_usage_count"] == 0
     assert report["parse_errors"] == []
+
+
+def test_audit_links_rowcount_to_literal_sql_operation_and_comparison(tmp_path):
+    (tmp_path / "marketplace.py").write_text(
+        """
+def cancel_order(conn, order_id):
+    updated = conn.execute(
+        "UPDATE marketplace_orders SET status = 'cancelled' WHERE id = ? AND status = 'active'",
+        (order_id,),
+    )
+    if updated.rowcount != 1:
+        raise RuntimeError("conflict")
+""",
+        encoding="utf-8",
+    )
+
+    report = audit_rowcount_usage(tmp_path)
+
+    assert report["rowcount_usage_count"] == 1
+    finding = report["findings"][0]
+    assert finding["sql_operation"] == "UPDATE"
+    assert finding["comparison_operator"] == "NotEq"
+    assert finding["context"] == "comparison"
