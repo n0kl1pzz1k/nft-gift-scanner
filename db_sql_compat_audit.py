@@ -25,7 +25,7 @@ SOURCE_FILES = (
     "ton_nft_inventory.py",
 )
 RULES = (
-    ("sqlite_connection_factory", re.compile(r"\bsqlite3\.connect\s*\(", re.IGNORECASE), "blocker",
+    ("sqlite_connection_factory", re.compile(r"\bsqlite3\s*\.\s*connect\s*\(", re.IGNORECASE), "blocker",
      "Replace direct SQLite connection factories with an explicit backend connection boundary."),
     ("sqlite_transaction_lock", re.compile(r"\bBEGIN\s+IMMEDIATE\b", re.IGNORECASE), "blocker",
      "PostgreSQL has no BEGIN IMMEDIATE; redesign locking and isolation explicitly."),
