@@ -478,7 +478,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             if deal["status"] == "cancelled":
                 conn.commit()
                 return {"deal_id": deal_id, "status": "cancelled", "already_cancelled": True,
-                        "payments_enabled": False, "simulation_only": True}
+                        "payments_enabled": False}
             if deal["status"] != "payment_not_enabled":
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Only unpaid marketplace reservations can be cancelled")
@@ -507,7 +507,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                    VALUES (?, ?, ?, ?, 'deal_cancelled', ?, ?)""",
                 ("dl-" + uuid.uuid4().hex[:20], deal_id, deal["order_id"], actor_id,
                  json.dumps({"reason": "participant_cancelled_unpaid_reservation",
-                             "reservation_released": True, "simulation_only": True},
+                             "reservation_released": True, },
                             separators=(",", ":")), now),
             )
             conn.commit()
@@ -554,8 +554,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                      ("you" if row["actor_user_id"] == user_id else "counterparty"),
             "data": json.loads(row["event_data"]),
             "created_at": row["created_at"],
-            "simulation_only": True,
-        } for row in rows], "simulation_only": True}
+                    } for row in rows], "simulation_only": True}
 
     @router.get("/deals")
     async def list_deals(
@@ -679,7 +678,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
     async def account_stats(x_telegram_init_data: str | None = Header(default=None)):
         if not _verified_asset_actions_enabled():
             _require_user(x_telegram_init_data, verify_telegram_init_data)
-            return {"active_orders": 0, "completed_orders": 0, "pending_offers_sent": 0, "pending_offers_received": 0, "simulated_deals": 0, "unread_notifications": 0, "simulation_only": False}
+            return {"active_orders": 0, "completed_orders": 0, "pending_offers_sent": 0, "pending_offers_received": 0, "deals": 0, "unread_notifications": 0}
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         user_id = str(user["id"])
         with _db() as conn:
@@ -711,7 +710,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             "completed_orders": orders["completed_orders"] or 0,
             "pending_offers_sent": offers["sent_pending"] or 0,
             "pending_offers_received": offers["received_pending"] or 0,
-            "simulated_deals": deals,
+            "deals": deals,
             "unread_notifications": unread,
             "simulation_only": True,
         }
@@ -722,7 +721,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
         offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        """Unified, account-scoped timeline of demo order and offer events."""
+        """Unified, account-scoped timeline of marketplace order and offer events."""
         if not _verified_asset_actions_enabled():
             _require_user(x_telegram_init_data, verify_telegram_init_data)
             return {"items": [], "total": 0, "limit": limit, "offset": offset}
@@ -734,7 +733,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                     'order-' || e.id AS id,
                     CASE e.event_type
                       WHEN 'created' THEN 'order_created'
-                      WHEN 'simulated_fill' THEN 'order_simulated_fill'
+                      WHEN 'filled' THEN 'order_filled'
                       WHEN 'cancelled' THEN 'order_cancelled'
                     END AS type,
                     o.id AS order_id,
@@ -745,7 +744,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                     o.currency AS currency
                 FROM marketplace_order_events e
                 JOIN marketplace_orders o ON o.id = e.order_id
-                WHERE o.user_id = ? OR e.actor_user_id = ?
+                WHERE (o.user_id = ? OR e.actor_user_id = ?) AND e.event_type <> 'legacy_unverified'
 
                 UNION ALL
 
@@ -796,7 +795,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
 
                 SELECT
                     'deal-' || d.id AS id,
-                    'demo_deal_created' AS type,
+                    'marketplace_deal_created' AS type,
                     d.order_id AS order_id,
                     o.title AS title,
                     CASE WHEN d.listing_owner_id = ? THEN f.sender_name ELSE o.owner_name END AS actor_name,
@@ -812,7 +811,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             FROM activity
             ORDER BY created_at DESC,
                      CASE WHEN type IN ('offer_received', 'offer_accepted', 'offer_declined', 'offer_withdrawn') THEN 0
-                          WHEN type = 'demo_deal_created' THEN 1 ELSE 2 END,
+                          WHEN type = 'marketplace_deal_created' THEN 1 ELSE 2 END,
                      id DESC
             LIMIT ? OFFSET ?
         """
