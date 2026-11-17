@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import os
+import sqlite3
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -75,6 +76,42 @@ class TonConnectProofTests(unittest.TestCase):
         wallets = ton_connect.list_verified_wallets(self.user_id)
         self.assertEqual(len(wallets), 1)
         self.assertEqual(wallets[0]["address"], self.address)
+
+    def test_wallet_link_failure_does_not_consume_ton_proof_challenge(self):
+        verified = self._verify()
+        with marketplace._db() as conn:
+            conn.execute(
+                """CREATE TRIGGER fail_verified_wallet_insert
+                   BEFORE INSERT ON verified_wallets
+                   BEGIN SELECT RAISE(ABORT, 'injected wallet persistence failure'); END"""
+            )
+
+        with self.assertRaises(sqlite3.IntegrityError) as raised:
+            ton_connect.consume_challenge_and_link_wallet(
+                verified, self.user_id, self.session, now=self.now,
+            )
+        self.assertIn("injected wallet persistence failure", str(raised.exception))
+
+        with marketplace._db() as conn:
+            challenge = conn.execute(
+                "SELECT consumed_at FROM ton_proof_challenges WHERE telegram_id = ?",
+                (self.user_id,),
+            ).fetchone()
+            wallet_count = conn.execute(
+                "SELECT COUNT(*) FROM verified_wallets WHERE telegram_id = ?",
+                (self.user_id,),
+            ).fetchone()[0]
+        self.assertIsNone(challenge["consumed_at"])
+        self.assertEqual(wallet_count, 0)
+
+        with marketplace._db() as conn:
+            conn.execute("DROP TRIGGER fail_verified_wallet_insert")
+        self.assertTrue(
+            ton_connect.consume_challenge_and_link_wallet(
+                verified, self.user_id, self.session, now=self.now,
+            )
+        )
+        self.assertEqual(len(ton_connect.list_verified_wallets(self.user_id)), 1)
 
     def test_proof_rejects_wrong_domain(self):
         bad = dict(self.proof)
