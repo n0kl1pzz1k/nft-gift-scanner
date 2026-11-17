@@ -113,7 +113,7 @@ def main() -> int:
     parser.add_argument("--output", help="Optional JSON output path")
     args = parser.parse_args()
     report = audit_rowcount_usage(args.root)
-    rendered = json.dumps(report, ensure_ascii=False, indent=2) + "\\n"
+    rendered = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
     if args.output:
         Path(args.output).write_text(rendered, encoding="utf-8")
     else:
