@@ -930,6 +930,42 @@ class SharedMarketplaceTests(unittest.TestCase):
             "declined",
         )
 
+    def test_order_cancellation_rolls_back_when_cancelled_event_insert_fails(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        order = self.client.post(
+            "/api/marketplace/orders",
+            headers=owner_headers,
+            json={"kind": "listing", "title": "Order cancellation event rollback", "price": "2", "currency": "TON"},
+        )
+        self.assertEqual(order.status_code, 201, order.text)
+        order_id = order.json()["item"]["id"]
+
+        with marketplace._db() as conn:
+            conn.execute(
+                """CREATE TRIGGER fail_order_cancelled_event
+                   BEFORE INSERT ON marketplace_order_events
+                   WHEN NEW.event_type = 'cancelled'
+                   BEGIN SELECT RAISE(ABORT, 'injected cancellation event failure'); END"""
+            )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.client.delete(
+                f"/api/marketplace/orders/{order_id}",
+                headers=owner_headers,
+            )
+
+        with marketplace._db() as conn:
+            order_status = conn.execute(
+                "SELECT status FROM marketplace_orders WHERE id = ?", (order_id,)
+            ).fetchone()["status"]
+            cancelled_event_count = conn.execute(
+                """SELECT COUNT(*) FROM marketplace_order_events
+                   WHERE order_id = ? AND event_type = 'cancelled'""",
+                (order_id,),
+            ).fetchone()[0]
+        self.assertEqual(order_status, "active")
+        self.assertEqual(cancelled_event_count, 0)
+
     def test_order_cancellation_rolls_back_offer_decline_when_notification_insert_fails(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         sender_headers = {"X-Telegram-Init-Data": "user-b"}
