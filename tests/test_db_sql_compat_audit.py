@@ -58,6 +58,31 @@ def test_audit_finds_sqlite_runtime_assumptions_without_source_or_data_leaks(tmp
     assert "CREATE TABLE x" not in rendered
 
 
+def test_audit_handles_multiline_sql_and_ignores_python_comments(tmp_path):
+    (tmp_path / "marketplace.py").write_text(
+        "# sqlite3.connect(comment_only)\n"
+        "connection = sqlite3\n"
+        "    .connect(\n"
+        "        database_path\n"
+        "    )\n"
+        'query = """INSERT\n'
+        "    OR IGNORE INTO verified_wallets(address)\n"
+        "    VALUES (?)\n"
+        '"""\n'
+        "connection.execute(query)\n",
+        encoding="utf-8",
+    )
+
+    report = audit_source_tree(tmp_path)
+    findings = report["findings"]
+
+    assert not any(item["feature"] == "sqlite_connection_factory" and item["line"] == 1 for item in findings)
+    assert any(item["feature"] == "sqlite_connection_factory" and item["line"] == 2 for item in findings)
+    assert any(item["feature"] == "sqlite_insert_or_ignore" and item["line"] == 6 for item in findings)
+    assert any(item["feature"] == "sqlite_qmark_parameters" and item["line"] == 7 for item in findings)
+    assert report["ready_for_postgresql_runtime"] is False
+
+
 def test_audit_handles_missing_sources_and_does_not_claim_readiness(tmp_path):
     report = audit_source_tree(tmp_path)
 
