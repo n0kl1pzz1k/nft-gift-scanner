@@ -512,49 +512,15 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             )
             conn.commit()
         return {"deal_id": deal_id, "status": "cancelled", "reservation_released": True,
-                "payments_enabled": False, "simulation_only": True}
+                "payments_enabled": False}
 
     @router.get("/deals/{deal_id}/events")
     async def list_deal_events(
         deal_id: str,
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
-        if not _verified_asset_actions_enabled():
-            raise HTTPException(status_code=404, detail="Deal not found")
-        user_id = str(user["id"])
-        with _db() as conn:
-            deal = conn.execute(
-                """SELECT id, listing_owner_id, offer_sender_id
-                   FROM marketplace_deals WHERE id = ?""",
-                (deal_id,),
-            ).fetchone()
-            if deal is None:
-                raise HTTPException(status_code=404, detail="Deal not found")
-            if user_id not in (deal["listing_owner_id"], deal["offer_sender_id"]):
-                raise HTTPException(status_code=404, detail="Deal not found")
-            rows = conn.execute(
-                """SELECT id, event_type, actor_user_id, event_data, created_at, sequence
-                   FROM (
-                       SELECT id, event_type, actor_user_id, event_data, created_at,
-                              rowid AS sequence
-                       FROM marketplace_deal_events WHERE deal_id = ?
-                       UNION ALL
-                       SELECT id, event_type, actor_user_id, event_data, created_at,
-                              1000000000 + sequence AS sequence
-                       FROM marketplace_deal_lifecycle_events WHERE deal_id = ?
-                   )
-                   ORDER BY created_at ASC, sequence ASC""",
-                (deal_id, deal_id),
-            ).fetchall()
-        return {"items": [{
-            "id": row["id"],
-            "type": row["event_type"],
-            "actor": "system" if row["actor_user_id"] == "system" else
-                     ("you" if row["actor_user_id"] == user_id else "counterparty"),
-            "data": json.loads(row["event_data"]),
-            "created_at": row["created_at"],
-                    } for row in rows], "simulation_only": True}
+        _require_user(x_telegram_init_data, verify_telegram_init_data)
+        raise HTTPException(status_code=404, detail="Deal not found")
 
     @router.get("/deals")
     async def list_deals(
@@ -562,43 +528,11 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
         offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        if not _verified_asset_actions_enabled():
-            _require_user(x_telegram_init_data, verify_telegram_init_data)
-            return {"items": [], "total": 0, "limit": limit, "offset": offset, "payments_enabled": False}
-        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
-        user_id = str(user["id"])
-        with _db() as conn:
-            total = conn.execute(
-                "SELECT COUNT(*) FROM marketplace_deals WHERE listing_owner_id = ? OR offer_sender_id = ?",
-                (user_id, user_id),
-            ).fetchone()[0]
-            rows = conn.execute("""
-                SELECT d.*, o.title AS order_title, o.kind AS order_kind,
-                       o.owner_name AS order_owner_name, f.sender_name AS offer_sender_name
-                FROM marketplace_deals d
-                JOIN marketplace_orders o ON o.id = d.order_id
-                JOIN marketplace_offers f ON f.id = d.offer_id
-                WHERE d.listing_owner_id = ? OR d.offer_sender_id = ?
-                ORDER BY d.created_at DESC, d.id DESC LIMIT ? OFFSET ?
-            """, (user_id, user_id, limit, offset)).fetchall()
-        items = []
-        for row in rows:
-            if row["order_kind"] == "listing":
-                buyer_name, seller_name = row["offer_sender_name"], row["order_owner_name"]
-                buyer_id, seller_id = row["offer_sender_id"], row["listing_owner_id"]
-            else:
-                buyer_name, seller_name = row["order_owner_name"], row["offer_sender_name"]
-                buyer_id, seller_id = row["listing_owner_id"], row["offer_sender_id"]
-            items.append({
-                "id": row["id"], "order_id": row["order_id"], "offer_id": row["offer_id"],
-                "title": row["order_title"], "listing_owner": row["order_owner_name"],
-                "offer_sender": row["offer_sender_name"], "buyer": buyer_name, "seller": seller_name,
-                "my_role": "buyer" if user_id == buyer_id else "seller",
-                "order_kind": row["order_kind"], "amount": row["agreed_amount"],
-                "currency": row["currency"], "created_at": row["created_at"],
-                "status": row["status"], "simulation_only": True,
-            })
-        return {"items": items, "total": total, "limit": limit, "offset": offset, "payments_enabled": False, "simulation_only": True}
+        # No deal is presented as real until production TON/Stars settlement,
+        # escrow and verified NFT delivery are implemented and independently enabled.
+        _require_user(x_telegram_init_data, verify_telegram_init_data)
+        return {"items": [], "total": 0, "limit": limit, "offset": offset,
+                "payments_enabled": False}
 
     @router.get("/notifications")
     async def list_notifications(
@@ -712,8 +646,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             "pending_offers_received": offers["received_pending"] or 0,
             "deals": deals,
             "unread_notifications": unread,
-            "simulation_only": True,
-        }
+                    }
 
     @router.get("/activity")
     async def account_activity(
@@ -842,9 +775,9 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                 "id": row["id"], "type": row["type"], "order_id": row["order_id"],
                 "title": row["title"], "actor_name": row["actor_name"],
                 "created_at": row["created_at"], "amount": row["amount"],
-                "currency": row["currency"], "simulation_only": True,
+                "currency": row["currency"],
             } for row in rows],
-            "total": total, "limit": limit, "offset": offset, "simulation_only": True,
+            "total": total, "limit": limit, "offset": offset,
         }
 
     return router
