@@ -37,7 +37,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             },
         )
         self.auth_patch.start()
-        self.feature_flag_patch = patch.dict(os.environ, {"HASSLE_VERIFIED_ASSETS_ENABLED": "true", "HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "true", "HASSLE_TEST_SKIP_TON_OWNER_RECHECK": "true"})
+        self.feature_flag_patch = patch.dict(os.environ, {"APP_ENV": "test", "HASSLE_VERIFIED_ASSETS_ENABLED": "true", "HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "true", "HASSLE_TEST_SKIP_TON_OWNER_RECHECK": "true"})
         self.feature_flag_patch.start()
         self.credential_patch = patch.object(
             api,
@@ -182,6 +182,25 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(regular.status_code, 200)
         self.assertFalse(regular.json()["is_admin"])
 
+
+    def test_unverified_asset_override_is_disabled_outside_isolated_tests(self):
+        with patch.dict(os.environ, {
+            "HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "true",
+        }, clear=True):
+            self.assertFalse(marketplace._test_unverified_assets_allowed())
+
+        with patch.dict(os.environ, {
+            "APP_ENV": "test",
+            "RAILWAY_ENVIRONMENT_NAME": "production",
+            "HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "true",
+        }, clear=True):
+            self.assertFalse(marketplace._test_unverified_assets_allowed())
+
+        with patch.dict(os.environ, {
+            "APP_ENV": "test",
+            "HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "true",
+        }, clear=True):
+            self.assertTrue(marketplace._test_unverified_assets_allowed())
 
     def test_production_listing_requires_verified_asset_even_if_feature_flag_is_enabled(self):
         with patch.dict(os.environ, {
