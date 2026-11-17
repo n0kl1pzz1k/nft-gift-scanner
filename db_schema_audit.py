@@ -122,6 +122,54 @@ def build_schema_manifest(connection: sqlite3.Connection) -> dict[str, Any]:
     return payload
 
 
+def build_runtime_inventory(connection: sqlite3.Connection) -> dict[str, Any]:
+    """Describe the live schema and per-table row counts without reading row values."""
+    manifest = build_schema_manifest(connection)
+    tables = []
+    for table in manifest["tables"]:
+        quoted = _quote_identifier(str(table["name"]))
+        row_count = int(connection.execute(
+            f"SELECT COUNT(*) FROM {quoted}"
+        ).fetchone()[0])
+        tables.append({
+            "name": table["name"],
+            "row_count": row_count,
+            "columns": [
+                {"name": column["name"], "type": column["type"],
+                 "not_null": column["not_null"],
+                 "primary_key_position": column["primary_key_position"]}
+                for column in table["columns"]
+            ],
+            "indexes": [
+                {"name": index["name"], "unique": index["unique"],
+                 "partial": index["partial"]}
+                for index in table["indexes"]
+            ],
+            "foreign_keys": table["foreign_keys"],
+        })
+    object_counts: dict[str, int] = {}
+    object_names: dict[str, list[dict[str, str]]] = {}
+    for item in manifest["objects"]:
+        kind = str(item["type"])
+        object_counts[kind] = object_counts.get(kind, 0) + 1
+        object_names.setdefault(kind, []).append({
+            "name": str(item["name"]),
+            "table": str(item["table"]),
+        })
+    return {
+        "engine": manifest["engine"],
+        "sqlite_version": manifest["sqlite_version"],
+        "user_version": manifest["user_version"],
+        "schema_sha256": manifest["schema_sha256"],
+        "table_count": len(tables),
+        "total_rows": sum(table["row_count"] for table in tables),
+        "tables": tables,
+        "object_counts": object_counts,
+        "objects": object_names,
+        "scope_note": "Schema metadata and row counts only; no application row values are read or returned.",
+    }
+
+
 def audit_database(database_path: str | Path) -> dict[str, Any]:
     """Open an existing database read-only and inventory its schema."""
     path = Path(database_path).expanduser().resolve(strict=True)
