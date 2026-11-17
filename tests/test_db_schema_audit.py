@@ -2,7 +2,7 @@ import json
 import sqlite3
 
 
-from db_schema_audit import audit_database, build_postgres_portability_report, build_schema_manifest
+from db_schema_audit import audit_database, build_postgres_portability_report, build_runtime_inventory, build_schema_manifest
 
 
 def test_manifest_captures_constraints_indexes_and_triggers_without_rows():
@@ -157,3 +157,25 @@ def test_postgres_portability_report_contains_no_table_rows():
     assert "DO_NOT_EXPORT_THIS" not in rendered
     assert report["ready_for_cutover"] is False
     assert "transaction boundaries" in " ".join(report["review_items"])
+
+def test_runtime_inventory_reports_counts_and_schema_without_row_values():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE accounts (id TEXT PRIMARY KEY, private_note TEXT NOT NULL);
+        INSERT INTO accounts VALUES ('one', 'PRIVATE_ROW_SENTINEL');
+        INSERT INTO accounts VALUES ('two', 'ANOTHER_PRIVATE_VALUE');
+        """
+    )
+    inventory = build_runtime_inventory(connection)
+    rendered = json.dumps(inventory, ensure_ascii=False)
+    connection.close()
+
+    assert inventory["table_count"] == 1
+    assert inventory["total_rows"] == 2
+    assert inventory["tables"][0]["name"] == "accounts"
+    assert inventory["tables"][0]["row_count"] == 2
+    assert [column["name"] for column in inventory["tables"][0]["columns"]] == ["id", "private_note"]
+    assert "PRIVATE_ROW_SENTINEL" not in rendered
+    assert "ANOTHER_PRIVATE_VALUE" not in rendered
+
