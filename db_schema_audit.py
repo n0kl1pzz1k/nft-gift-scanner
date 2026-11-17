@@ -377,6 +377,10 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
     check_constraints: list[dict[str, str]] = []
     check_constraint_details: list[dict[str, Any]] = []
     column_type_affinities: list[dict[str, str]] = []
+    foreign_key_details: list[dict[str, Any]] = []
+    unique_indexes: list[dict[str, Any]] = []
+    ordinary_indexes: list[dict[str, Any]] = []
+    primary_keys: list[dict[str, Any]] = []
 
     for table in tables:
         table_name = str(table.get("name", ""))
@@ -388,6 +392,39 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
                         "table": table_name,
                         "column": str(column.get("name", "")),
                     })
+        primary_key_columns = sorted(
+            [
+                {"column": str(column.get("name", "")), "position": int(column.get("primary_key_position", 0))}
+                for column in table.get("columns", [])
+                if int(column.get("primary_key_position", 0)) > 0
+            ],
+            key=lambda item: item["position"],
+        )
+        if primary_key_columns:
+            primary_keys.append({"table": table_name, "columns": primary_key_columns})
+
+        grouped_foreign_keys: dict[int, list[dict[str, Any]]] = {}
+        for foreign_key in table.get("foreign_keys", []):
+            grouped_foreign_keys.setdefault(int(foreign_key.get("id", 0)), []).append(foreign_key)
+        for foreign_key_id, members in sorted(grouped_foreign_keys.items()):
+            members.sort(key=lambda item: int(item.get("sequence", 0)))
+            foreign_key_details.append({
+                "table": table_name,
+                "id": foreign_key_id,
+                "referenced_table": str(members[0].get("referenced_table", "")),
+                "columns": [
+                    {
+                        "from": str(member.get("from_column", "")),
+                        "to": str(member.get("to_column", "")),
+                        "sequence": int(member.get("sequence", 0)),
+                    }
+                    for member in members
+                ],
+                "on_update": str(members[0].get("on_update", "")),
+                "on_delete": str(members[0].get("on_delete", "")),
+                "match": str(members[0].get("match", "")),
+            })
+
         extracted_checks = _extract_check_constraints(ddl)
         if extracted_checks:
             check_constraints.append({"table": table_name})
@@ -408,6 +445,28 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
                 **mapping,
             })
         for index in table.get("indexes", []):
+            index_record = {
+                "table": table_name,
+                "name": str(index.get("name", "")),
+                "unique": bool(index.get("unique")),
+                "origin": str(index.get("origin", "")),
+                "partial": bool(index.get("partial")),
+                "columns": [
+                    {
+                        "name": column.get("name"),
+                        "sequence": int(column.get("sequence", 0)),
+                        "descending": bool(column.get("descending")),
+                        "collation": str(column.get("collation", "")),
+                        "key": bool(column.get("key")),
+                    }
+                    for column in index.get("columns", [])
+                ],
+                "sql": index.get("sql"),
+            }
+            if index_record["unique"]:
+                unique_indexes.append(index_record)
+            else:
+                ordinary_indexes.append(index_record)
             if index.get("partial"):
                 partial_indexes.append({
                     "table": table_name,
@@ -437,7 +496,11 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
         "target_engine": "postgresql",
         "schema_sha256": manifest.get("schema_sha256"),
         "table_count": len(tables),
-        "foreign_key_count": sum(len(table.get("foreign_keys", [])) for table in tables),
+        "foreign_key_count": len(foreign_key_details),
+        "foreign_keys": foreign_key_details,
+        "primary_keys": primary_keys,
+        "unique_indexes": unique_indexes,
+        "ordinary_indexes": ordinary_indexes,
         "trigger_count": len(trigger_items),
         "view_count": len(view_items),
         "partial_indexes": partial_indexes,
