@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import os
+import sqlite3
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -85,7 +86,7 @@ class TonConnectProofTests(unittest.TestCase):
                    BEGIN SELECT RAISE(ABORT, 'injected wallet persistence failure'); END"""
             )
 
-        with self.assertRaises(Exception) as raised:
+        with self.assertRaises(sqlite3.IntegrityError) as raised:
             ton_connect.consume_challenge_and_link_wallet(
                 verified, self.user_id, self.session, now=self.now,
             )
