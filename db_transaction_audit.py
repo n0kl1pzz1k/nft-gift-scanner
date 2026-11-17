@@ -148,7 +148,7 @@ class _FunctionScanner(ast.NodeVisitor):
                 elif isinstance(context, ast.Call):
                     function = context.func
                     function_name = function.id if isinstance(function, ast.Name) else function.attr if isinstance(function, ast.Attribute) else ''
-                    if function_name.lower() in {'connect', 'connection', '_db', 'get_db', 'open_db'}:
+                    if function_name.lower() == 'connect':
                         self.current['connection_context_count'] += 1
         self.generic_visit(node)
 
