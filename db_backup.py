@@ -58,6 +58,21 @@ def _row_counts(connection: sqlite3.Connection) -> dict[str, int]:
     return counts
 
 
+def _sequence_counters(connection: sqlite3.Connection) -> dict[str, int]:
+    """Capture AUTOINCREMENT high-water marks without exporting application rows.
+
+    A sequence can exceed MAX(id) after deletions. Preserving it prevents a
+    post-migration insert from reusing an identifier that existed historically.
+    """
+    try:
+        rows = connection.execute(
+            "SELECT name, seq FROM sqlite_sequence ORDER BY name"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    return {str(name): int(sequence) for name, sequence in rows}
+
+
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     fd, temporary_name = tempfile.mkstemp(
         prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
@@ -116,6 +131,7 @@ def backup_database(source_path: str | Path, destination_path: str | Path) -> di
 
         schema, schema_sha256 = _schema_metadata(backup_connection)
         row_counts = _row_counts(backup_connection)
+        sequence_counters = _sequence_counters(backup_connection)
         backup_connection.close()
         backup_connection = None
         source_connection.close()
@@ -134,6 +150,7 @@ def backup_database(source_path: str | Path, destination_path: str | Path) -> di
             "table_count": len(row_counts),
             "total_rows": sum(row_counts.values()),
             "tables": row_counts,
+            "sequence_counters": sequence_counters,
             "schema_objects": schema,
         }
 
