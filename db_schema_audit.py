@@ -367,5 +367,55 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
     }
 
 
+
+def build_postgres_data_preflight(
+    connection: sqlite3.Connection,
+    manifest: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Profile aggregate safety conditions for conditional PostgreSQL BOOLEAN mappings.
+
+    No application values are returned. Only counts are reported.
+    """
+    schema = manifest or build_schema_manifest(connection)
+    profiles: list[dict[str, Any]] = []
+    for table in schema.get("tables", []):
+        table_name = str(table.get("name", ""))
+        table_ddl = str(table.get("sql") or "")
+        for column in table.get("columns", []):
+            mapping = _postgres_type_candidate(table_name, column, table_ddl)
+            if mapping["postgresql_type_candidate"] != "BOOLEAN":
+                continue
+            column_name = str(column.get("name", ""))
+            quoted_table = _quote_identifier(table_name)
+            quoted_column = _quote_identifier(column_name)
+            aggregate = connection.execute(
+                f"SELECT COUNT(*), "
+                f"COALESCE(SUM(CASE WHEN {quoted_column} IS NOT NULL "
+                f"AND {quoted_column} NOT IN (0, 1) THEN 1 ELSE 0 END), 0), "
+                f"COALESCE(SUM(CASE WHEN {quoted_column} IS NULL THEN 1 ELSE 0 END), 0) "
+                f"FROM {quoted_table}"
+            ).fetchone()
+            total_rows, invalid_values, null_values = (int(value) for value in aggregate)
+            profiles.append({
+                "table": table_name,
+                "column": column_name,
+                "total_rows": total_rows,
+                "invalid_value_count": invalid_values,
+                "null_value_count": null_values,
+                "boolean_conversion_safe": invalid_values == 0 and null_values == 0,
+            })
+
+    return {
+        "format_version": 1,
+        "target_engine": "postgresql",
+        "profiled_column_count": len(profiles),
+        "safe_column_count": sum(item["boolean_conversion_safe"] for item in profiles),
+        "unsafe_column_count": sum(not item["boolean_conversion_safe"] for item in profiles),
+        "columns": profiles,
+        "ready_for_cutover": False,
+        "scope_note": "Aggregate counts only for conditional BOOLEAN candidates; no application row values are returned. This does not authorize cutover.",
+    }
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
