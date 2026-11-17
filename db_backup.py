@@ -131,6 +131,7 @@ def backup_database(source_path: str | Path, destination_path: str | Path) -> di
 
         schema, schema_sha256 = _schema_metadata(backup_connection)
         row_counts = _row_counts(backup_connection)
+        sequence_counters = _sequence_counters(backup_connection)
         backup_connection.close()
         backup_connection = None
         source_connection.close()
@@ -149,7 +150,7 @@ def backup_database(source_path: str | Path, destination_path: str | Path) -> di
             "table_count": len(row_counts),
             "total_rows": sum(row_counts.values()),
             "tables": row_counts,
-            "sequence_counters": _sequence_counters(backup_connection),
+            "sequence_counters": sequence_counters,
             "schema_objects": schema,
         }
 
