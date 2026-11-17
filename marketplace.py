@@ -13,7 +13,6 @@ import time
 import uuid
 from urllib.parse import urlparse
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
 from typing import Callable, Literal, Any
 
 from fastapi import APIRouter, Header, HTTPException, Query
