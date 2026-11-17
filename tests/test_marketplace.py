@@ -1013,7 +1013,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         )
         sender_stats = self.client.get("/api/marketplace/account/stats", headers=headers_b)
         self.assertEqual(sender_stats.status_code, 200)
-        self.assertEqual(sender_stats.json()["simulated_deals"], 0)
+        self.assertEqual(sender_stats.json()["deals"], 0)
 
     def test_account_activity_timeline_is_private_and_paginated(self):
         headers_a = {"X-Telegram-Init-Data": "user-a"}
@@ -1101,3 +1101,58 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(accepted.status_code, 409)
         self.assertEqual(self.client.get("/api/marketplace/deals", headers=headers_a).json()["items"], [])
         self.assertEqual(self.client.get("/api/marketplace/deals", headers=headers_b).json()["items"], [])
+
+
+    def test_legacy_demo_table_names_migrate_without_losing_listing_or_event_rows(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = os.path.join(temp_dir, "legacy.sqlite3")
+            conn = sqlite3.connect(database)
+            conn.execute("""
+                CREATE TABLE demo_orders (
+                    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, owner_name TEXT NOT NULL,
+                    kind TEXT NOT NULL, title TEXT NOT NULL, price TEXT NOT NULL,
+                    currency TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL, note TEXT NOT NULL DEFAULT ''
+                )
+            """)
+            conn.execute(
+                "INSERT INTO demo_orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("legacy-listing-1", "1001", "seller", "listing", "Real gift", "2",
+                 "TON", "active", 10, 10, ""),
+            )
+            conn.execute("""
+                CREATE TABLE demo_order_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id TEXT NOT NULL, actor_user_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL CHECK(event_type IN ('created', 'simulated_fill', 'cancelled')),
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY(order_id) REFERENCES demo_orders(id)
+                )
+            """)
+            conn.execute(
+                "INSERT INTO demo_order_events(order_id, actor_user_id, event_type, created_at) VALUES (?, ?, ?, ?)",
+                ("legacy-listing-1", "1001", "simulated_fill", 11),
+            )
+            conn.commit()
+            conn.close()
+
+            with patch.object(marketplace, "DB_PATH", database), patch.object(offers, "DB_PATH", database):
+                marketplace.init_marketplace_db()
+                offers.init_offers_db()
+                with marketplace._db() as migrated:
+                    listing = migrated.execute(
+                        "SELECT title FROM marketplace_orders WHERE id = ?",
+                        ("legacy-listing-1",),
+                    ).fetchone()
+                    event = migrated.execute(
+                        "SELECT event_type FROM marketplace_order_events WHERE order_id = ?",
+                        ("legacy-listing-1",),
+                    ).fetchone()
+                    legacy_table = migrated.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='demo_orders'"
+                    ).fetchone()
+                    foreign_key_errors = migrated.execute("PRAGMA foreign_key_check").fetchall()
+            self.assertEqual(listing["title"], "Real gift")
+            self.assertEqual(event["event_type"], "legacy_unverified")
+            self.assertIsNone(legacy_table)
+            self.assertEqual(foreign_key_errors, [])
