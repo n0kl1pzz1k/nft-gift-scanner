@@ -218,22 +218,22 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
         table_name = str(item.get("table", ""))
         ddl = str(item.get("sql") or "")
         header = re.search(
-            r"\\b(BEFORE|AFTER|INSTEAD\\s+OF)\\s+"
-            r"(INSERT|UPDATE(?:\\s+OF\\s+[A-Za-z0-9_\\s,]+)?|DELETE)\\s+ON\\s+"
-            r'["\\x60\\[]?([A-Za-z_][A-Za-z0-9_]*)',
+            r"\b(BEFORE|AFTER|INSTEAD\s+OF)\s+"
+            r"(INSERT|UPDATE(?:\s+OF\s+[A-Za-z0-9_\s,]+)?|DELETE)\s+ON\s+"
+            r"([A-Za-z_][A-Za-z0-9_]*)",
             ddl,
             re.IGNORECASE,
         )
-        timing = re.sub(r"\\s+", " ", header.group(1).upper()) if header else "UNKNOWN"
-        event = re.sub(r"\\s+", " ", header.group(2).upper()) if header else "UNKNOWN"
+        timing = re.sub(r"\s+", " ", header.group(1).upper()) if header else "UNKNOWN"
+        event = re.sub(r"\s+", " ", header.group(2).upper()) if header else "UNKNOWN"
         target = header.group(3) if header else table_name
-        if re.search(r"\\bRAISE\\s*\\(\\s*ABORT", ddl, re.IGNORECASE):
+        if re.search(r"\bRAISE\s*\(\s*ABORT", ddl, re.IGNORECASE):
             behavior = "immutable_guard" if "immutable" in ddl.lower() else "abort_guard"
             remediation = "Rewrite as a PostgreSQL trigger function that raises an exception; test rejected writes and transaction rollback."
-        elif "marketplace_notifications" in ddl.lower() and re.search(r"\\bINSERT\\s+INTO", ddl, re.IGNORECASE):
+        elif "marketplace_notifications" in ddl.lower() and re.search(r"\bINSERT\s+INTO", ddl, re.IGNORECASE):
             behavior = "notification_side_effect"
             remediation = "Move notification creation into an explicit transaction-safe service operation or a PostgreSQL trigger; preserve recipient and event rules."
-        elif re.search(r"\\bUPDATE\\s+marketplace_offers\\b", ddl, re.IGNORECASE):
+        elif re.search(r"\bUPDATE\s+marketplace_offers\b", ddl, re.IGNORECASE):
             behavior = "dependent_state_update"
             remediation = "Preserve the order-cancellation to pending-offer-decline transition atomically and verify notification side effects."
         else:
@@ -248,7 +248,7 @@ def build_postgres_portability_report(manifest: dict[str, Any]) -> dict[str, Any
             "behavior": behavior,
             "remediation": remediation,
         })
-        if re.search(r"\\brandomblob\\s*\\(", ddl, re.IGNORECASE):
+        if re.search(r"\brandomblob\s*\(", ddl, re.IGNORECASE):
             randomblob_trigger_items.append({"name": name, "table": table_name})
     view_items = [
         {"name": str(item.get("name", "")), "table": str(item.get("table", ""))}
