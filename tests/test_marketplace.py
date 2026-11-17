@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 import app as api
 import marketplace
-import demo_offers
+import marketplace_offers
 
 
 class SharedMarketplaceTests(unittest.TestCase):
@@ -22,10 +22,10 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_patch = patch.object(marketplace, "DB_PATH", os.path.join(self.temp_dir.name, "test.sqlite3"))
         self.db_patch.start()
-        self.offers_db_patch = patch.object(demo_offers, "DB_PATH", os.path.join(self.temp_dir.name, "test.sqlite3"))
+        self.offers_db_patch = patch.object(marketplace_offers, "DB_PATH", os.path.join(self.temp_dir.name, "test.sqlite3"))
         self.offers_db_patch.start()
         marketplace.init_marketplace_db()
-        demo_offers.init_demo_offers_db()
+        marketplace_offers.init_marketplace_offers_db()
         api.init_ton_connect_db()
         self.auth_patch = patch.object(
             api,
@@ -100,11 +100,11 @@ class SharedMarketplaceTests(unittest.TestCase):
 
     def test_readiness_probe_checks_marketplace_offers_and_notifications_schema(self):
         with marketplace._db() as connection:
-            connection.execute("DROP TABLE demo_notifications")
+            connection.execute("DROP TABLE marketplace_notifications")
         response = self.client.get("/ready")
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["dependency"], "database_schema")
-        self.assertIn("demo_notifications", response.json()["missing_tables"])
+        self.assertIn("marketplace_notifications", response.json()["missing_tables"])
 
     def test_readiness_probe_returns_503_when_required_column_is_missing(self):
         with marketplace._db() as connection:
@@ -116,7 +116,7 @@ class SharedMarketplaceTests(unittest.TestCase):
 
     def test_database_initializers_are_idempotent_and_foreign_keys_are_valid(self):
         marketplace.init_marketplace_db()
-        demo_offers.init_demo_offers_db()
+        marketplace_offers.init_marketplace_offers_db()
         api.init_ton_connect_db()
 
         with marketplace._db() as connection:
@@ -133,7 +133,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             self.assertEqual(conn.execute("PRAGMA busy_timeout").fetchone()[0], 30000)
             self.assertEqual(conn.execute("PRAGMA synchronous").fetchone()[0], 2)
             self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0].lower(), "wal")
-        with demo_offers._db() as conn:
+        with marketplace_offers._db() as conn:
             self.assertEqual(conn.execute("PRAGMA busy_timeout").fetchone()[0], 30000)
             self.assertEqual(conn.execute("PRAGMA synchronous").fetchone()[0], 2)
 
@@ -324,14 +324,14 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(new_asset["title"], "NFT after transfer")
         with marketplace._db() as conn:
             old_listing = conn.execute(
-                "SELECT status FROM demo_orders WHERE id = ?", (listing.json()["item"]["id"],)
+                "SELECT status FROM marketplace_orders WHERE id = ?", (listing.json()["item"]["id"],)
             ).fetchone()
             history = conn.execute(
                 "SELECT previous_owner_id, new_owner_id FROM asset_ownership_history WHERE asset_id = ?",
                 (old_asset["id"],),
             ).fetchone()
             old_offer = conn.execute(
-                "SELECT status FROM demo_offers WHERE id = ?", (offer.json()["item"]["id"],)
+                "SELECT status FROM marketplace_offers WHERE id = ?", (offer.json()["item"]["id"],)
             ).fetchone()
         self.assertEqual(old_listing["status"], "cancelled")
         self.assertEqual(old_offer["status"], "declined")
@@ -491,7 +491,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         unchanged = self.client.get("/api/marketplace/orders?status=active")
         self.assertTrue(any(item["id"] == order_id for item in unchanged.json()["items"]))
 
-    def test_simulated_fill_route_is_absent_and_owner_can_cancel(self):
+    def test_synthetic_fill_route_is_absent_and_owner_can_cancel(self):
         created = self.client.post(
             "/api/marketplace/orders",
             headers={"X-Telegram-Init-Data": "user-a"},
@@ -759,7 +759,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(mine.json()["items"][0]["status"], "cancelled")
         with marketplace._db() as conn:
             status = conn.execute(
-                "SELECT status FROM demo_order_reports WHERE id = ?", (report_id,),
+                "SELECT status FROM marketplace_order_reports WHERE id = ?", (report_id,),
             ).fetchone()["status"]
         self.assertEqual(status, "removed")
 
@@ -880,7 +880,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             for index in range(16):
                 order_id = f"gr-rate-{index:02d}"
                 conn.execute(
-                    """INSERT INTO demo_orders
+                    """INSERT INTO marketplace_orders
                     (id, user_id, owner_name, kind, title, price, currency, status, created_at, updated_at, note)
                     VALUES (?, '101', 'Tester A', 'listing', ?, '1', 'TON', 'active', ?, ?, '')""",
                     (order_id, f"Gift {index}", now, now),
