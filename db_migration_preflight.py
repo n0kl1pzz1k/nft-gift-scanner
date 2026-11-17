@@ -8,7 +8,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sqlite3
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -143,6 +145,25 @@ def build_migration_preflight(
     }
 
 
+def _write_report_no_clobber(path: Path, rendered: str) -> None:
+    """Publish a complete report atomically without replacing an existing file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(rendered)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # A hard link is atomic and fails if another process already created
+        # the destination. The temporary file is on the same filesystem.
+        os.link(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _open_read_only(path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=30)
     connection.execute("PRAGMA query_only = ON")
@@ -174,8 +195,7 @@ def main() -> int:
         backup.close()
     rendered = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if output:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(rendered, encoding="utf-8")
+        _write_report_no_clobber(output, rendered)
     else:
         print(rendered, end="")
     return 0 if report["ready_for_shadow_migration"] else 2

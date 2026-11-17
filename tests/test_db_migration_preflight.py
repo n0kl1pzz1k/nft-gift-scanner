@@ -1,8 +1,9 @@
 import json
 import sqlite3
+from pathlib import Path
 
 from db_backup import backup_database
-from db_migration_preflight import build_migration_preflight
+from db_migration_preflight import build_migration_preflight, _write_report_no_clobber
 
 
 def _create_source(path):
@@ -96,3 +97,35 @@ def test_preflight_detects_schema_and_sequence_drift(tmp_path):
     assert report["comparison"]["schema_matches"] is False
     assert report["comparison"]["sequence_counters_match"] is False
     assert report["ready_for_shadow_migration"] is False
+
+
+
+def test_preflight_report_is_created_without_overwriting_existing_file(tmp_path):
+    report_path = tmp_path / "reports" / "preflight.json"
+    _write_report_no_clobber(report_path, '{"safe": true}\n')
+    assert report_path.read_text(encoding="utf-8") == '{"safe": true}\n'
+
+    import pytest
+
+    with pytest.raises(FileExistsError):
+        _write_report_no_clobber(report_path, '{"safe": false}\n')
+
+    assert report_path.read_text(encoding="utf-8") == '{"safe": true}\n'
+
+
+def test_preflight_report_does_not_overwrite_racing_destination(tmp_path, monkeypatch):
+    import pytest
+    import db_migration_preflight
+
+    report_path = tmp_path / "preflight.json"
+
+    def create_racing_file(source, destination):
+        Path(destination).write_text("created-by-another-process", encoding="utf-8")
+        raise FileExistsError("destination appeared during publication")
+
+    monkeypatch.setattr(db_migration_preflight.os, "link", create_racing_file)
+    with pytest.raises(FileExistsError):
+        _write_report_no_clobber(report_path, '{"report": true}\n')
+
+    assert report_path.read_text(encoding="utf-8") == "created-by-another-process"
+    assert not list(tmp_path.glob(".preflight.json.*.tmp"))
