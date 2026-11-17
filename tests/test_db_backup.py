@@ -111,6 +111,24 @@ class DatabaseBackupTests(unittest.TestCase):
             backup_database(self.source, self.destination)
         self.assertFalse(self.destination.exists())
 
+    def test_backup_refuses_to_overwrite_an_existing_snapshot(self):
+        self._create_source()
+        self.destination.parent.mkdir(parents=True)
+        self.destination.write_bytes(b"existing-backup")
+        with self.assertRaisesRegex(FileExistsError, "already exists"):
+            backup_database(self.source, self.destination)
+        self.assertEqual(self.destination.read_bytes(), b"existing-backup")
+
+    def test_backup_refuses_to_overwrite_an_existing_manifest(self):
+        self._create_source()
+        self.destination.parent.mkdir(parents=True)
+        manifest_path = Path(str(self.destination) + ".manifest.json")
+        manifest_path.write_text("keep-this-manifest", encoding="utf-8")
+        with self.assertRaisesRegex(FileExistsError, "already exists"):
+            backup_database(self.source, self.destination)
+        self.assertFalse(self.destination.exists())
+        self.assertEqual(manifest_path.read_text(encoding="utf-8"), "keep-this-manifest")
+
     def test_backup_rejects_overwriting_the_live_source(self):
         self._create_source()
         with self.assertRaisesRegex(ValueError, "must differ"):
