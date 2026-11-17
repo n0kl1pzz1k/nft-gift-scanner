@@ -129,7 +129,7 @@
       active = false;
       unsubscribe?.();
     };
-  });;
+  });
 
   async function connectWallet() {
     if (!authToken) {
