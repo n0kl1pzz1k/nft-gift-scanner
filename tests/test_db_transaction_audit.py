@@ -46,7 +46,9 @@ def script_migration(conn):
         self.assertEqual(report["function_count"], 5)
         by_name = {item["function"]: item for item in report["functions"]}
         self.assertEqual(by_name["atomic_update"]["transaction_start_count"], 1)
+        self.assertEqual(by_name["atomic_update"]["transaction_modes"], ["IMMEDIATE"])
         self.assertEqual(by_name["atomic_update"]["commit_count"], 1)
+        self.assertEqual(report["begin_immediate_function_count"], 1)
         self.assertEqual(by_name["atomic_update"]["mutation_count"], 2)
         self.assertTrue(by_name["autocommit_write"]["single_statement_autocommit_write"])
         self.assertTrue(by_name["multi_write_without_begin"]["multi_statement_mutation_without_explicit_begin"])
@@ -59,6 +61,28 @@ def script_migration(conn):
         self.assertNotIn("item_id", rendered)
         self.assertNotIn("event_id", rendered)
         self.assertNotIn("CREATE TABLE sample", rendered)
+
+    def test_savepoint_boundaries_are_reported_separately(self):
+        (self.root / "marketplace.py").write_text(
+            """
+def nested_transaction(conn):
+    conn.execute("BEGIN IMMEDIATE")
+    conn.execute("SAVEPOINT transfer_step")
+    conn.execute("UPDATE assets SET owner_id = 'next'")
+    conn.execute("ROLLBACK TO SAVEPOINT transfer_step")
+    conn.execute("RELEASE SAVEPOINT transfer_step")
+    conn.commit()
+""",
+            encoding="utf-8",
+        )
+        report = audit_transaction_boundaries(self.root)
+        item = report["functions"][0]
+        self.assertEqual(item["savepoint_count"], 1)
+        self.assertEqual(item["rollback_to_savepoint_count"], 1)
+        self.assertEqual(item["release_savepoint_count"], 1)
+        self.assertEqual(report["savepoint_function_count"], 1)
+        self.assertFalse(report["ready_for_postgresql_runtime"])
+
 
     def test_audit_scans_real_backend_sources_without_parse_errors(self):
         repository_root = Path(__file__).resolve().parents[1]
