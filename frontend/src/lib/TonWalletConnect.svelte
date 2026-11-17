@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { TonConnectUI } from '@tonconnect/ui';
+  import type { TonConnectUI as TonConnectUIInstance } from '@tonconnect/ui';
 
   type Props = {
     api: string;
@@ -10,7 +10,7 @@
   };
 
   let { api, authToken, lang, onVerified }: Props = $props();
-  let tonConnect: TonConnectUI | null = null;
+  let tonConnect = $state<TonConnectUIInstance | null>(null);
   let busy = $state(false);
   let address = $state('');
   let status = $state<'idle' | 'connected' | 'verified' | 'error'>('idle');
@@ -18,6 +18,7 @@
 
   const copy = $derived({
     connect: lang === 'ru' ? 'Подключить TON-кошелёк' : 'Connect TON wallet',
+    loading: lang === 'ru' ? 'Загружаем TON Connect…' : 'Loading TON Connect…',
     verify: lang === 'ru' ? 'Подтвердить кошелёк' : 'Verify wallet',
     verified: lang === 'ru' ? 'Кошелёк подтверждён' : 'Wallet verified',
     waiting: lang === 'ru' ? 'Ожидаем подтверждение в кошельке…' : 'Confirm the request in your wallet…',
@@ -50,58 +51,84 @@
   }
 
   onMount(() => {
-    tonConnect = new TonConnectUI({
-      manifestUrl: 'https://hassle-nft-market.fj7kmzkhn9.workers.dev/tonconnect-manifest.json',
-    });
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+    busy = true;
 
-    const unsubscribe = tonConnect.onStatusChange(async (wallet) => {
-      if (!wallet) {
-        if (status !== 'verified') status = 'idle';
-        return;
-      }
-      const item = wallet.connectItems?.tonProof;
-      if (!item || !('proof' in item)) {
-        status = 'error';
-        message = copy.unsupported;
-        return;
-      }
-      const stateInit = wallet.account.walletStateInit;
-      if (!stateInit) {
-        status = 'error';
-        message = copy.failed;
-        return;
-      }
-      busy = true;
-      status = 'connected';
-      message = copy.waiting;
-      try {
-        const response = await fetch(api + '/api/ton-proof/verify', {
-          method: 'POST',
-          headers: authHeaders(),
-          body: JSON.stringify({
-            address: wallet.account.address,
-            network: wallet.account.chain,
-            public_key: wallet.account.publicKey || undefined,
-            state_init: stateInit,
-            proof: item.proof,
-          }),
+    // Keep the wallet SDK out of the initial Mini App bundle. Some Telegram iOS
+    // WebViews are stricter than desktop browsers; marketplace browsing must not
+    // depend on wallet SDK startup or browser-specific APIs.
+    void import('@tonconnect/ui')
+      .then(({ TonConnectUI }) => {
+        if (!active) return;
+        tonConnect = new TonConnectUI({
+          manifestUrl: 'https://hassle-nft-market.fj7kmzkhn9.workers.dev/tonconnect-manifest.json',
         });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.detail || copy.failed);
-        address = result.address || wallet.account.address;
-        status = 'verified';
-        message = copy.verified;
-        onVerified(address);
-      } catch (error) {
-        status = 'error';
-        message = error instanceof Error ? error.message : copy.failed;
-      } finally {
-        busy = false;
-      }
-    });
 
-    void loadLinkedWallet();
-    return () => unsubscribe();
+        unsubscribe = tonConnect.onStatusChange(async (wallet) => {
+          if (!active) return;
+          if (!wallet) {
+            if (status !== 'verified') status = 'idle';
+            return;
+          }
+          const item = wallet.connectItems?.tonProof;
+          if (!item || !('proof' in item)) {
+            status = 'error';
+            message = copy.unsupported;
+            return;
+          }
+          const stateInit = wallet.account.walletStateInit;
+          if (!stateInit) {
+            status = 'error';
+            message = copy.failed;
+            return;
+          }
+          busy = true;
+          status = 'connected';
+          message = copy.waiting;
+          try {
+            const response = await fetch(api + '/api/ton-proof/verify', {
+              method: 'POST',
+              headers: authHeaders(),
+              body: JSON.stringify({
+                address: wallet.account.address,
+                network: wallet.account.chain,
+                public_key: wallet.account.publicKey || undefined,
+                state_init: stateInit,
+                proof: item.proof,
+              }),
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.detail || copy.failed);
+            address = result.address || wallet.account.address;
+            status = 'verified';
+            message = copy.verified;
+            onVerified(address);
+          } catch (error) {
+            status = 'error';
+            message = error instanceof Error ? error.message : copy.failed;
+          } finally {
+            busy = false;
+          }
+        });
+
+        void loadLinkedWallet();
+      })
+      .catch(() => {
+        if (!active) return;
+        status = 'error';
+        message = lang === 'ru'
+          ? 'TON Connect не загрузился в этом WebView. Обнови Telegram и попробуй позже.'
+          : 'TON Connect could not load in this WebView. Update Telegram and try again.';
+      })
+      .finally(() => {
+        if (active) busy = false;
+      });
+
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
   });
 
   async function connectWallet() {
@@ -147,9 +174,9 @@
       <span class="ton-wallet-network">TON</span>
     </div>
   {:else}
-    <button class="ton-wallet-button" type="button" onclick={connectWallet} disabled={busy || !authToken}>
+    <button class="ton-wallet-button" type="button" onclick={connectWallet} disabled={busy || !authToken || !tonConnect}>
       <span class="ton-wallet-symbol">◈</span>
-      {busy ? copy.waiting : (status === 'connected' ? copy.waiting : copy.connect)}
+      {busy ? (tonConnect ? copy.waiting : copy.loading) : (status === 'connected' ? copy.waiting : copy.connect)}
     </button>
   {/if}
   {#if message}
