@@ -73,7 +73,7 @@ def _sequence_counters(connection: sqlite3.Connection) -> dict[str, int]:
     return {str(name): int(sequence) for name, sequence in rows}
 
 
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+def _atomic_create_json(path: Path, payload: dict[str, Any]) -> None:
     fd, temporary_name = tempfile.mkstemp(
         prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
     )
@@ -84,7 +84,9 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        # Hard-link creation is atomic and fails if the destination already exists.
+        # The temporary file lives in the same directory, so it is on the same filesystem.
+        os.link(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -101,6 +103,12 @@ def backup_database(source_path: str | Path, destination_path: str | Path) -> di
         raise ValueError(f"Source database does not exist: {source}")
     if source == destination:
         raise ValueError("Backup destination must differ from the source database")
+
+    manifest_path = Path(str(destination) + ".manifest.json")
+    if destination.exists() or manifest_path.exists():
+        raise FileExistsError(
+            "Backup destination or manifest already exists; choose a new unique output path"
+        )
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary_name = tempfile.mkstemp(
@@ -154,9 +162,12 @@ def backup_database(source_path: str | Path, destination_path: str | Path) -> di
             "schema_objects": schema,
         }
 
-        manifest_path = Path(str(destination) + ".manifest.json")
-        os.replace(temporary_backup, destination)
-        _atomic_write_json(manifest_path, manifest)
+        # Publish complete artifacts with no-clobber semantics. The initial
+        # exists() checks provide a friendly error; os.link closes the race
+        # with another process creating the destination after those checks.
+        os.link(temporary_backup, destination)
+        temporary_backup.unlink()
+        _atomic_create_json(manifest_path, manifest)
         return manifest
     finally:
         if backup_connection is not None:
