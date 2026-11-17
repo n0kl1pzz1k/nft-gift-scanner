@@ -1,6 +1,6 @@
 """HASSLE NFT marketplace offers.
 
-Offer acceptance stays disabled until production escrow, verified TON/Stars settlement and NFT transfer are implemented. No simulated deals are created.
+Offer acceptance stays disabled until production escrow, verified TON/Stars settlement and NFT transfer are implemented. No deal is presented as completed before real settlement.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from typing import Callable, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Query
 
-from marketplace import _enforce_user_rate_limit, _verified_asset_actions_enabled, _test_unverified_assets_allowed
+from marketplace import _enforce_user_rate_limit, _verified_asset_actions_enabled, _test_unverified_assets_allowed, _migrate_legacy_marketplace_table_names
 from pydantic import BaseModel, Field, field_validator
 
 DB_PATH = os.getenv("HASSLE_NFT_DB_PATH", os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3")))
@@ -37,10 +37,11 @@ def _db():
         conn.close()
 
 
-def init_demo_offers_db() -> None:
+def init_marketplace_offers_db() -> None:
     with _db() as conn:
+        _migrate_legacy_marketplace_table_names(conn)
         conn.executescript("""
-        CREATE TABLE IF NOT EXISTS demo_offers (
+        CREATE TABLE IF NOT EXISTS marketplace_offers (
             id TEXT PRIMARY KEY,
             order_id TEXT NOT NULL,
             sender_user_id TEXT NOT NULL,
@@ -51,12 +52,12 @@ def init_demo_offers_db() -> None:
             status TEXT NOT NULL CHECK(status IN ('pending', 'accepted', 'declined', 'withdrawn')),
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
-            FOREIGN KEY(order_id) REFERENCES demo_orders(id)
+            FOREIGN KEY(order_id) REFERENCES marketplace_orders(id)
         );
-        CREATE INDEX IF NOT EXISTS idx_demo_offers_order ON demo_offers(order_id, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_demo_offers_sender ON demo_offers(sender_user_id, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_demo_offers_status ON demo_offers(status, created_at DESC);
-        CREATE TABLE IF NOT EXISTS demo_deals (
+        CREATE INDEX IF NOT EXISTS idx_marketplace_offers_order ON marketplace_offers(order_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_marketplace_offers_sender ON marketplace_offers(sender_user_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_marketplace_offers_status ON marketplace_offers(status, created_at DESC);
+        CREATE TABLE IF NOT EXISTS marketplace_deals (
             id TEXT PRIMARY KEY,
             order_id TEXT NOT NULL,
             offer_id TEXT NOT NULL UNIQUE,
@@ -67,10 +68,10 @@ def init_demo_offers_db() -> None:
             created_at INTEGER NOT NULL,
             status TEXT NOT NULL DEFAULT 'payment_not_enabled'
                 CHECK(status IN ('payment_not_enabled', 'awaiting_payment', 'payment_pending', 'paid', 'delivery_pending', 'completed', 'disputed', 'cancelled', 'expired')),
-            FOREIGN KEY(order_id) REFERENCES demo_orders(id),
-            FOREIGN KEY(offer_id) REFERENCES demo_offers(id)
+            FOREIGN KEY(order_id) REFERENCES marketplace_orders(id),
+            FOREIGN KEY(offer_id) REFERENCES marketplace_offers(id)
         );
-        CREATE TABLE IF NOT EXISTS demo_deal_events (
+        CREATE TABLE IF NOT EXISTS marketplace_deal_events (
             id TEXT PRIMARY KEY,
             deal_id TEXT NOT NULL,
             order_id TEXT NOT NULL,
@@ -78,22 +79,22 @@ def init_demo_offers_db() -> None:
             event_type TEXT NOT NULL CHECK(event_type IN ('deal_created', 'listing_reserved', 'payment_not_enabled')),
             event_data TEXT NOT NULL DEFAULT '{}',
             created_at INTEGER NOT NULL,
-            FOREIGN KEY(deal_id) REFERENCES demo_deals(id),
-            FOREIGN KEY(order_id) REFERENCES demo_orders(id)
+            FOREIGN KEY(deal_id) REFERENCES marketplace_deals(id),
+            FOREIGN KEY(order_id) REFERENCES marketplace_orders(id)
         );
-        CREATE INDEX IF NOT EXISTS idx_demo_deal_events_deal_created
-            ON demo_deal_events(deal_id, created_at ASC, id ASC);
-        CREATE TRIGGER IF NOT EXISTS trg_demo_deal_events_no_update
-        BEFORE UPDATE ON demo_deal_events
+        CREATE INDEX IF NOT EXISTS idx_marketplace_deal_events_deal_created
+            ON marketplace_deal_events(deal_id, created_at ASC, id ASC);
+        CREATE TRIGGER IF NOT EXISTS trg_marketplace_deal_events_no_update
+        BEFORE UPDATE ON marketplace_deal_events
         BEGIN
             SELECT RAISE(ABORT, 'deal events are immutable');
         END;
-        CREATE TRIGGER IF NOT EXISTS trg_demo_deal_events_no_delete
-        BEFORE DELETE ON demo_deal_events
+        CREATE TRIGGER IF NOT EXISTS trg_marketplace_deal_events_no_delete
+        BEFORE DELETE ON marketplace_deal_events
         BEGIN
             SELECT RAISE(ABORT, 'deal events are immutable');
         END;
-        CREATE TABLE IF NOT EXISTS demo_deal_lifecycle_events (
+        CREATE TABLE IF NOT EXISTS marketplace_deal_lifecycle_events (
             sequence INTEGER PRIMARY KEY AUTOINCREMENT,
             id TEXT NOT NULL UNIQUE,
             deal_id TEXT NOT NULL,
@@ -102,22 +103,22 @@ def init_demo_offers_db() -> None:
             event_type TEXT NOT NULL CHECK(event_type IN ('deal_cancelled')),
             event_data TEXT NOT NULL DEFAULT '{}',
             created_at INTEGER NOT NULL,
-            FOREIGN KEY(deal_id) REFERENCES demo_deals(id),
-            FOREIGN KEY(order_id) REFERENCES demo_orders(id)
+            FOREIGN KEY(deal_id) REFERENCES marketplace_deals(id),
+            FOREIGN KEY(order_id) REFERENCES marketplace_orders(id)
         );
-        CREATE INDEX IF NOT EXISTS idx_demo_deal_lifecycle_events_deal
-            ON demo_deal_lifecycle_events(deal_id, sequence ASC);
-        CREATE TRIGGER IF NOT EXISTS trg_demo_deal_lifecycle_events_no_update
-        BEFORE UPDATE ON demo_deal_lifecycle_events
+        CREATE INDEX IF NOT EXISTS idx_marketplace_deal_lifecycle_events_deal
+            ON marketplace_deal_lifecycle_events(deal_id, sequence ASC);
+        CREATE TRIGGER IF NOT EXISTS trg_marketplace_deal_lifecycle_events_no_update
+        BEFORE UPDATE ON marketplace_deal_lifecycle_events
         BEGIN
             SELECT RAISE(ABORT, 'deal lifecycle events are immutable');
         END;
-        CREATE TRIGGER IF NOT EXISTS trg_demo_deal_lifecycle_events_no_delete
-        BEFORE DELETE ON demo_deal_lifecycle_events
+        CREATE TRIGGER IF NOT EXISTS trg_marketplace_deal_lifecycle_events_no_delete
+        BEFORE DELETE ON marketplace_deal_lifecycle_events
         BEGIN
             SELECT RAISE(ABORT, 'deal lifecycle events are immutable');
         END;
-        CREATE TABLE IF NOT EXISTS demo_notifications (
+        CREATE TABLE IF NOT EXISTS marketplace_notifications (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
             event_type TEXT NOT NULL CHECK(event_type IN ('offer_received', 'offer_accepted', 'offer_declined', 'offer_withdrawn')),
@@ -127,28 +128,28 @@ def init_demo_offers_db() -> None:
             actor_name TEXT NOT NULL DEFAULT '',
             created_at INTEGER NOT NULL,
             read_at INTEGER,
-            FOREIGN KEY(offer_id) REFERENCES demo_offers(id),
-            FOREIGN KEY(order_id) REFERENCES demo_orders(id)
+            FOREIGN KEY(offer_id) REFERENCES marketplace_offers(id),
+            FOREIGN KEY(order_id) REFERENCES marketplace_orders(id)
         );
-        CREATE INDEX IF NOT EXISTS idx_demo_notifications_user_created
-            ON demo_notifications(user_id, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_demo_notifications_user_unread
-            ON demo_notifications(user_id, read_at, created_at DESC);
-        CREATE TRIGGER IF NOT EXISTS trg_demo_offer_received
-        AFTER INSERT ON demo_offers
+        CREATE INDEX IF NOT EXISTS idx_marketplace_notifications_user_created
+            ON marketplace_notifications(user_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_marketplace_notifications_user_unread
+            ON marketplace_notifications(user_id, read_at, created_at DESC);
+        CREATE TRIGGER IF NOT EXISTS trg_marketplace_offer_received
+        AFTER INSERT ON marketplace_offers
         BEGIN
-            INSERT INTO demo_notifications
+            INSERT INTO marketplace_notifications
                 (id, user_id, event_type, offer_id, order_id, order_title, actor_name, created_at)
             SELECT 'nt-' || lower(hex(randomblob(8))), o.user_id, 'offer_received',
                    NEW.id, NEW.order_id, o.title, NEW.sender_name, NEW.created_at
-            FROM demo_orders o
+            FROM marketplace_orders o
             WHERE o.id = NEW.order_id AND o.user_id <> NEW.sender_user_id;
         END;
-        CREATE TRIGGER IF NOT EXISTS trg_demo_offer_status_notification
-        AFTER UPDATE OF status ON demo_offers
+        CREATE TRIGGER IF NOT EXISTS trg_marketplace_offer_status_notification
+        AFTER UPDATE OF status ON marketplace_offers
         WHEN OLD.status = 'pending' AND NEW.status <> OLD.status
         BEGIN
-            INSERT INTO demo_notifications
+            INSERT INTO marketplace_notifications
                 (id, user_id, event_type, offer_id, order_id, order_title, actor_name, created_at)
             SELECT 'nt-' || lower(hex(randomblob(8))),
                    CASE WHEN NEW.status = 'withdrawn' THEN o.user_id ELSE NEW.sender_user_id END,
@@ -160,23 +161,23 @@ def init_demo_offers_db() -> None:
                    NEW.id, NEW.order_id, o.title,
                    CASE WHEN NEW.status = 'withdrawn' THEN NEW.sender_name ELSE o.owner_name END,
                    NEW.updated_at
-            FROM demo_orders o
+            FROM marketplace_orders o
             WHERE o.id = NEW.order_id
               AND NEW.status IN ('accepted', 'declined', 'withdrawn')
               AND (NEW.status <> 'withdrawn' OR o.user_id <> NEW.sender_user_id);
         END;
-        CREATE TRIGGER IF NOT EXISTS trg_demo_order_cancel_declines_offers
-        AFTER UPDATE OF status ON demo_orders
+        CREATE TRIGGER IF NOT EXISTS trg_marketplace_order_cancel_declines_offers
+        AFTER UPDATE OF status ON marketplace_orders
         WHEN OLD.status = 'active' AND NEW.status = 'cancelled'
         BEGIN
-            UPDATE demo_offers SET status='declined', updated_at=NEW.updated_at
+            UPDATE marketplace_offers SET status='declined', updated_at=NEW.updated_at
             WHERE order_id=NEW.id AND status='pending';
         END;
         """)
         # Older releases enforced one deal per order forever. Rebuild that table
         # so cancelled/expired history remains intact while a fresh reservation can be made.
         unique_order_index = False
-        for index in conn.execute("PRAGMA index_list(demo_deals)").fetchall():
+        for index in conn.execute("PRAGMA index_list(marketplace_deals)").fetchall():
             if index["unique"]:
                 columns = [row["name"] for row in conn.execute(
                     f"PRAGMA index_info('{index['name']}')"
@@ -189,7 +190,7 @@ def init_demo_offers_db() -> None:
             try:
                 conn.execute("BEGIN IMMEDIATE")
                 conn.execute("""
-                    CREATE TABLE demo_deals_new (
+                    CREATE TABLE marketplace_deals_new (
                         id TEXT PRIMARY KEY,
                         order_id TEXT NOT NULL,
                         offer_id TEXT NOT NULL UNIQUE,
@@ -202,8 +203,8 @@ def init_demo_offers_db() -> None:
                             CHECK(status IN ('payment_not_enabled', 'awaiting_payment',
                                              'payment_pending', 'paid', 'delivery_pending',
                                              'completed', 'disputed', 'cancelled', 'expired')),
-                        FOREIGN KEY(order_id) REFERENCES demo_orders(id),
-                        FOREIGN KEY(offer_id) REFERENCES demo_offers(id)
+                        FOREIGN KEY(order_id) REFERENCES marketplace_orders(id),
+                        FOREIGN KEY(offer_id) REFERENCES marketplace_offers(id)
                     )
                 """)
                 # Some legacy databases have the permanent per-order unique index
@@ -211,7 +212,7 @@ def init_demo_offers_db() -> None:
                 # with the same safe initial state used by the forward migration below.
                 legacy_deal_columns = {
                     row["name"] for row in conn.execute(
-                        "PRAGMA table_info(demo_deals)"
+                        "PRAGMA table_info(marketplace_deals)"
                     ).fetchall()
                 }
                 status_expression = (
@@ -219,18 +220,18 @@ def init_demo_offers_db() -> None:
                     else "'payment_not_enabled'"
                 )
                 conn.execute(f"""
-                    INSERT INTO demo_deals_new
+                    INSERT INTO marketplace_deals_new
                     (id, order_id, offer_id, listing_owner_id, offer_sender_id,
                      agreed_amount, currency, created_at, status)
                     SELECT id, order_id, offer_id, listing_owner_id, offer_sender_id,
                            agreed_amount, currency, created_at, {status_expression}
-                    FROM demo_deals
+                    FROM marketplace_deals
                 """)
-                conn.execute("DROP TABLE demo_deals")
-                conn.execute("ALTER TABLE demo_deals_new RENAME TO demo_deals")
+                conn.execute("DROP TABLE marketplace_deals")
+                conn.execute("ALTER TABLE marketplace_deals_new RENAME TO marketplace_deals")
                 conn.execute("""
-                    CREATE UNIQUE INDEX idx_demo_deals_one_open_reservation
-                    ON demo_deals(order_id)
+                    CREATE UNIQUE INDEX idx_marketplace_deals_one_open_reservation
+                    ON marketplace_deals(order_id)
                     WHERE status NOT IN ('cancelled', 'expired')
                 """)
                 conn.commit()
@@ -240,10 +241,10 @@ def init_demo_offers_db() -> None:
             finally:
                 conn.execute("PRAGMA foreign_keys = ON")
         # Forward-compatible migration for databases created before deal lifecycle state.
-        deal_columns = {row["name"] for row in conn.execute("PRAGMA table_info(demo_deals)").fetchall()}
+        deal_columns = {row["name"] for row in conn.execute("PRAGMA table_info(marketplace_deals)").fetchall()}
         if "status" not in deal_columns:
             conn.execute(
-                """ALTER TABLE demo_deals ADD COLUMN status TEXT NOT NULL
+                """ALTER TABLE marketplace_deals ADD COLUMN status TEXT NOT NULL
                    DEFAULT 'payment_not_enabled'
                    CHECK(status IN ('payment_not_enabled', 'awaiting_payment', 'payment_pending',
                                     'paid', 'delivery_pending', 'completed', 'disputed',
@@ -252,8 +253,8 @@ def init_demo_offers_db() -> None:
         # Create this only after status exists: older schemas cannot parse a partial
         # index predicate that references a column they do not yet have.
         conn.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_demo_deals_one_open_reservation
-            ON demo_deals(order_id)
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_marketplace_deals_one_open_reservation
+            ON marketplace_deals(order_id)
             WHERE status NOT IN ('cancelled', 'expired')
         """)
 
@@ -309,7 +310,7 @@ class DealAction(BaseModel):
     action: Literal["cancel"]
 
 
-def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) -> APIRouter:
+def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], dict]) -> APIRouter:
     router = APIRouter(prefix="/api/marketplace", tags=["marketplace-offers"])
 
     @router.post("/offers", status_code=201)
@@ -325,7 +326,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         now = int(time.time())
         with _db() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            order = conn.execute("SELECT * FROM demo_orders WHERE id = ?", (payload.order_id,)).fetchone()
+            order = conn.execute("SELECT * FROM marketplace_orders WHERE id = ?", (payload.order_id,)).fetchone()
             if order is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Marketplace listing not found")
@@ -348,20 +349,20 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 conn.rollback()
                 raise HTTPException(status_code=403, detail="You cannot make an offer on your own order")
             pending = conn.execute(
-                "SELECT COUNT(*) FROM demo_offers WHERE order_id = ? AND sender_user_id = ? AND status = 'pending'",
+                "SELECT COUNT(*) FROM marketplace_offers WHERE order_id = ? AND sender_user_id = ? AND status = 'pending'",
                 (payload.order_id, actor_id),
             ).fetchone()[0]
             if pending:
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="You already have a pending offer for this order")
-            total = conn.execute("SELECT COUNT(*) FROM demo_offers WHERE order_id = ?", (payload.order_id,)).fetchone()[0]
+            total = conn.execute("SELECT COUNT(*) FROM marketplace_offers WHERE order_id = ?", (payload.order_id,)).fetchone()[0]
             if total >= 100:
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="This listing has reached its offer limit")
             offer_id = "of-" + uuid.uuid4().hex[:16]
             sender_name = (user.get("first_name") or user.get("username") or "Telegram user")[:64]
             conn.execute("""
-                INSERT INTO demo_offers
+                INSERT INTO marketplace_offers
                 (id, order_id, sender_user_id, sender_name, amount, currency, note, status, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
             """, (offer_id, payload.order_id, actor_id, sender_name, format(payload.amount, "f"),
@@ -370,7 +371,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             row = conn.execute("""
                 SELECT f.*, o.title AS order_title, o.user_id AS order_owner_id,
                        o.owner_name AS order_owner_name, o.status AS order_status
-                FROM demo_offers f JOIN demo_orders o ON o.id = f.order_id WHERE f.id = ?
+                FROM marketplace_offers f JOIN marketplace_orders o ON o.id = f.order_id WHERE f.id = ?
             """, (offer_id,)).fetchone()
         return {"item": _offer_dict(row, actor_id)}
 
@@ -393,13 +394,13 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             values.append(status)
         with _db() as conn:
             total = conn.execute(
-                f"SELECT COUNT(*) FROM demo_offers f JOIN demo_orders o ON o.id = f.order_id WHERE {where}",
+                f"SELECT COUNT(*) FROM marketplace_offers f JOIN marketplace_orders o ON o.id = f.order_id WHERE {where}",
                 values,
             ).fetchone()[0]
             rows = conn.execute(f"""
                 SELECT f.*, o.title AS order_title, o.user_id AS order_owner_id,
                        o.owner_name AS order_owner_name, o.status AS order_status
-                FROM demo_offers f JOIN demo_orders o ON o.id = f.order_id
+                FROM marketplace_offers f JOIN marketplace_orders o ON o.id = f.order_id
                 WHERE {where} ORDER BY f.created_at DESC, f.id DESC LIMIT ? OFFSET ?
             """, (*values, limit, offset)).fetchall()
         return {"items": [_offer_dict(row, user_id) for row in rows], "total": total, "limit": limit, "offset": offset}
@@ -418,7 +419,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             row = conn.execute("""
                 SELECT f.*, o.user_id AS order_owner_id, o.owner_name AS order_owner_name,
                        o.title AS order_title, o.status AS order_status
-                FROM demo_offers f JOIN demo_orders o ON o.id = f.order_id
+                FROM marketplace_offers f JOIN marketplace_orders o ON o.id = f.order_id
                 WHERE f.id = ?
             """, (offer_id,)).fetchone()
             if row is None:
@@ -441,13 +442,13 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                     detail="Offer acceptance is disabled until TON/Stars escrow and NFT transfer are live.",
                 )
             new_status = {"accept": "accepted", "decline": "declined", "withdraw": "withdrawn"}[action]
-            conn.execute("UPDATE demo_offers SET status=?, updated_at=? WHERE id=? AND status='pending'",
+            conn.execute("UPDATE marketplace_offers SET status=?, updated_at=? WHERE id=? AND status='pending'",
                          (new_status, now, offer_id))
             conn.commit()
             updated = conn.execute("""
                 SELECT f.*, o.title AS order_title, o.user_id AS order_owner_id,
                        o.owner_name AS order_owner_name, o.status AS order_status
-                FROM demo_offers f JOIN demo_orders o ON o.id = f.order_id WHERE f.id = ?
+                FROM marketplace_offers f JOIN marketplace_orders o ON o.id = f.order_id WHERE f.id = ?
             """, (offer_id,)).fetchone()
         return {"item": _offer_dict(updated, actor_id)}
 
@@ -457,7 +458,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         payload: DealAction,
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        """Allow participants to release an unpaid demo reservation atomically."""
+        """Allow participants to release an unpaid marketplace reservation atomically."""
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         if not _verified_asset_actions_enabled():
             raise HTTPException(status_code=409, detail="Deal actions are disabled until verified inventory is enabled")
@@ -468,7 +469,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             conn.execute("BEGIN IMMEDIATE")
             deal = conn.execute(
                 """SELECT d.*, o.status AS order_status
-                   FROM demo_deals d JOIN demo_orders o ON o.id = d.order_id
+                   FROM marketplace_deals d JOIN marketplace_orders o ON o.id = d.order_id
                    WHERE d.id = ?""",
                 (deal_id,),
             ).fetchone()
@@ -478,15 +479,15 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             if deal["status"] == "cancelled":
                 conn.commit()
                 return {"deal_id": deal_id, "status": "cancelled", "already_cancelled": True,
-                        "payments_enabled": False, "simulation_only": True}
+                        "payments_enabled": False}
             if deal["status"] != "payment_not_enabled":
                 conn.rollback()
-                raise HTTPException(status_code=409, detail="Only unpaid demo reservations can be cancelled")
+                raise HTTPException(status_code=409, detail="Only unpaid marketplace reservations can be cancelled")
             if deal["order_status"] != "matched":
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="The reserved order is no longer in a cancellable state")
             changed = conn.execute(
-                """UPDATE demo_deals SET status='cancelled'
+                """UPDATE marketplace_deals SET status='cancelled'
                    WHERE id=? AND status='payment_not_enabled'""",
                 (deal_id,),
             )
@@ -494,7 +495,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Deal state changed; refresh and try again")
             released = conn.execute(
-                """UPDATE demo_orders SET status='active', updated_at=?
+                """UPDATE marketplace_orders SET status='active', updated_at=?
                    WHERE id=? AND status='matched'""",
                 (now, deal["order_id"]),
             )
@@ -502,60 +503,25 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Reservation could not be released safely")
             conn.execute(
-                """INSERT INTO demo_deal_lifecycle_events
+                """INSERT INTO marketplace_deal_lifecycle_events
                    (id, deal_id, order_id, actor_user_id, event_type, event_data, created_at)
                    VALUES (?, ?, ?, ?, 'deal_cancelled', ?, ?)""",
                 ("dl-" + uuid.uuid4().hex[:20], deal_id, deal["order_id"], actor_id,
                  json.dumps({"reason": "participant_cancelled_unpaid_reservation",
-                             "reservation_released": True, "simulation_only": True},
+                             "reservation_released": True, },
                             separators=(",", ":")), now),
             )
             conn.commit()
         return {"deal_id": deal_id, "status": "cancelled", "reservation_released": True,
-                "payments_enabled": False, "simulation_only": True}
+                "payments_enabled": False}
 
     @router.get("/deals/{deal_id}/events")
     async def list_deal_events(
         deal_id: str,
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
-        if not _verified_asset_actions_enabled():
-            raise HTTPException(status_code=404, detail="Deal not found")
-        user_id = str(user["id"])
-        with _db() as conn:
-            deal = conn.execute(
-                """SELECT id, listing_owner_id, offer_sender_id
-                   FROM demo_deals WHERE id = ?""",
-                (deal_id,),
-            ).fetchone()
-            if deal is None:
-                raise HTTPException(status_code=404, detail="Deal not found")
-            if user_id not in (deal["listing_owner_id"], deal["offer_sender_id"]):
-                raise HTTPException(status_code=404, detail="Deal not found")
-            rows = conn.execute(
-                """SELECT id, event_type, actor_user_id, event_data, created_at, sequence
-                   FROM (
-                       SELECT id, event_type, actor_user_id, event_data, created_at,
-                              rowid AS sequence
-                       FROM demo_deal_events WHERE deal_id = ?
-                       UNION ALL
-                       SELECT id, event_type, actor_user_id, event_data, created_at,
-                              1000000000 + sequence AS sequence
-                       FROM demo_deal_lifecycle_events WHERE deal_id = ?
-                   )
-                   ORDER BY created_at ASC, sequence ASC""",
-                (deal_id, deal_id),
-            ).fetchall()
-        return {"items": [{
-            "id": row["id"],
-            "type": row["event_type"],
-            "actor": "system" if row["actor_user_id"] == "system" else
-                     ("you" if row["actor_user_id"] == user_id else "counterparty"),
-            "data": json.loads(row["event_data"]),
-            "created_at": row["created_at"],
-            "simulation_only": True,
-        } for row in rows], "simulation_only": True}
+        _require_user(x_telegram_init_data, verify_telegram_init_data)
+        raise HTTPException(status_code=404, detail="Deal not found")
 
     @router.get("/deals")
     async def list_deals(
@@ -563,43 +529,11 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        if not _verified_asset_actions_enabled():
-            _require_user(x_telegram_init_data, verify_telegram_init_data)
-            return {"items": [], "total": 0, "limit": limit, "offset": offset, "payments_enabled": False}
-        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
-        user_id = str(user["id"])
-        with _db() as conn:
-            total = conn.execute(
-                "SELECT COUNT(*) FROM demo_deals WHERE listing_owner_id = ? OR offer_sender_id = ?",
-                (user_id, user_id),
-            ).fetchone()[0]
-            rows = conn.execute("""
-                SELECT d.*, o.title AS order_title, o.kind AS order_kind,
-                       o.owner_name AS order_owner_name, f.sender_name AS offer_sender_name
-                FROM demo_deals d
-                JOIN demo_orders o ON o.id = d.order_id
-                JOIN demo_offers f ON f.id = d.offer_id
-                WHERE d.listing_owner_id = ? OR d.offer_sender_id = ?
-                ORDER BY d.created_at DESC, d.id DESC LIMIT ? OFFSET ?
-            """, (user_id, user_id, limit, offset)).fetchall()
-        items = []
-        for row in rows:
-            if row["order_kind"] == "listing":
-                buyer_name, seller_name = row["offer_sender_name"], row["order_owner_name"]
-                buyer_id, seller_id = row["offer_sender_id"], row["listing_owner_id"]
-            else:
-                buyer_name, seller_name = row["order_owner_name"], row["offer_sender_name"]
-                buyer_id, seller_id = row["listing_owner_id"], row["offer_sender_id"]
-            items.append({
-                "id": row["id"], "order_id": row["order_id"], "offer_id": row["offer_id"],
-                "title": row["order_title"], "listing_owner": row["order_owner_name"],
-                "offer_sender": row["offer_sender_name"], "buyer": buyer_name, "seller": seller_name,
-                "my_role": "buyer" if user_id == buyer_id else "seller",
-                "order_kind": row["order_kind"], "amount": row["agreed_amount"],
-                "currency": row["currency"], "created_at": row["created_at"],
-                "status": row["status"], "simulation_only": True,
-            })
-        return {"items": items, "total": total, "limit": limit, "offset": offset, "payments_enabled": False, "simulation_only": True}
+        # No deal is presented as real until production TON/Stars settlement,
+        # escrow and verified NFT delivery are implemented and independently enabled.
+        _require_user(x_telegram_init_data, verify_telegram_init_data)
+        return {"items": [], "total": 0, "limit": limit, "offset": offset,
+                "payments_enabled": False}
 
     @router.get("/notifications")
     async def list_notifications(
@@ -616,18 +550,18 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         clause = " AND read_at IS NULL" if unread_only else ""
         with _db() as conn:
             total = conn.execute(
-                f"SELECT COUNT(*) FROM demo_notifications WHERE user_id = ?{clause}",
+                f"SELECT COUNT(*) FROM marketplace_notifications WHERE user_id = ?{clause}",
                 (user_id,),
             ).fetchone()[0]
             rows = conn.execute(
                 f"""SELECT id, event_type, offer_id, order_id, order_title,
                            actor_name, created_at, read_at
-                    FROM demo_notifications WHERE user_id = ?{clause}
+                    FROM marketplace_notifications WHERE user_id = ?{clause}
                     ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?""",
                 (user_id, limit, offset),
             ).fetchall()
             unread = conn.execute(
-                "SELECT COUNT(*) FROM demo_notifications WHERE user_id = ? AND read_at IS NULL",
+                "SELECT COUNT(*) FROM marketplace_notifications WHERE user_id = ? AND read_at IS NULL",
                 (user_id,),
             ).fetchone()[0]
         return {
@@ -651,12 +585,12 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         with _db() as conn:
             updated = conn.execute(
-                """UPDATE demo_notifications SET read_at = ?
+                """UPDATE marketplace_notifications SET read_at = ?
                    WHERE id = ? AND user_id = ? AND read_at IS NULL""",
                 (int(time.time()), notification_id, str(user["id"])),
             )
             exists = conn.execute(
-                "SELECT 1 FROM demo_notifications WHERE id = ? AND user_id = ?",
+                "SELECT 1 FROM marketplace_notifications WHERE id = ? AND user_id = ?",
                 (notification_id, str(user["id"])),
             ).fetchone()
         if exists is None:
@@ -670,7 +604,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         with _db() as conn:
             updated = conn.execute(
-                "UPDATE demo_notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL",
+                "UPDATE marketplace_notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL",
                 (int(time.time()), str(user["id"])),
             )
         return {"read": True, "updated": updated.rowcount}
@@ -679,7 +613,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
     async def account_stats(x_telegram_init_data: str | None = Header(default=None)):
         if not _verified_asset_actions_enabled():
             _require_user(x_telegram_init_data, verify_telegram_init_data)
-            return {"active_orders": 0, "completed_orders": 0, "pending_offers_sent": 0, "pending_offers_received": 0, "simulated_deals": 0, "unread_notifications": 0, "simulation_only": False}
+            return {"active_orders": 0, "completed_orders": 0, "pending_offers_sent": 0, "pending_offers_received": 0, "deals": 0, "unread_notifications": 0}
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         user_id = str(user["id"])
         with _db() as conn:
@@ -687,23 +621,21 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                 """SELECT
                      SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active_orders,
                      SUM(CASE WHEN status = 'matched' THEN 1 ELSE 0 END) AS completed_orders
-                   FROM demo_orders WHERE user_id = ?""",
+                   FROM marketplace_orders WHERE user_id = ?""",
                 (user_id,),
             ).fetchone()
             offers = conn.execute(
                 """SELECT
                      SUM(CASE WHEN f.sender_user_id = ? AND f.status = 'pending' THEN 1 ELSE 0 END) AS sent_pending,
                      SUM(CASE WHEN o.user_id = ? AND f.status = 'pending' THEN 1 ELSE 0 END) AS received_pending
-                   FROM demo_offers f JOIN demo_orders o ON o.id = f.order_id
+                   FROM marketplace_offers f JOIN marketplace_orders o ON o.id = f.order_id
                    WHERE f.sender_user_id = ? OR o.user_id = ?""",
                 (user_id, user_id, user_id, user_id),
             ).fetchone()
-            deals = conn.execute(
-                "SELECT COUNT(*) FROM demo_deals WHERE listing_owner_id = ? OR offer_sender_id = ?",
-                (user_id, user_id),
-            ).fetchone()[0]
+            # Deal totals remain zero until real escrow and delivery are enabled.
+            deals = 0
             unread = conn.execute(
-                "SELECT COUNT(*) FROM demo_notifications WHERE user_id = ? AND read_at IS NULL",
+                "SELECT COUNT(*) FROM marketplace_notifications WHERE user_id = ? AND read_at IS NULL",
                 (user_id,),
             ).fetchone()[0]
         return {
@@ -711,10 +643,9 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
             "completed_orders": orders["completed_orders"] or 0,
             "pending_offers_sent": offers["sent_pending"] or 0,
             "pending_offers_received": offers["received_pending"] or 0,
-            "simulated_deals": deals,
+            "deals": deals,
             "unread_notifications": unread,
-            "simulation_only": True,
-        }
+                    }
 
     @router.get("/activity")
     async def account_activity(
@@ -722,7 +653,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
         offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        """Unified, account-scoped timeline of demo order and offer events."""
+        """Unified, account-scoped timeline of marketplace order and offer events."""
         if not _verified_asset_actions_enabled():
             _require_user(x_telegram_init_data, verify_telegram_init_data)
             return {"items": [], "total": 0, "limit": limit, "offset": offset}
@@ -734,7 +665,7 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                     'order-' || e.id AS id,
                     CASE e.event_type
                       WHEN 'created' THEN 'order_created'
-                      WHEN 'simulated_fill' THEN 'order_simulated_fill'
+                      WHEN 'filled' THEN 'order_filled'
                       WHEN 'cancelled' THEN 'order_cancelled'
                     END AS type,
                     o.id AS order_id,
@@ -743,9 +674,9 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                     e.created_at AS created_at,
                     o.price AS amount,
                     o.currency AS currency
-                FROM demo_order_events e
-                JOIN demo_orders o ON o.id = e.order_id
-                WHERE o.user_id = ? OR e.actor_user_id = ?
+                FROM marketplace_order_events e
+                JOIN marketplace_orders o ON o.id = e.order_id
+                WHERE (o.user_id = ? OR e.actor_user_id = ?) AND e.event_type <> 'legacy_unverified'
 
                 UNION ALL
 
@@ -758,8 +689,8 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                     n.created_at AS created_at,
                     f.amount AS amount,
                     f.currency AS currency
-                FROM demo_notifications n
-                JOIN demo_offers f ON f.id = n.offer_id
+                FROM marketplace_notifications n
+                JOIN marketplace_offers f ON f.id = n.offer_id
                 WHERE n.user_id = ?
 
                 UNION ALL
@@ -773,8 +704,8 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                     f.created_at AS created_at,
                     f.amount AS amount,
                     f.currency AS currency
-                FROM demo_offers f
-                JOIN demo_orders o ON o.id = f.order_id
+                FROM marketplace_offers f
+                JOIN marketplace_orders o ON o.id = f.order_id
                 WHERE f.sender_user_id = ?
 
                 UNION ALL
@@ -788,64 +719,48 @@ def create_demo_offers_router(verify_telegram_init_data: Callable[[str], dict]) 
                     r.created_at AS created_at,
                     o.price AS amount,
                     o.currency AS currency
-                FROM demo_order_revisions r
-                JOIN demo_orders o ON o.id = r.order_id
+                FROM marketplace_order_revisions r
+                JOIN marketplace_orders o ON o.id = r.order_id
                 WHERE o.user_id = ? OR r.actor_user_id = ?
 
-                UNION ALL
-
-                SELECT
-                    'deal-' || d.id AS id,
-                    'demo_deal_created' AS type,
-                    d.order_id AS order_id,
-                    o.title AS title,
-                    CASE WHEN d.listing_owner_id = ? THEN f.sender_name ELSE o.owner_name END AS actor_name,
-                    d.created_at AS created_at,
-                    d.agreed_amount AS amount,
-                    d.currency AS currency
-                FROM demo_deals d
-                JOIN demo_orders o ON o.id = d.order_id
-                JOIN demo_offers f ON f.id = d.offer_id
-                WHERE d.listing_owner_id = ? OR d.offer_sender_id = ?
             )
             SELECT id, type, order_id, title, actor_name, created_at, amount, currency
             FROM activity
             ORDER BY created_at DESC,
                      CASE WHEN type IN ('offer_received', 'offer_accepted', 'offer_declined', 'offer_withdrawn') THEN 0
-                          WHEN type = 'demo_deal_created' THEN 1 ELSE 2 END,
+                          ELSE 2 END,
                      id DESC
             LIMIT ? OFFSET ?
         """
-        params = (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, limit, offset)
+        params = (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, limit, offset)
         count_query = """
             WITH activity AS (
-                SELECT e.id FROM demo_order_events e JOIN demo_orders o ON o.id=e.order_id
-                WHERE o.user_id=? OR e.actor_user_id=?
+                SELECT e.id FROM marketplace_order_events e JOIN marketplace_orders o ON o.id=e.order_id
+                WHERE (o.user_id=? OR e.actor_user_id=?)
+                  AND e.event_type <> 'legacy_unverified'
                 UNION ALL
-                SELECT n.id FROM demo_notifications n WHERE n.user_id=?
+                SELECT n.id FROM marketplace_notifications n WHERE n.user_id=?
                 UNION ALL
-                SELECT f.id FROM demo_offers f WHERE f.sender_user_id=?
+                SELECT f.id FROM marketplace_offers f WHERE f.sender_user_id=?
                 UNION ALL
-                SELECT r.id FROM demo_order_revisions r JOIN demo_orders o ON o.id=r.order_id
+                SELECT r.id FROM marketplace_order_revisions r JOIN marketplace_orders o ON o.id=r.order_id
                 WHERE o.user_id=? OR r.actor_user_id=?
-                UNION ALL
-                SELECT d.id FROM demo_deals d WHERE d.listing_owner_id=? OR d.offer_sender_id=?
             )
             SELECT COUNT(*) FROM activity
         """
         with _db() as conn:
             rows = conn.execute(query, params).fetchall()
             total = conn.execute(
-                count_query, (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id)
+                count_query, (user_id, user_id, user_id, user_id, user_id, user_id)
             ).fetchone()[0]
         return {
             "items": [{
                 "id": row["id"], "type": row["type"], "order_id": row["order_id"],
                 "title": row["title"], "actor_name": row["actor_name"],
                 "created_at": row["created_at"], "amount": row["amount"],
-                "currency": row["currency"], "simulation_only": True,
+                "currency": row["currency"],
             } for row in rows],
-            "total": total, "limit": limit, "offset": offset, "simulation_only": True,
+            "total": total, "limit": limit, "offset": offset,
         }
 
     return router

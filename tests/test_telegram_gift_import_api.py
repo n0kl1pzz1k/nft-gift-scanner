@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 import app
 import marketplace
 import ton_connect
-import demo_offers
+import marketplace_offers
 
 
 class TelegramGiftImportApiTests(unittest.TestCase):
@@ -17,7 +17,7 @@ class TelegramGiftImportApiTests(unittest.TestCase):
         self.db_path = os.path.join(self.temp_dir.name, "telegram-gifts.sqlite3")
         self.db_patch = patch.object(marketplace, "DB_PATH", self.db_path)
         self.db_patch.start()
-        self.offers_patch = patch.object(demo_offers, "DB_PATH", self.db_path)
+        self.offers_patch = patch.object(marketplace_offers, "DB_PATH", self.db_path)
         self.offers_patch.start()
         marketplace.init_marketplace_db()
         ton_connect.init_ton_connect_db()

@@ -19,14 +19,14 @@ from ton_nft_inventory import fetch_wallet_nfts
 from telegram_gift_inventory import fetch_user_telegram_gifts
 from telegram_business_gift_inventory import fetch_business_account_gifts, fetch_sticker_preview
 import httpx
-from demo_offers import create_demo_offers_router, init_demo_offers_db
+from marketplace_offers import create_marketplace_offers_router, init_marketplace_offers_db
 
 app = FastAPI(title="HASSLE NFT Market API", version="1.0.0")
 app.include_router(create_marketplace_router(
     lambda value: _authenticate_telegram_credential(value),
     lambda value: _require_admin(value),
 ))
-app.include_router(create_demo_offers_router(lambda value: _authenticate_telegram_credential(value)))
+app.include_router(create_marketplace_offers_router(lambda value: _authenticate_telegram_credential(value)))
 
 _telegram_bot = None
 _telegram_dispatcher = None
@@ -531,18 +531,18 @@ _READINESS_TABLES = (
     "telegram_update_inbox",
     "user_favorites",
     # Verified assets and marketplace listings.
-    "demo_orders",
+    "marketplace_orders",
     "verified_assets",
-    "demo_order_events",
-    "demo_order_revisions",
-    "demo_order_reports",
+    "marketplace_order_events",
+    "marketplace_order_revisions",
+    "marketplace_order_reports",
     "asset_ownership_history",
     # Offers, deals, lifecycle, and notifications.
-    "demo_offers",
-    "demo_deals",
-    "demo_deal_events",
-    "demo_deal_lifecycle_events",
-    "demo_notifications",
+    "marketplace_offers",
+    "marketplace_deals",
+    "marketplace_deal_events",
+    "marketplace_deal_lifecycle_events",
+    "marketplace_notifications",
     # Application controls and Telegram Business ownership links.
     "api_rate_limits",
     "app_settings",
@@ -559,13 +559,13 @@ _READINESS_COLUMNS = {
     "telegram_users": {"telegram_id", "updated_at"},
     "telegram_sessions": {"token_hash", "telegram_id", "expires_at"},
     "telegram_update_inbox": {"update_id", "payload_hash", "status", "lease_until"},
-    "demo_orders": {"id", "user_id", "status", "asset_type", "asset_id"},
+    "marketplace_orders": {"id", "user_id", "status", "asset_type", "asset_id"},
     "verified_assets": {"id", "source", "external_asset_id", "owner_telegram_id", "status"},
-    "demo_offers": {"id", "order_id", "sender_user_id", "amount", "currency", "status"},
-    "demo_deals": {"id", "order_id", "offer_id", "status"},
-    "demo_deal_events": {"id", "deal_id", "event_type"},
-    "demo_deal_lifecycle_events": {"id", "deal_id", "event_type"},
-    "demo_notifications": {"id", "user_id", "offer_id", "order_id", "read_at"},
+    "marketplace_offers": {"id", "order_id", "sender_user_id", "amount", "currency", "status"},
+    "marketplace_deals": {"id", "order_id", "offer_id", "status"},
+    "marketplace_deal_events": {"id", "deal_id", "event_type"},
+    "marketplace_deal_lifecycle_events": {"id", "deal_id", "event_type"},
+    "marketplace_notifications": {"id", "user_id", "offer_id", "order_id", "read_at"},
     "telegram_business_connections": {"telegram_id", "business_connection_id", "is_enabled"},
     "telegram_business_gift_refs": {"asset_id", "owner_telegram_id", "owned_gift_id"},
     "ton_proof_challenges": {"payload_hash", "telegram_id", "session_hash", "expires_at"},
@@ -627,7 +627,7 @@ async def readiness():
 async def start_services():
     global _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret
     init_marketplace_db()
-    init_demo_offers_db()
+    init_marketplace_offers_db()
     init_ton_connect_db()
     token = os.getenv("BOT_TOKEN", "").strip()
     if token:

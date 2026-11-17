@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 import app as api
 import marketplace
-import demo_offers
+import marketplace_offers
 
 
 class SharedMarketplaceTests(unittest.TestCase):
@@ -22,10 +22,10 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_patch = patch.object(marketplace, "DB_PATH", os.path.join(self.temp_dir.name, "test.sqlite3"))
         self.db_patch.start()
-        self.offers_db_patch = patch.object(demo_offers, "DB_PATH", os.path.join(self.temp_dir.name, "test.sqlite3"))
+        self.offers_db_patch = patch.object(marketplace_offers, "DB_PATH", os.path.join(self.temp_dir.name, "test.sqlite3"))
         self.offers_db_patch.start()
         marketplace.init_marketplace_db()
-        demo_offers.init_demo_offers_db()
+        marketplace_offers.init_marketplace_offers_db()
         api.init_ton_connect_db()
         self.auth_patch = patch.object(
             api,
@@ -100,11 +100,11 @@ class SharedMarketplaceTests(unittest.TestCase):
 
     def test_readiness_probe_checks_marketplace_offers_and_notifications_schema(self):
         with marketplace._db() as connection:
-            connection.execute("DROP TABLE demo_notifications")
+            connection.execute("DROP TABLE marketplace_notifications")
         response = self.client.get("/ready")
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["dependency"], "database_schema")
-        self.assertIn("demo_notifications", response.json()["missing_tables"])
+        self.assertIn("marketplace_notifications", response.json()["missing_tables"])
 
     def test_readiness_probe_returns_503_when_required_column_is_missing(self):
         with marketplace._db() as connection:
@@ -116,7 +116,7 @@ class SharedMarketplaceTests(unittest.TestCase):
 
     def test_database_initializers_are_idempotent_and_foreign_keys_are_valid(self):
         marketplace.init_marketplace_db()
-        demo_offers.init_demo_offers_db()
+        marketplace_offers.init_marketplace_offers_db()
         api.init_ton_connect_db()
 
         with marketplace._db() as connection:
@@ -133,7 +133,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             self.assertEqual(conn.execute("PRAGMA busy_timeout").fetchone()[0], 30000)
             self.assertEqual(conn.execute("PRAGMA synchronous").fetchone()[0], 2)
             self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0].lower(), "wal")
-        with demo_offers._db() as conn:
+        with marketplace_offers._db() as conn:
             self.assertEqual(conn.execute("PRAGMA busy_timeout").fetchone()[0], 30000)
             self.assertEqual(conn.execute("PRAGMA synchronous").fetchone()[0], 2)
 
@@ -324,14 +324,14 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(new_asset["title"], "NFT after transfer")
         with marketplace._db() as conn:
             old_listing = conn.execute(
-                "SELECT status FROM demo_orders WHERE id = ?", (listing.json()["item"]["id"],)
+                "SELECT status FROM marketplace_orders WHERE id = ?", (listing.json()["item"]["id"],)
             ).fetchone()
             history = conn.execute(
                 "SELECT previous_owner_id, new_owner_id FROM asset_ownership_history WHERE asset_id = ?",
                 (old_asset["id"],),
             ).fetchone()
             old_offer = conn.execute(
-                "SELECT status FROM demo_offers WHERE id = ?", (offer.json()["item"]["id"],)
+                "SELECT status FROM marketplace_offers WHERE id = ?", (offer.json()["item"]["id"],)
             ).fetchone()
         self.assertEqual(old_listing["status"], "cancelled")
         self.assertEqual(old_offer["status"], "declined")
@@ -491,7 +491,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         unchanged = self.client.get("/api/marketplace/orders?status=active")
         self.assertTrue(any(item["id"] == order_id for item in unchanged.json()["items"]))
 
-    def test_simulated_fill_route_is_absent_and_owner_can_cancel(self):
+    def test_synthetic_fill_route_is_absent_and_owner_can_cancel(self):
         created = self.client.post(
             "/api/marketplace/orders",
             headers={"X-Telegram-Init-Data": "user-a"},
@@ -759,7 +759,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(mine.json()["items"][0]["status"], "cancelled")
         with marketplace._db() as conn:
             status = conn.execute(
-                "SELECT status FROM demo_order_reports WHERE id = ?", (report_id,),
+                "SELECT status FROM marketplace_order_reports WHERE id = ?", (report_id,),
             ).fetchone()["status"]
         self.assertEqual(status, "removed")
 
@@ -880,7 +880,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             for index in range(16):
                 order_id = f"gr-rate-{index:02d}"
                 conn.execute(
-                    """INSERT INTO demo_orders
+                    """INSERT INTO marketplace_orders
                     (id, user_id, owner_name, kind, title, price, currency, status, created_at, updated_at, note)
                     VALUES (?, '101', 'Tester A', 'listing', ?, '1', 'TON', 'active', ?, ?, '')""",
                     (order_id, f"Gift {index}", now, now),
@@ -1013,7 +1013,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         )
         sender_stats = self.client.get("/api/marketplace/account/stats", headers=headers_b)
         self.assertEqual(sender_stats.status_code, 200)
-        self.assertEqual(sender_stats.json()["simulated_deals"], 0)
+        self.assertEqual(sender_stats.json()["deals"], 0)
 
     def test_account_activity_timeline_is_private_and_paginated(self):
         headers_a = {"X-Telegram-Init-Data": "user-a"}
@@ -1101,3 +1101,81 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(accepted.status_code, 409)
         self.assertEqual(self.client.get("/api/marketplace/deals", headers=headers_a).json()["items"], [])
         self.assertEqual(self.client.get("/api/marketplace/deals", headers=headers_b).json()["items"], [])
+
+
+    def test_legacy_table_names_migrate_without_losing_listing_or_event_rows(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = os.path.join(temp_dir, "legacy.sqlite3")
+            conn = sqlite3.connect(database)
+            conn.execute("""
+                CREATE TABLE demo_orders (
+                    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, owner_name TEXT NOT NULL,
+                    kind TEXT NOT NULL, title TEXT NOT NULL, price TEXT NOT NULL,
+                    currency TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL, note TEXT NOT NULL DEFAULT ''
+                )
+            """)
+            conn.execute(
+                "INSERT INTO demo_orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("legacy-listing-1", "1001", "seller", "listing", "Real gift", "2",
+                 "TON", "active", 10, 10, ""),
+            )
+            conn.execute("""
+                CREATE TABLE demo_order_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id TEXT NOT NULL, actor_user_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL CHECK(event_type IN ('created', 'simulated_fill', 'cancelled')),
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY(order_id) REFERENCES demo_orders(id)
+                )
+            """)
+            conn.execute(
+                "INSERT INTO demo_order_events(order_id, actor_user_id, event_type, created_at) VALUES (?, ?, ?, ?)",
+                ("legacy-listing-1", "1001", "simulated_fill", 11),
+            )
+            conn.commit()
+            conn.close()
+
+            with patch.object(marketplace, "DB_PATH", database), patch.object(marketplace_offers, "DB_PATH", database):
+                marketplace.init_marketplace_db()
+                marketplace_offers.init_marketplace_offers_db()
+                with marketplace._db() as migrated:
+                    listing = migrated.execute(
+                        "SELECT title FROM marketplace_orders WHERE id = ?",
+                        ("legacy-listing-1",),
+                    ).fetchone()
+                    event = migrated.execute(
+                        "SELECT event_type FROM marketplace_order_events WHERE order_id = ?",
+                        ("legacy-listing-1",),
+                    ).fetchone()
+                    legacy_table = migrated.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='demo_orders'"
+                    ).fetchone()
+                    foreign_key_errors = migrated.execute("PRAGMA foreign_key_check").fetchall()
+            self.assertEqual(listing["title"], "Real gift")
+            self.assertEqual(event["event_type"], "legacy_unverified")
+            self.assertIsNone(legacy_table)
+            self.assertEqual(foreign_key_errors, [])
+
+
+    def test_legacy_unverified_events_are_excluded_from_activity_items_and_total(self):
+        headers = {"X-Telegram-Init-Data": "user-a"}
+        created = self.client.post(
+            "/api/marketplace/orders",
+            headers=headers,
+            json={"kind": "listing", "title": "Legacy activity count", "price": "2", "currency": "TON"},
+        )
+        self.assertEqual(created.status_code, 201)
+        order_id = created.json()["item"]["id"]
+        with marketplace._db() as conn:
+            conn.execute(
+                """INSERT INTO marketplace_order_events
+                   (order_id, actor_user_id, event_type, created_at)
+                   VALUES (?, ?, 'legacy_unverified', ?)""",
+                (order_id, "101", int(time.time()) + 1),
+            )
+        response = self.client.get("/api/marketplace/activity?limit=50", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["total"], len(payload["items"]))
+        self.assertNotIn("legacy_unverified", {item["type"] for item in payload["items"]})
