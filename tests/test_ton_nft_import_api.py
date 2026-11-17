@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 import app
 import marketplace
 import ton_connect
-import demo_offers
+import marketplace_offers
 
 
 class TonNftImportApiTests(unittest.TestCase):
