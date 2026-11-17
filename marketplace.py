@@ -23,12 +23,32 @@ from pydantic import BaseModel, Field, field_validator
 DB_PATH = os.getenv("HASSLE_NFT_DB_PATH", os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3")) )
 
 
+def _validate_database_backend_configuration() -> None:
+    """Fail closed when deployment config asks for a backend this build cannot use.
+
+    Until the PostgreSQL adapter is implemented and verified, accepting a
+    DATABASE_URL or non-SQLite backend flag would silently leave writes on the
+    local SQLite volume while operators believe PostgreSQL is active.
+    """
+    backend = os.getenv("HASSLE_NFT_DB_BACKEND", "sqlite").strip().lower()
+    if backend != "sqlite":
+        raise RuntimeError(
+            "Unsupported HASSLE_NFT_DB_BACKEND; this build supports SQLite only"
+        )
+    if os.getenv("DATABASE_URL", "").strip():
+        raise RuntimeError(
+            "DATABASE_URL is configured but PostgreSQL runtime support is not enabled; "
+            "refusing to fall back silently to SQLite"
+        )
+
+
 def _connect_database(database_path: str | Path) -> sqlite3.Connection:
     """Open the shared SQLite database with explicit durability/contention settings.
 
     SQLite remains a single-writer, single-instance deployment baseline; these
     settings reduce transient lock failures but do not replace PostgreSQL.
     """
+    _validate_database_backend_configuration()
     path = Path(database_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), timeout=30, isolation_level=None)
