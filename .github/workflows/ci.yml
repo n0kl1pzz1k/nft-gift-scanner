@@ -27,7 +27,7 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
       - name: Compile all backend modules
-        run: python -m compileall -q app.py bot.py marketplace.py demo_offers.py tests
+        run: python -m compileall -q app.py bot.py marketplace.py marketplace_offers.py ton_connect.py tests
       - name: Run API and security regression tests
         run: python -m unittest discover -s tests -v
 
