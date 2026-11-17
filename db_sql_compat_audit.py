@@ -11,7 +11,17 @@ import re
 from pathlib import Path
 from typing import Any
 
-SOURCE_FILES = ("app.py", "marketplace.py", "marketplace_offers.py", "ton_connect.py")
+SOURCE_FILES = (
+    "app.py",
+    "bot.py",
+    "database.py",
+    "marketplace.py",
+    "marketplace_offers.py",
+    "telegram_business_gift_inventory.py",
+    "telegram_gift_inventory.py",
+    "ton_connect.py",
+    "ton_nft_inventory.py",
+)
 RULES = (
     ("sqlite_connection_factory", re.compile(r"\bsqlite3\.connect\s*\("), "blocker",
      "Replace direct SQLite connection factories with an explicit backend connection boundary."),

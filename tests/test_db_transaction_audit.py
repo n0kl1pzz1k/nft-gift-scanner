@@ -67,7 +67,17 @@ def script_migration(conn):
 
         self.assertEqual(
             report["source_files"],
-            ["app.py", "marketplace.py", "marketplace_offers.py", "ton_connect.py"],
+            [
+                "app.py",
+                "bot.py",
+                "database.py",
+                "marketplace.py",
+                "marketplace_offers.py",
+                "telegram_business_gift_inventory.py",
+                "telegram_gift_inventory.py",
+                "ton_connect.py",
+                "ton_nft_inventory.py",
+            ],
         )
         self.assertEqual(report["parse_errors"], [])
         self.assertGreater(report["mutation_function_count"], 0)
