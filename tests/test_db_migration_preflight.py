@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from pathlib import Path
 
 from db_backup import backup_database
 from db_migration_preflight import build_migration_preflight, _write_report_no_clobber
