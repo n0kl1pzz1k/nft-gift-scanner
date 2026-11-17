@@ -128,6 +128,28 @@ def managed_single_write(conn):
         self.assertEqual(by_name['managed_single_write']['connection_context_count'], 1)
         self.assertFalse(by_name['managed_single_write']['single_statement_autocommit_write'])
 
+    def test_writes_outside_connection_context_are_not_misclassified(self):
+        (self.root / 'marketplace.py').write_text(''' 
+def mixed_scope(conn):
+    with conn:
+        conn.execute("UPDATE listings SET status = 'sold'")
+    conn.execute("INSERT INTO events(id) VALUES ('outside')")
+def fully_managed(conn):
+    with conn:
+        conn.execute("UPDATE listings SET status = 'sold'")
+        conn.execute("INSERT INTO events(id) VALUES ('inside')")
+''', encoding='utf-8')
+        report = audit_transaction_boundaries(self.root)
+        by_name = {item['function']: item for item in report['functions']}
+        mixed = by_name['mixed_scope']
+        self.assertEqual(mixed['connection_context_mutation_count'], 1)
+        self.assertEqual(mixed['mutations_outside_connection_context'], 1)
+        self.assertTrue(mixed['multi_statement_mutation_without_explicit_begin'])
+        managed = by_name['fully_managed']
+        self.assertEqual(managed['connection_context_mutation_count'], 2)
+        self.assertEqual(managed['mutations_outside_connection_context'], 0)
+        self.assertFalse(managed['multi_statement_mutation_without_explicit_begin'])
+
     def test_database_factory_context_manager_is_detected(self):
         (self.root / 'marketplace.py').write_text('''
 def _db():
