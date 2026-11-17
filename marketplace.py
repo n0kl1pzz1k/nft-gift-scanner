@@ -834,14 +834,27 @@ def release_telegram_update(update_id: int) -> None:
         )
 
 
+def _is_isolated_test_runtime() -> bool:
+    """Return true only for an explicitly marked test runtime outside Railway production."""
+    app_env = os.getenv("APP_ENV", "").strip().lower()
+    railway_env = os.getenv("RAILWAY_ENVIRONMENT_NAME", "").strip().lower()
+    return app_env in {"test", "testing"} and railway_env != "production"
+
+
 def _test_unverified_assets_allowed() -> bool:
-    """Explicit compatibility switch used only by legacy automated tests."""
-    return os.getenv("HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS", "false").strip().lower() == "true"
+    """Allow legacy unverified fixtures only in an explicitly isolated test runtime."""
+    return (
+        _is_isolated_test_runtime()
+        and os.getenv("HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS", "false").strip().lower() == "true"
+    )
 
 
 def _test_ton_owner_recheck_skipped() -> bool:
-    """Never configure in production; allows isolated unit tests to bypass the indexer."""
-    return os.getenv("HASSLE_TEST_SKIP_TON_OWNER_RECHECK", "false").strip().lower() == "true"
+    """Allow skipping live TON owner checks only in isolated tests, never production."""
+    return (
+        _is_isolated_test_runtime()
+        and os.getenv("HASSLE_TEST_SKIP_TON_OWNER_RECHECK", "false").strip().lower() == "true"
+    )
 
 
 def register_verified_asset(*, source: str, external_asset_id: str, owner_telegram_id: str,
