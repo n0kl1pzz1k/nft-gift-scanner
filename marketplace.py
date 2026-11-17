@@ -12,33 +12,28 @@ import sqlite3
 import time
 import uuid
 from urllib.parse import urlparse
-from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
 from typing import Callable, Literal, Any
+from contextlib import contextmanager
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
-DB_PATH = os.getenv("HASSLE_NFT_DB_PATH", os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3")) )
+from database import DB_PATH, connect_database as _connect_database
 
 
-def _connect_database(database_path: str | Path) -> sqlite3.Connection:
-    """Open the shared SQLite database with explicit durability/contention settings.
+def _connect() -> sqlite3.Connection:
+    # Keep DB_PATH patchable for isolated tests and legacy callers.
+    return _connect_database(DB_PATH)
 
-    SQLite remains a single-writer, single-instance deployment baseline; these
-    settings reduce transient lock failures but do not replace PostgreSQL.
-    """
-    path = Path(database_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=30, isolation_level=None)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA busy_timeout = 30000")
-    conn.execute("PRAGMA synchronous = FULL")
-    conn.execute("PRAGMA temp_store = MEMORY")
-    return conn
 
+@contextmanager
+def _db():
+    connection = _connect()
+    try:
+        yield connection
+    finally:
+        connection.close()
 
 
 _LEGACY_MARKETPLACE_TABLE_RENAMES = (
@@ -96,20 +91,6 @@ def _migrate_legacy_marketplace_table_names(conn: sqlite3.Connection) -> None:
         conn.execute(f'DROP TRIGGER IF EXISTS "{trigger_name}"')
     for index_name in _LEGACY_MARKETPLACE_INDEXES:
         conn.execute(f'DROP INDEX IF EXISTS "{index_name}"')
-
-
-def _connect() -> sqlite3.Connection:
-    return _connect_database(DB_PATH)
-
-
-@contextmanager
-def _db():
-    conn = _connect()
-    try:
-        yield conn
-    finally:
-        conn.close()
-
 
 
 def _migrate_legacy_order_event_types(conn: sqlite3.Connection) -> None:
