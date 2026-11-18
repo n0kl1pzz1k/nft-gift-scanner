@@ -14,7 +14,12 @@ from pathlib import Path
 from typing import Any
 
 from db_postgres_ddl_plan import build_postgres_ddl_plan
-from db_schema_audit import _extract_check_constraints, build_schema_manifest
+from db_schema_audit import (
+    _extract_check_constraints,
+    build_postgres_data_preflight,
+    build_postgres_numeric_data_preflight,
+    build_schema_manifest,
+)
 
 
 def _source_counts(manifest: dict[str, Any]) -> dict[str, int]:
@@ -85,14 +90,17 @@ def apply_schema(source_path: str, dsn: str, apply: bool = False, target_schema:
         if integrity != "ok" or fk_errors:
             raise RuntimeError(f"SQLite source is not healthy: integrity={integrity}, foreign_key_errors={fk_errors}")
         manifest = build_schema_manifest(sqlite)
-        data_preflight = _boolean_preflight(sqlite, manifest)
-        plan = build_postgres_ddl_plan(manifest, data_preflight)
+        data_preflight = build_postgres_data_preflight(sqlite, manifest)
+        numeric_preflight = build_postgres_numeric_data_preflight(sqlite, manifest)
+        plan = build_postgres_ddl_plan(manifest, data_preflight, numeric_preflight)
         if plan["blocker_count"]:
             raise RuntimeError(f"PostgreSQL schema plan has {plan['blocker_count']} blocker(s); refusing to apply.")
         source_counts = _source_counts(manifest)
         report: dict[str, Any] = {
             "source_schema_sha256": manifest["schema_sha256"],
             "source_counts": source_counts,
+            "boolean_preflight": data_preflight,
+            "numeric_preflight": numeric_preflight,
             "ddl_statement_count": plan["statement_count"],
             "blocker_count": plan["blocker_count"],
             "applied": False,
