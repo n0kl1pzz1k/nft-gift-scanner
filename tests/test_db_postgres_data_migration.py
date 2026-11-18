@@ -210,6 +210,7 @@ def test_data_copy_suppresses_historical_trigger_side_effects_and_reenables_trig
     import uuid
     import pytest
     import psycopg
+    from psycopg import sql
     from db_backup import backup_database
     from db_postgres_data_migration import migrate
 
