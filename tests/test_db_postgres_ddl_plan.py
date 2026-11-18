@@ -369,11 +369,18 @@ def test_generated_production_trigger_ddl_executes_and_enforces_in_postgres():
 
 
 
+
 def test_verified_asset_immutability_trigger_preserves_update_of_column_scope():
-    manifest = _manifest_with_trigger(
-        "verified_assets_metadata_immutable",
-        "verified_assets",
-        """CREATE TRIGGER verified_assets_metadata_immutable
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE verified_assets (
+            id TEXT PRIMARY KEY, source TEXT, external_asset_id TEXT,
+            owner_telegram_id TEXT, title TEXT, asset_type TEXT, image_url TEXT,
+            verification_method TEXT, verification_reference_hash TEXT,
+            verified_at INTEGER, status TEXT, revoked_at INTEGER
+        );
+        CREATE TRIGGER verified_assets_metadata_immutable
         BEFORE UPDATE OF source, external_asset_id, owner_telegram_id, title, asset_type,
                          image_url, verification_method, verification_reference_hash, verified_at
         ON verified_assets
@@ -385,9 +392,12 @@ def test_verified_asset_immutability_trigger_preserves_update_of_column_scope():
         )
         BEGIN
             SELECT RAISE(ABORT, 'verified asset metadata is immutable');
-        END""",
+        END;
+        """
     )
-    plan = build_postgres_ddl_plan(manifest)
+    plan = build_postgres_ddl_plan(build_schema_manifest(connection))
+    connection.close()
+
     trigger_sql = "\\n".join(plan["statements"])
     assert "BEFORE UPDATE OF source, external_asset_id, owner_telegram_id, title, asset_type" in trigger_sql
     assert "image_url, verification_method, verification_reference_hash, verified_at ON" in trigger_sql
