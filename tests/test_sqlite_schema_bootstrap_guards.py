@@ -51,15 +51,14 @@ def test_marketplace_schema_initializer_fails_before_legacy_migrations():
     assert connection.statements == []
 
 
-def test_marketplace_offers_schema_initializer_fails_before_sql():
+def test_marketplace_offers_schema_initializer_dispatches_to_postgres_bootstrap():
     connection = PostgresLikeConnection()
-    with patch("marketplace_offers._db", return_value=nullcontext(connection)):
-        try:
-            marketplace_offers.init_marketplace_offers_db()
-        except RuntimeError as error:
-            assert "Marketplace offers schema initialization requires SQLite" in str(error)
-        else:
-            raise AssertionError("SQLite-only offers bootstrap must fail closed")
+    with patch("marketplace_offers._db", return_value=nullcontext(connection)), patch(
+        "marketplace_offers_postgres.initialize_postgres_offer_schema",
+        return_value={"verified": True},
+    ) as initialize:
+        marketplace_offers.init_marketplace_offers_db()
+    initialize.assert_called_once_with(connection)
     assert connection.statements == []
 
 
