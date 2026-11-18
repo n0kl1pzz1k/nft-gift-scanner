@@ -244,4 +244,10 @@ class StagedPostgresConnectionFactoryTests(unittest.TestCase):
         raw.close.assert_called_once()
 
         # The production factory remains explicitly SQLite-backed.
-        self.assertIsInstance(connect(), sqlite3.Connection)
+        with patch("database.connect_database", return_value=sqlite3.connect(":memory:")) as sqlite_factory:
+            default_connection = connect()
+            try:
+                self.assertIsInstance(default_connection, sqlite3.Connection)
+                sqlite_factory.assert_called_once()
+            finally:
+                default_connection.close()
