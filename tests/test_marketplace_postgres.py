@@ -102,3 +102,119 @@ def test_postgres_core_marketplace_bootstrap_rejects_non_postgres_connection():
 
     with pytest.raises(TypeError, match="PostgreSQL adapter"):
         initialize_postgres_marketplace_schema(SQLiteLikeConnection())
+
+
+
+def test_postgres_runtime_smoke_initializes_auth_assets_listing_and_readiness():
+    """Exercise real marketplace request paths through the opt-in PostgreSQL factory."""
+    import asyncio
+    from contextlib import contextmanager
+    from unittest.mock import patch
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    import psycopg
+    import database
+    import marketplace
+    import marketplace_offers
+    import ton_connect
+    from marketplace import create_marketplace_router
+    from marketplace_offers import create_marketplace_offers_router
+    from ton_connect import init_ton_connect_db
+
+    schema = "runtime_smoke_" + uuid.uuid4().hex[:10]
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(f'CREATE SCHEMA "{schema}"')
+
+    original_factory = database.connect_postgres_database
+
+    def connect_in_schema(configured_dsn):
+        connection = original_factory(configured_dsn)
+        connection.execute(f'SET search_path TO "{schema}"')
+        return connection
+
+    @contextmanager
+    def scoped_connection():
+        connection = connect_in_schema(dsn)
+        try:
+            yield connection
+        finally:
+            connection.close()
+
+    try:
+        with patch.dict(os.environ, {
+            "HASSLE_NFT_DB_BACKEND": "postgres",
+            "DATABASE_URL": dsn,
+            "HASSLE_VERIFIED_ASSETS_ENABLED": "true",
+        }, clear=False), patch(
+            "database.connect_postgres_database", side_effect=connect_in_schema
+        ), patch.object(marketplace, "_db", side_effect=scoped_connection), patch.object(
+            marketplace_offers, "_db", side_effect=scoped_connection
+        ), patch.object(ton_connect, "_db", side_effect=scoped_connection):
+            marketplace.init_marketplace_db()
+            marketplace_offers.init_marketplace_offers_db()
+            init_ton_connect_db()
+
+            user = marketplace.upsert_telegram_user({
+                "id": "123456789", "username": "postgres_smoke",
+                "first_name": "Postgres", "language_code": "en",
+            })
+            assert user["id"] == "123456789"
+
+            token = marketplace.create_telegram_session("123456789")
+            session_user = marketplace.get_telegram_session_user(token)
+            assert session_user and session_user["id"] == "123456789"
+
+            init_data = "hash=" + ("a" * 64)
+            assert marketplace.consume_telegram_init_data(init_data, "123456789") is True
+            assert marketplace.consume_telegram_init_data(init_data, "123456789") is False
+
+            asset = marketplace.register_verified_asset(
+                source="telegram_gift",
+                external_asset_id="gift-postgres-smoke",
+                owner_telegram_id="123456789",
+                title="Verified PostgreSQL Gift",
+                asset_type="gift",
+                image_url="",
+                verification_method="telegram_gift_owner",
+                verification_reference="verified-reference-postgres-smoke",
+            )
+            assert asset["owner_telegram_id"] == "123456789"
+
+            api = FastAPI()
+            verify_user = lambda _value: {
+                "id": "123456789", "first_name": "Postgres",
+                "username": "postgres_smoke",
+            }
+            api.include_router(create_marketplace_router(verify_user))
+            api.include_router(create_marketplace_offers_router(verify_user))
+            with patch.object(marketplace, "_verified_asset_actions_enabled", return_value=True):
+                with TestClient(api) as client:
+                    response = client.post(
+                        "/api/marketplace/orders",
+                        headers={"X-Telegram-Init-Data": "verified-test-credential"},
+                        json={
+                            "kind": "listing",
+                            "asset_id": asset["id"],
+                            "title": "Client title must not override verified metadata",
+                            "price": "12.5",
+                            "currency": "TON",
+                            "note": "PostgreSQL runtime smoke test",
+                        },
+                    )
+            assert response.status_code == 201, response.text
+            assert response.json()["item"]["title"] == "Verified PostgreSQL Gift"
+
+            app_module = __import__("app")
+            readiness = asyncio.run(app_module.readiness())
+            assert readiness["status"] == "ready"
+
+    finally:
+        with psycopg.connect(dsn, autocommit=True) as admin:
+            admin.execute("SET search_path TO public")
+            admin.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
