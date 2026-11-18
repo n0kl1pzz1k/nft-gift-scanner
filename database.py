@@ -113,8 +113,33 @@ def require_sqlite_connection(connection: object, operation: str) -> sqlite3.Con
     return connection
 
 
+def connect_postgres_database(dsn: str):
+    """Open a staged PostgreSQL connection without changing the production default.
+
+    This explicit factory is for isolated integration tests and reviewed
+    migration tooling only. The application connection factory remains
+    SQLite until all runtime compatibility blockers have been resolved.
+    """
+    if not isinstance(dsn, str) or not dsn.strip():
+        raise ValueError("A non-empty PostgreSQL DSN is required")
+
+    try:
+        import psycopg
+    except ImportError as error:
+        raise RuntimeError("PostgreSQL support requires the psycopg package") from error
+
+    from db_postgres_compat import PostgresConnectionAdapter
+
+    connection = psycopg.connect(dsn.strip(), autocommit=True)
+    try:
+        return PostgresConnectionAdapter(connection)
+    except BaseException:
+        connection.close()
+        raise
+
+
 def connect() -> sqlite3.Connection:
-    """Open the configured application database."""
+    """Open the configured application database (SQLite until runtime cutover)."""
     return connect_database(DB_PATH)
 
 
