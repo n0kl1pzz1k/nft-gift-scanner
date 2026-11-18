@@ -250,7 +250,7 @@ def test_data_copy_suppresses_historical_trigger_side_effects_and_reenables_trig
         pg.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
         try:
             pg.execute("CREATE TABLE marketplace_orders (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL, owner_name TEXT NOT NULL, status TEXT NOT NULL, updated_at BIGINT NOT NULL)")
-            pg.execute("CREATE TABLE marketplace_offers (id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES marketplace_orders(id), sender_user_id TEXT NOT NULL, sender_name TEXT NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)")
+            pg.execute("CREATE TABLE marketplace_offers (id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES marketplace_orders(id) DEFERRABLE INITIALLY DEFERRED, sender_user_id TEXT NOT NULL, sender_name TEXT NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)")
             pg.execute("CREATE TABLE marketplace_notifications (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, event_type TEXT NOT NULL, offer_id TEXT, order_id TEXT, order_title TEXT, actor_name TEXT, created_at BIGINT NOT NULL)")
             pg.execute(
                 """
