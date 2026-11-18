@@ -79,7 +79,7 @@ def test_shadow_migration_rolls_back_schema_and_rows_on_ddl_failure(tmp_path):
     schema = "mig_shadow_rollback_" + uuid.uuid4().hex[:10]
     with psycopg.connect(dsn, autocommit=True) as pg:
         try:
-            with pytest.raises(psycopg.Error):
+            with pytest.raises(RuntimeError, match="numeric conversion has 1 unsafe column"):
                 run_shadow_migration(
                     str(source_path), str(tmp_path / "bad-backup.sqlite3"),
                     dsn, execute=True, target_schema=schema,
