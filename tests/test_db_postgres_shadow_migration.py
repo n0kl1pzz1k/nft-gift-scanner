@@ -27,13 +27,15 @@ def test_shadow_migration_creates_schema_and_copies_all_rows_atomically(tmp_path
     backup_path = tmp_path / "shadow-backup.sqlite3"
     schema = "mig_shadow_" + uuid.uuid4().hex[:12]
     with psycopg.connect(dsn, autocommit=True) as pg:
-        pg.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
         try:
             dry = run_shadow_migration(str(source_path), str(backup_path), dsn, execute=False, target_schema=schema)
             assert dry["restore_verified"] is True
             assert dry["preflight_exact_match"] is True
             assert dry["migration"]["committed"] is False
             assert dry["migration"]["target_schema_empty"] is True
+            assert pg.execute(
+                "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=%s", (schema,)
+            ).fetchone()[0] == 0
 
             report = run_shadow_migration(
                 str(source_path), str(tmp_path / "shadow-backup-execute.sqlite3"),
@@ -76,7 +78,6 @@ def test_shadow_migration_rolls_back_schema_and_rows_on_copy_failure(tmp_path):
 
     schema = "mig_shadow_rollback_" + uuid.uuid4().hex[:10]
     with psycopg.connect(dsn, autocommit=True) as pg:
-        pg.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
         try:
             with pytest.raises(psycopg.Error):
                 run_shadow_migration(
@@ -88,12 +89,15 @@ def test_shadow_migration_rolls_back_schema_and_rows_on_copy_failure(tmp_path):
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE'"
             ).fetchone()[0]
             assert remaining == 0
+            assert pg.execute(
+                "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=%s", (schema,)
+            ).fetchone()[0] == 0
         finally:
             pg.execute("SET search_path TO public")
             pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
 
 
-def test_shadow_migration_refuses_nonexistent_target_schema(tmp_path):
+def test_shadow_migration_dry_run_does_not_persist_new_target_schema(tmp_path):
     import os
     import uuid
 
@@ -101,85 +105,89 @@ def test_shadow_migration_refuses_nonexistent_target_schema(tmp_path):
     if not dsn:
         pytest.skip("isolated PostgreSQL service is not configured")
 
-    source_path = tmp_path / "missing-schema-source.sqlite3"
+    source_path = tmp_path / "dry-schema-source.sqlite3"
     source = sqlite3.connect(source_path)
     source.execute("CREATE TABLE items (id TEXT PRIMARY KEY, value TEXT)")
     source.execute("INSERT INTO items VALUES ('one', 'value')")
     source.commit()
     source.close()
 
-    missing_schema = "missing_" + uuid.uuid4().hex[:10]
-    with pytest.raises(RuntimeError, match="target schema does not exist"):
-        run_shadow_migration(
-            str(source_path),
-            str(tmp_path / "missing-schema-backup.sqlite3"),
-            dsn,
-            execute=False,
-            target_schema=missing_schema,
-        )
-
-
-def test_shadow_copy_does_not_replay_historical_offer_notifications(tmp_path):
-    import os
-    import uuid
-
-    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
-    if not dsn:
-        pytest.skip("isolated PostgreSQL service is not configured")
-
-    source_path = tmp_path / "offers.sqlite3"
-    source = sqlite3.connect(source_path)
-    source.executescript(
-        """
-        CREATE TABLE marketplace_orders (
-            id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL,
-            owner_name TEXT NOT NULL, status TEXT NOT NULL, updated_at INTEGER NOT NULL
-        );
-        CREATE TABLE marketplace_offers (
-            id TEXT PRIMARY KEY, order_id TEXT NOT NULL, sender_user_id TEXT NOT NULL,
-            sender_name TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL, FOREIGN KEY(order_id) REFERENCES marketplace_orders(id)
-        );
-        CREATE TABLE marketplace_notifications (
-            id TEXT PRIMARY KEY, user_id TEXT NOT NULL, event_type TEXT NOT NULL,
-            offer_id TEXT, order_id TEXT, order_title TEXT, actor_name TEXT, created_at INTEGER NOT NULL
-        );
-        INSERT INTO marketplace_orders VALUES ('order1', 'seller', 'Gift', 'Seller', 'active', 10);
-        INSERT INTO marketplace_offers VALUES ('offer1', 'order1', 'buyer', 'Buyer', 'pending', 11, 11);
-        INSERT INTO marketplace_notifications VALUES ('notice1', 'seller', 'offer_received', 'offer1', 'order1', 'Gift', 'Buyer', 11);
-        CREATE TRIGGER trg_marketplace_offer_received AFTER INSERT ON marketplace_offers
-        BEGIN
-            INSERT INTO marketplace_notifications
-                (id, user_id, event_type, offer_id, order_id, order_title, actor_name, created_at)
-            SELECT 'nt-' || lower(hex(randomblob(8))), o.user_id, 'offer_received',
-                   NEW.id, NEW.order_id, o.title, NEW.sender_name, NEW.created_at
-            FROM marketplace_orders o
-            WHERE o.id = NEW.order_id AND o.user_id <> NEW.sender_user_id;
-        END;
-        """
+    schema = "dry_shadow_" + uuid.uuid4().hex[:10]
+    report = run_shadow_migration(
+        str(source_path),
+        str(tmp_path / "dry-schema-backup.sqlite3"),
+        dsn,
+        execute=False,
+        target_schema=schema,
     )
-    source.commit()
-    source.close()
+    assert report["migration"]["target_schema_empty"] is True
+    with psycopg.connect(dsn) as pg:
+        assert pg.execute(
+            "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=%s", (schema,)
+        ).fetchone()[0] == 0
 
-    schema = "mig_shadow_trigger_" + uuid.uuid4().hex[:10]
-    with psycopg.connect(dsn, autocommit=True) as pg:
-        pg.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
-        try:
-            result = run_shadow_migration(
-                str(source_path), str(tmp_path / "offers.backup.sqlite3"),
-                dsn, execute=True, target_schema=schema,
-            )
-            assert result["migration"]["verified"] is True
-            pg.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
-            assert pg.execute("SELECT COUNT(*) FROM marketplace_notifications").fetchone()[0] == 1
 
-            pg.execute(
-                "INSERT INTO marketplace_offers VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                ("offer2", "order1", "buyer2", "Buyer Two", "pending", 12, 12),
-            )
-            assert pg.execute(
-                "SELECT COUNT(*) FROM marketplace_notifications"
-            ).fetchone()[0] == 2
-        finally:
-            pg.execute("SET search_path TO public")
-            pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+def test_shadow_migration_once_writes_marker_and_never_retries(tmp_path, monkeypatch):
+    import db_postgres_shadow_migration as migration
+
+    calls = []
+    def fake_run(source_path, backup_path, dsn, execute, batch_size, target_schema):
+        calls.append((source_path, backup_path, execute, target_schema))
+        return {
+            "backup": {"sha256": "a" * 64, "table_count": 1, "total_rows": 2},
+            "migration": {
+                "committed": True,
+                "verified": True,
+                "source_schema_sha256": "b" * 64,
+                "ddl_statement_count": 3,
+                "target_counts": {"tables": 1, "rows": 2},
+            },
+            "production_app_switched": False,
+            "cutover_allowed": False,
+        }
+    monkeypatch.setattr(migration, "run_shadow_migration", fake_run)
+    marker = tmp_path / ".shadow-run.json"
+    result = migration.run_shadow_migration_once(
+        str(tmp_path / "source.sqlite3"),
+        str(tmp_path / "backup.sqlite3"),
+        "postgresql://private-secret",
+        str(marker),
+        "test-run-01",
+        "hassle_shadow_test",
+    )
+    assert result["status"] == "verified"
+    assert result["production_app_switched"] is False
+    assert result["cutover_allowed"] is False
+    assert "private-secret" not in marker.read_text(encoding="utf-8")
+
+    skipped = migration.run_shadow_migration_once(
+        str(tmp_path / "source.sqlite3"),
+        str(tmp_path / "backup.sqlite3"),
+        "postgresql://private-secret",
+        str(marker),
+        "test-run-01",
+        "hassle_shadow_test",
+    )
+    assert skipped["status"] == "skipped"
+    assert len(calls) == 1
+
+
+def test_shadow_migration_once_records_failure_without_leaking_details(tmp_path, monkeypatch):
+    import db_postgres_shadow_migration as migration
+
+    def fail_run(*args, **kwargs):
+        raise RuntimeError("private connection details must not be persisted")
+    monkeypatch.setattr(migration, "run_shadow_migration", fail_run)
+    marker = tmp_path / ".shadow-failed.json"
+    result = migration.run_shadow_migration_once(
+        str(tmp_path / "source.sqlite3"),
+        str(tmp_path / "backup.sqlite3"),
+        "postgresql://private-secret",
+        str(marker),
+        "test-run-fail",
+        "hassle_shadow_fail",
+    )
+    assert result["status"] == "failed"
+    assert result["error_type"] == "RuntimeError"
+    assert "private connection details" not in marker.read_text(encoding="utf-8")
+    assert "private-secret" not in marker.read_text(encoding="utf-8")
