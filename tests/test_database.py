@@ -48,3 +48,35 @@ class DatabaseConnectionBoundaryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DatabaseBackendConfigurationTests(unittest.TestCase):
+    def test_database_url_without_explicit_sqlite_selection_fails_closed(self):
+        from database import validate_database_configuration
+
+        secret = "postgresql://user:private-password@example.invalid/db"
+        with self.assertRaisesRegex(RuntimeError, "DATABASE_URL is configured") as raised:
+            validate_database_configuration({"DATABASE_URL": secret})
+        self.assertNotIn("private-password", str(raised.exception))
+
+    def test_explicit_sqlite_selection_is_supported_even_if_database_url_exists(self):
+        from database import validate_database_configuration
+
+        self.assertEqual(
+            validate_database_configuration({
+                "DATABASE_URL": "postgresql://unused",
+                "HASSLE_NFT_DB_BACKEND": "sqlite",
+            }),
+            "sqlite",
+        )
+
+    def test_unsupported_backend_selection_fails_closed_without_echoing_dsn(self):
+        from database import validate_database_configuration
+
+        secret = "postgresql://private-password@example.invalid/db"
+        with self.assertRaisesRegex(RuntimeError, "not supported") as raised:
+            validate_database_configuration({
+                "HASSLE_NFT_DB_BACKEND": "postgres",
+                "DATABASE_URL": secret,
+            })
+        self.assertNotIn("private-password", str(raised.exception))
