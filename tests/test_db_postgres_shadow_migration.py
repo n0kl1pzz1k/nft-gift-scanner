@@ -68,9 +68,9 @@ def test_shadow_migration_rolls_back_schema_and_rows_on_ddl_failure(tmp_path):
     source.executescript(
         """
         CREATE TABLE a_items (id TEXT PRIMARY KEY, value TEXT NOT NULL);
-        CREATE TABLE b_items (id TEXT PRIMARY KEY, value INTEGER NOT NULL CHECK(value <> 'reject'));
+        CREATE TABLE b_items (id TEXT PRIMARY KEY, value INTEGER NOT NULL CHECK(value > 0));
         INSERT INTO a_items VALUES ('a1', 'valid');
-        INSERT INTO b_items VALUES ('b1', 1);
+        INSERT INTO b_items VALUES ('b1', -1);
         """
     )
     source.commit()
