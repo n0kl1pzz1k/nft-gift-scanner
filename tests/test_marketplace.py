@@ -817,6 +817,42 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(updated.json()["item"]["note"], "new note")
         self.assertGreaterEqual(updated.json()["item"]["updatedAt"], created.json()["item"]["updatedAt"])
 
+    def test_order_edit_rolls_back_when_revision_insert_fails(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        created = self.client.post(
+            "/api/marketplace/orders",
+            headers=owner_headers,
+            json={"kind": "listing", "title": "Edit rollback gift", "price": "2.5", "currency": "TON", "note": "original"},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        order_id = created.json()["item"]["id"]
+
+        with marketplace._db() as conn:
+            conn.execute(
+                """CREATE TRIGGER fail_order_revision_insert
+                   BEFORE INSERT ON marketplace_order_revisions
+                   BEGIN SELECT RAISE(ABORT, 'injected order revision failure'); END"""
+            )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.client.patch(
+                f"/api/marketplace/orders/{order_id}",
+                headers=owner_headers,
+                json={"price": "3.75", "note": "must not persist"},
+            )
+
+        with marketplace._db() as conn:
+            order = conn.execute(
+                "SELECT price, note FROM marketplace_orders WHERE id = ?", (order_id,)
+            ).fetchone()
+            revision_count = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_order_revisions WHERE order_id = ?",
+                (order_id,),
+            ).fetchone()[0]
+        self.assertEqual(order["price"], "2.5")
+        self.assertEqual(order["note"], "original")
+        self.assertEqual(revision_count, 0)
+
     def test_order_edits_are_recorded_in_private_history_and_activity(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         other_headers = {"X-Telegram-Init-Data": "user-b"}
