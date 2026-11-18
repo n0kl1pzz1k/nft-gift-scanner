@@ -139,7 +139,11 @@ END;"""
         return [prefix + body + suffix, trigger]
     return None
 
-def build_postgres_ddl_plan(manifest: dict[str, Any], data_preflight: dict[str, Any] | None = None) -> dict[str, Any]:
+def build_postgres_ddl_plan(
+    manifest: dict[str, Any],
+    data_preflight: dict[str, Any] | None = None,
+    numeric_preflight: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Render candidate CREATE/ALTER statements and explicit blockers."""
     structural = build_postgres_migration_plan(manifest)
     source_tables = {str(item.get("name", "")): item for item in manifest.get("tables", [])}
@@ -147,6 +151,11 @@ def build_postgres_ddl_plan(manifest: dict[str, Any], data_preflight: dict[str, 
     statements: list[str] = []
     blockers: list[dict[str, str]] = []
     deferred_fk_count = 0
+    numeric_profiles = {
+        (str(item.get("table", "")), str(item.get("column", ""))): item
+        for item in (numeric_preflight or {}).get("columns", [])
+    }
+    numeric_type_overrides: list[dict[str, Any]] = []
 
     for table_name in structural["table_creation_order"]:
         source = source_tables[table_name]
@@ -163,10 +172,24 @@ def build_postgres_ddl_plan(manifest: dict[str, Any], data_preflight: dict[str, 
             candidate = next((item for item in planned["columns"] if item["name"] == column_name), None)
             if candidate is None:
                 continue
-            definition = f"{_q(column_name)} {candidate['postgresql_type_candidate']}"
+            numeric_profile = numeric_profiles.get((table_name, column_name))
+            candidate_type = (
+                str(numeric_profile["postgresql_type_candidate"])
+                if numeric_profile and numeric_profile.get("numeric_conversion_safe")
+                else str(candidate["postgresql_type_candidate"])
+            )
+            if numeric_profile and candidate_type != str(candidate["postgresql_type_candidate"]):
+                numeric_type_overrides.append({
+                    "table": table_name,
+                    "column": column_name,
+                    "from": str(candidate["postgresql_type_candidate"]),
+                    "to": candidate_type,
+                    "real_value_count": int(numeric_profile.get("real_value_count", 0)),
+                })
+            definition = f"{_q(column_name)} {candidate_type}"
             if candidate["not_null"]:
                 definition += " NOT NULL"
-            translated_default = _translate_default(candidate["sqlite_default_expression"], candidate["postgresql_type_candidate"])
+            translated_default = _translate_default(candidate["sqlite_default_expression"], candidate_type)
             if candidate["sqlite_default_expression"] is not None:
                 if translated_default is None:
                     blockers.append({"table": table_name, "feature": f"default on {column_name}", "reason": f"SQLite default {candidate['sqlite_default_expression']!r} is not safely translatable."})
@@ -250,6 +273,19 @@ def build_postgres_ddl_plan(manifest: dict[str, Any], data_preflight: dict[str, 
                     ),
                 })
 
+    if numeric_preflight is not None:
+        for profile in numeric_preflight.get("columns", []):
+            if not profile.get("numeric_conversion_safe", False):
+                blockers.append({
+                    "table": str(profile.get("table", "")),
+                    "feature": f"unsafe numeric data on {profile.get('column', '')}",
+                    "reason": (
+                        f"Cannot map numeric column safely: non-numeric values={int(profile.get('non_numeric_value_count', 0))}, "
+                        f"NULL values={int(profile.get('null_value_count', 0))}, nullable={bool(profile.get('nullable'))}, "
+                        f"primary_key={bool(profile.get('primary_key'))}, REAL values={int(profile.get('real_value_count', 0))}."
+                    ),
+                })
+
     return {
         "format_version": 1,
         "target_engine": "postgresql",
@@ -258,6 +294,8 @@ def build_postgres_ddl_plan(manifest: dict[str, Any], data_preflight: dict[str, 
         "statement_count": len(statements),
         "statements": statements,
         "deferred_foreign_key_count": deferred_fk_count,
+        "numeric_type_override_count": len(numeric_type_overrides),
+        "numeric_type_overrides": numeric_type_overrides,
         "trigger_translation_count": sum(1 for item in manifest.get("objects", []) if item.get("type") == "trigger") - sum(1 for item in blockers if item["feature"].startswith("trigger ")),
         "blocker_count": len(blockers),
         "blockers": blockers,
