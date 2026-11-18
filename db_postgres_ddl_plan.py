@@ -147,6 +147,11 @@ def build_postgres_ddl_plan(manifest: dict[str, Any], data_preflight: dict[str, 
     statements: list[str] = []
     blockers: list[dict[str, str]] = []
     deferred_fk_count = 0
+    integer_profiles = {
+        (str(item.get("table", "")), str(item.get("column", ""))): item
+        for item in (data_preflight or {}).get("integer_columns", [])
+    }
+    integer_type_overrides: list[dict[str, Any]] = []
 
     for table_name in structural["table_creation_order"]:
         source = source_tables[table_name]
@@ -163,10 +168,24 @@ def build_postgres_ddl_plan(manifest: dict[str, Any], data_preflight: dict[str, 
             candidate = next((item for item in planned["columns"] if item["name"] == column_name), None)
             if candidate is None:
                 continue
-            definition = f"{_q(column_name)} {candidate['postgresql_type_candidate']}"
+            integer_profile = integer_profiles.get((table_name, column_name))
+            candidate_type = (
+                str(integer_profile["postgresql_type_candidate"])
+                if integer_profile and integer_profile.get("integer_conversion_safe")
+                else str(candidate["postgresql_type_candidate"])
+            )
+            if integer_profile and integer_profile.get("type_override"):
+                integer_type_overrides.append({
+                    "table": table_name,
+                    "column": column_name,
+                    "from": str(candidate["postgresql_type_candidate"]),
+                    "to": candidate_type,
+                    "real_storage_count": int(integer_profile.get("real_storage_count", 0)),
+                })
+            definition = f"{_q(column_name)} {candidate_type}"
             if candidate["not_null"]:
                 definition += " NOT NULL"
-            translated_default = _translate_default(candidate["sqlite_default_expression"], candidate["postgresql_type_candidate"])
+            translated_default = _translate_default(candidate["sqlite_default_expression"], candidate_type)
             if candidate["sqlite_default_expression"] is not None:
                 if translated_default is None:
                     blockers.append({"table": table_name, "feature": f"default on {column_name}", "reason": f"SQLite default {candidate['sqlite_default_expression']!r} is not safely translatable."})
@@ -270,6 +289,8 @@ def build_postgres_ddl_plan(manifest: dict[str, Any], data_preflight: dict[str, 
         "statement_count": len(statements),
         "statements": statements,
         "deferred_foreign_key_count": deferred_fk_count,
+        "integer_type_override_count": len(integer_type_overrides),
+        "integer_type_overrides": integer_type_overrides,
         "trigger_translation_count": sum(1 for item in manifest.get("objects", []) if item.get("type") == "trigger") - sum(1 for item in blockers if item["feature"].startswith("trigger ")),
         "blocker_count": len(blockers),
         "blockers": blockers,
