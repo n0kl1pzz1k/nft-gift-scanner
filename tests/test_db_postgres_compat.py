@@ -143,3 +143,34 @@ class PostgresWriteTransactionIntegrationTests(unittest.TestCase):
             first_adapter.close()
             second.rollback()
             second.close()
+
+
+    def test_write_transaction_rolls_back_and_commits_through_adapter(self):
+        dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+        if not dsn:
+            self.skipTest("isolated PostgreSQL service is not configured")
+        import uuid
+        import psycopg
+
+        table = "adapter_tx_" + uuid.uuid4().hex
+        raw = psycopg.connect(dsn, autocommit=True)
+        adapter = PostgresConnectionAdapter(raw)
+        try:
+            adapter.execute(f"CREATE TEMP TABLE {table} (id INTEGER PRIMARY KEY)")
+            adapter.begin_write(f"test-adapter-rollback:{table}")
+            adapter.execute(f"INSERT INTO {table} (id) VALUES (?)", (1,))
+            adapter.rollback()
+            rolled_back = adapter.execute(
+                f"SELECT COUNT(*) AS count FROM {table}"
+            ).fetchone()
+            self.assertEqual(rolled_back["count"], 0)
+
+            adapter.begin_write(f"test-adapter-commit:{table}")
+            adapter.execute(f"INSERT INTO {table} (id) VALUES (?)", (2,))
+            adapter.commit()
+            committed = adapter.execute(
+                f"SELECT id FROM {table} ORDER BY id"
+            ).fetchall()
+            self.assertEqual([row["id"] for row in committed], [2])
+        finally:
+            adapter.close()
