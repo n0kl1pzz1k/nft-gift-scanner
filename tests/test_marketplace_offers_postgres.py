@@ -93,3 +93,94 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
         finally:
             pg.execute("SET search_path TO public")
             pg.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+
+
+def test_postgres_offer_schema_bootstrap_is_idempotent_and_creates_all_objects():
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    from psycopg.rows import dict_row
+    from marketplace_offers_postgres import initialize_postgres_offer_schema
+
+    schema = "offer_schema_" + uuid.uuid4().hex[:10]
+    with psycopg.connect(dsn, autocommit=True, row_factory=dict_row) as pg:
+        try:
+            pg.execute(f'CREATE SCHEMA "{schema}"')
+            pg.execute(f'SET search_path TO "{schema}"')
+            pg.execute("""
+                CREATE TABLE marketplace_orders (
+                    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL,
+                    owner_name TEXT NOT NULL, status TEXT NOT NULL, updated_at BIGINT NOT NULL
+                )
+            """)
+
+            class Adapter:
+                supports_for_update = True
+
+                def execute(self, statement, parameters=()):
+                    return pg.execute(statement, parameters)
+
+            adapter = Adapter()
+            first = initialize_postgres_offer_schema(adapter)
+            second = initialize_postgres_offer_schema(adapter)
+            assert first["verified"] is True
+            assert second["verified"] is True
+            assert first["trigger_report"]["triggers_installed"] == 7
+
+            tables = {
+                row["table_name"]
+                for row in pg.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = current_schema() AND table_type='BASE TABLE'"
+                ).fetchall()
+            }
+            assert {
+                "marketplace_orders", "marketplace_offers", "marketplace_deals",
+                "marketplace_deal_events", "marketplace_deal_lifecycle_events",
+                "marketplace_notifications",
+            } <= tables
+
+            indexes = {
+                row["indexname"]
+                for row in pg.execute(
+                    "SELECT indexname FROM pg_indexes WHERE schemaname=current_schema()"
+                ).fetchall()
+            }
+            assert "idx_marketplace_deals_one_open_reservation" in indexes
+        finally:
+            pg.execute("SET search_path TO public")
+            pg.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+
+
+def test_postgres_offer_schema_bootstrap_rejects_legacy_permanent_order_unique_index():
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    from psycopg.rows import dict_row
+    from marketplace_offers_postgres import initialize_postgres_offer_schema
+
+    schema = "offer_legacy_" + uuid.uuid4().hex[:10]
+    with psycopg.connect(dsn, autocommit=True, row_factory=dict_row) as pg:
+        try:
+            pg.execute(f'CREATE SCHEMA "{schema}"')
+            pg.execute(f'SET search_path TO "{schema}"')
+            pg.execute("CREATE TABLE marketplace_orders (id TEXT PRIMARY KEY)")
+            pg.execute("""
+                CREATE TABLE marketplace_deals (
+                    id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE
+                )
+            """)
+
+            class Adapter:
+                supports_for_update = True
+
+                def execute(self, statement, parameters=()):
+                    return pg.execute(statement, parameters)
+
+            with pytest.raises(RuntimeError, match="Legacy UNIQUE\\(order_id\\)"):
+                initialize_postgres_offer_schema(Adapter())
+        finally:
+            pg.execute("SET search_path TO public")
+            pg.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
