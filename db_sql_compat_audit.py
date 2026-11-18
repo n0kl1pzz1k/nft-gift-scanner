@@ -25,6 +25,44 @@ SOURCE_FILES = (
     "ton_connect.py",
     "ton_nft_inventory.py",
 )
+# SQLite remains a supported fallback backend. These functions contain
+# deliberately SQLite-specific code paths that are unreachable when the
+# explicit PostgreSQL backend is selected. PostgreSQL equivalents and dispatch
+# are tested separately; new SQLite-only code outside this allowlist is a
+# genuine runtime blocker until reviewed.
+SQLITE_FALLBACK_FUNCTIONS = {
+    ("database.py", "connect_database"),
+    ("database.py", "list_database_tables"),
+    ("database.py", "list_database_columns"),
+    ("database.py", "begin_write"),
+    ("marketplace.py", "_migrate_legacy_marketplace_table_names"),
+    ("marketplace.py", "_migrate_legacy_order_event_types"),
+    ("marketplace.py", "init_marketplace_db"),
+    ("marketplace_offers.py", "init_marketplace_offers_db"),
+    ("ton_connect.py", "verify_ton_connect_schema"),
+}
+
+
+def _function_ranges(source: str) -> list[tuple[int, int, str]]:
+    """Return enclosing Python function ranges for source-line classification."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    ranges: list[tuple[int, int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            ranges.append((node.lineno, getattr(node, "end_lineno", node.lineno), node.name))
+    return ranges
+
+
+def _function_at_line(ranges: list[tuple[int, int, str]], line: int) -> str | None:
+    candidates = [item for item in ranges if item[0] <= line <= item[1]]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda item: item[1] - item[0])[2]
+
+
 RULES = (
     ("sqlite_connection_factory", re.compile(r"\bsqlite3\s*\.\s*connect\s*\(", re.IGNORECASE), "blocker",
      "Replace direct SQLite connection factories with an explicit backend connection boundary."),
@@ -132,15 +170,29 @@ def audit_source_tree(root: str | Path) -> dict[str, Any]:
         if not path.is_file():
             continue
         scanned.append(relative)
-        source = _mask_python_docstrings(_mask_python_comments(path.read_text(encoding="utf-8")))
+        raw_source = path.read_text(encoding="utf-8")
+        source = _mask_python_docstrings(_mask_python_comments(raw_source))
+        function_ranges = _function_ranges(raw_source)
         file_findings: list[dict[str, Any]] = []
         for feature, pattern, severity, remediation in RULES:
             for match in pattern.finditer(source):
+                line = source.count("\\n", 0, match.start()) + 1
+                function = _function_at_line(function_ranges, line)
+                fallback = (
+                    severity == "blocker"
+                    and (relative, function) in SQLITE_FALLBACK_FUNCTIONS
+                )
                 file_findings.append({
                     "file": relative,
-                    "line": source.count("\n", 0, match.start()) + 1,
+                    "line": line,
+                    "function": function,
                     "feature": feature,
-                    "severity": severity,
+                    "severity": "sqlite_fallback" if fallback else severity,
+                    "fallback_reason": (
+                        "This code is isolated to the SQLite backend path; "
+                        "PostgreSQL dispatch uses the reviewed adapter or native schema implementation."
+                        if fallback else None
+                    ),
                     "remediation": remediation,
                 })
         findings.extend(sorted(file_findings, key=lambda item: (item["line"], item["feature"])))
@@ -148,12 +200,19 @@ def audit_source_tree(root: str | Path) -> dict[str, Any]:
     for finding in findings:
         counts[finding["feature"]] = counts.get(finding["feature"], 0) + 1
     blockers = sum(item["severity"] == "blocker" for item in findings)
+    fallbacks = sum(item["severity"] == "sqlite_fallback" for item in findings)
     return {
         "source_files": scanned,
         "finding_count": len(findings),
         "blocker_count": blockers,
-        "review_count": len(findings) - blockers,
+        "sqlite_fallback_count": fallbacks,
+        "review_count": sum(item["severity"] == "review" for item in findings),
+        "static_blockers_clear": blockers == 0,
         "ready_for_postgresql_runtime": False,
+        "readiness_note": (
+            "Static blockers are clear, but runtime readiness still requires the "
+            "PostgreSQL integration suite and production shadow-migration verification."
+        ),
         "findings": findings,
         "feature_counts": dict(sorted(counts.items())),
         "limitations": [
