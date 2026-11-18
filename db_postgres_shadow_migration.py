@@ -327,3 +327,11 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+
+def startup_migration_requested(value: str | None = None) -> bool:
+    """Require the explicit 'execute' value; all other values are inert."""
+    if value is None:
+        value = os.getenv("HASSLE_POSTGRES_SHADOW_MIGRATION", "")
+    return value.strip().lower() == "execute"
