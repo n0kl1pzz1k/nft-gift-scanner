@@ -166,7 +166,7 @@ def main() -> int:
     from db_schema_audit import audit_database
 
     plan = build_postgres_migration_plan(audit_database(args.database))
-    rendered = json.dumps(plan, ensure_ascii=False, indent=2) + "\\n"
+    rendered = json.dumps(plan, ensure_ascii=False, indent=2) + "\n"
     if args.output:
         Path(args.output).expanduser().write_text(rendered, encoding="utf-8")
     else:
