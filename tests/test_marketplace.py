@@ -1080,6 +1080,61 @@ class SharedMarketplaceTests(unittest.TestCase):
         )
         self.assertEqual(duplicate.status_code, 409)
 
+    def test_admin_order_removal_rolls_back_when_cancel_event_insert_fails(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        reporter_headers = {"X-Telegram-Init-Data": "user-b"}
+        created = self.client.post(
+            "/api/marketplace/orders",
+            headers=owner_headers,
+            json={"kind": "listing", "title": "Admin removal rollback", "price": "3", "currency": "TON"},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        order_id = created.json()["item"]["id"]
+        report = self.client.post(
+            f"/api/marketplace/orders/{order_id}/reports",
+            headers=reporter_headers,
+            json={"reason": "scam"},
+        )
+        self.assertEqual(report.status_code, 201, report.text)
+        report_id = report.json()["report"]["id"]
+
+        def admin_check(value):
+            if value != "admin-session":
+                raise api.HTTPException(status_code=403, detail="Administrator access only")
+            return {"id": "999"}
+
+        with marketplace._db() as conn:
+            conn.execute(
+                """CREATE TRIGGER fail_admin_cancel_event
+                   BEFORE INSERT ON marketplace_order_events
+                   WHEN NEW.event_type = 'cancelled'
+                   BEGIN SELECT RAISE(ABORT, 'injected admin cancellation event failure'); END"""
+            )
+
+        with patch.object(api, "_require_admin", side_effect=admin_check):
+            with self.assertRaises(sqlite3.IntegrityError):
+                self.client.patch(
+                    f"/api/marketplace/admin/reports/{report_id}",
+                    headers={"X-Telegram-Init-Data": "admin-session"},
+                    json={"action": "remove_order"},
+                )
+
+        with marketplace._db() as conn:
+            order_status = conn.execute(
+                "SELECT status FROM marketplace_orders WHERE id = ?", (order_id,)
+            ).fetchone()["status"]
+            report_status = conn.execute(
+                "SELECT status FROM marketplace_order_reports WHERE id = ?", (report_id,)
+            ).fetchone()["status"]
+            cancellation_events = conn.execute(
+                """SELECT COUNT(*) FROM marketplace_order_events
+                   WHERE order_id = ? AND event_type = 'cancelled'""",
+                (order_id,),
+            ).fetchone()[0]
+        self.assertEqual(order_status, "active")
+        self.assertEqual(report_status, "open")
+        self.assertEqual(cancellation_events, 0)
+
     def test_admin_can_dismiss_or_remove_reported_orders(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         reporter_headers = {"X-Telegram-Init-Data": "user-b"}
