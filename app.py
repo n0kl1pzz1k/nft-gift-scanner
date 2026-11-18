@@ -7,7 +7,7 @@ import hashlib
 import logging
 
 import marketplace
-from db_schema_audit import build_runtime_inventory
+from db_schema_audit import build_runtime_inventory, build_postgres_migration_gate_summary
 from urllib.parse import parse_qsl
 from pydantic import BaseModel
 
@@ -638,6 +638,10 @@ async def start_services():
     logging.getLogger("hassle_nft.database").warning(
         "sqlite_runtime_inventory=%s",
         json.dumps(inventory, ensure_ascii=False, sort_keys=True),
+    )
+    logging.getLogger("hassle_nft.database").warning(
+        "postgresql_migration_gate_summary=%s",
+        json.dumps(build_postgres_migration_gate_summary(inventory), ensure_ascii=False, sort_keys=True),
     )
     token = os.getenv("BOT_TOKEN", "").strip()
     if token:
