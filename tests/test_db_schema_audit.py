@@ -535,3 +535,49 @@ def test_postgres_migration_gate_summary_is_aggregate_only():
     assert summary["runtime_ready"] is False
     assert summary["cutover_allowed"] is False
     assert "PRIVATE_ROW_SENTINEL" not in json.dumps(summary)
+
+
+def test_postgres_numeric_data_preflight_detects_real_values_in_integer_affinity():
+    from db_schema_audit import build_postgres_numeric_data_preflight
+
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE catalogue_gift_snapshots (
+            id INTEGER PRIMARY KEY,
+            observed_at INTEGER NOT NULL
+        );
+        INSERT INTO catalogue_gift_snapshots VALUES (1, 1794389573.0240138);
+        CREATE TABLE invalid_numeric (id INTEGER PRIMARY KEY, amount INTEGER NOT NULL);
+        INSERT INTO invalid_numeric VALUES (1, 'not-a-number');
+        """
+    )
+    report = build_postgres_numeric_data_preflight(connection)
+    connection.close()
+
+    profiles = {(item["table"], item["column"]): item for item in report["columns"]}
+    observed = profiles[("catalogue_gift_snapshots", "observed_at")]
+    assert observed["real_value_count"] == 1
+    assert observed["postgresql_type_candidate"] == "DOUBLE PRECISION"
+    assert observed["numeric_conversion_safe"] is True
+
+    invalid = profiles[("invalid_numeric", "amount")]
+    assert invalid["non_numeric_value_count"] == 1
+    assert invalid["numeric_conversion_safe"] is False
+    assert report["unsafe_column_count"] == 1
+
+
+def test_runtime_inventory_and_gate_summary_include_numeric_type_overrides():
+    from db_schema_audit import build_postgres_migration_gate_summary
+
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE catalogue_gift_snapshots (id INTEGER PRIMARY KEY, observed_at INTEGER NOT NULL)")
+    connection.execute("INSERT INTO catalogue_gift_snapshots VALUES (1, 1794389573.0240138)")
+    inventory = build_runtime_inventory(connection)
+    connection.close()
+
+    assert inventory["postgresql_numeric_data_preflight"]["real_backed_integer_column_count"] == 1
+    assert inventory["postgresql_ddl_plan"]["numeric_type_override_count"] == 1
+    summary = build_postgres_migration_gate_summary(inventory)
+    assert summary["real_backed_integer_column_count"] == 1
+    assert summary["numeric_type_override_count"] == 1
