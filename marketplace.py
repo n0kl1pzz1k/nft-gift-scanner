@@ -1866,8 +1866,8 @@ def create_marketplace_router(
         assignments.append("updated_at = ?")
         values.extend([now, order_id])
         with _db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("SELECT * FROM marketplace_orders WHERE id = ?", (order_id,)).fetchone()
+            begin_write(conn, f"order:{order_id}")
+            row = conn.execute(select_for_update(conn, "SELECT * FROM marketplace_orders WHERE id = ?"), (order_id,)).fetchone()
             if row is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Order not found")
@@ -1902,8 +1902,8 @@ def create_marketplace_router(
         _enforce_user_rate_limit(actor_id, "cancel_order", 12)
         now = int(time.time())
         with _db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("SELECT * FROM marketplace_orders WHERE id = ?", (order_id,)).fetchone()
+            begin_write(conn, f"order:{order_id}")
+            row = conn.execute(select_for_update(conn, "SELECT * FROM marketplace_orders WHERE id = ?"), (order_id,)).fetchone()
             if row is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Order not found")
