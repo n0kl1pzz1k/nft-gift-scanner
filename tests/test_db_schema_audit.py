@@ -603,11 +603,8 @@ def test_postgres_data_preflight_maps_safe_real_integer_affinity_to_double_preci
     connection = sqlite3.connect(":memory:")
     connection.executescript(
         """
-        CREATE TABLE catalogue_gift_snapshots (
-            id INTEGER PRIMARY KEY,
-            observed_at INTEGER NOT NULL
-        );
-        INSERT INTO catalogue_gift_snapshots VALUES (1, 1794389573.0240138);
+        CREATE TABLE sample_data (id INTEGER PRIMARY KEY, measurement INTEGER NOT NULL);
+        INSERT INTO sample_data VALUES (1, 1794389573.0240138);
         """
     )
     preflight = build_postgres_data_preflight(connection)
@@ -620,7 +617,6 @@ def test_postgres_data_preflight_maps_safe_real_integer_affinity_to_double_preci
     assert observed["integer_conversion_safe"] is True
     assert preflight["unsafe_integer_column_count"] == 0
     assert preflight["integer_type_override_count"] == 1
-
 
 def test_postgres_data_preflight_blocks_real_values_in_foreign_key_columns():
     connection = sqlite3.connect(":memory:")
