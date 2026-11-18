@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from db_backup import backup_database, _schema_metadata
+from db_backup import backup_database, _row_counts, _schema_metadata
 from db_postgres_data_migration import (
     _fingerprint,
     _ordered_select,
@@ -490,7 +490,7 @@ def run_shadow_migration(
         if backup_schema_sha256 != backup_report["schema_sha256"]:
             raise RuntimeError("SQLite backup schema fingerprint mismatch.")
         manifest = build_schema_manifest(snapshot_connection)
-        snapshot_counts = _source_counts(manifest)
+        snapshot_counts = _row_counts(snapshot_connection)
         if snapshot_counts != backup_report["tables"]:
             raise RuntimeError("SQLite backup table row-count manifest mismatch.")
         if sum(snapshot_counts.values()) != int(backup_report["total_rows"]):
