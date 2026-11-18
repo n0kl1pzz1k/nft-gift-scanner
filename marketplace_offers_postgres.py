@@ -210,6 +210,84 @@ def install_postgres_offer_triggers(connection: Any) -> dict[str, Any]:
     }
 
 
+def verify_postgres_offer_schema(connection: Any) -> dict[str, Any]:
+    """Verify the complete offers/deals table and index contract."""
+    expected_columns = {
+        "marketplace_offers": {
+            "id", "order_id", "sender_user_id", "sender_name", "amount",
+            "currency", "note", "status", "created_at", "updated_at",
+        },
+        "marketplace_deals": {
+            "id", "order_id", "offer_id", "listing_owner_id", "offer_sender_id",
+            "agreed_amount", "currency", "created_at", "status",
+        },
+        "marketplace_deal_events": {
+            "id", "deal_id", "order_id", "actor_user_id", "event_type",
+            "event_data", "created_at",
+        },
+        "marketplace_deal_lifecycle_events": {
+            "sequence", "id", "deal_id", "order_id", "actor_user_id",
+            "event_type", "event_data", "created_at",
+        },
+        "marketplace_notifications": {
+            "id", "user_id", "event_type", "offer_id", "order_id",
+            "order_title", "actor_name", "created_at", "read_at",
+        },
+    }
+    expected_indexes = {
+        "idx_marketplace_offers_order",
+        "idx_marketplace_offers_sender",
+        "idx_marketplace_offers_status",
+        "idx_marketplace_deal_events_deal_created",
+        "idx_marketplace_deal_lifecycle_events_deal",
+        "idx_marketplace_notifications_user_created",
+        "idx_marketplace_notifications_user_unread",
+        "idx_marketplace_deals_one_open_reservation",
+    }
+    table_rows = connection.execute(
+        "SELECT table_name AS name FROM information_schema.tables "
+        "WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'"
+    ).fetchall()
+    present = {str(row["name"]) for row in table_rows}
+    column_rows = connection.execute(
+        "SELECT table_name, column_name FROM information_schema.columns "
+        "WHERE table_schema = current_schema()"
+    ).fetchall()
+    actual_columns: dict[str, set[str]] = {}
+    for row in column_rows:
+        actual_columns.setdefault(str(row["table_name"]), set()).add(str(row["column_name"]))
+    index_rows = connection.execute(
+        "SELECT indexname AS name FROM pg_indexes WHERE schemaname = current_schema()"
+    ).fetchall()
+    present_indexes = {str(row["name"]) for row in index_rows}
+
+    problems: list[str] = []
+    for table_name, expected in expected_columns.items():
+        if table_name not in present:
+            problems.append(f"missing table: {table_name}")
+            continue
+        actual = actual_columns.get(table_name, set())
+        missing = expected - actual
+        unexpected = actual - expected
+        if missing:
+            problems.append(f"missing columns in {table_name}: " + ", ".join(sorted(missing)))
+        if unexpected:
+            problems.append(f"unexpected columns in {table_name}: " + ", ".join(sorted(unexpected)))
+    missing_indexes = expected_indexes - present_indexes
+    if missing_indexes:
+        problems.append("missing indexes: " + ", ".join(sorted(missing_indexes)))
+    if problems:
+        raise RuntimeError("PostgreSQL offer schema verification failed: " + "; ".join(problems))
+    trigger_report = _verify_postgres_offer_triggers(connection)
+    return {
+        "verified": True,
+        "tables_verified": len(expected_columns),
+        "columns_verified": sum(len(columns) for columns in expected_columns.values()),
+        "indexes_verified": len(expected_indexes),
+        **trigger_report,
+    }
+
+
 def initialize_postgres_offer_schema(connection: Any) -> dict[str, Any]:
     """Create offers/deals schema on an already initialized marketplace."""
     execute = getattr(connection, "execute", None)
@@ -300,11 +378,12 @@ def initialize_postgres_offer_schema(connection: Any) -> dict[str, Any]:
     )
     for statement in statements:
         execute(statement)
-    trigger_report = install_postgres_offer_triggers(connection)
+    install_postgres_offer_triggers(connection)
+    verification = verify_postgres_offer_schema(connection)
     return {
         "tables": ["marketplace_offers", "marketplace_deals", "marketplace_deal_events",
                    "marketplace_deal_lifecycle_events", "marketplace_notifications"],
-        "indexes_created_or_verified": 8,
-        "trigger_report": trigger_report,
-        "verified": True,
+        "indexes_created_or_verified": verification["indexes_verified"],
+        "verification": verification,
+        "verified": verification["verified"],
     }
