@@ -52,7 +52,7 @@ def test_shadow_migration_creates_schema_and_copies_all_rows_atomically(tmp_path
             assert next_id == 3
         finally:
             pg.execute("SET search_path TO public")
-            pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+            pg.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(schema)))
 
 
 def test_shadow_migration_rolls_back_schema_and_rows_on_copy_failure(tmp_path):
@@ -84,17 +84,13 @@ def test_shadow_migration_rolls_back_schema_and_rows_on_copy_failure(tmp_path):
                     str(source_path), str(tmp_path / "bad-backup.sqlite3"),
                     dsn, execute=True, target_schema=schema,
                 )
-            pg.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
-            remaining = pg.execute(
-                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE'"
-            ).fetchone()[0]
-            assert remaining == 0
-            assert pg.execute(
+            remaining_schema = pg.execute(
                 "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=%s", (schema,)
-            ).fetchone()[0] == 0
+            ).fetchone()[0]
+            assert remaining_schema == 0
         finally:
             pg.execute("SET search_path TO public")
-            pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+            pg.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(schema)))
 
 
 def test_shadow_migration_dry_run_does_not_persist_new_target_schema(tmp_path):
