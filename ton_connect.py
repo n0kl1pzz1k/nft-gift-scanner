@@ -15,7 +15,7 @@ import time
 from typing import Any
 
 from marketplace import _db
-from database import begin_write, select_for_update
+from database import begin_write, select_for_update, require_sqlite_connection
 
 # Official TON standard wallet code hashes. Layouts are version-specific.
 _WALLET_LAYOUTS = {
@@ -36,6 +36,7 @@ CHALLENGE_TTL_SECONDS = 300
 
 def init_ton_connect_db() -> None:
     with _db() as conn:
+        require_sqlite_connection(conn, "TON Connect schema initialization")
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS ton_proof_challenges (
             payload_hash TEXT PRIMARY KEY,

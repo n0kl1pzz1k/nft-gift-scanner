@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
-from database import DB_PATH, begin_write, select_for_update, connect_database as _connect_database
+from database import DB_PATH, begin_write, select_for_update, require_sqlite_connection, connect_database as _connect_database
 
 
 def _connect() -> sqlite3.Connection:
@@ -65,6 +65,7 @@ _LEGACY_MARKETPLACE_TRIGGERS = (
 
 
 def _migrate_legacy_marketplace_table_names(conn: sqlite3.Connection) -> None:
+    require_sqlite_connection(conn, "Legacy marketplace schema migration")
     """Rename legacy demo-prefixed marketplace tables without copying or deleting rows.
 
     SQLite updates foreign-key references during ALTER TABLE RENAME. If both names
@@ -94,6 +95,7 @@ def _migrate_legacy_marketplace_table_names(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_legacy_order_event_types(conn: sqlite3.Connection) -> None:
+    require_sqlite_connection(conn, "Legacy marketplace event migration")
     """Preserve old synthetic-fill history as non-public, unverified audit rows."""
     table = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='marketplace_order_events'"
@@ -138,6 +140,7 @@ def _migrate_legacy_order_event_types(conn: sqlite3.Connection) -> None:
 
 def init_marketplace_db() -> None:
     with _db() as conn:
+        require_sqlite_connection(conn, "Marketplace schema initialization")
         _migrate_legacy_marketplace_table_names(conn)
         _migrate_legacy_order_event_types(conn)
         conn.execute("PRAGMA journal_mode = WAL")
