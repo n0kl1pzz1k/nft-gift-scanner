@@ -36,7 +36,7 @@ def test_manifest_captures_constraints_indexes_and_triggers_without_rows():
     partial_index = next(index for index in child["indexes"] if index["name"] == "idx_child_one_open")
     assert partial_index["unique"] is True
     assert partial_index["partial"] is True
-    assert {obj["type"] for obj in manifest["objects"]} == {"trigger", "view"}
+    assert {obj["type"] for obj in manifest["objects"]} == {"index", "trigger", "view"}
     connection.close()
 
 
@@ -373,7 +373,7 @@ def test_postgres_portability_report_exposes_check_expressions_without_rows():
             state TEXT NOT NULL CHECK(state IN ('pending', 'done')),
             count INTEGER CHECK(count IS NULL OR (count >= 0 AND count <= 10))
         );
-        INSERT INTO guarded VALUES ('one', 'pending', 2);
+        INSERT INTO guarded VALUES ('PRIVATE_ID_SENTINEL', 'pending', 2);
         """
     )
     report = build_postgres_portability_report(build_schema_manifest(connection))
@@ -384,7 +384,7 @@ def test_postgres_portability_report_exposes_check_expressions_without_rows():
         {"table": "guarded", "ordinal": 1, "expression": "state IN ('pending', 'done')"},
         {"table": "guarded", "ordinal": 2, "expression": "count IS NULL OR (count >= 0 AND count <= 10)"},
     ]
-    assert "one" not in json.dumps(report)
+    assert "PRIVATE_ID_SENTINEL" not in json.dumps(report)
     assert report["ready_for_cutover"] is False
 
 
@@ -425,7 +425,8 @@ def test_postgres_portability_report_preserves_composite_foreign_keys_and_unique
         "on_delete": "RESTRICT",
         "match": "NONE",
     }]
-    assert report["primary_keys"][0]["columns"] == [
+    parent_pk = next(item for item in report["primary_keys"] if item["table"] == "parent")
+    assert parent_pk["columns"] == [
         {"column": "tenant_id", "position": 1},
         {"column": "item_id", "position": 2},
     ]

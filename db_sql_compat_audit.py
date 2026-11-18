@@ -81,9 +81,9 @@ def _mask_python_comments(source: str) -> str:
                 if characters[index] not in "\r\n":
                     characters[index] = " "
     except (tokenize.TokenError, IndentationError):
-        # Invalid/incomplete Python is still scanned conservatively. A failed
-        # tokenization must not make the audit silently report fewer findings.
-        return source
+        # Preserve offsets and at least mask standalone comments when an
+        # incomplete source file prevents full tokenization.
+        return re.sub(r"(?m)^[ \\t]*#.*$", lambda match: " " * len(match.group()), source)
     return "".join(characters)
 
 

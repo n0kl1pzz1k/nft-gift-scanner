@@ -79,7 +79,7 @@ def test_audit_handles_multiline_sql_and_ignores_python_comments(tmp_path):
     assert not any(item["feature"] == "sqlite_connection_factory" and item["line"] == 1 for item in findings)
     assert any(item["feature"] == "sqlite_connection_factory" and item["line"] == 2 for item in findings)
     assert any(item["feature"] == "sqlite_insert_or_ignore" and item["line"] == 6 for item in findings)
-    assert any(item["feature"] == "sqlite_qmark_parameters" and item["line"] == 7 for item in findings)
+    assert any(item["feature"] == "sqlite_qmark_parameters" and item["line"] == 8 for item in findings)
     assert report["ready_for_postgresql_runtime"] is False
 
 
