@@ -86,7 +86,12 @@ def _copy_all_in_one_transaction(
         with psycopg.connect(dsn, autocommit=False) as pg:
             with pg.cursor() as cursor:
                 if target_schema:
-                    cursor.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(target_schema)))
+                    cursor.execute(
+                        sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(target_schema))
+                    )
+                    cursor.execute(
+                        sql.SQL("SET LOCAL search_path TO {}").format(sql.Identifier(target_schema))
+                    )
                 schema = cursor.execute("SELECT current_schema()").fetchone()[0]
                 if not schema:
                     raise RuntimeError("PostgreSQL target schema does not exist or is not visible in search_path.")
@@ -282,25 +287,25 @@ def run_shadow_migration(
         restored_path = Path(directory) / "verified-restore.sqlite3"
         restore_report = restore_database(backup, manifest_path, restored_path)
 
-        source_connection = sqlite3.connect(source.as_uri() + "?mode=ro", uri=True, timeout=30)
-        backup_connection = sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True, timeout=30)
+        snapshot_connection = sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True, timeout=30)
+        restored_connection = sqlite3.connect(restored_path.as_uri() + "?mode=ro", uri=True, timeout=30)
         try:
-            # Hold a consistent read snapshot while comparing the live database
-            # to the verified backup. A concurrent write must not create a
-            # mixed-time preflight report.
-            source_connection.execute("BEGIN")
-            backup_connection.execute("BEGIN")
+            # Compare the immutable snapshot with its verified restore, not the
+            # live database. The app can keep serving SQLite while this shadow
+            # copy runs; writes after the snapshot remain safely on SQLite.
+            snapshot_connection.execute("BEGIN")
+            restored_connection.execute("BEGIN")
             preflight = build_migration_preflight(
-                source_connection,
-                backup_connection,
+                snapshot_connection,
+                restored_connection,
                 repository_root=Path(__file__).resolve().parent,
             )
         finally:
-            source_connection.close()
-            backup_connection.close()
+            snapshot_connection.close()
+            restored_connection.close()
 
         if not preflight["comparison"]["exact_match"]:
-            raise RuntimeError("SQLite source and verified backup differ; refusing PostgreSQL shadow migration.")
+            raise RuntimeError("Verified SQLite backup and restored copy differ; refusing PostgreSQL shadow migration.")
         if not preflight["postgresql_boolean_data_preflight"]["conversion_safe_in_both"]:
             raise RuntimeError("SQLite BOOLEAN candidate data is not safe for PostgreSQL conversion.")
 
@@ -317,11 +322,111 @@ def run_shadow_migration(
             },
             "restore_verified": bool(restore_report["restored"]),
             "preflight_exact_match": bool(preflight["comparison"]["exact_match"]),
+            "target_schema": target_schema,
             "migration": migration_report,
             "production_app_switched": False,
             "cutover_allowed": False,
         }
 
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, ensure_ascii=False, sort_keys=True)
+            stream.write("\\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def run_shadow_migration_once(
+    source_path: str,
+    backup_path: str,
+    dsn: str,
+    marker_path: str,
+    run_id: str,
+    target_schema: str,
+    batch_size: int = 1000,
+) -> dict[str, Any]:
+    """Run one opt-in shadow migration and persist a durable no-retry marker."""
+    if not run_id or len(run_id) > 48 or not all(char.isalnum() or char in "_-" for char in run_id):
+        raise ValueError("Shadow migration run ID must be 1-48 URL-safe characters.")
+    if not target_schema or len(target_schema) > 48 or not all(char.isalnum() or char == "_" for char in target_schema):
+        raise ValueError("Shadow migration schema must be 1-48 alphanumeric/underscore characters.")
+    if batch_size < 1 or batch_size > 10000:
+        raise ValueError("Shadow migration batch size must be between 1 and 10000.")
+
+    marker = Path(marker_path).expanduser().resolve()
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    initial = {
+        "run_id": run_id,
+        "target_schema": target_schema,
+        "status": "running",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        descriptor = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        try:
+            previous = json.loads(marker.read_text(encoding="utf-8"))
+            previous_status = str(previous.get("status", "unknown"))
+        except Exception:
+            previous_status = "unknown"
+        return {
+            "status": "skipped",
+            "reason": "marker_exists",
+            "run_id": run_id,
+            "previous_status": previous_status,
+        }
+
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        json.dump(initial, stream, ensure_ascii=False, sort_keys=True)
+        stream.write("\\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+    try:
+        result = run_shadow_migration(
+            source_path, backup_path, dsn, execute=True,
+            batch_size=batch_size, target_schema=target_schema,
+        )
+        migration = result.get("migration", {})
+        if not migration.get("committed") or not migration.get("verified"):
+            raise RuntimeError("Shadow migration did not reach verified commit state.")
+        summary = {
+            "run_id": run_id,
+            "target_schema": target_schema,
+            "status": "verified",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "backup_sha256": result["backup"]["sha256"],
+            "table_count": result["backup"]["table_count"],
+            "total_rows": result["backup"]["total_rows"],
+            "schema_sha256": migration.get("source_schema_sha256"),
+            "ddl_statement_count": migration.get("ddl_statement_count"),
+            "target_counts": migration.get("target_counts"),
+            "production_app_switched": False,
+            "cutover_allowed": False,
+        }
+        _write_json_atomic(marker, summary)
+        return summary
+    except Exception as exc:
+        failure = {
+            "run_id": run_id,
+            "target_schema": target_schema,
+            "status": "failed",
+            "failed_at": datetime.now(timezone.utc).isoformat(),
+            "error_type": type(exc).__name__,
+            "production_app_switched": False,
+        }
+        _write_json_atomic(marker, failure)
+        return failure
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
