@@ -101,7 +101,7 @@ class DatabaseConnectionBoundaryTests(unittest.TestCase):
 
     def test_db_context_closes_connection_without_adding_transaction_semantics(self):
         connection = sqlite3.connect(":memory:", isolation_level=None)
-        with patch("database.connect", return_value=connection):
+        with patch("database.connect", return_value=connection) as shared_factory:
             with db() as yielded:
                 self.assertIs(yielded, connection)
                 self.assertFalse(yielded.in_transaction)
@@ -109,6 +109,7 @@ class DatabaseConnectionBoundaryTests(unittest.TestCase):
                 yielded.execute("INSERT INTO sample DEFAULT VALUES")
                 self.assertFalse(yielded.in_transaction)
                 self.assertEqual(yielded.execute("SELECT COUNT(*) FROM sample").fetchone()[0], 1)
+            shared_factory.assert_called_once_with()
 
         with self.assertRaises(sqlite3.ProgrammingError):
             connection.execute("SELECT 1")
