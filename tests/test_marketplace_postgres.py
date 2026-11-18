@@ -10,7 +10,7 @@ def test_postgres_core_marketplace_schema_bootstrap_is_idempotent_and_verified()
         pytest.skip("isolated PostgreSQL service is not configured")
     import psycopg
     from db_postgres_compat import PostgresConnectionAdapter
-    from marketplace_postgres import initialize_postgres_marketplace_schema
+    from marketplace_postgres import initialize_postgres_marketplace_schema, verify_postgres_marketplace_schema
 
     schema = "core_market_" + uuid.uuid4().hex[:10]
     raw = psycopg.connect(dsn, autocommit=True)
@@ -23,6 +23,8 @@ def test_postgres_core_marketplace_schema_bootstrap_is_idempotent_and_verified()
         assert first["verified"] is True
         assert second["verified"] is True
         assert first["tables_verified"] == 16
+        assert first["columns_verified"] > 0
+        assert second["columns_verified"] == first["columns_verified"]
         assert first["indexes_verified"] == 16
         assert first["triggers_verified"] == 1
 
@@ -75,6 +77,12 @@ def test_postgres_core_marketplace_schema_bootstrap_is_idempotent_and_verified()
                 "UPDATE verified_assets SET owner_telegram_id=?, status='revoked' WHERE id=?",
                 ("owner-3", "asset-1"),
             )
+
+        # The verifier must catch stale pre-existing tables even when every
+        # expected table, index, and trigger name is present.
+        adapter.execute("ALTER TABLE user_profiles DROP COLUMN bio")
+        with pytest.raises(RuntimeError, match="missing columns in user_profiles: bio"):
+            verify_postgres_marketplace_schema(adapter)
     finally:
         try:
             adapter.execute("SET search_path TO public")
