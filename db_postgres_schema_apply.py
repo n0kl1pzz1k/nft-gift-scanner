@@ -69,7 +69,7 @@ def _target_counts(cursor: Any) -> dict[str, int]:
     }
 
 
-def apply_schema(source_path: str, dsn: str, apply: bool = False) -> dict[str, Any]:
+def apply_schema(source_path: str, dsn: str, apply: bool = False, target_schema: str | None = None) -> dict[str, Any]:
     source = Path(source_path).expanduser().resolve(strict=True)
     uri = f"file:{source.as_posix()}?mode=ro"
     sqlite = sqlite3.connect(uri, uri=True)
@@ -94,8 +94,11 @@ def apply_schema(source_path: str, dsn: str, apply: bool = False) -> dict[str, A
         }
 
         import psycopg
+        from psycopg import sql
         with psycopg.connect(dsn, autocommit=False) as pg:
             with pg.cursor() as cursor:
+                if target_schema:
+                    cursor.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(target_schema)))
                 schema = cursor.execute("SELECT current_schema()").fetchone()[0]
                 existing_objects = cursor.execute(
                     """
@@ -120,6 +123,28 @@ def apply_schema(source_path: str, dsn: str, apply: bool = False) -> dict[str, A
                         for key, value in source_counts.items()
                         if target_counts.get(key) != value
                     }
+                    expected_tables = {
+                        str(table["name"]): [
+                            str(column["name"]) for column in table.get("columns", [])
+                            if int(column.get("hidden", 0)) == 0
+                        ]
+                        for table in manifest.get("tables", [])
+                    }
+                    actual_tables = {}
+                    table_names = cursor.execute(
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema=%s AND table_type='BASE TABLE' ORDER BY table_name",
+                        (schema,),
+                    ).fetchall()
+                    for table_row in table_names:
+                        table_name = table_row[0]
+                        actual_tables[table_name] = [
+                            item[0] for item in cursor.execute(
+                                "SELECT column_name FROM information_schema.columns WHERE table_schema=%s AND table_name=%s ORDER BY ordinal_position",
+                                (schema, table_name),
+                            ).fetchall()
+                        ]
+                    if expected_tables != actual_tables:
+                        mismatches["table_columns"] = {"source": expected_tables, "target": actual_tables}
                     if mismatches:
                         raise RuntimeError(f"PostgreSQL schema verification mismatch: {mismatches}")
                     pg.commit()
@@ -142,11 +167,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Create a PostgreSQL schema from a healthy SQLite source.")
     parser.add_argument("--source", required=True, help="Verified SQLite backup path")
     parser.add_argument("--apply", action="store_true", help="Apply DDL; without this flag the command is dry-run")
+    parser.add_argument("--target-schema", help="Existing empty PostgreSQL schema; defaults to the connection current_schema")
     args = parser.parse_args()
     dsn = os.getenv("HASSLE_POSTGRES_MIGRATION_DSN")
     if not dsn:
         parser.error("Set HASSLE_POSTGRES_MIGRATION_DSN in the environment; its value is never printed.")
-    print(json.dumps(apply_schema(args.source, dsn, args.apply), ensure_ascii=False, indent=2))
+    print(json.dumps(apply_schema(args.source, dsn, args.apply, args.target_schema), ensure_ascii=False, indent=2))
     return 0
 
 
