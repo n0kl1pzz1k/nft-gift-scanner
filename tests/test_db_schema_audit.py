@@ -512,3 +512,23 @@ def test_runtime_inventory_blocks_unsafe_boolean_values_in_postgres_ddl_plan():
         for item in inventory["postgresql_ddl_plan"]["blockers"]
     ), inventory["postgresql_ddl_plan"]["blockers"]
     assert inventory["postgresql_ddl_plan"]["ready_for_cutover"] is False
+
+
+
+def test_postgres_migration_gate_summary_is_aggregate_only():
+    from db_schema_audit import build_postgres_migration_gate_summary
+
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE telegram_users (is_premium INTEGER)")
+    connection.execute("INSERT INTO telegram_users VALUES (2)")
+    connection.execute("INSERT INTO telegram_users VALUES (NULL)")
+    inventory = build_runtime_inventory(connection)
+    summary = build_postgres_migration_gate_summary(inventory)
+    connection.close()
+
+    assert summary["unsafe_boolean_column_count"] == 1
+    assert summary["boolean_invalid_value_count"] == 1
+    assert summary["boolean_null_value_count"] == 1
+    assert summary["ddl_blocker_count"] >= 1
+    assert summary["cutover_allowed"] is False
+    assert "PRIVATE_ROW_SENTINEL" not in json.dumps(summary)
