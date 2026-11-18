@@ -19,12 +19,12 @@ from contextlib import contextmanager
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
-from database import DB_PATH, begin_write, select_for_update, require_sqlite_connection, is_integrity_error, connect_database as _connect_database
+from database import DB_PATH, begin_write, select_for_update, require_sqlite_connection, is_integrity_error, connect as _database_connect
 
 
 def _connect() -> sqlite3.Connection:
     # Keep DB_PATH patchable for isolated tests and legacy callers.
-    return _connect_database(DB_PATH)
+    return _database_connect(DB_PATH)
 
 
 @contextmanager
