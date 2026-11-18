@@ -163,7 +163,8 @@ def build_runtime_inventory(connection: sqlite3.Connection) -> dict[str, Any]:
     from db_sql_compat_audit import audit_source_tree
 
     boolean_preflight = build_postgres_data_preflight(connection, manifest)
-    ddl_plan = build_postgres_ddl_plan(manifest, boolean_preflight)
+    numeric_preflight = build_postgres_numeric_data_preflight(connection, manifest)
+    ddl_plan = build_postgres_ddl_plan(manifest, boolean_preflight, numeric_preflight)
     runtime_compatibility = audit_source_tree(Path(__file__).resolve().parent)
 
     return {
@@ -180,6 +181,7 @@ def build_runtime_inventory(connection: sqlite3.Connection) -> dict[str, Any]:
         "postgresql_migration_plan": build_postgres_migration_plan(manifest),
         "postgresql_ddl_plan": ddl_plan,
         "postgresql_data_preflight": boolean_preflight,
+        "postgresql_numeric_data_preflight": numeric_preflight,
         "postgresql_runtime_compatibility": runtime_compatibility,
         "scope_note": "Schema metadata and row counts only; no application row values are read or returned.",
     }
@@ -633,6 +635,91 @@ def build_postgres_data_preflight(
     }
 
 
+def build_postgres_numeric_data_preflight(
+    connection: sqlite3.Connection,
+    manifest: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Profile dynamic SQLite numeric storage before choosing PostgreSQL column types.
+
+    SQLite INTEGER affinity can still contain REAL values. Only aggregate counts
+    are returned; no application values are exposed.
+    """
+    schema = manifest or build_schema_manifest(connection)
+    profiles: list[dict[str, Any]] = []
+    for table in schema.get("tables", []):
+        table_name = str(table.get("name", ""))
+        table_ddl = str(table.get("sql") or "")
+        for column in table.get("columns", []):
+            declared_type = str(column.get("type", ""))
+            affinity = _sqlite_type_affinity(declared_type)
+            if affinity not in {"INTEGER", "REAL", "NUMERIC"}:
+                continue
+            mapping = _postgres_type_candidate(table_name, column, table_ddl)
+            if mapping["postgresql_type_candidate"] == "BOOLEAN":
+                continue
+
+            column_name = str(column.get("name", ""))
+            quoted_table = _quote_identifier(table_name)
+            quoted_column = _quote_identifier(column_name)
+            aggregate = connection.execute(
+                f"SELECT COUNT(*), "
+                f"COALESCE(SUM(CASE WHEN typeof({quoted_column})='integer' THEN 1 ELSE 0 END), 0), "
+                f"COALESCE(SUM(CASE WHEN typeof({quoted_column})='real' THEN 1 ELSE 0 END), 0), "
+                f"COALESCE(SUM(CASE WHEN typeof({quoted_column})='null' THEN 1 ELSE 0 END), 0), "
+                f"COALESCE(SUM(CASE WHEN typeof({quoted_column}) NOT IN ('integer','real','null') THEN 1 ELSE 0 END), 0) "
+                f"FROM {quoted_table}"
+            ).fetchone()
+            total_rows, integer_values, real_values, null_values, non_numeric_values = (
+                int(value) for value in aggregate
+            )
+            primary_key = int(column.get("primary_key_position", 0)) > 0
+            nullable = not bool(column.get("not_null")) and not primary_key
+            candidate_type = mapping["postgresql_type_candidate"]
+            if affinity == "INTEGER" and real_values > 0 and not primary_key:
+                candidate_type = "DOUBLE PRECISION"
+            safe = (
+                non_numeric_values == 0
+                and (nullable or null_values == 0)
+                and not (primary_key and real_values > 0)
+            )
+            profiles.append({
+                "table": table_name,
+                "column": column_name,
+                "declared_type": declared_type,
+                "affinity": affinity,
+                "total_rows": total_rows,
+                "integer_value_count": integer_values,
+                "real_value_count": real_values,
+                "null_value_count": null_values,
+                "non_numeric_value_count": non_numeric_values,
+                "nullable": nullable,
+                "primary_key": primary_key,
+                "postgresql_type_candidate": candidate_type,
+                "numeric_conversion_safe": safe,
+            })
+
+    return {
+        "format_version": 1,
+        "target_engine": "postgresql",
+        "profiled_column_count": len(profiles),
+        "safe_column_count": sum(item["numeric_conversion_safe"] for item in profiles),
+        "unsafe_column_count": sum(not item["numeric_conversion_safe"] for item in profiles),
+        "real_backed_integer_column_count": sum(
+            item["affinity"] == "INTEGER" and item["real_value_count"] > 0
+            for item in profiles
+        ),
+        "type_override_count": sum(
+            item["postgresql_type_candidate"] == "DOUBLE PRECISION"
+            and item["affinity"] == "INTEGER"
+            and item["real_value_count"] > 0
+            for item in profiles
+        ),
+        "columns": profiles,
+        "ready_for_postgresql": all(item["numeric_conversion_safe"] for item in profiles),
+        "scope_note": "Aggregate-only numeric storage profile; REAL values in INTEGER-affinity columns use DOUBLE PRECISION, while non-numeric storage blocks DDL.",
+    }
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
@@ -643,6 +730,8 @@ def build_postgres_migration_gate_summary(inventory: dict[str, Any]) -> dict[str
     preflight = inventory.get("postgresql_data_preflight", {})
     boolean_columns = preflight.get("columns", [])
     runtime = inventory.get("postgresql_runtime_compatibility", {})
+    numeric = inventory.get("postgresql_numeric_data_preflight", {})
+    numeric_columns = numeric.get("columns", [])
     return {
         "schema_sha256": inventory.get("schema_sha256"),
         "table_count": int(inventory.get("table_count", 0)),
@@ -654,6 +743,11 @@ def build_postgres_migration_gate_summary(inventory: dict[str, Any]) -> dict[str
         "translated_trigger_count": int(inventory.get("postgresql_ddl_plan", {}).get("trigger_translation_count", 0)),
         "boolean_column_count": len(boolean_columns),
         "unsafe_boolean_column_count": sum(not item.get("boolean_conversion_safe", False) for item in boolean_columns),
+        "numeric_column_count": len(numeric_columns),
+        "unsafe_numeric_column_count": int(numeric.get("unsafe_column_count", 0)),
+        "real_backed_integer_column_count": int(numeric.get("real_backed_integer_column_count", 0)),
+        "numeric_real_value_count": sum(int(item.get("real_value_count", 0)) for item in numeric_columns),
+        "numeric_type_override_count": int(numeric.get("type_override_count", 0)),
         "runtime_finding_count": int(runtime.get("finding_count", 0)),
         "runtime_blocker_count": int(runtime.get("blocker_count", 0)),
         "runtime_review_count": int(runtime.get("review_count", 0)),
