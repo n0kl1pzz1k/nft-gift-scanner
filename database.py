@@ -59,6 +59,16 @@ def connect_database(database_path: str | Path) -> sqlite3.Connection:
 
 
 
+def is_integrity_error(error: BaseException) -> bool:
+    """Recognize integrity violations from SQLite and psycopg without masking other errors."""
+    if isinstance(error, sqlite3.IntegrityError):
+        return True
+    return any(
+        cls.__name__ == "IntegrityError" and cls.__module__.startswith("psycopg")
+        for cls in type(error).__mro__
+    )
+
+
 def list_database_tables(connection: object) -> set[str]:
     """List base tables using the active backend's system catalog."""
     if isinstance(connection, sqlite3.Connection):
