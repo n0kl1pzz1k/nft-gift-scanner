@@ -33,14 +33,20 @@ def _normal(value: Any) -> Any:
 
 
 def _fingerprint(rows: Iterable[tuple[Any, ...]]) -> tuple[int, str]:
-    digest = hashlib.sha256()
+    # Commutative aggregation makes the fingerprint independent of row order,
+    # which can differ between SQLite and PostgreSQL collations/NULL ordering.
     count = 0
+    total = 0
+    xor = 0
+    modulus = 1 << 256
     for row in rows:
         payload = json.dumps([_normal(value) for value in row], ensure_ascii=False, separators=(",", ":"))
-        digest.update(payload.encode("utf-8"))
-        digest.update(b"\n")
+        row_hash = int.from_bytes(hashlib.sha256(payload.encode("utf-8")).digest(), "big")
+        total = (total + row_hash) % modulus
+        xor ^= row_hash
         count += 1
-    return count, digest.hexdigest()
+    aggregate = f"{count}:{total:064x}:{xor:064x}".encode("ascii")
+    return count, hashlib.sha256(aggregate).hexdigest()
 
 
 def _ordered_select(connection: sqlite3.Connection, table: dict[str, Any]) -> tuple[str, list[str]]:
