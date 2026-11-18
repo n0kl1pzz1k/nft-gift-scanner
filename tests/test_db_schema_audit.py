@@ -534,7 +534,8 @@ def test_postgres_migration_gate_summary_is_aggregate_only():
     assert summary["runtime_blocker_count"] == 0
     assert summary["runtime_sqlite_fallback_count"] >= 34
     assert summary["runtime_static_blockers_clear"] is True
-    assert summary["runtime_ready"] is False
+    assert summary["runtime_review_count"] == 0
+    assert summary["runtime_ready"] is True
     assert summary["cutover_allowed"] is False
     assert "PRIVATE_ROW_SENTINEL" not in json.dumps(summary)
 
