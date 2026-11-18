@@ -29,6 +29,11 @@ def _db():
 
 def init_marketplace_offers_db() -> None:
     with _db() as conn:
+        if bool(getattr(conn, "supports_for_update", False)):
+            from marketplace_offers_postgres import initialize_postgres_offer_schema
+
+            initialize_postgres_offer_schema(conn)
+            return
         require_sqlite_connection(conn, "Marketplace offers schema initialization")
         _migrate_legacy_marketplace_table_names(conn)
         conn.executescript("""
