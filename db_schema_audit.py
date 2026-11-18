@@ -800,6 +800,8 @@ def build_postgres_migration_gate_summary(inventory: dict[str, Any]) -> dict[str
         "integer_column_count": int(preflight.get("integer_profiled_column_count", 0)),
         "unsafe_integer_column_count": int(preflight.get("unsafe_integer_column_count", 0)),
         "non_integer_storage_value_count": int(preflight.get("non_integer_storage_value_count", 0)),
+        "real_backed_integer_column_count": int(preflight.get("real_backed_integer_column_count", 0)),
+        "integer_type_override_count": int(preflight.get("integer_type_override_count", 0)),
         "real_column_count": int(preflight.get("real_profiled_column_count", 0)),
         "unsafe_real_column_count": int(preflight.get("unsafe_real_column_count", 0)),
         "non_numeric_storage_value_count": int(preflight.get("non_numeric_storage_value_count", 0)),
