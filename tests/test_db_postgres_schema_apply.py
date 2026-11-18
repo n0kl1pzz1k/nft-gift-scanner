@@ -18,15 +18,15 @@ def test_schema_apply_creates_and_verifies_postgres_schema_atomically(tmp_path):
     source = sqlite3.connect(source_path)
     source.executescript(
         """
-        CREATE TABLE parent (id TEXT PRIMARY KEY);
+        CREATE TABLE marketplace_deal_events (id TEXT PRIMARY KEY);
         CREATE TABLE child (
             id TEXT PRIMARY KEY,
-            parent_id TEXT NOT NULL,
+            event_id TEXT NOT NULL,
             state TEXT NOT NULL CHECK(state IN ('open', 'closed')),
-            FOREIGN KEY(parent_id) REFERENCES parent(id) ON DELETE CASCADE
+            FOREIGN KEY(event_id) REFERENCES marketplace_deal_events(id) ON DELETE CASCADE
         );
-        CREATE UNIQUE INDEX idx_child_open ON child(parent_id) WHERE state = 'open';
-        CREATE TRIGGER child_no_delete BEFORE DELETE ON child
+        CREATE UNIQUE INDEX idx_child_open ON child(event_id) WHERE state = 'open';
+        CREATE TRIGGER trg_marketplace_deal_events_no_delete BEFORE DELETE ON marketplace_deal_events
         BEGIN SELECT RAISE(ABORT, 'immutable'); END;
         """
     )
@@ -38,10 +38,10 @@ def test_schema_apply_creates_and_verifies_postgres_schema_atomically(tmp_path):
         pg.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
         pg.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
         try:
-            dry_run = apply_schema(str(source_path), dsn, apply=False)
+            dry_run = apply_schema(str(source_path), dsn, apply=False, target_schema=schema)
             assert dry_run["applied"] is False
             assert dry_run["blocker_count"] == 0
-            applied = apply_schema(str(source_path), dsn, apply=True)
+            applied = apply_schema(str(source_path), dsn, apply=True, target_schema=schema)
             assert applied["applied"] is True
             assert applied["verified"] is True
             assert applied["source_counts"]["tables"] == 2
