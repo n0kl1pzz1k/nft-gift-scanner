@@ -80,3 +80,23 @@ class DatabaseBackendConfigurationTests(unittest.TestCase):
                 "DATABASE_URL": secret,
             })
         self.assertNotIn("private-password", str(raised.exception))
+
+
+
+class WriteTransactionBoundaryTests(unittest.TestCase):
+    def test_sqlite_begin_write_preserves_immediate_transaction(self):
+        from database import begin_write
+
+        connection = sqlite3.connect(":memory:", isolation_level=None)
+        try:
+            begin_write(connection, "order:123")
+            self.assertTrue(connection.in_transaction)
+            connection.rollback()
+        finally:
+            connection.close()
+
+    def test_unsupported_connection_fails_closed(self):
+        from database import begin_write
+
+        with self.assertRaisesRegex(RuntimeError, "Unsupported database connection"):
+            begin_write(object(), "order:123")
