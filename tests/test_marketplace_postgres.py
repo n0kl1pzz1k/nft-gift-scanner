@@ -175,13 +175,13 @@ def test_postgres_runtime_smoke_initializes_auth_assets_listing_and_readiness():
             assert marketplace.consume_telegram_init_data(init_data, "123456789") is False
 
             asset = marketplace.register_verified_asset(
-                source="telegram_gift",
-                external_asset_id="gift-postgres-smoke",
+                source="ton_nft",
+                external_asset_id="ton-nft-postgres-smoke",
                 owner_telegram_id="123456789",
                 title="Verified PostgreSQL Gift",
                 asset_type="gift",
                 image_url="",
-                verification_method="telegram_gift_owner",
+                verification_method="ton_connect_proof",
                 verification_reference="verified-reference-postgres-smoke",
             )
             assert asset["owner_telegram_id"] == "123456789"
@@ -193,7 +193,9 @@ def test_postgres_runtime_smoke_initializes_auth_assets_listing_and_readiness():
             }
             api.include_router(create_marketplace_router(verify_user))
             api.include_router(create_marketplace_offers_router(verify_user))
-            with patch.object(marketplace, "_verified_asset_actions_enabled", return_value=True):
+            with patch.object(marketplace, "_verified_asset_actions_enabled", return_value=True), patch.object(
+                marketplace, "_test_ton_owner_recheck_skipped", return_value=True
+            ):
                 with TestClient(api) as client:
                     response = client.post(
                         "/api/marketplace/orders",
