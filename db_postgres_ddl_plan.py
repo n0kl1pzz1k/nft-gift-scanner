@@ -56,7 +56,7 @@ def _trigger_ddl(item: dict[str, Any]) -> list[str] | None:
     name = str(item.get("name", ""))
     table = str(item.get("table", ""))
     qtable = _q(table)
-    function = _q(_constraint_name(table, "trigger_fn", 1) + "_" + re.sub(r"[^A-Za-z0-9_]", "_", name)[-20:])
+    function = _q(_constraint_name(name, "fn", 1))
     qtrigger = _q(name)
     prefix = f"CREATE OR REPLACE FUNCTION {function}() RETURNS trigger LANGUAGE plpgsql AS $migration$\\n"
     suffix = "\\n$migration$"
