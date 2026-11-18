@@ -158,6 +158,8 @@ def build_runtime_inventory(connection: sqlite3.Connection) -> dict[str, Any]:
             "table": str(item["table"]),
             "create_sql": item["sql"],
         })
+    from db_postgres_migration_plan import build_postgres_migration_plan
+
     return {
         "engine": manifest["engine"],
         "sqlite_version": manifest["sqlite_version"],
@@ -169,6 +171,7 @@ def build_runtime_inventory(connection: sqlite3.Connection) -> dict[str, Any]:
         "object_counts": object_counts,
         "objects": object_names,
         "postgresql_portability": build_postgres_portability_report(manifest),
+        "postgresql_migration_plan": build_postgres_migration_plan(manifest),
         "scope_note": "Schema metadata and row counts only; no application row values are read or returned.",
     }
 
