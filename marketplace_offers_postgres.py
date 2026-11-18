@@ -138,9 +138,9 @@ def _verify_postgres_offer_triggers(connection: Any) -> dict[str, Any]:
         WHERE NOT t.tgisinternal AND n.nspname = current_schema()
     """).fetchall()
     actual = {
-        str(row[0]): (str(row[1]), str(row[2]), str(row[3]))
+        str(row["tgname"]): (str(row["relname"]), str(row["proname"]), str(row["tgenabled"]))
         for row in rows
-        if str(row[0]) in _TRIGGER_TABLES
+        if str(row["tgname"]) in _TRIGGER_TABLES
     }
     problems = []
     for name, expected_table in _TRIGGER_TABLES.items():
@@ -159,7 +159,7 @@ def _verify_postgres_offer_triggers(connection: Any) -> dict[str, Any]:
         JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace
         WHERE n.nspname = current_schema()
     """).fetchall()
-    installed_functions = {str(row[0]) for row in function_rows}
+    installed_functions = {str(row["proname"]) for row in function_rows}
     missing_functions = sorted(_FUNCTION_NAMES - installed_functions)
     if missing_functions:
         problems.append("missing functions: " + ", ".join(missing_functions))
