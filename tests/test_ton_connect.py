@@ -1,4 +1,5 @@
 import base64
+from contextlib import contextmanager
 import hashlib
 import os
 import sqlite3
@@ -218,6 +219,23 @@ class TonConnectProofTests(unittest.TestCase):
             ton_connect.ensure_ton_connect_schema(connection)
             tables = list_database_tables(connection)
             self.assertTrue({"ton_proof_challenges", "verified_wallets"}.issubset(tables))
+
+            @contextmanager
+            def postgres_db():
+                yield connection
+
+            with patch.object(ton_connect, "_db", side_effect=postgres_db):
+                payload = ton_connect.create_proof_challenge(
+                    self.user_id, self.session, now=self.now,
+                )
+                proof = self._signed_proof(payload)
+                verified = self._verify(proof)
+                self.assertTrue(ton_connect.consume_challenge_and_link_wallet(
+                    verified, self.user_id, self.session, now=self.now,
+                ))
+                wallets = ton_connect.list_verified_wallets(self.user_id)
+                self.assertEqual(len(wallets), 1)
+                self.assertEqual(wallets[0]["address"], self.address)
         finally:
             if schema_created:
                 connection.execute(f'DROP SCHEMA "{schema}" CASCADE')
