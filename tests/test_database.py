@@ -209,3 +209,39 @@ class IntegrityErrorCompatibilityTests(unittest.TestCase):
             self.assertEqual(row[0], "first")
         finally:
             connection.close()
+
+
+
+class StagedPostgresConnectionFactoryTests(unittest.TestCase):
+    def test_requires_non_empty_dsn_before_loading_driver(self):
+        from database import connect_postgres_database
+
+        for dsn in ("", "   ", None):
+            with self.subTest(dsn=dsn):
+                with self.assertRaisesRegex(ValueError, "non-empty PostgreSQL DSN"):
+                    connect_postgres_database(dsn)
+
+    def test_opens_autocommit_connection_and_wraps_adapter_without_changing_default(self):
+        import sys
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+
+        from database import connect, connect_postgres_database
+        from db_postgres_compat import PostgresConnectionAdapter
+
+        raw = Mock()
+        driver_connect = Mock(return_value=raw)
+        fake_driver = SimpleNamespace(connect=driver_connect)
+
+        with patch.dict(sys.modules, {"psycopg": fake_driver}):
+            adapter = connect_postgres_database("  postgresql://isolated/test  ")
+
+        self.assertIsInstance(adapter, PostgresConnectionAdapter)
+        driver_connect.assert_called_once_with(
+            "postgresql://isolated/test", autocommit=True
+        )
+        adapter.close()
+        raw.close.assert_called_once()
+
+        # The production factory remains explicitly SQLite-backed.
+        self.assertIsInstance(connect(), sqlite3.Connection)
