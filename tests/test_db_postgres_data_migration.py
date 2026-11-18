@@ -92,6 +92,7 @@ def test_postgres_copy_rolls_back_all_tables_when_later_table_fails(tmp_path):
     import psycopg
     import pytest
     from db_postgres_data_migration import migrate
+    from db_backup import backup_database
 
     dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
     if not dsn:
