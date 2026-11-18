@@ -102,3 +102,28 @@ class PostgresWriteTransactionIntegrationTests(unittest.TestCase):
             select_for_update(SupportsLocks(), "SELECT 1 FOR UPDATE;"),
             "SELECT 1 FOR UPDATE",
         )
+
+
+    def test_advisory_lock_serializes_same_business_key(self):
+        dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+        if not dsn:
+            self.skipTest("isolated PostgreSQL service is not configured")
+        import psycopg
+
+        first = psycopg.connect(dsn, autocommit=True)
+        second = psycopg.connect(dsn, autocommit=True)
+        first_adapter = PostgresConnectionAdapter(first)
+        try:
+            first_adapter.begin_write("order:lock-test")
+            lock_id = PostgresConnectionAdapter._advisory_lock_id("order:lock-test")
+            self.assertFalse(
+                second.execute("SELECT pg_try_advisory_xact_lock(%s)", (lock_id,)).fetchone()[0]
+            )
+            first_adapter.rollback()
+            self.assertTrue(
+                second.execute("SELECT pg_try_advisory_xact_lock(%s)", (lock_id,)).fetchone()[0]
+            )
+        finally:
+            first_adapter.close()
+            second.rollback()
+            second.close()
