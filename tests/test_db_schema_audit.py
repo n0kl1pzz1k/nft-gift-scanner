@@ -597,3 +597,60 @@ def test_double_precision_profile_accepts_real_and_integer_but_rejects_text():
     assert profile["text_storage_count"] == 1
     assert profile["real_conversion_safe"] is False
     assert "not-a-time" not in json.dumps(preflight)
+
+
+def test_postgres_data_preflight_maps_safe_real_integer_affinity_to_double_precision():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE sample_data (id INTEGER PRIMARY KEY, measurement INTEGER NOT NULL);
+        INSERT INTO sample_data VALUES (1, 1794389573.0240138);
+        """
+    )
+    preflight = build_postgres_data_preflight(connection)
+    connection.close()
+
+    observed = next(item for item in preflight["integer_columns"] if item["column"] == "measurement")
+    assert observed["real_storage_count"] == 1
+    assert observed["type_override"] is True
+    assert observed["postgresql_type_candidate"] == "DOUBLE PRECISION"
+    assert observed["integer_conversion_safe"] is True
+    assert preflight["unsafe_integer_column_count"] == 0
+    assert preflight["integer_type_override_count"] == 1
+
+def test_postgres_data_preflight_blocks_real_values_in_foreign_key_columns():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE parent (id INTEGER PRIMARY KEY);
+        CREATE TABLE child (
+            id INTEGER PRIMARY KEY,
+            parent_id INTEGER REFERENCES parent(id)
+        );
+        INSERT INTO parent VALUES (1);
+        INSERT INTO child VALUES (1, 1.5);
+        """
+    )
+    preflight = build_postgres_data_preflight(connection)
+    connection.close()
+
+    child = next(item for item in preflight["integer_columns"] if item["column"] == "parent_id")
+    assert child["real_storage_count"] == 1
+    assert child["foreign_key_participant"] is True
+    assert child["type_override"] is False
+    assert child["integer_conversion_safe"] is False
+
+
+def test_runtime_inventory_gate_reports_real_backed_integer_type_override():
+    from db_schema_audit import build_postgres_migration_gate_summary
+
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE sample_data (id INTEGER PRIMARY KEY, measurement INTEGER NOT NULL)")
+    connection.execute("INSERT INTO sample_data VALUES (1, 1794389573.0240138)")
+    inventory = build_runtime_inventory(connection)
+    connection.close()
+
+    assert inventory["postgresql_ddl_plan"]["integer_type_override_count"] == 1
+    summary = build_postgres_migration_gate_summary(inventory)
+    assert summary["real_backed_integer_column_count"] == 1
+    assert summary["integer_type_override_count"] == 1
