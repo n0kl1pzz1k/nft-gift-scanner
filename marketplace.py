@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
-from database import DB_PATH, begin_write, select_for_update, require_sqlite_connection, connect_database as _connect_database
+from database import DB_PATH, begin_write, select_for_update, require_sqlite_connection, is_integrity_error, connect_database as _connect_database
 
 
 def _connect() -> sqlite3.Connection:
@@ -651,7 +651,9 @@ def consume_telegram_init_data(init_data: str, telegram_id: str, ttl_seconds: in
                 "INSERT INTO telegram_initdata_uses(initdata_hash, telegram_id, consumed_at, expires_at) VALUES (?, ?, ?, ?)",
                 (digest, str(telegram_id), now, now + max(300, min(int(ttl_seconds), 3600))),
             )
-        except sqlite3.IntegrityError:
+        except Exception as error:
+            if not is_integrity_error(error):
+                raise
             conn.rollback()
             return False
         conn.commit()
@@ -1328,7 +1330,7 @@ def create_marketplace_router(
         fallback_name = (user.get("first_name") or user.get("username") or "Telegram user")[:48]
         with _db() as conn:
             conn.execute(
-                """INSERT OR IGNORE INTO user_profiles
+                """INSERT INTO user_profiles
                    (profile_id, telegram_id, display_name, bio, created_at, updated_at)
                    VALUES (?, ?, ?, '', ?, ?)""",
                 ("usr_" + secrets.token_urlsafe(12), telegram_id, fallback_name, now, now),
@@ -1355,9 +1357,10 @@ def create_marketplace_router(
         with _db() as conn:
             begin_write(conn, f"seller-profile:{telegram_id}")
             conn.execute(
-                """INSERT OR IGNORE INTO user_profiles
+                """INSERT INTO user_profiles
                    (profile_id, telegram_id, display_name, bio, created_at, updated_at)
-                   VALUES (?, ?, ?, '', ?, ?)""",
+                   VALUES (?, ?, ?, '', ?, ?)
+                   ON CONFLICT(telegram_id) DO NOTHING""",
                 ("usr_" + secrets.token_urlsafe(12), telegram_id, fallback_name, now, now),
             )
             conn.execute(

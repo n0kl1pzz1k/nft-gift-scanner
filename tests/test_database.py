@@ -151,3 +151,61 @@ class WriteTransactionBoundaryTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "Unsupported database connection"):
             begin_write(object(), "order:123")
+
+
+
+class IntegrityErrorCompatibilityTests(unittest.TestCase):
+    def test_sqlite_integrity_error_is_recognized(self):
+        from database import is_integrity_error
+
+        connection = sqlite3.connect(":memory:")
+        try:
+            connection.execute("CREATE TABLE sample(id INTEGER PRIMARY KEY)")
+            connection.execute("INSERT INTO sample(id) VALUES (1)")
+            with self.assertRaises(sqlite3.IntegrityError) as raised:
+                connection.execute("INSERT INTO sample(id) VALUES (1)")
+            self.assertTrue(is_integrity_error(raised.exception))
+        finally:
+            connection.close()
+
+    def test_psycopg_integrity_error_is_recognized_without_masking_other_errors(self):
+        from database import is_integrity_error
+
+        PgIntegrityError = type("IntegrityError", (Exception,), {"__module__": "psycopg"})
+        PgUniqueViolation = type("UniqueViolation", (PgIntegrityError,), {"__module__": "psycopg.errors"})
+        PgOperationalError = type("OperationalError", (Exception,), {"__module__": "psycopg"})
+        self.assertTrue(is_integrity_error(PgUniqueViolation("duplicate")))
+        self.assertFalse(is_integrity_error(PgOperationalError("connection lost")))
+        self.assertFalse(is_integrity_error(ValueError("invalid")))
+
+    def test_real_postgres_unique_violation_is_recognized(self):
+        import os
+        dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+        if not dsn:
+            self.skipTest("isolated PostgreSQL service is not configured")
+        import psycopg
+        from database import is_integrity_error
+
+        with psycopg.connect(dsn) as connection:
+            connection.execute("CREATE TEMP TABLE integrity_probe(id INTEGER PRIMARY KEY)")
+            connection.execute("INSERT INTO integrity_probe(id) VALUES (1)")
+            with self.assertRaises(psycopg.IntegrityError) as raised:
+                connection.execute("INSERT INTO integrity_probe(id) VALUES (1)")
+            self.assertTrue(is_integrity_error(raised.exception))
+
+    def test_profile_insert_conflict_clause_is_supported_by_sqlite(self):
+        connection = sqlite3.connect(":memory:")
+        try:
+            connection.execute("CREATE TABLE profiles(telegram_id TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL)")
+            statement = (
+                "INSERT INTO profiles(telegram_id, display_name) VALUES (?, ?) "
+                "ON CONFLICT(telegram_id) DO NOTHING"
+            )
+            connection.execute(statement, ("100", "first"))
+            connection.execute(statement, ("100", "second"))
+            row = connection.execute(
+                "SELECT display_name FROM profiles WHERE telegram_id = ?", ("100",)
+            ).fetchone()
+            self.assertEqual(row[0], "first")
+        finally:
+            connection.close()
