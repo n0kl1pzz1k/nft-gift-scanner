@@ -632,3 +632,25 @@ def build_postgres_data_preflight(
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+
+def build_postgres_migration_gate_summary(inventory: dict[str, Any]) -> dict[str, Any]:
+    """Return compact, aggregate-only migration readiness diagnostics."""
+    preflight = inventory.get("postgresql_data_preflight", {})
+    boolean_columns = preflight.get("columns", [])
+    return {
+        "schema_sha256": inventory.get("schema_sha256"),
+        "table_count": int(inventory.get("table_count", 0)),
+        "total_rows": int(inventory.get("total_rows", 0)),
+        "index_count": int(inventory.get("object_counts", {}).get("index", 0)),
+        "trigger_count": int(inventory.get("object_counts", {}).get("trigger", 0)),
+        "ddl_blocker_count": int(inventory.get("postgresql_ddl_plan", {}).get("blocker_count", 0)),
+        "ddl_statement_count": int(inventory.get("postgresql_ddl_plan", {}).get("statement_count", 0)),
+        "translated_trigger_count": int(inventory.get("postgresql_ddl_plan", {}).get("trigger_translation_count", 0)),
+        "boolean_column_count": len(boolean_columns),
+        "unsafe_boolean_column_count": sum(not item.get("boolean_conversion_safe", False) for item in boolean_columns),
+        "boolean_invalid_value_count": sum(int(item.get("invalid_value_count", 0)) for item in boolean_columns),
+        "boolean_null_value_count": sum(int(item.get("null_value_count", 0)) for item in boolean_columns),
+        "cutover_allowed": bool(inventory.get("postgresql_ddl_plan", {}).get("ready_for_cutover", False)),
+    }
