@@ -139,17 +139,64 @@ class DatabaseBackendConfigurationTests(unittest.TestCase):
             "sqlite",
         )
 
+    def test_explicit_postgres_backend_requires_a_postgres_dsn(self):
+        from database import validate_database_configuration
+
+        with self.assertRaisesRegex(RuntimeError, "requires DATABASE_URL"):
+            validate_database_configuration({"HASSLE_NFT_DB_BACKEND": "postgres"})
+        self.assertEqual(
+            validate_database_configuration({
+                "HASSLE_NFT_DB_BACKEND": "postgres",
+                "DATABASE_URL": "postgresql://private-password@example.invalid/db",
+            }),
+            "postgres",
+        )
+
     def test_unsupported_backend_selection_fails_closed_without_echoing_dsn(self):
         from database import validate_database_configuration
 
         secret = "postgresql://private-password@example.invalid/db"
         with self.assertRaisesRegex(RuntimeError, "not supported") as raised:
             validate_database_configuration({
-                "HASSLE_NFT_DB_BACKEND": "postgres",
+                "HASSLE_NFT_DB_BACKEND": "mysql",
                 "DATABASE_URL": secret,
             })
         self.assertNotIn("private-password", str(raised.exception))
 
+
+
+class ExplicitPostgresRuntimeFactoryTests(unittest.TestCase):
+    def test_postgres_backend_uses_dsn_and_ignores_legacy_sqlite_path(self):
+        from unittest.mock import Mock
+        import database
+
+        sentinel = Mock()
+        with patch.dict("os.environ", {
+            "HASSLE_NFT_DB_BACKEND": "postgres",
+            "DATABASE_URL": "postgresql://user:secret@example.invalid/db",
+        }, clear=False), patch(
+            "database.connect_postgres_database", return_value=sentinel
+        ) as postgres_factory:
+            connection = database.connect("./data/legacy.sqlite3")
+        self.assertIs(connection, sentinel)
+        postgres_factory.assert_called_once_with(
+            "postgresql://user:secret@example.invalid/db"
+        )
+
+    def test_explicit_sqlite_backend_keeps_existing_path_behavior_with_database_url(self):
+        from unittest.mock import Mock
+        import database
+
+        sentinel = Mock()
+        with patch.dict("os.environ", {
+            "HASSLE_NFT_DB_BACKEND": "sqlite",
+            "DATABASE_URL": "postgresql://unused",
+        }, clear=False), patch(
+            "database.connect_database", return_value=sentinel
+        ) as sqlite_factory:
+            connection = database.connect("./data/legacy.sqlite3")
+        self.assertIs(connection, sentinel)
+        sqlite_factory.assert_called_once_with("./data/legacy.sqlite3")
 
 
 class WriteTransactionBoundaryTests(unittest.TestCase):

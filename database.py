@@ -21,10 +21,18 @@ def validate_database_configuration(environ: dict[str, str] | None = None) -> st
     configured_backend = values.get("HASSLE_NFT_DB_BACKEND", "").strip().lower()
     database_url = values.get("DATABASE_URL", "").strip()
 
-    if configured_backend and configured_backend != "sqlite":
+    if configured_backend not in {"", "sqlite", "postgres"}:
         raise RuntimeError(
             "The configured HASSLE_NFT_DB_BACKEND is not supported by this application build."
         )
+    if configured_backend == "postgres":
+        dsn = database_url or values.get("HASSLE_POSTGRES_DSN", "").strip()
+        if not dsn or not dsn.startswith(("postgresql://", "postgres://")):
+            raise RuntimeError(
+                "PostgreSQL backend requires DATABASE_URL or HASSLE_POSTGRES_DSN "
+                "with a PostgreSQL connection URL."
+            )
+        return "postgres"
     if database_url and not configured_backend:
         raise RuntimeError(
             "DATABASE_URL is configured but PostgreSQL runtime support is not enabled; "
@@ -138,18 +146,23 @@ def connect_postgres_database(dsn: str):
         raise
 
 
-def connect(database_path: str | Path | None = None) -> sqlite3.Connection:
+def connect(database_path: str | Path | None = None):
     """Open the shared application connection boundary.
 
-    An explicit path is retained for isolated tests and legacy callers. The
-    configured application backend remains SQLite until the reviewed runtime
-    compatibility work is complete.
+    SQLite keeps its path override. When PostgreSQL is explicitly selected,
+    the configured DSN is authoritative and the legacy SQLite path is ignored.
+    This switch is opt-in; production remains on SQLite unless the backend
+    environment variable is deliberately changed.
     """
+    backend = validate_database_configuration()
+    if backend == "postgres":
+        dsn = os.getenv("DATABASE_URL", "").strip() or os.getenv("HASSLE_POSTGRES_DSN", "").strip()
+        return connect_postgres_database(dsn)
     return connect_database(DB_PATH if database_path is None else database_path)
 
 
 @contextmanager
-def db(database_path: str | Path | None = None) -> Iterator[sqlite3.Connection]:
+def db(database_path: str | Path | None = None) -> Iterator[object]:
     """Yield one connection and always close it.
 
     This context manager does not begin, commit, or roll back transactions.
