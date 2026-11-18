@@ -216,7 +216,9 @@ class TonConnectProofTests(unittest.TestCase):
             connection.execute(f'CREATE SCHEMA "{schema}"')
             schema_created = True
             connection.execute(f'SET search_path TO "{schema}"')
-            ton_connect.ensure_ton_connect_schema(connection)
+            schema_report = ton_connect.ensure_ton_connect_schema(connection)
+            self.assertTrue(schema_report["verified"])
+            self.assertEqual(schema_report["tables_verified"], 2)
             tables = list_database_tables(connection)
             self.assertTrue({"ton_proof_challenges", "verified_wallets"}.issubset(tables))
 
@@ -236,6 +238,10 @@ class TonConnectProofTests(unittest.TestCase):
                 wallets = ton_connect.list_verified_wallets(self.user_id)
                 self.assertEqual(len(wallets), 1)
                 self.assertEqual(wallets[0]["address"], self.address)
+
+            connection.execute("ALTER TABLE verified_wallets DROP COLUMN public_key")
+            with self.assertRaisesRegex(RuntimeError, "missing columns in verified_wallets: public_key"):
+                ton_connect.verify_ton_connect_schema(connection)
         finally:
             if schema_created:
                 connection.execute(f'DROP SCHEMA "{schema}" CASCADE')
