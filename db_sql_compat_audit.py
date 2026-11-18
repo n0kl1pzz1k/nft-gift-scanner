@@ -176,7 +176,7 @@ def audit_source_tree(root: str | Path) -> dict[str, Any]:
         file_findings: list[dict[str, Any]] = []
         for feature, pattern, severity, remediation in RULES:
             for match in pattern.finditer(source):
-                line = source.count("\\n", 0, match.start()) + 1
+                line = source.count("\n", 0, match.start()) + 1
                 function = _function_at_line(function_ranges, line)
                 fallback = (
                     severity == "blocker"
