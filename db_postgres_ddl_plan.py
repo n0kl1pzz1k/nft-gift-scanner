@@ -138,7 +138,7 @@ END;"""
         return [prefix + body + suffix, trigger]
     return None
 
-def build_postgres_ddl_plan(manifest: dict[str, Any]) -> dict[str, Any]:
+def build_postgres_ddl_plan(manifest: dict[str, Any], data_preflight: dict[str, Any] | None = None) -> dict[str, Any]:
     """Render candidate CREATE/ALTER statements and explicit blockers."""
     structural = build_postgres_migration_plan(manifest)
     source_tables = {str(item.get("name", "")): item for item in manifest.get("tables", [])}
@@ -236,6 +236,18 @@ def build_postgres_ddl_plan(manifest: dict[str, Any]) -> dict[str, Any]:
                 statements.extend(translated)
         elif item.get("type") == "view":
             blockers.append({"table": str(item.get("table", "")), "feature": f"view {item.get('name')}", "reason": "View SQL requires PostgreSQL syntax and dependency review."})
+
+    if data_preflight is not None:
+        for profile in data_preflight.get("columns", []):
+            if not profile.get("boolean_conversion_safe", False):
+                blockers.append({
+                    "table": str(profile.get("table", "")),
+                    "feature": f"unsafe boolean data on {profile.get('column', '')}",
+                    "reason": (
+                        f"Cannot map to PostgreSQL BOOLEAN: invalid values={int(profile.get('invalid_value_count', 0))}, "
+                        f"NULL values={int(profile.get('null_value_count', 0))}, nullable={bool(profile.get('nullable'))}."
+                    ),
+                })
 
     return {
         "format_version": 1,
