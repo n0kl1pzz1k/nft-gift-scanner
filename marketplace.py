@@ -367,44 +367,10 @@ def init_marketplace_db() -> None:
         if "asset_id" not in order_columns:
             conn.execute("ALTER TABLE marketplace_orders ADD COLUMN asset_id TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_marketplace_orders_asset ON marketplace_orders(asset_id, status)")
-        # One-time cleanup of the explicitly identified test listing approved by the owner.
-        # Match every identifying field so no other seller listing can be touched.
-        conn.execute("BEGIN IMMEDIATE")
-        test_rows = conn.execute(
-            """SELECT id FROM marketplace_orders
-               WHERE TRIM(title) = 'Plush Pepe #1'
-                 AND LOWER(TRIM(owner_name)) = 'n0kl1pzz1k'
-                 AND currency = 'TON'
-                 AND CAST(price AS REAL) = 70000"""
-        ).fetchall()
-        test_ids = [row["id"] for row in test_rows]
-        for test_id in test_ids:
-            conn.execute("DELETE FROM marketplace_order_reports WHERE order_id = ?", (test_id,))
-            conn.execute("DELETE FROM marketplace_order_events WHERE order_id = ?", (test_id,))
-            conn.execute("DELETE FROM marketplace_order_revisions WHERE order_id = ?", (test_id,))
-            conn.execute("DELETE FROM marketplace_orders WHERE id = ?", (test_id,))
-        conn.commit()
+        # Never delete marketplace listings during application startup.
+        # Any listing removal must be an explicit, owner-authorized operation with
+        # a recorded audit event. Startup must preserve all user-owned rows.
 
-        # One-time deletion of the exact owner-approved test listing.
-        # Match its immutable order ID plus the observed public fields so no
-        # unrelated production asset can be affected.
-        conn.execute("BEGIN IMMEDIATE")
-        stale_test = conn.execute(
-            """SELECT id FROM marketplace_orders
-               WHERE id = 'gr-9a3110edee11434a'
-                 AND TRIM(title) = 'ndmd'
-                 AND LOWER(TRIM(owner_name)) = 'n0kl1pzz1k'
-                 AND currency = 'TON'
-                 AND CAST(price AS REAL) = 999999
-                 AND status = 'active'"""
-        ).fetchone()
-        if stale_test is not None:
-            stale_id = stale_test["id"]
-            conn.execute("DELETE FROM marketplace_order_reports WHERE order_id = ?", (stale_id,))
-            conn.execute("DELETE FROM marketplace_order_events WHERE order_id = ?", (stale_id,))
-            conn.execute("DELETE FROM marketplace_order_revisions WHERE order_id = ?", (stale_id,))
-            conn.execute("DELETE FROM marketplace_orders WHERE id = ?", (stale_id,))
-        conn.commit()
 
 
 
