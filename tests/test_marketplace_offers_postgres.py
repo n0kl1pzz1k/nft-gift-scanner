@@ -4,7 +4,10 @@ import uuid
 import psycopg
 import pytest
 
-from marketplace_offers_postgres import install_postgres_offer_triggers
+from marketplace_offers_postgres import (
+    install_postgres_offer_triggers,
+    _verify_postgres_offer_triggers,
+)
 
 
 def test_postgres_offer_triggers_preserve_notifications_and_immutability():
@@ -90,6 +93,11 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
             )
             with pytest.raises(psycopg.Error):
                 pg.execute("DELETE FROM marketplace_deal_lifecycle_events WHERE id='life-1'")
+
+            # A successful DDL call is not proof that the final trigger set is intact.
+            pg.execute("DROP TRIGGER trg_marketplace_offer_received ON marketplace_offers")
+            with pytest.raises(RuntimeError, match="missing trigger trg_marketplace_offer_received"):
+                _verify_postgres_offer_triggers(pg)
         finally:
             pg.execute("SET search_path TO public")
             pg.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
