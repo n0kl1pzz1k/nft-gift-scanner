@@ -15,7 +15,7 @@ import time
 from typing import Any
 
 from marketplace import _db
-from database import begin_write, select_for_update, require_sqlite_connection
+from database import begin_write, select_for_update
 
 # Official TON standard wallet code hashes. Layouts are version-specific.
 _WALLET_LAYOUTS = {
@@ -34,21 +34,30 @@ PROOF_MAX_AGE_SECONDS = 600
 CHALLENGE_TTL_SECONDS = 300
 
 
-def init_ton_connect_db() -> None:
-    with _db() as conn:
-        require_sqlite_connection(conn, "TON Connect schema initialization")
-        conn.executescript("""
-        CREATE TABLE IF NOT EXISTS ton_proof_challenges (
+def ensure_ton_connect_schema(connection: object) -> None:
+    """Create TON Connect tables using portable, single-statement DDL.
+
+    SQLite and the staged PostgreSQL adapter both support this schema. Runtime
+    PostgreSQL selection remains disabled until the wider marketplace schema
+    and query paths have been ported and reviewed.
+    """
+    if not isinstance(connection, sqlite3.Connection) and not bool(
+        getattr(connection, "supports_for_update", False)
+    ):
+        raise RuntimeError("Unsupported database connection for TON Connect schema")
+
+    statements = (
+        """CREATE TABLE IF NOT EXISTS ton_proof_challenges (
             payload_hash TEXT PRIMARY KEY,
             telegram_id TEXT NOT NULL,
             session_hash TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             expires_at INTEGER NOT NULL,
             consumed_at INTEGER
-        );
-        CREATE INDEX IF NOT EXISTS idx_ton_proof_challenges_expiry
-            ON ton_proof_challenges(expires_at);
-        CREATE TABLE IF NOT EXISTS verified_wallets (
+        )""",
+        """CREATE INDEX IF NOT EXISTS idx_ton_proof_challenges_expiry
+            ON ton_proof_challenges(expires_at)""",
+        """CREATE TABLE IF NOT EXISTS verified_wallets (
             network TEXT NOT NULL,
             address TEXT NOT NULL,
             telegram_id TEXT NOT NULL,
@@ -58,10 +67,17 @@ def init_ton_connect_db() -> None:
             last_verified_at INTEGER NOT NULL,
             revoked_at INTEGER,
             PRIMARY KEY(network, address)
-        );
-        CREATE INDEX IF NOT EXISTS idx_verified_wallets_owner
-            ON verified_wallets(telegram_id, revoked_at, last_verified_at DESC);
-        """)
+        )""",
+        """CREATE INDEX IF NOT EXISTS idx_verified_wallets_owner
+            ON verified_wallets(telegram_id, revoked_at, last_verified_at DESC)""",
+    )
+    for statement in statements:
+        connection.execute(statement)
+
+
+def init_ton_connect_db() -> None:
+    with _db() as conn:
+        ensure_ton_connect_schema(conn)
 
 
 def create_proof_challenge(telegram_id: str, session_token: str, now: int | None = None) -> str:
