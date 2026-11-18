@@ -106,4 +106,4 @@ def test_audit_ignores_python_docstrings_but_scans_executable_sql_literals(tmp_p
 
     assert not any(item["feature"] == "sqlite_transaction_lock" for item in findings)
     assert not any(item["feature"] == "sqlite_script_execution" for item in findings)
-    assert any(item["feature"] == "sqlite_pragma" and item["line"] == 5 for item in findings)
+    assert any(item["feature"] == "sqlite_pragma" and item["line"] == 4 for item in findings)
