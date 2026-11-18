@@ -123,6 +123,7 @@ def test_ddl_plan_translates_all_known_production_trigger_categories():
 
     trigger_statements = [sql for sql in result["statements"] if "TRIGGER" in sql.upper() or "FUNCTION" in sql.upper()]
     assert len(trigger_statements) == 16
+    assert result["trigger_translation_count"] == 8
     assert not any(item["feature"].startswith("trigger ") for item in result["blockers"])
     rendered = "\\n".join(trigger_statements)
     assert "gen_random_uuid()" in rendered
