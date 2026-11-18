@@ -125,7 +125,7 @@ def test_ddl_plan_translates_all_known_production_trigger_categories():
     assert len(trigger_statements) == 16
     assert result["trigger_translation_count"] == 8
     assert not any(item["feature"].startswith("trigger ") for item in result["blockers"])
-    rendered = "\\n".join(trigger_statements)
+    rendered = "\n".join(trigger_statements)
     assert "gen_random_uuid()" in rendered
     assert "verified asset metadata is immutable" in rendered
     assert "deal lifecycle events are immutable" in rendered
