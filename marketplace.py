@@ -14,26 +14,16 @@ import uuid
 from urllib.parse import urlparse
 from decimal import Decimal, InvalidOperation
 from typing import Callable, Literal, Any
-from contextlib import contextmanager
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
-from database import DB_PATH, begin_write, select_for_update, require_sqlite_connection, is_integrity_error, connect_database as _connect_database
+from database import DB_PATH, begin_write, select_for_update, require_sqlite_connection, is_integrity_error, db as _database_db
 
 
-def _connect() -> sqlite3.Connection:
-    # Keep DB_PATH patchable for isolated tests and legacy callers.
-    return _connect_database(DB_PATH)
-
-
-@contextmanager
 def _db():
-    connection = _connect()
-    try:
-        yield connection
-    finally:
-        connection.close()
+    # Preserve the legacy path override while centralizing connection lifetime.
+    return _database_db(DB_PATH)
 
 
 _LEGACY_MARKETPLACE_TABLE_RENAMES = (
