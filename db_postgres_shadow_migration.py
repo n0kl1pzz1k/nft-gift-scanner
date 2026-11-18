@@ -323,19 +323,73 @@ def _copy_all_in_one_transaction(
                 if missing_triggers:
                     mismatches["triggers"] = {"missing": missing_triggers}
 
-                expected_foreign_keys = sum(
-                    len(item.get("foreign_keys", [])) for item in structural["tables"]
+                expected_foreign_key_signatures = sorted(
+                    (
+                        str(table["table"]),
+                        str(fk["referenced_table"]),
+                        tuple(str(column["from"]) for column in fk["columns"]),
+                        tuple(str(column["to"]) for column in fk["columns"]),
+                        str(fk["on_delete"]).upper(),
+                        str(fk["on_update"]).upper(),
+                    )
+                    for table in structural["tables"]
+                    for fk in table.get("foreign_keys", [])
                 )
-                actual_foreign_keys = int(cursor.execute(
-                    """SELECT COUNT(*) FROM pg_constraint con
+                expected_foreign_keys = len(expected_foreign_key_signatures)
+                actual_foreign_key_rows = cursor.execute(
+                    """SELECT c.relname, referenced.relname,
+                              ARRAY(
+                                SELECT a.attname
+                                FROM unnest(con.conkey) WITH ORDINALITY AS key(attnum, ord)
+                                JOIN pg_attribute a
+                                  ON a.attrelid=c.oid AND a.attnum=key.attnum
+                                ORDER BY key.ord
+                              ),
+                              ARRAY(
+                                SELECT a.attname
+                                FROM unnest(con.confkey) WITH ORDINALITY AS key(attnum, ord)
+                                JOIN pg_attribute a
+                                  ON a.attrelid=referenced.oid AND a.attnum=key.attnum
+                                ORDER BY key.ord
+                              ),
+                              con.confdeltype, con.confupdtype,
+                              con.condeferrable, con.condeferred
+                       FROM pg_constraint con
                        JOIN pg_class c ON c.oid=con.conrelid
                        JOIN pg_namespace n ON n.oid=c.relnamespace
-                       WHERE n.nspname=%s AND con.contype='f'""",
+                       JOIN pg_class referenced ON referenced.oid=con.confrelid
+                       JOIN pg_namespace referenced_ns ON referenced_ns.oid=referenced.relnamespace
+                       WHERE n.nspname=%s AND referenced_ns.nspname=n.nspname
+                         AND con.contype='f'""",
                     (schema,),
-                ).fetchone()[0])
-                if actual_foreign_keys != expected_foreign_keys:
+                ).fetchall()
+                action_names = {
+                    "a": "NO ACTION", "r": "RESTRICT", "c": "CASCADE",
+                    "n": "SET NULL", "d": "SET DEFAULT",
+                }
+                actual_foreign_key_signatures = sorted(
+                    (
+                        str(row[0]), str(row[1]), tuple(row[2]), tuple(row[3]),
+                        action_names.get(str(row[4]), f"UNKNOWN:{row[4]}"),
+                        action_names.get(str(row[5]), f"UNKNOWN:{row[5]}"),
+                    )
+                    for row in actual_foreign_key_rows
+                )
+                actual_foreign_keys = len(actual_foreign_key_signatures)
+                if actual_foreign_key_signatures != expected_foreign_key_signatures:
                     mismatches["foreign_keys"] = {
-                        "source": expected_foreign_keys, "target": actual_foreign_keys
+                        "source": expected_foreign_key_signatures,
+                        "target": actual_foreign_key_signatures,
+                    }
+                non_deferred_foreign_keys = [
+                    {"table": row[0], "referenced_table": row[1]}
+                    for row in actual_foreign_key_rows
+                    if not row[6] or not row[7]
+                ]
+                if non_deferred_foreign_keys:
+                    mismatches["foreign_key_deferral"] = {
+                        "expected": "all constraints DEFERRABLE INITIALLY DEFERRED",
+                        "non_deferred": non_deferred_foreign_keys,
                     }
 
                 expected_checks = sum(
@@ -360,10 +414,11 @@ def _copy_all_in_one_transaction(
                     "triggers_found": len(expected_triggers) - len(missing_triggers),
                     "foreign_keys_expected": expected_foreign_keys,
                     "foreign_keys_found": actual_foreign_keys,
+                    "foreign_keys_semantically_verified": actual_foreign_key_signatures == expected_foreign_key_signatures and not non_deferred_foreign_keys,
                     "check_constraints_expected": expected_checks,
                     "check_constraints_found": actual_checks,
                     "verified": not any(key in mismatches for key in (
-                        "indexes", "triggers", "foreign_keys", "check_constraints"
+                        "indexes", "triggers", "foreign_keys", "foreign_key_deferral", "check_constraints"
                     )),
                 }
                 if mismatches:
