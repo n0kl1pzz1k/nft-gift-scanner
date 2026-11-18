@@ -131,9 +131,8 @@ END;"""
   RETURN NEW;
 END;"""
         trigger = (
-            f"CREATE TRIGGER {qtrigger} BEFORE UPDATE OF source, external_asset_id, owner_telegram_id, "
-            "title, asset_type, image_url, verification_method, verification_reference_hash, verified_at "
-            f"ON {qtable} FOR EACH ROW EXECUTE FUNCTION {function}()"
+            f"CREATE TRIGGER {qtrigger} BEFORE UPDATE ON {qtable} "
+            f"FOR EACH ROW EXECUTE FUNCTION {function}()"
         )
         return [prefix + body + suffix, trigger]
     return None
