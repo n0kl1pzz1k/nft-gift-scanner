@@ -57,6 +57,22 @@ def _topological_order(table_names: list[str], foreign_keys: dict[str, list[dict
     return ordered, remaining
 
 
+def _implicit_rowid_primary_key_indexes(table: dict[str, Any]) -> int:
+    """Count PostgreSQL PK indexes absent from SQLite's rowid-alias index list."""
+    ddl = str(table.get("sql") or "").upper()
+    if "WITHOUT ROWID" in ddl:
+        return 0
+    primary = [
+        column for column in table.get("columns", [])
+        if int(column.get("primary_key_position", 0)) > 0
+    ]
+    if len(primary) != 1 or str(primary[0].get("type", "")).strip().upper() != "INTEGER":
+        return 0
+    if any(index.get("origin") == "pk" for index in table.get("indexes", [])):
+        return 0
+    return 1
+
+
 def build_postgres_migration_plan(manifest: dict[str, Any]) -> dict[str, Any]:
     """Build a data-free table/constraint migration order from a SQLite manifest."""
     tables = list(manifest.get("tables", []))
@@ -146,7 +162,9 @@ def build_postgres_migration_plan(manifest: dict[str, Any]) -> dict[str, Any]:
         "trigger_rewrite_count": len(triggers),
         "triggers_requiring_rewrite": triggers,
         "views_requiring_review": views,
-        "index_count": sum(len(item["indexes"]) for item in table_plans),
+        "sqlite_index_count": sum(len(item["indexes"]) for item in table_plans),
+        "implicit_rowid_primary_key_index_count": sum(_implicit_rowid_primary_key_indexes(table) for table in tables),
+        "index_count": sum(len(item["indexes"]) for item in table_plans) + sum(_implicit_rowid_primary_key_indexes(table) for table in tables),
         "ready_for_cutover": False,
         "execution_enabled": False,
         "scope_note": (
