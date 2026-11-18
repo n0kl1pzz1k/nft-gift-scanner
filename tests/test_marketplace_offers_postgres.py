@@ -109,7 +109,7 @@ def test_postgres_offer_schema_bootstrap_is_idempotent_and_creates_all_objects()
         pytest.skip("isolated PostgreSQL service is not configured")
 
     from psycopg.rows import dict_row
-    from marketplace_offers_postgres import initialize_postgres_offer_schema
+    from marketplace_offers_postgres import initialize_postgres_offer_schema, verify_postgres_offer_schema
 
     schema = "offer_schema_" + uuid.uuid4().hex[:10]
     with psycopg.connect(dsn, autocommit=True, row_factory=dict_row) as pg:
@@ -134,7 +134,10 @@ def test_postgres_offer_schema_bootstrap_is_idempotent_and_creates_all_objects()
             second = initialize_postgres_offer_schema(adapter)
             assert first["verified"] is True
             assert second["verified"] is True
-            assert first["trigger_report"]["triggers_installed"] == 7
+            assert first["verification"]["triggers_verified"] == 7
+            assert first["verification"]["tables_verified"] == 5
+            assert first["verification"]["columns_verified"] == 43
+            assert first["verification"]["indexes_verified"] == 8
 
             tables = {
                 row["table_name"]
@@ -156,6 +159,10 @@ def test_postgres_offer_schema_bootstrap_is_idempotent_and_creates_all_objects()
                 ).fetchall()
             }
             assert "idx_marketplace_deals_one_open_reservation" in indexes
+
+            pg.execute("ALTER TABLE marketplace_offers DROP COLUMN sender_name")
+            with pytest.raises(RuntimeError, match="missing columns in marketplace_offers: sender_name"):
+                verify_postgres_offer_schema(Adapter())
         finally:
             pg.execute("SET search_path TO public")
             pg.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
