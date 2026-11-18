@@ -1,6 +1,6 @@
 import sqlite3
 
-from db_postgres_data_migration import _fingerprint, _normal, _ordered_select
+from db_postgres_data_migration import _fingerprint, _normal, _ordered_select, _sqlite_autoincrement_high_water
 from db_schema_audit import build_schema_manifest
 
 
@@ -34,3 +34,14 @@ def test_ordered_select_falls_back_to_all_columns_without_primary_key():
 def test_fingerprint_is_independent_of_row_order():
     rows = [(1, "alpha"), (2, "beta"), (3, None)]
     assert _fingerprint(rows) == _fingerprint(list(reversed(rows)))
+
+
+
+def test_autoincrement_high_water_survives_deleted_highest_row():
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT)")
+    connection.execute("INSERT INTO items(value) VALUES ('first')")
+    connection.execute("INSERT INTO items(value) VALUES ('second')")
+    connection.execute("DELETE FROM items WHERE id = 2")
+    assert _sqlite_autoincrement_high_water(connection, "items") == 2
+    connection.close()
