@@ -239,6 +239,18 @@ def build_postgres_ddl_plan(manifest: dict[str, Any], data_preflight: dict[str, 
             blockers.append({"table": str(item.get("table", "")), "feature": f"view {item.get('name')}", "reason": "View SQL requires PostgreSQL syntax and dependency review."})
 
     if data_preflight is not None:
+        for profile in data_preflight.get("integer_columns", []):
+            if not profile.get("integer_conversion_safe", False):
+                blockers.append({
+                    "table": str(profile.get("table", "")),
+                    "feature": f"non-integer storage on {profile.get('column', '')}",
+                    "reason": (
+                        "SQLite INTEGER affinity column contains values outside the integer storage class: "
+                        f"real={int(profile.get('real_storage_count', 0))}, "
+                        f"text={int(profile.get('text_storage_count', 0))}, "
+                        f"blob={int(profile.get('blob_storage_count', 0))}."
+                    ),
+                })
         for profile in data_preflight.get("columns", []):
             if not profile.get("boolean_conversion_safe", False):
                 blockers.append({

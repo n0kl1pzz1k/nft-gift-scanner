@@ -343,6 +343,8 @@ def run_shadow_migration(
             raise RuntimeError("Verified SQLite backup and restored copy differ; refusing PostgreSQL shadow migration.")
         if not preflight["postgresql_boolean_data_preflight"]["conversion_safe_in_both"]:
             raise RuntimeError("SQLite BOOLEAN candidate data is not safe for PostgreSQL conversion.")
+        if not preflight["postgresql_integer_data_preflight"]["conversion_safe_in_both"]:
+            raise RuntimeError("SQLite INTEGER-affinity columns contain non-integer storage classes; refusing BIGINT conversion.")
 
         migration_report = _copy_all_in_one_transaction(
             str(backup), dsn, batch_size, execute, target_schema

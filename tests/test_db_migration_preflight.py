@@ -193,3 +193,32 @@ def test_preflight_marks_non_boolean_values_as_conversion_blocker(tmp_path):
     assert profile["conversion_safe_in_both"] is False
     assert profile["source"]["columns"][0]["invalid_value_count"] == 1
     assert report["postgresql_cutover_allowed"] is False
+
+
+
+def test_preflight_detects_non_integer_storage_in_bigint_candidates(tmp_path):
+    source_path = tmp_path / "numeric-source.sqlite3"
+    backup_path = tmp_path / "numeric-backup.sqlite3"
+    for path in (source_path, backup_path):
+        connection = sqlite3.connect(path)
+        connection.executescript(
+            """
+            CREATE TABLE sample (id INTEGER PRIMARY KEY, event_time INTEGER NOT NULL);
+            INSERT INTO sample(event_time) VALUES (1700000000);
+            INSERT INTO sample(event_time) VALUES ('not-a-timestamp');
+            """
+        )
+        connection.commit()
+        connection.close()
+
+    source = sqlite3.connect(source_path)
+    backup = sqlite3.connect(backup_path)
+    report = build_migration_preflight(source, backup)
+    source.close()
+    backup.close()
+
+    numeric = report["postgresql_integer_data_preflight"]
+    assert numeric["conversion_safe_in_both"] is False
+    assert numeric["unsafe_column_count"] == 2
+    assert next(item for item in numeric["source"]["integer_columns"] if item["column"] == "event_time")["text_storage_count"] == 1
+    assert report["ready_for_shadow_migration"] is False

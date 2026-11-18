@@ -121,6 +121,11 @@ def build_migration_preflight(
     source_boolean_profile = build_postgres_data_preflight(source, left["schema_manifest"])
     backup_boolean_profile = build_postgres_data_preflight(backup, right["schema_manifest"])
     boolean_profiles_match = source_boolean_profile["columns"] == backup_boolean_profile["columns"]
+    integer_profiles_match = source_boolean_profile["integer_columns"] == backup_boolean_profile["integer_columns"]
+    integer_conversion_safe_in_both = (
+        source_boolean_profile["unsafe_integer_column_count"] == 0
+        and backup_boolean_profile["unsafe_integer_column_count"] == 0
+    )
     runtime = audit_source_tree(repository_root)
     left.pop("schema_manifest")
     right.pop("schema_manifest")
@@ -151,8 +156,19 @@ def build_migration_preflight(
             ),
             "scope_note": "Aggregate-only conditional BOOLEAN profile; this is not a full PostgreSQL data validation.",
         },
+        "postgresql_integer_data_preflight": {
+            "source": source_boolean_profile,
+            "backup": backup_boolean_profile,
+            "profiles_match": integer_profiles_match,
+            "conversion_safe_in_both": integer_conversion_safe_in_both,
+            "unsafe_column_count": (
+                source_boolean_profile["unsafe_integer_column_count"]
+                + backup_boolean_profile["unsafe_integer_column_count"]
+            ),
+            "scope_note": "Aggregate storage-class counts only; no SQLite application values are returned.",
+        },
         "postgresql_runtime_compatibility": runtime,
-        "ready_for_shadow_migration": exact_match,
+        "ready_for_shadow_migration": exact_match and integer_conversion_safe_in_both and source_boolean_profile["unsafe_column_count"] == 0 and backup_boolean_profile["unsafe_column_count"] == 0,
         "postgresql_cutover_allowed": False,
         "cutover_note": (
             "An exact SQLite backup match is only a prerequisite. PostgreSQL schema, "
