@@ -63,12 +63,12 @@ def _trigger_ddl(item: dict[str, Any]) -> list[str] | None:
     if name in {"trg_marketplace_deal_events_no_delete", "trg_marketplace_deal_events_no_update"}:
         action = "DELETE" if name.endswith("no_delete") else "UPDATE"
         message = "deal events are immutable"
-        body = f"BEGIN\\n  RAISE EXCEPTION '{message}';\\nEND;"
+        body = f"BEGIN\n  RAISE EXCEPTION '{message}';\nEND;"
         trigger = f"CREATE TRIGGER {qtrigger} BEFORE {action} ON {qtable} FOR EACH ROW EXECUTE FUNCTION {function}()"
         return [prefix + body + suffix, trigger]
     if name in {"trg_marketplace_deal_lifecycle_events_no_delete", "trg_marketplace_deal_lifecycle_events_no_update"}:
         action = "DELETE" if name.endswith("no_delete") else "UPDATE"
-        body = "BEGIN\\n  RAISE EXCEPTION 'deal lifecycle events are immutable';\\nEND;"
+        body = "BEGIN\n  RAISE EXCEPTION 'deal lifecycle events are immutable';\nEND;"
         trigger = f"CREATE TRIGGER {qtrigger} BEFORE {action} ON {qtable} FOR EACH ROW EXECUTE FUNCTION {function}()"
         return [prefix + body + suffix, trigger]
     if name == "trg_marketplace_offer_received" and table == "marketplace_offers":
