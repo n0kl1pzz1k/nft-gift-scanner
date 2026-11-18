@@ -168,7 +168,7 @@ def build_migration_preflight(
             "scope_note": "Aggregate storage-class counts only; no SQLite application values are returned.",
         },
         "postgresql_runtime_compatibility": runtime,
-        "ready_for_shadow_migration": exact_match,
+        "ready_for_shadow_migration": exact_match and integer_conversion_safe_in_both and source_boolean_profile["unsafe_column_count"] == 0 and backup_boolean_profile["unsafe_column_count"] == 0,
         "postgresql_cutover_allowed": False,
         "cutover_note": (
             "An exact SQLite backup match is only a prerequisite. PostgreSQL schema, "
