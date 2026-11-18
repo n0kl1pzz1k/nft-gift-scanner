@@ -358,7 +358,9 @@ def _copy_all_in_one_transaction(
                        JOIN pg_class c ON c.oid=con.conrelid
                        JOIN pg_namespace n ON n.oid=c.relnamespace
                        JOIN pg_class referenced ON referenced.oid=con.confrelid
-                       WHERE n.nspname=%s AND con.contype='f'""",
+                       JOIN pg_namespace referenced_ns ON referenced_ns.oid=referenced.relnamespace
+                       WHERE n.nspname=%s AND referenced_ns.nspname=n.nspname
+                         AND con.contype='f'""",
                     (schema,),
                 ).fetchall()
                 action_names = {
@@ -416,7 +418,7 @@ def _copy_all_in_one_transaction(
                     "check_constraints_expected": expected_checks,
                     "check_constraints_found": actual_checks,
                     "verified": not any(key in mismatches for key in (
-                        "indexes", "triggers", "foreign_keys", "check_constraints"
+                        "indexes", "triggers", "foreign_keys", "foreign_key_deferral", "check_constraints"
                     )),
                 }
                 if mismatches:
