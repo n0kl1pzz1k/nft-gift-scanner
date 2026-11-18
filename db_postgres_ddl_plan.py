@@ -245,9 +245,10 @@ def build_postgres_ddl_plan(manifest: dict[str, Any]) -> dict[str, Any]:
         "statement_count": len(statements),
         "statements": statements,
         "deferred_foreign_key_count": deferred_fk_count,
+        "trigger_translation_count": sum(1 for item in manifest.get("objects", []) if item.get("type") == "trigger") - sum(1 for item in blockers if item["feature"].startswith("trigger ")),
         "blocker_count": len(blockers),
         "blockers": blockers,
         "execution_enabled": False,
         "ready_for_cutover": False,
-        "scope_note": "Candidate DDL only. Defaults, triggers, views, partial indexes, and unsupported column features remain explicit blockers; nothing is executed.",
+        "scope_note": "Candidate DDL only. Unsupported defaults, triggers, views, indexes, and column features remain explicit blockers; nothing is executed.",
     }
