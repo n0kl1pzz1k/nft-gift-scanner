@@ -66,3 +66,193 @@ def test_schema_apply_refuses_unsupported_sqlite_view(tmp_path):
 
     with pytest.raises(RuntimeError, match="blocker"):
         apply_schema(str(source_path), dsn, apply=False)
+
+
+def test_schema_apply_preserves_all_marketplace_trigger_behaviors(tmp_path):
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    source_path = tmp_path / "marketplace_triggers.sqlite3"
+    source = sqlite3.connect(source_path)
+    source.executescript(
+        """
+        PRAGMA foreign_keys = ON;
+        CREATE TABLE marketplace_orders (
+            id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL DEFAULT '',
+            owner_name TEXT NOT NULL DEFAULT '', status TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE marketplace_offers (
+            id TEXT PRIMARY KEY, order_id TEXT NOT NULL, sender_user_id TEXT NOT NULL,
+            sender_name TEXT NOT NULL, amount TEXT NOT NULL DEFAULT '1',
+            currency TEXT NOT NULL DEFAULT 'TON' CHECK(currency IN ('TON','XTR')),
+            note TEXT NOT NULL DEFAULT '', status TEXT NOT NULL,
+            created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+            FOREIGN KEY(order_id) REFERENCES marketplace_orders(id)
+        );
+        CREATE TABLE marketplace_notifications (
+            id TEXT PRIMARY KEY, user_id TEXT NOT NULL, event_type TEXT NOT NULL,
+            offer_id TEXT NOT NULL, order_id TEXT NOT NULL, order_title TEXT NOT NULL DEFAULT '',
+            actor_name TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, read_at INTEGER,
+            FOREIGN KEY(offer_id) REFERENCES marketplace_offers(id),
+            FOREIGN KEY(order_id) REFERENCES marketplace_orders(id)
+        );
+        CREATE TABLE marketplace_deal_events (
+            id TEXT PRIMARY KEY, deal_id TEXT NOT NULL, order_id TEXT NOT NULL,
+            actor_user_id TEXT NOT NULL, event_type TEXT NOT NULL,
+            event_data TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL
+        );
+        CREATE TABLE marketplace_deal_lifecycle_events (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+            deal_id TEXT NOT NULL, order_id TEXT NOT NULL, actor_user_id TEXT NOT NULL,
+            event_type TEXT NOT NULL, event_data TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL
+        );
+        CREATE TABLE verified_assets (
+            id TEXT PRIMARY KEY, source TEXT NOT NULL, external_asset_id TEXT NOT NULL,
+            owner_telegram_id TEXT NOT NULL, title TEXT NOT NULL DEFAULT '',
+            asset_type TEXT NOT NULL DEFAULT '', image_url TEXT NOT NULL DEFAULT '',
+            verification_method TEXT NOT NULL DEFAULT '',
+            verification_reference_hash TEXT NOT NULL DEFAULT '', verified_at INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'verified'
+        );
+
+        CREATE TRIGGER trg_marketplace_deal_events_no_update
+        BEFORE UPDATE ON marketplace_deal_events BEGIN
+          SELECT RAISE(ABORT, 'deal events are immutable');
+        END;
+        CREATE TRIGGER trg_marketplace_deal_events_no_delete
+        BEFORE DELETE ON marketplace_deal_events BEGIN
+          SELECT RAISE(ABORT, 'deal events are immutable');
+        END;
+        CREATE TRIGGER trg_marketplace_deal_lifecycle_events_no_update
+        BEFORE UPDATE ON marketplace_deal_lifecycle_events BEGIN
+          SELECT RAISE(ABORT, 'deal lifecycle events are immutable');
+        END;
+        CREATE TRIGGER trg_marketplace_deal_lifecycle_events_no_delete
+        BEFORE DELETE ON marketplace_deal_lifecycle_events BEGIN
+          SELECT RAISE(ABORT, 'deal lifecycle events are immutable');
+        END;
+        CREATE TRIGGER trg_marketplace_offer_received
+        AFTER INSERT ON marketplace_offers BEGIN
+          INSERT INTO marketplace_notifications
+            (id,user_id,event_type,offer_id,order_id,order_title,actor_name,created_at)
+          SELECT 'nt-' || lower(hex(randomblob(8))), o.user_id, 'offer_received',
+                 NEW.id, NEW.order_id, o.title, NEW.sender_name, NEW.created_at
+          FROM marketplace_orders o
+          WHERE o.id=NEW.order_id AND o.user_id<>NEW.sender_user_id;
+        END;
+        CREATE TRIGGER trg_marketplace_offer_status_notification
+        AFTER UPDATE OF status ON marketplace_offers
+        WHEN OLD.status='pending' AND NEW.status<>OLD.status BEGIN
+          INSERT INTO marketplace_notifications
+            (id,user_id,event_type,offer_id,order_id,order_title,actor_name,created_at)
+          SELECT 'nt-' || lower(hex(randomblob(8))),
+                 CASE WHEN NEW.status='withdrawn' THEN o.user_id ELSE NEW.sender_user_id END,
+                 CASE NEW.status WHEN 'accepted' THEN 'offer_accepted'
+                   WHEN 'declined' THEN 'offer_declined' WHEN 'withdrawn' THEN 'offer_withdrawn' END,
+                 NEW.id,NEW.order_id,o.title,
+                 CASE WHEN NEW.status='withdrawn' THEN NEW.sender_name ELSE o.owner_name END,
+                 NEW.updated_at
+          FROM marketplace_orders o
+          WHERE o.id=NEW.order_id AND NEW.status IN ('accepted','declined','withdrawn')
+            AND (NEW.status<>'withdrawn' OR o.user_id<>NEW.sender_user_id);
+        END;
+        CREATE TRIGGER trg_marketplace_order_cancel_declines_offers
+        AFTER UPDATE OF status ON marketplace_orders
+        WHEN OLD.status='active' AND NEW.status='cancelled' BEGIN
+          UPDATE marketplace_offers SET status='declined',updated_at=NEW.updated_at
+          WHERE order_id=NEW.id AND status='pending';
+        END;
+        CREATE TRIGGER verified_assets_metadata_immutable
+        BEFORE UPDATE ON verified_assets
+        WHEN NOT (
+          NEW.status='verified' AND NEW.owner_telegram_id<>OLD.owner_telegram_id
+          AND NEW.source=OLD.source AND NEW.external_asset_id=OLD.external_asset_id
+        )
+        BEGIN SELECT RAISE(ABORT, 'verified asset metadata is immutable'); END;
+        """
+    )
+    source.commit()
+    source.close()
+
+    schema = "trigger_schema_" + uuid.uuid4().hex[:12]
+    with psycopg.connect(dsn, autocommit=True) as pg:
+        pg.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        pg.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+        try:
+            applied = apply_schema(str(source_path), dsn, apply=True, target_schema=schema)
+            assert applied["verified"] is True
+            assert applied["target_counts"]["triggers"] == 8
+
+            with psycopg.connect(dsn) as target:
+                target.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+                target.execute(
+                    "INSERT INTO marketplace_orders VALUES (%s,%s,%s,%s,%s,%s)",
+                    ("order-1", "seller", "Test gift", "Seller", "active", 100),
+                )
+                target.execute(
+                    "INSERT INTO marketplace_offers (id,order_id,sender_user_id,sender_name,status,created_at,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    ("offer-1", "order-1", "buyer", "Buyer", "pending", 101, 101),
+                )
+                received = target.execute(
+                    "SELECT user_id,event_type,order_title,actor_name FROM marketplace_notifications WHERE offer_id=%s",
+                    ("offer-1",),
+                ).fetchone()
+                assert received == ("seller", "offer_received", "Test gift", "Buyer")
+
+                target.execute(
+                    "UPDATE marketplace_offers SET status='accepted',updated_at=102 WHERE id='offer-1'"
+                )
+                accepted = target.execute(
+                    "SELECT user_id,event_type,actor_name FROM marketplace_notifications WHERE offer_id='offer-1' AND event_type='offer_accepted'"
+                ).fetchone()
+                assert accepted == ("buyer", "offer_accepted", "Seller")
+
+                target.execute(
+                    "INSERT INTO marketplace_offers (id,order_id,sender_user_id,sender_name,status,created_at,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    ("offer-2", "order-1", "buyer-2", "Buyer Two", "pending", 103, 103),
+                )
+                target.execute(
+                    "UPDATE marketplace_orders SET status='cancelled',updated_at=104 WHERE id='order-1'"
+                )
+                declined = target.execute(
+                    "SELECT status FROM marketplace_offers WHERE id='offer-2'"
+                ).fetchone()
+                assert declined == ("declined",)
+
+                target.execute(
+                    "INSERT INTO marketplace_deal_events VALUES ('event-1','deal-1','order-1','seller','deal_created','{}',105)"
+                )
+                with pytest.raises(psycopg.Error):
+                    with target.transaction():
+                        target.execute("UPDATE marketplace_deal_events SET event_type='changed' WHERE id='event-1'")
+                with pytest.raises(psycopg.Error):
+                    with target.transaction():
+                        target.execute("DELETE FROM marketplace_deal_events WHERE id='event-1'")
+
+                target.execute(
+                    "INSERT INTO marketplace_deal_lifecycle_events (id,deal_id,order_id,actor_user_id,event_type,created_at) VALUES ('life-1','deal-1','order-1','seller','deal_cancelled',106)"
+                )
+                with pytest.raises(psycopg.Error):
+                    with target.transaction():
+                        target.execute("UPDATE marketplace_deal_lifecycle_events SET event_type='changed' WHERE id='life-1'")
+                with pytest.raises(psycopg.Error):
+                    with target.transaction():
+                        target.execute("DELETE FROM marketplace_deal_lifecycle_events WHERE id='life-1'")
+
+                target.execute(
+                    "INSERT INTO verified_assets (id,source,external_asset_id,owner_telegram_id,verified_at) VALUES ('asset-1','telegram','gift-1','seller',107)"
+                )
+                with pytest.raises(psycopg.Error):
+                    with target.transaction():
+                        target.execute("UPDATE verified_assets SET title='tampered' WHERE id='asset-1'")
+                target.execute(
+                    "UPDATE verified_assets SET owner_telegram_id='buyer' WHERE id='asset-1'"
+                )
+                assert target.execute(
+                    "SELECT owner_telegram_id FROM verified_assets WHERE id='asset-1'"
+                ).fetchone() == ("buyer",)
+        finally:
+            pg.execute("SET search_path TO public")
+            pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
