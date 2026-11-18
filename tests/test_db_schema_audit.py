@@ -591,7 +591,7 @@ def test_double_precision_profile_accepts_real_and_integer_but_rejects_text():
     preflight = build_postgres_data_preflight(connection)
     connection.close()
 
-    profile = next(item for item in preflight["real_columns"] if item["column"] == "observed_at")
+    profile = next(item for item in preflight["real_columns"] if item["column"] == "measurement")
     assert profile["integer_storage_count"] == 1
     assert profile["real_storage_count"] == 1
     assert profile["text_storage_count"] == 1
@@ -613,7 +613,7 @@ def test_postgres_data_preflight_maps_safe_real_integer_affinity_to_double_preci
     preflight = build_postgres_data_preflight(connection)
     connection.close()
 
-    observed = next(item for item in preflight["integer_columns"] if item["column"] == "observed_at")
+    observed = next(item for item in preflight["integer_columns"] if item["column"] == "measurement")
     assert observed["real_storage_count"] == 1
     assert observed["type_override"] is True
     assert observed["postgresql_type_candidate"] == "DOUBLE PRECISION"
@@ -649,8 +649,8 @@ def test_runtime_inventory_gate_reports_real_backed_integer_type_override():
     from db_schema_audit import build_postgres_migration_gate_summary
 
     connection = sqlite3.connect(":memory:")
-    connection.execute("CREATE TABLE catalogue_gift_snapshots (id INTEGER PRIMARY KEY, observed_at INTEGER NOT NULL)")
-    connection.execute("INSERT INTO catalogue_gift_snapshots VALUES (1, 1794389573.0240138)")
+    connection.execute("CREATE TABLE sample_data (id INTEGER PRIMARY KEY, measurement INTEGER NOT NULL)")
+    connection.execute("INSERT INTO sample_data VALUES (1, 1794389573.0240138)")
     inventory = build_runtime_inventory(connection)
     connection.close()
 
