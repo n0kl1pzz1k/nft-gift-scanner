@@ -29,7 +29,13 @@ def _source_counts(manifest: dict[str, Any]) -> dict[str, int]:
             len(_extract_check_constraints(str(table.get("sql") or "")))
             for table in manifest.get("tables", [])
         ),
-        "indexes": sum(len(table.get("indexes", [])) for table in manifest.get("tables", [])),
+        "indexes": sum(len(table.get("indexes", [])) for table in manifest.get("tables", [])) + sum(
+            1 for table in manifest.get("tables", [])
+            if "WITHOUT ROWID" not in str(table.get("sql") or "").upper()
+            and len([column for column in table.get("columns", []) if int(column.get("primary_key_position", 0)) > 0]) == 1
+            and next(column for column in table.get("columns", []) if int(column.get("primary_key_position", 0)) > 0).get("type", "").strip().upper() == "INTEGER"
+            and not any(index.get("origin") == "pk" for index in table.get("indexes", []))
+        ),
         "triggers": sum(item.get("type") == "trigger" for item in manifest.get("objects", [])),
         "views": sum(item.get("type") == "view" for item in manifest.get("objects", [])),
     }
@@ -100,6 +106,8 @@ def apply_schema(source_path: str, dsn: str, apply: bool = False, target_schema:
                 if target_schema:
                     cursor.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(target_schema)))
                 schema = cursor.execute("SELECT current_schema()").fetchone()[0]
+                if not schema:
+                    raise RuntimeError("PostgreSQL target schema does not exist or is not visible in search_path.")
                 existing_objects = cursor.execute(
                     """
                     SELECT
