@@ -70,13 +70,36 @@ def test_ton_connect_schema_initializer_uses_portable_single_statement_ddl():
 
         def execute(self, statement, parameters=()):
             self.statements.append((statement, parameters))
+            if "information_schema.tables" in statement:
+                return self._rows("ton_proof_challenges", "verified_wallets")
+            if "FROM pg_indexes" in statement:
+                return self._rows("idx_ton_proof_challenges_expiry", "idx_verified_wallets_owner")
+            if "information_schema.columns" in statement:
+                columns = {
+                    "ton_proof_challenges": (
+                        "payload_hash", "telegram_id", "session_hash",
+                        "created_at", "expires_at", "consumed_at",
+                    ),
+                    "verified_wallets": (
+                        "network", "address", "telegram_id", "public_key",
+                        "state_init_hash", "created_at", "last_verified_at", "revoked_at",
+                    ),
+                }
+                return self._rows(*columns[parameters[0]])
+            return None
+
+        @staticmethod
+        def _rows(*names):
+            return type("Rows", (), {
+                "fetchall": lambda self: [{"name": name} for name in names]
+            })()
 
     connection = RecordingPostgresConnection()
     with patch("ton_connect._db", return_value=nullcontext(connection)):
         ton_connect.init_ton_connect_db()
-    assert len(connection.statements) == 4
-    assert connection.statements[0][0].lstrip().startswith("CREATE TABLE IF NOT EXISTS ton_proof_challenges")
-    assert connection.statements[2][0].lstrip().startswith("CREATE TABLE IF NOT EXISTS verified_wallets")
+    ddl = [statement for statement, _ in connection.statements]
+    assert sum(statement.lstrip().startswith("CREATE TABLE IF NOT EXISTS") for statement in ddl) == 2
+    assert sum(statement.lstrip().startswith("CREATE INDEX IF NOT EXISTS") for statement in ddl) == 2
 
 
 def test_legacy_marketplace_migrations_reject_postgres_adapter_before_catalog_queries():
