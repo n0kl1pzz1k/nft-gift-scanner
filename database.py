@@ -138,19 +138,24 @@ def connect_postgres_database(dsn: str):
         raise
 
 
-def connect() -> sqlite3.Connection:
-    """Open the configured application database (SQLite until runtime cutover)."""
-    return connect_database(DB_PATH)
+def connect(database_path: str | Path | None = None) -> sqlite3.Connection:
+    """Open the shared application connection boundary.
+
+    An explicit path is retained for isolated tests and legacy callers. The
+    configured application backend remains SQLite until the reviewed runtime
+    compatibility work is complete.
+    """
+    return connect_database(DB_PATH if database_path is None else database_path)
 
 
 @contextmanager
-def db() -> Iterator[sqlite3.Connection]:
+def db(database_path: str | Path | None = None) -> Iterator[sqlite3.Connection]:
     """Yield one connection and always close it.
 
     This context manager does not begin, commit, or roll back transactions.
     Callers retain the existing explicit transaction/autocommit semantics.
     """
-    connection = connect()
+    connection = connect(database_path)
     try:
         yield connection
     finally:
