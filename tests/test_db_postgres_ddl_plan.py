@@ -181,18 +181,16 @@ def test_generated_production_trigger_ddl_executes_and_enforces_in_postgres():
 
             pg.execute("INSERT INTO marketplace_deal_events(id) VALUES ('event')")
             with pytest.raises(psycopg.Error):
-                pg.execute("UPDATE marketplace_deal_events SET id='changed' WHERE id='event'")
-            pg.rollback()
-            pg.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+                with pg.transaction():
+                    pg.execute("UPDATE marketplace_deal_events SET id='changed' WHERE id='event'")
 
             pg.execute(
                 "INSERT INTO verified_assets(id, source, external_asset_id, owner_telegram_id, title, status) "
                 "VALUES ('asset', 'telegram', 'external', 'owner-1', 'gift', 'verified')"
             )
             with pytest.raises(psycopg.Error):
-                pg.execute("UPDATE verified_assets SET title='tampered' WHERE id='asset'")
-            pg.rollback()
-            pg.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+                with pg.transaction():
+                    pg.execute("UPDATE verified_assets SET title='tampered' WHERE id='asset'")
             pg.execute("UPDATE verified_assets SET owner_telegram_id='owner-2' WHERE id='asset'")
 
             pg.execute(
