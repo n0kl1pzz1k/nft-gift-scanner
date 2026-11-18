@@ -89,3 +89,21 @@ def test_audit_handles_missing_sources_and_does_not_claim_readiness(tmp_path):
     assert report["source_files"] == []
     assert report["finding_count"] == 0
     assert report["ready_for_postgresql_runtime"] is False
+
+
+
+def test_audit_ignores_python_docstrings_but_scans_executable_sql_literals(tmp_path):
+    (tmp_path / "marketplace.py").write_text(
+        '"""Historical note: BEGIN IMMEDIATE and PRAGMA are discussed here, not executed."""\n'
+        "def initialize():\n"
+        '    """Example only: conn.executescript("CREATE TABLE demo(id INTEGER)")"""\n'
+        '    conn.execute("PRAGMA foreign_keys = ON")\n',
+        encoding="utf-8",
+    )
+
+    report = audit_source_tree(tmp_path)
+    findings = report["findings"]
+
+    assert not any(item["feature"] == "sqlite_transaction_lock" for item in findings)
+    assert not any(item["feature"] == "sqlite_script_execution" for item in findings)
+    assert any(item["feature"] == "sqlite_pragma" and item["line"] == 5 for item in findings)
