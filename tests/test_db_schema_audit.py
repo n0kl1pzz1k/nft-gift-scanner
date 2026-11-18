@@ -535,3 +535,31 @@ def test_postgres_migration_gate_summary_is_aggregate_only():
     assert summary["runtime_ready"] is False
     assert summary["cutover_allowed"] is False
     assert "PRIVATE_ROW_SENTINEL" not in json.dumps(summary)
+
+
+
+def test_postgres_data_preflight_profiles_non_integer_storage_without_values():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE sample (
+            id INTEGER PRIMARY KEY,
+            event_time INTEGER NOT NULL,
+            counter INTEGER NOT NULL
+        );
+        INSERT INTO sample(event_time, counter) VALUES (1700000000, 1);
+        INSERT INTO sample(event_time, counter) VALUES ('not-a-timestamp', 2);
+        INSERT INTO sample(event_time, counter) VALUES (1700000002.5, 3);
+        """
+    )
+    preflight = build_postgres_data_preflight(connection)
+    connection.close()
+
+    by_column = {item["column"]: item for item in preflight["integer_columns"]}
+    assert by_column["event_time"]["text_storage_count"] == 1
+    assert by_column["event_time"]["real_storage_count"] == 1
+    assert by_column["event_time"]["non_integer_storage_count"] == 2
+    assert by_column["event_time"]["integer_conversion_safe"] is False
+    assert by_column["counter"]["integer_conversion_safe"] is True
+    assert preflight["unsafe_integer_column_count"] == 1
+    assert "not-a-timestamp" not in json.dumps(preflight)
