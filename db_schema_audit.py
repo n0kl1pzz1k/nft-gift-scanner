@@ -185,6 +185,93 @@ def build_runtime_inventory(connection: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
+
+def build_postgres_runtime_inventory(connection: Any) -> dict[str, Any]:
+    """Return privacy-safe PostgreSQL schema metadata and aggregate row counts.
+
+    This is deliberately not a migration preflight: PostgreSQL is already the
+    active engine in this branch, so SQLite-specific type/data conversion
+    diagnostics are not applicable.
+    """
+    import hashlib
+    from database import list_database_tables, list_database_columns
+    from db_sql_compat_audit import audit_source_tree
+
+    schema_row = connection.execute("SELECT current_schema() AS schema_name").fetchone()
+    schema_name = str(schema_row["schema_name"] if hasattr(schema_row, "keys") else schema_row[0])
+    table_names = sorted(list_database_tables(connection))
+    tables = []
+    for table_name in table_names:
+        quoted = '"' + table_name.replace('"', '""') + '"'
+        count_row = connection.execute(f"SELECT COUNT(*) AS row_count FROM {quoted}").fetchone()
+        row_count = int(count_row["row_count"] if hasattr(count_row, "keys") else count_row[0])
+        column_rows = connection.execute(
+            "SELECT column_name AS name, data_type AS type, is_nullable "
+            "FROM information_schema.columns WHERE table_schema = ? AND table_name = ? "
+            "ORDER BY ordinal_position",
+            (schema_name, table_name),
+        ).fetchall()
+        tables.append({
+            "name": table_name,
+            "row_count": row_count,
+            "columns": [
+                {"name": str(row["name"]), "type": str(row["type"]),
+                 "not_null": str(row["is_nullable"]).upper() == "NO"}
+                for row in column_rows
+            ],
+        })
+
+    index_rows = connection.execute(
+        "SELECT indexname AS name FROM pg_indexes WHERE schemaname = ? ORDER BY indexname",
+        (schema_name,),
+    ).fetchall()
+    trigger_rows = connection.execute(
+        "SELECT trigger_name AS name, event_object_table AS table_name "
+        "FROM information_schema.triggers WHERE trigger_schema = ? ORDER BY trigger_name",
+        (schema_name,),
+    ).fetchall()
+    objects = (
+        [{"type": "index", "name": str(row["name"]), "table": "", "create_sql": None}
+         for row in index_rows]
+        + [{"type": "trigger", "name": str(row["name"]), "table": str(row["table_name"]), "create_sql": None}
+           for row in trigger_rows]
+    )
+    object_counts = {"index": len(index_rows), "trigger": len(trigger_rows)}
+    schema_payload = {
+        "engine": "postgresql",
+        "schema": schema_name,
+        "tables": [
+            {"name": item["name"], "columns": item["columns"]}
+            for item in tables
+        ],
+        "objects": objects,
+    }
+    schema_hash = hashlib.sha256(
+        json.dumps(schema_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    runtime_compatibility = audit_source_tree(Path(__file__).resolve().parent)
+    return {
+        "engine": "postgresql",
+        "schema": schema_name,
+        "schema_sha256": schema_hash,
+        "table_count": len(tables),
+        "total_rows": sum(item["row_count"] for item in tables),
+        "tables": tables,
+        "object_counts": object_counts,
+        "objects": objects,
+        "postgresql_runtime_compatibility": runtime_compatibility,
+        "postgresql_data_preflight": {"columns": [], "integer_columns": [],
+            "integer_profiled_column_count": 0, "unsafe_integer_column_count": 0,
+            "non_integer_storage_value_count": 0, "real_backed_integer_column_count": 0,
+            "integer_type_override_count": 0, "real_columns": [],
+            "real_profiled_column_count": 0, "unsafe_real_column_count": 0,
+            "non_numeric_storage_value_count": 0},
+        "postgresql_ddl_plan": {"blocker_count": 0, "statement_count": 0,
+            "trigger_translation_count": 0, "ready_for_cutover": False},
+        "scope_note": "PostgreSQL schema metadata and aggregate row counts only; no application row values are read or returned.",
+    }
+
+
 def audit_database(database_path: str | Path) -> dict[str, Any]:
     """Open an existing database read-only and inventory its schema."""
     path = Path(database_path).expanduser().resolve(strict=True)
