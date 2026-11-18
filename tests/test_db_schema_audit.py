@@ -563,3 +563,37 @@ def test_postgres_data_preflight_profiles_non_integer_storage_without_values():
     assert by_column["counter"]["integer_conversion_safe"] is True
     assert preflight["unsafe_integer_column_count"] == 1
     assert "not-a-timestamp" not in json.dumps(preflight)
+
+
+
+def test_fractional_catalogue_snapshot_timestamp_maps_to_double_precision():
+    from db_schema_audit import _postgres_type_candidate
+
+    candidate = _postgres_type_candidate(
+        "catalogue_gift_snapshots",
+        {"name": "observed_at", "type": "INTEGER", "primary_key_position": 0},
+        "CREATE TABLE catalogue_gift_snapshots (observed_at INTEGER NOT NULL)",
+    )
+    assert candidate["postgresql_type_candidate"] == "DOUBLE PRECISION"
+    assert "sub-second precision" in candidate["mapping_reason"]
+
+
+def test_double_precision_profile_accepts_real_and_integer_but_rejects_text():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE catalogue_gift_snapshots (observed_at INTEGER NOT NULL);
+        INSERT INTO catalogue_gift_snapshots VALUES (1700000000);
+        INSERT INTO catalogue_gift_snapshots VALUES (1700000000.125);
+        INSERT INTO catalogue_gift_snapshots VALUES ('not-a-time');
+        """
+    )
+    preflight = build_postgres_data_preflight(connection)
+    connection.close()
+
+    profile = next(item for item in preflight["real_columns"] if item["column"] == "observed_at")
+    assert profile["integer_storage_count"] == 1
+    assert profile["real_storage_count"] == 1
+    assert profile["text_storage_count"] == 1
+    assert profile["real_conversion_safe"] is False
+    assert "not-a-time" not in json.dumps(preflight)
