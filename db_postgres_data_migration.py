@@ -22,7 +22,7 @@ def _normal(value: Any) -> Any:
     if value is None:
         return ["null"]
     if isinstance(value, bool):
-        return ["number", int(value)]
+        return ["number", str(int(value))]
     if isinstance(value, int):
         return ["number", str(value)]
     if isinstance(value, (float, Decimal)):
