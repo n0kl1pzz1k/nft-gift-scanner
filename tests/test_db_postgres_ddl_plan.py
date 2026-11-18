@@ -71,3 +71,61 @@ def test_ddl_plan_handles_cyclic_foreign_keys_after_table_creation():
     rendered = "\n".join(result["statements"])
     assert rendered.index('CREATE TABLE "alpha"') < rendered.index('ALTER TABLE "alpha"')
     assert result["deferred_foreign_key_count"] == 2
+
+
+
+def test_ddl_plan_translates_simple_defaults_and_partial_indexes():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE sample (
+            id TEXT PRIMARY KEY,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            title TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'active'
+        );
+        CREATE UNIQUE INDEX idx_sample_open ON sample(id) WHERE status NOT IN ('closed', 'expired');
+        """
+    )
+    result = build_postgres_ddl_plan(build_schema_manifest(connection))
+    connection.close()
+
+    rendered = "\\n".join(result["statements"])
+    assert '"enabled" BOOLEAN NOT NULL DEFAULT FALSE' in rendered
+    assert '"title" TEXT NOT NULL DEFAULT \'\'' in rendered
+    assert "idx_sample_open" in rendered
+    assert not any("default on " in item["feature"] for item in result["blockers"])
+    assert not any("partial index" in item["feature"] for item in result["blockers"])
+
+
+def test_ddl_plan_translates_all_known_production_trigger_categories():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE marketplace_deal_events(id TEXT);
+        CREATE TABLE marketplace_deal_lifecycle_events(id TEXT);
+        CREATE TABLE marketplace_offers(id TEXT, order_id TEXT, sender_user_id TEXT, sender_name TEXT, status TEXT, created_at TEXT, updated_at TEXT);
+        CREATE TABLE marketplace_orders(id TEXT, user_id TEXT, title TEXT, owner_name TEXT, status TEXT, updated_at TEXT);
+        CREATE TABLE marketplace_notifications(id TEXT, user_id TEXT, event_type TEXT, offer_id TEXT, order_id TEXT, order_title TEXT, actor_name TEXT, created_at TEXT);
+        CREATE TABLE verified_assets(id TEXT, source TEXT, external_asset_id TEXT, owner_telegram_id TEXT, title TEXT, asset_type TEXT, image_url TEXT, verification_method TEXT, verification_reference_hash TEXT, verified_at TEXT, status TEXT);
+        CREATE TRIGGER trg_marketplace_deal_events_no_delete BEFORE DELETE ON marketplace_deal_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
+        CREATE TRIGGER trg_marketplace_deal_events_no_update BEFORE UPDATE ON marketplace_deal_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
+        CREATE TRIGGER trg_marketplace_deal_lifecycle_events_no_delete BEFORE DELETE ON marketplace_deal_lifecycle_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
+        CREATE TRIGGER trg_marketplace_deal_lifecycle_events_no_update BEFORE UPDATE ON marketplace_deal_lifecycle_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
+        CREATE TRIGGER trg_marketplace_offer_received AFTER INSERT ON marketplace_offers BEGIN SELECT 1; END;
+        CREATE TRIGGER trg_marketplace_offer_status_notification AFTER UPDATE OF status ON marketplace_offers BEGIN SELECT 1; END;
+        CREATE TRIGGER trg_marketplace_order_cancel_declines_offers AFTER UPDATE OF status ON marketplace_orders BEGIN SELECT 1; END;
+        CREATE TRIGGER verified_assets_metadata_immutable BEFORE UPDATE ON verified_assets BEGIN SELECT 1; END;
+        """
+    )
+    result = build_postgres_ddl_plan(build_schema_manifest(connection))
+    connection.close()
+
+    trigger_statements = [sql for sql in result["statements"] if "TRIGGER" in sql.upper() or "FUNCTION" in sql.upper()]
+    assert len(trigger_statements) == 16
+    assert result["trigger_rewrite_count"] == 0 if "trigger_rewrite_count" in result else True
+    assert not any(item["feature"].startswith("trigger ") for item in result["blockers"])
+    rendered = "\\n".join(trigger_statements)
+    assert "gen_random_uuid()" in rendered
+    assert "verified asset metadata is immutable" in rendered
+    assert "deal lifecycle events are immutable" in rendered
