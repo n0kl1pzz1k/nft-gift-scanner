@@ -81,7 +81,7 @@ def _expected_table_columns() -> dict[str, set[str]]:
 
         columns: set[str] = set()
         for definition in definitions:
-            match = re.match(r"^\\s*([A-Za-z_][A-Za-z0-9_]*)", definition)
+            match = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_]*)", definition)
             if not match:
                 raise RuntimeError(f"Could not parse a column in PostgreSQL table {table_name}")
             name = match.group(1)
