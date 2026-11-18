@@ -40,8 +40,8 @@ def test_shadow_migration_creates_schema_and_copies_all_rows_atomically(tmp_path
     with psycopg.connect(dsn, autocommit=True) as pg:
         try:
             dry = run_shadow_migration(str(source_path), str(backup_path), dsn, execute=False, target_schema=schema)
-            assert dry["restore_verified"] is True
-            assert dry["preflight_exact_match"] is True
+            assert dry["backup_verified"] is True
+            assert dry["preflight_verified"] is True
             assert dry["migration"]["committed"] is False
             assert dry["migration"]["target_schema_empty"] is True
             assert pg.execute(
@@ -316,3 +316,29 @@ def test_shadow_migration_failure_codes_are_safe_and_actionable(message, expecte
     from db_postgres_shadow_migration import _shadow_migration_error_code
 
     assert _shadow_migration_error_code(RuntimeError(message)) == expected_code
+
+
+
+def test_shadow_migration_disk_preflight_requires_only_one_snapshot_copy(tmp_path, monkeypatch):
+    import shutil
+    from types import SimpleNamespace
+    from db_postgres_shadow_migration import _disk_space_preflight
+
+    source_path = tmp_path / "single-snapshot.sqlite3"
+    source = sqlite3.connect(source_path)
+    source.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)")
+    source.execute("INSERT INTO items VALUES (1, 'value')")
+    source.commit()
+    page_count = source.execute("PRAGMA page_count").fetchone()[0]
+    page_size = source.execute("PRAGMA page_size").fetchone()[0]
+    source.close()
+
+    snapshot_bytes = max(source_path.stat().st_size, page_count * page_size)
+    reserve = 32 * 1024 * 1024
+    monkeypatch.setattr(
+        shutil, "disk_usage",
+        lambda path: SimpleNamespace(free=snapshot_bytes + reserve + 1, total=0, used=0),
+    )
+    report = _disk_space_preflight(source_path, tmp_path / "separate-backup" / "snapshot.sqlite3")
+    assert report["snapshot_bytes"] == snapshot_bytes
+    assert report["required_bytes"] == snapshot_bytes + reserve

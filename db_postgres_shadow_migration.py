@@ -1,8 +1,8 @@
 """One-command, all-or-nothing SQLite -> PostgreSQL shadow migration.
 
-Creates a no-clobber SQLite snapshot, restores and verifies that snapshot,
-compares the immutable backup with its restore, then creates the PostgreSQL
-schema and copies all rows in one transaction. The production app is never switched.
+Creates a no-clobber SQLite snapshot, verifies its integrity/schema/count
+manifest in place, then creates the PostgreSQL schema and copies all rows in
+one transaction. The production app is never switched by this tool.
 """
 from __future__ import annotations
 
@@ -16,8 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from db_backup import backup_database
-from db_migration_preflight import build_migration_preflight
+from db_backup import backup_database, _row_counts, _schema_metadata
 from db_postgres_data_migration import (
     _fingerprint,
     _ordered_select,
@@ -26,7 +25,6 @@ from db_postgres_data_migration import (
 from db_postgres_ddl_plan import build_postgres_ddl_plan
 from db_postgres_migration_plan import build_postgres_migration_plan
 from db_postgres_schema_apply import _source_counts, _target_counts
-from db_restore import restore_database
 from db_schema_audit import build_postgres_data_preflight, build_schema_manifest
 
 
@@ -435,7 +433,12 @@ def _copy_all_in_one_transaction(
 
 
 def _disk_space_preflight(source: Path, backup: Path) -> dict[str, Any]:
-    """Ensure the backup and temporary restore fit before writing to the SQLite volume."""
+    """Ensure one verified snapshot fits on its destination filesystem.
+
+    The source SQLite database remains untouched on its persistent volume. The
+    backup is independently integrity-checked and fingerprinted in place, so a
+    second full-size restore copy is not required.
+    """
     if not source.is_file():
         raise ValueError("SQLite source database does not exist.")
     backup.parent.mkdir(parents=True, exist_ok=True)
@@ -445,25 +448,14 @@ def _disk_space_preflight(source: Path, backup: Path) -> dict[str, Any]:
     snapshot_bytes = max(source.stat().st_size, page_count * page_size)
     reserve_bytes = 32 * 1024 * 1024
     backup_usage = shutil.disk_usage(backup.parent)
-    restore_directory = Path(tempfile.gettempdir())
-    restore_usage = shutil.disk_usage(restore_directory)
-    same_filesystem = os.stat(backup.parent).st_dev == os.stat(restore_directory).st_dev
-
-    if same_filesystem:
-        required_bytes = snapshot_bytes * 2 + reserve_bytes
-        if backup_usage.free < required_bytes:
-            raise RuntimeError("Insufficient free disk space for the verified SQLite backup and restore.")
-    else:
-        required_bytes = snapshot_bytes + reserve_bytes
-        if backup_usage.free < required_bytes or restore_usage.free < required_bytes:
-            raise RuntimeError("Insufficient free disk space for the verified SQLite backup or restore.")
-
+    required_bytes = snapshot_bytes + reserve_bytes
+    if backup_usage.free < required_bytes:
+        raise RuntimeError("Insufficient free disk space for the verified SQLite backup snapshot.")
     return {
         "snapshot_bytes": snapshot_bytes,
         "backup_free_bytes": backup_usage.free,
-        "restore_free_bytes": restore_usage.free,
-        "required_bytes_per_filesystem": required_bytes,
-        "same_filesystem": same_filesystem,
+        "required_bytes": required_bytes,
+        "backup_directory": str(backup.parent),
     }
 
 
@@ -477,61 +469,61 @@ def run_shadow_migration(
 ) -> dict[str, Any]:
     source = Path(source_path).expanduser().resolve(strict=True)
     backup = Path(backup_path).expanduser().resolve()
-    # Refuse before creating any snapshot artifacts if the backup and restore
-    # cannot fit on their respective filesystems.
     disk_preflight = _disk_space_preflight(source, backup)
     backup_report = backup_database(source, backup)
-    manifest_path = Path(str(backup) + ".manifest.json")
 
-    with tempfile.TemporaryDirectory(prefix="hassle-postgres-restore-") as directory:
-        restored_path = Path(directory) / "verified-restore.sqlite3"
-        restore_report = restore_database(backup, manifest_path, restored_path)
-
-        snapshot_connection = sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True, timeout=30)
-        restored_connection = sqlite3.connect(restored_path.as_uri() + "?mode=ro", uri=True, timeout=30)
-        try:
-            # Compare the immutable snapshot with its verified restore, not the
-            # live database. The app can keep serving SQLite while this shadow
-            # copy runs; writes after the snapshot remain safely on SQLite.
-            snapshot_connection.execute("BEGIN")
-            restored_connection.execute("BEGIN")
-            preflight = build_migration_preflight(
-                snapshot_connection,
-                restored_connection,
-                repository_root=Path(__file__).resolve().parent,
+    # Verify the immutable snapshot directly. backup_database has already
+    # completed SQLite integrity/FK checks and emitted a SHA-256/schema/count
+    # manifest. Re-open the same snapshot and independently reconcile those
+    # facts, avoiding a second full-size restore file on constrained volumes.
+    snapshot_connection = sqlite3.connect(
+        backup.as_uri() + "?mode=ro", uri=True, timeout=30
+    )
+    try:
+        integrity = str(snapshot_connection.execute("PRAGMA integrity_check").fetchone()[0])
+        fk_violations = len(snapshot_connection.execute("PRAGMA foreign_key_check").fetchall())
+        if integrity != "ok" or fk_violations:
+            raise RuntimeError(
+                f"SQLite backup snapshot is unhealthy: integrity={integrity}, foreign_key_violations={fk_violations}"
             )
-        finally:
-            snapshot_connection.close()
-            restored_connection.close()
+        _, backup_schema_sha256 = _schema_metadata(snapshot_connection)
+        if backup_schema_sha256 != backup_report["schema_sha256"]:
+            raise RuntimeError("SQLite backup schema fingerprint mismatch.")
+        manifest = build_schema_manifest(snapshot_connection)
+        snapshot_counts = _row_counts(snapshot_connection)
+        if snapshot_counts != backup_report["tables"]:
+            raise RuntimeError("SQLite backup table row-count manifest mismatch.")
+        if sum(snapshot_counts.values()) != int(backup_report["total_rows"]):
+            raise RuntimeError("SQLite backup total row-count manifest mismatch.")
+        data_preflight = build_postgres_data_preflight(snapshot_connection, manifest)
+        if data_preflight["unsafe_column_count"]:
+            raise RuntimeError("SQLite backup contains unsafe BOOLEAN conversion values.")
+        if data_preflight["unsafe_integer_column_count"]:
+            raise RuntimeError("SQLite backup contains unsafe INTEGER-affinity conversion values.")
+        if data_preflight["unsafe_real_column_count"]:
+            raise RuntimeError("SQLite backup contains unsafe DOUBLE PRECISION conversion values.")
+    finally:
+        snapshot_connection.close()
 
-        if not preflight["comparison"]["exact_match"]:
-            raise RuntimeError("Verified SQLite backup and restored copy differ; refusing PostgreSQL shadow migration.")
-        if not preflight["postgresql_boolean_data_preflight"]["conversion_safe_in_both"]:
-            raise RuntimeError("SQLite BOOLEAN candidate data is not safe for PostgreSQL conversion.")
-        if not preflight["postgresql_integer_data_preflight"]["conversion_safe_in_both"]:
-            raise RuntimeError("SQLite INTEGER-affinity columns contain non-integer storage classes; refusing BIGINT conversion.")
-        if not preflight["postgresql_real_data_preflight"]["conversion_safe_in_both"]:
-            raise RuntimeError("SQLite DOUBLE PRECISION candidates contain text/blob storage classes; refusing numeric conversion.")
-
-        migration_report = _copy_all_in_one_transaction(
-            str(backup), dsn, batch_size, execute, target_schema
-        )
-        return {
-            "backup": {
-                "file": backup.name,
-                "manifest_file": manifest_path.name,
-                "sha256": backup_report["backup_sha256"],
-                "table_count": backup_report["table_count"],
-                "total_rows": backup_report["total_rows"],
-            },
-            "restore_verified": bool(restore_report["restored"]),
-            "disk_preflight": disk_preflight,
-            "preflight_exact_match": bool(preflight["comparison"]["exact_match"]),
-            "target_schema": target_schema,
-            "migration": migration_report,
-            "production_app_switched": False,
-            "cutover_allowed": False,
-        }
+    migration_report = _copy_all_in_one_transaction(
+        str(backup), dsn, batch_size, execute, target_schema
+    )
+    return {
+        "backup": {
+            "file": backup.name,
+            "manifest_file": backup.name + ".manifest.json",
+            "sha256": backup_report["backup_sha256"],
+            "table_count": backup_report["table_count"],
+            "total_rows": backup_report["total_rows"],
+        },
+        "backup_verified": True,
+        "disk_preflight": disk_preflight,
+        "preflight_verified": True,
+        "target_schema": target_schema,
+        "migration": migration_report,
+        "production_app_switched": False,
+        "cutover_allowed": False,
+    }
 
 
 

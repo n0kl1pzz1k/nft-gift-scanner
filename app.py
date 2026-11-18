@@ -68,7 +68,9 @@ async def _run_postgres_shadow_migration_once():
         return
 
     source = Path(marketplace.DB_PATH).expanduser().resolve()
-    backup = source.parent / f"hassle-postgres-shadow-{run_id}.sqlite3"
+    backup_directory = os.getenv("HASSLE_POSTGRES_SHADOW_BACKUP_DIR", "").strip()
+    backup_root = Path(backup_directory).expanduser() if backup_directory else source.parent
+    backup = backup_root / f"hassle-postgres-shadow-{run_id}.sqlite3"
     marker = source.parent / f".hassle-postgres-shadow-{run_id}.json"
     try:
         from db_postgres_shadow_migration import run_shadow_migration_once
@@ -119,6 +121,24 @@ _CORS_ALLOWED_ORIGINS = [
     for origin in os.getenv("CORS_ALLOWED_ORIGINS", ",".join(_CORS_DEFAULT_ORIGINS)).split(",")
     if origin.strip()
 ]
+
+@app.middleware("http")
+async def maintenance_mode_guard(request: Request, call_next):
+    """Temporarily reject writes during the final SQLite snapshot and DB cutover."""
+    if (
+        os.getenv("HASSLE_MAINTENANCE_MODE", "").strip() == "1"
+        and request.method.upper() not in {"GET", "HEAD", "OPTIONS"}
+    ):
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": "HASSLE NFT is temporarily read-only for a database migration.",
+                "maintenance": True,
+            },
+            headers={"Retry-After": "30", "Cache-Control": "no-store"},
+        )
+    return await call_next(request)
+
 
 app.add_middleware(
     CORSMiddleware,
