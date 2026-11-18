@@ -160,9 +160,11 @@ def build_runtime_inventory(connection: sqlite3.Connection) -> dict[str, Any]:
         })
     from db_postgres_migration_plan import build_postgres_migration_plan
     from db_postgres_ddl_plan import build_postgres_ddl_plan
+    from db_sql_compat_audit import audit_source_tree
 
     boolean_preflight = build_postgres_data_preflight(connection, manifest)
     ddl_plan = build_postgres_ddl_plan(manifest, boolean_preflight)
+    runtime_compatibility = audit_source_tree(Path(__file__).resolve().parent)
 
     return {
         "engine": manifest["engine"],
@@ -178,6 +180,7 @@ def build_runtime_inventory(connection: sqlite3.Connection) -> dict[str, Any]:
         "postgresql_migration_plan": build_postgres_migration_plan(manifest),
         "postgresql_ddl_plan": ddl_plan,
         "postgresql_data_preflight": boolean_preflight,
+        "postgresql_runtime_compatibility": runtime_compatibility,
         "scope_note": "Schema metadata and row counts only; no application row values are read or returned.",
     }
 
@@ -639,6 +642,7 @@ def build_postgres_migration_gate_summary(inventory: dict[str, Any]) -> dict[str
     """Return compact, aggregate-only migration readiness diagnostics."""
     preflight = inventory.get("postgresql_data_preflight", {})
     boolean_columns = preflight.get("columns", [])
+    runtime = inventory.get("postgresql_runtime_compatibility", {})
     return {
         "schema_sha256": inventory.get("schema_sha256"),
         "table_count": int(inventory.get("table_count", 0)),
@@ -650,6 +654,11 @@ def build_postgres_migration_gate_summary(inventory: dict[str, Any]) -> dict[str
         "translated_trigger_count": int(inventory.get("postgresql_ddl_plan", {}).get("trigger_translation_count", 0)),
         "boolean_column_count": len(boolean_columns),
         "unsafe_boolean_column_count": sum(not item.get("boolean_conversion_safe", False) for item in boolean_columns),
+        "runtime_finding_count": int(runtime.get("finding_count", 0)),
+        "runtime_blocker_count": int(runtime.get("blocker_count", 0)),
+        "runtime_review_count": int(runtime.get("review_count", 0)),
+        "runtime_feature_counts": dict(runtime.get("feature_counts", {})),
+        "runtime_ready": bool(runtime.get("ready_for_postgresql_runtime", False)),
         "boolean_invalid_value_count": sum(int(item.get("invalid_value_count", 0)) for item in boolean_columns),
         "boolean_null_value_count": sum(int(item.get("null_value_count", 0)) for item in boolean_columns),
         "cutover_allowed": bool(inventory.get("postgresql_ddl_plan", {}).get("ready_for_cutover", False)),
