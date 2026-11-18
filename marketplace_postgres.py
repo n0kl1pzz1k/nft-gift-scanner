@@ -1,5 +1,6 @@
 """PostgreSQL bootstrap for the canonical HASSLE NFT marketplace schema."""
 from __future__ import annotations
+import re
 from typing import Any
 
 _TABLES = (
@@ -40,20 +41,85 @@ _INDEXES = (
 )
 _FUNCTION = "CREATE OR REPLACE FUNCTION hassle_nft_verified_asset_metadata_immutable() RETURNS trigger LANGUAGE plpgsql AS $hassle_nft$\nBEGIN\n -- Match SQLite's verified_assets_metadata_immutable trigger: metadata-column\n -- updates are rejected except for a verified ownership transfer that keeps\n -- the asset's source and external identity unchanged.\n IF NOT (\n     NEW.status = 'verified'\n     AND NEW.owner_telegram_id IS DISTINCT FROM OLD.owner_telegram_id\n     AND NEW.source IS NOT DISTINCT FROM OLD.source\n     AND NEW.external_asset_id IS NOT DISTINCT FROM OLD.external_asset_id\n )\n THEN\n     RAISE EXCEPTION USING MESSAGE = 'verified asset metadata is immutable';\n END IF;\n RETURN NEW;\nEND; $hassle_nft$"
 
+
+def _expected_table_columns() -> dict[str, set[str]]:
+    """Extract declared column names from the reviewed CREATE TABLE statements."""
+    expected: dict[str, set[str]] = {}
+    prefix = "CREATE TABLE IF NOT EXISTS "
+    table_constraints = {"CONSTRAINT", "PRIMARY", "UNIQUE", "FOREIGN", "CHECK", "EXCLUDE"}
+
+    for statement in _TABLES:
+        if not statement.startswith(prefix):
+            raise RuntimeError("Unrecognized PostgreSQL marketplace table DDL")
+        opening = statement.find("(", len(prefix))
+        closing = statement.rfind(")")
+        if opening < 0 or closing <= opening:
+            raise RuntimeError("Malformed PostgreSQL marketplace table DDL")
+        table_name = statement[len(prefix):opening].strip()
+        body = statement[opening + 1:closing]
+        definitions: list[str] = []
+        start = 0
+        depth = 0
+        in_string = False
+        index = 0
+        while index < len(body):
+            char = body[index]
+            if char == "'":
+                if in_string and index + 1 < len(body) and body[index + 1] == "'":
+                    index += 2
+                    continue
+                in_string = not in_string
+            elif not in_string and char == "(":
+                depth += 1
+            elif not in_string and char == ")":
+                depth -= 1
+            elif not in_string and depth == 0 and char == ",":
+                definitions.append(body[start:index])
+                start = index + 1
+            index += 1
+        definitions.append(body[start:])
+
+        columns: set[str] = set()
+        for definition in definitions:
+            match = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_]*)", definition)
+            if not match:
+                raise RuntimeError(f"Could not parse a column in PostgreSQL table {table_name}")
+            name = match.group(1)
+            if name.upper() not in table_constraints:
+                columns.add(name)
+        expected[table_name] = columns
+    return expected
+
+
 def verify_postgres_marketplace_schema(connection: Any) -> dict[str, Any]:
     tables = {str(r["table_name"]) for r in connection.execute("SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE'").fetchall()}
     expected_tables = {name for name in ("telegram_users","user_profiles","telegram_sessions","telegram_initdata_uses","telegram_update_inbox","user_favorites","marketplace_orders","verified_assets","marketplace_order_events","marketplace_order_revisions","marketplace_order_reports","api_rate_limits","app_settings","telegram_business_connections","telegram_business_gift_refs","asset_ownership_history")}
+    column_rows = connection.execute(
+        "SELECT table_name,column_name FROM information_schema.columns WHERE table_schema=current_schema()"
+    ).fetchall()
+    actual_columns: dict[str, set[str]] = {}
+    for row in column_rows:
+        actual_columns.setdefault(str(row["table_name"]), set()).add(str(row["column_name"]))
+    expected_columns = _expected_table_columns()
     indexes = {str(r["indexname"]) for r in connection.execute("SELECT indexname FROM pg_indexes WHERE schemaname=current_schema()").fetchall()}
     expected_indexes = {q.split("IF NOT EXISTS ",1)[1].split(" ",1)[0] for q in _INDEXES}
     triggers = connection.execute("SELECT t.tgname,c.relname,p.proname,t.tgenabled FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid WHERE NOT t.tgisinternal AND n.nspname=current_schema()").fetchall()
     trigger = next((r for r in triggers if r["tgname"]=="verified_assets_metadata_immutable"),None)
     problems=[]
     if expected_tables-tables: problems.append("missing tables: "+", ".join(sorted(expected_tables-tables)))
+    for table_name, expected in expected_columns.items():
+        actual = actual_columns.get(table_name, set())
+        missing = expected - actual
+        unexpected = actual - expected
+        if missing:
+            problems.append(f"missing columns in {table_name}: "+", ".join(sorted(missing)))
+        if unexpected:
+            problems.append(f"unexpected columns in {table_name}: "+", ".join(sorted(unexpected)))
     if expected_indexes-indexes: problems.append("missing indexes: "+", ".join(sorted(expected_indexes-indexes)))
     if trigger is None or (trigger["relname"],trigger["proname"],trigger["tgenabled"])!=("verified_assets","hassle_nft_verified_asset_metadata_immutable","O"):
         problems.append("missing or disabled verified-assets immutability trigger")
     if problems: raise RuntimeError("PostgreSQL marketplace schema verification failed: "+"; ".join(problems))
-    return {"verified":True,"tables_verified":len(expected_tables),"indexes_verified":len(expected_indexes),"triggers_verified":1}
+    return {"verified":True,"tables_verified":len(expected_tables),"columns_verified":sum(len(columns) for columns in expected_columns.values()),"indexes_verified":len(expected_indexes),"triggers_verified":1}
 
 def initialize_postgres_marketplace_schema(connection: Any) -> dict[str, Any]:
     if not callable(getattr(connection,"execute",None)) or not bool(getattr(connection,"supports_for_update",False)):
