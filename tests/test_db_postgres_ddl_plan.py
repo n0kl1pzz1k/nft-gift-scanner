@@ -283,3 +283,86 @@ def test_generated_production_trigger_ddl_executes_and_preserves_behavior():
         finally:
             pg.execute("SET search_path TO public")
             pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
+
+
+def test_generated_production_trigger_ddl_executes_and_enforces_in_postgres():
+    import os
+    import uuid
+
+    import pytest
+    import psycopg
+    from psycopg import sql
+
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE marketplace_deal_events(id TEXT);
+        CREATE TABLE marketplace_deal_lifecycle_events(id TEXT);
+        CREATE TABLE marketplace_offers(id TEXT, order_id TEXT, sender_user_id TEXT, sender_name TEXT, status TEXT, created_at TEXT, updated_at TEXT);
+        CREATE TABLE marketplace_orders(id TEXT, user_id TEXT, title TEXT, owner_name TEXT, status TEXT, updated_at TEXT);
+        CREATE TABLE marketplace_notifications(id TEXT, user_id TEXT, event_type TEXT, offer_id TEXT, order_id TEXT, order_title TEXT, actor_name TEXT, created_at TEXT);
+        CREATE TABLE verified_assets(id TEXT, source TEXT, external_asset_id TEXT, owner_telegram_id TEXT, title TEXT, asset_type TEXT, image_url TEXT, verification_method TEXT, verification_reference_hash TEXT, verified_at TEXT, status TEXT);
+        CREATE TRIGGER trg_marketplace_deal_events_no_delete BEFORE DELETE ON marketplace_deal_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
+        CREATE TRIGGER trg_marketplace_deal_events_no_update BEFORE UPDATE ON marketplace_deal_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
+        CREATE TRIGGER trg_marketplace_deal_lifecycle_events_no_delete BEFORE DELETE ON marketplace_deal_lifecycle_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
+        CREATE TRIGGER trg_marketplace_deal_lifecycle_events_no_update BEFORE UPDATE ON marketplace_deal_lifecycle_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
+        CREATE TRIGGER trg_marketplace_offer_received AFTER INSERT ON marketplace_offers BEGIN SELECT 1; END;
+        CREATE TRIGGER trg_marketplace_offer_status_notification AFTER UPDATE OF status ON marketplace_offers BEGIN SELECT 1; END;
+        CREATE TRIGGER trg_marketplace_order_cancel_declines_offers AFTER UPDATE OF status ON marketplace_orders BEGIN SELECT 1; END;
+        CREATE TRIGGER verified_assets_metadata_immutable BEFORE UPDATE ON verified_assets BEGIN SELECT 1; END;
+        """
+    )
+    plan = build_postgres_ddl_plan(build_schema_manifest(connection))
+    connection.close()
+    assert plan["blocker_count"] == 0, plan["blockers"]
+
+    schema = "trigger_ddl_" + uuid.uuid4().hex[:12]
+    with psycopg.connect(dsn) as pg:
+        pg.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        pg.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+        try:
+            for statement in plan["statements"]:
+                pg.execute(statement)
+
+            pg.execute("INSERT INTO marketplace_deal_events(id) VALUES ('event')")
+            with pytest.raises(psycopg.Error):
+                with pg.transaction():
+                    pg.execute("UPDATE marketplace_deal_events SET id='changed' WHERE id='event'")
+
+            pg.execute(
+                "INSERT INTO verified_assets(id, source, external_asset_id, owner_telegram_id, title, status) "
+                "VALUES ('asset', 'telegram', 'external', 'owner-1', 'gift', 'verified')"
+            )
+            with pytest.raises(psycopg.Error):
+                with pg.transaction():
+                    pg.execute("UPDATE verified_assets SET title='tampered' WHERE id='asset'")
+            pg.execute("UPDATE verified_assets SET owner_telegram_id='owner-2' WHERE id='asset'")
+
+            pg.execute(
+                "INSERT INTO marketplace_orders(id, user_id, title, owner_name, status, updated_at) "
+                "VALUES ('order-1', 'owner-2', 'Gift', 'Owner', 'active', '2026-01-01')"
+            )
+            pg.execute(
+                "INSERT INTO marketplace_offers(id, order_id, sender_user_id, sender_name, status, created_at, updated_at) "
+                "VALUES ('offer-1', 'order-1', 'buyer-1', 'Buyer', 'pending', '2026-01-01', '2026-01-01')"
+            )
+            received = pg.execute(
+                "SELECT COUNT(*) FROM marketplace_notifications WHERE event_type='offer_received'"
+            ).fetchone()[0]
+            assert received == 1
+
+            pg.execute("UPDATE marketplace_orders SET status='cancelled' WHERE id='order-1'")
+            status = pg.execute("SELECT status FROM marketplace_offers WHERE id='offer-1'").fetchone()[0]
+            assert status == "declined"
+            declined = pg.execute(
+                "SELECT COUNT(*) FROM marketplace_notifications WHERE event_type='offer_declined'"
+            ).fetchone()[0]
+            assert declined == 1
+        finally:
+            pg.execute("SET search_path TO public")
+            pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
