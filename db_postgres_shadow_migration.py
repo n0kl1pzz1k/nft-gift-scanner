@@ -115,6 +115,17 @@ def _copy_all_in_one_transaction(
                     cursor.execute(statement)
                 cursor.execute("SET CONSTRAINTS ALL DEFERRED")
 
+                # User triggers can create side effects during COPY (for
+                # example, historical offers would generate duplicate
+                # notifications). Disable only user triggers; internal FK
+                # constraint triggers remain active.
+                for table in tables:
+                    cursor.execute(
+                        sql.SQL("ALTER TABLE {} DISABLE TRIGGER USER").format(
+                            sql.Identifier(str(table["name"]))
+                        )
+                    )
+
                 for table in tables:
                     name = str(table["name"])
                     _, columns = _ordered_select(sqlite, table)
@@ -143,6 +154,15 @@ def _copy_all_in_one_transaction(
                         "source_sha256": expected_sha,
                         "copied_rows": copied,
                     })
+
+                # Re-enable business triggers only after every historical row
+                # has been copied. They will process future application writes.
+                for table in tables:
+                    cursor.execute(
+                        sql.SQL("ALTER TABLE {} ENABLE TRIGGER USER").format(
+                            sql.Identifier(str(table["name"]))
+                        )
+                    )
 
                 # Restore SQLite AUTOINCREMENT history, including deleted IDs
                 # above MAX(id), so the next PostgreSQL identity never reuses them.
