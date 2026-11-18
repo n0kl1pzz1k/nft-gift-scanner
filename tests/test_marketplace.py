@@ -764,6 +764,29 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(offer_status, "pending")
         self.assertEqual(withdrawn_notifications, 0)
 
+    def test_profile_update_rolls_back_initial_profile_insert_when_update_fails(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+
+        with marketplace._db() as conn:
+            conn.execute(
+                """CREATE TRIGGER fail_seller_profile_update
+                   BEFORE UPDATE ON user_profiles
+                   BEGIN SELECT RAISE(ABORT, 'injected seller profile update failure'); END"""
+            )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.client.put(
+                "/api/marketplace/profiles/me",
+                headers=owner_headers,
+                json={"display_name": "Atomic Seller", "bio": "Must not persist"},
+            )
+
+        with marketplace._db() as conn:
+            profile_count = conn.execute(
+                "SELECT COUNT(*) FROM user_profiles WHERE telegram_id = '101'"
+            ).fetchone()[0]
+        self.assertEqual(profile_count, 0)
+
     def test_order_creation_rolls_back_when_created_event_insert_fails(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         title = "Order creation rollback gift"
