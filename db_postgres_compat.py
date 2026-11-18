@@ -252,11 +252,20 @@ class PostgresConnectionAdapter:
         return int.from_bytes(digest, "big", signed=True)
 
     def begin_write(self, *lock_keys: str) -> None:
+        # A PostgreSQL write transaction must be scoped by at least one stable
+        # business key. Validate before BEGIN so invalid callers cannot leave an
+        # open, unprotected transaction behind.
+        normalized_keys = [str(key) for key in lock_keys]
+        if not normalized_keys or any(not key.strip() for key in normalized_keys):
+            raise ValueError(
+                "PostgreSQL write transactions require at least one non-empty advisory lock key"
+            )
+
         # The production factory will use autocommit=True so this explicit
         # BEGIN is the only transaction boundary. Sorting prevents deadlocks
         # when a flow needs more than one business-key lock.
+        lock_ids = sorted({self._advisory_lock_id(key) for key in normalized_keys})
         self._connection.execute("BEGIN")
-        lock_ids = sorted({self._advisory_lock_id(str(key)) for key in lock_keys})
         for lock_id in lock_ids:
             self._connection.execute(
                 "SELECT pg_advisory_xact_lock(%s)", (lock_id,)

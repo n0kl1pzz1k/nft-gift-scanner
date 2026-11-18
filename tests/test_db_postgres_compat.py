@@ -69,6 +69,22 @@ if __name__ == "__main__":
 
 
 class PostgresWriteTransactionIntegrationTests(unittest.TestCase):
+    def test_rejects_missing_or_blank_lock_keys_before_opening_transaction(self):
+        class RecordingConnection:
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, statement, parameters=()):
+                self.calls.append((statement, parameters))
+
+        raw = RecordingConnection()
+        adapter = PostgresConnectionAdapter(raw)
+        for keys in ((), ("",), ("   ",)):
+            with self.subTest(keys=keys):
+                with self.assertRaisesRegex(ValueError, "at least one non-empty"):
+                    adapter.begin_write(*keys)
+        self.assertEqual(raw.calls, [])
+
     def test_advisory_lock_and_for_update_support(self):
         dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
         if not dsn:
