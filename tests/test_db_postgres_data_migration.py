@@ -81,3 +81,41 @@ def test_transactional_copy_to_isolated_postgres_preserves_rows_and_sequence(tmp
         next_id = target.execute("SELECT nextval(pg_get_serial_sequence('items', 'id'))").fetchone()[0]
         assert rows == [(1, "one")]
         assert next_id == 3
+
+
+
+def test_postgres_copy_rolls_back_all_tables_when_later_table_fails(tmp_path):
+    import os
+    import psycopg
+    import pytest
+    from db_postgres_data_migration import migrate
+
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    source_path = tmp_path / "rollback.sqlite3"
+    source = sqlite3.connect(source_path)
+    source.executescript(
+        """
+        CREATE TABLE a_items (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE b_items (id TEXT PRIMARY KEY, value INTEGER NOT NULL);
+        INSERT INTO a_items VALUES ('a1', 'valid');
+        INSERT INTO b_items VALUES ('b1', 99);
+        """
+    )
+    source.commit()
+    source.close()
+
+    with psycopg.connect(dsn) as target:
+        target.execute("DROP TABLE IF EXISTS b_items")
+        target.execute("DROP TABLE IF EXISTS a_items")
+        target.execute("CREATE TABLE a_items (id TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        target.execute("CREATE TABLE b_items (id TEXT PRIMARY KEY, value INTEGER NOT NULL CHECK (value < 10))")
+
+    with pytest.raises(psycopg.Error):
+        migrate(str(source_path), dsn, batch_size=1, execute=True)
+
+    with psycopg.connect(dsn) as target:
+        assert target.execute("SELECT COUNT(*) FROM a_items").fetchone()[0] == 0
+        assert target.execute("SELECT COUNT(*) FROM b_items").fetchone()[0] == 0
