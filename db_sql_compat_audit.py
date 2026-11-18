@@ -6,6 +6,7 @@ application database or reads user data.
 from __future__ import annotations
 
 import argparse
+import ast
 import io
 import json
 import re
@@ -87,6 +88,40 @@ def _mask_python_comments(source: str) -> str:
     return "".join(characters)
 
 
+def _mask_python_docstrings(source: str) -> str:
+    """Blank module/class/function docstrings while preserving offsets and SQL literals."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return source
+
+    lines = source.splitlines(keepends=True)
+    offsets: list[int] = []
+    position = 0
+    for line in lines:
+        offsets.append(position)
+        position += len(line)
+
+    characters = list(source)
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if not node.body or not isinstance(node.body[0], ast.Expr):
+            continue
+        value = node.body[0].value
+        if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+            continue
+        start_line, end_line = value.lineno, value.end_lineno
+        start_prefix = lines[start_line - 1].encode("utf-8")[:value.col_offset].decode("utf-8")
+        end_prefix = lines[end_line - 1].encode("utf-8")[:value.end_col_offset].decode("utf-8")
+        start = offsets[start_line - 1] + len(start_prefix)
+        end = offsets[end_line - 1] + len(end_prefix)
+        for index in range(start, end):
+            if characters[index] not in "\r\n":
+                characters[index] = " "
+    return "".join(characters)
+
+
 def audit_source_tree(root: str | Path) -> dict[str, Any]:
     """Return file/line references and counts, never source snippets."""
     root_path = Path(root)
@@ -97,7 +132,7 @@ def audit_source_tree(root: str | Path) -> dict[str, Any]:
         if not path.is_file():
             continue
         scanned.append(relative)
-        source = _mask_python_comments(path.read_text(encoding="utf-8"))
+        source = _mask_python_docstrings(_mask_python_comments(path.read_text(encoding="utf-8")))
         file_findings: list[dict[str, Any]] = []
         for feature, pattern, severity, remediation in RULES:
             for match in pattern.finditer(source):
