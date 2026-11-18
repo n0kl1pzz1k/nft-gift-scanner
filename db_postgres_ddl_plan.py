@@ -33,7 +33,7 @@ def _translate_default(expression: Any, postgres_type: str) -> str | None:
         return "'" + value[1:-1].replace("''", "'").replace('"', "''") + "'"
     if re.fullmatch(r"[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?", value):
         return value
-    if value.upper() in {"NULL", "TRUE", "FALSE", "CURRENT_TIMESTAMP", "CURRENT_DATE", "CURRENT_TIME"}:
+    if value.upper() in {"NULL", "TRUE", "FALSE"}:
         return value.upper()
     return None
 
