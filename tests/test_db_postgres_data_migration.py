@@ -1,7 +1,5 @@
 import sqlite3
 
-import pytest
-
 from db_postgres_data_migration import _fingerprint, _normal, _ordered_select
 from db_schema_audit import build_schema_manifest
 
