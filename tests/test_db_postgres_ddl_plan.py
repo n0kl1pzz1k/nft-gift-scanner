@@ -129,3 +129,7 @@ def test_ddl_plan_translates_all_known_production_trigger_categories():
     assert "gen_random_uuid()" in rendered
     assert "verified asset metadata is immutable" in rendered
     assert "deal lifecycle events are immutable" in rendered
+    assert "$migration$\n" in rendered
+    assert "\\n" not in rendered
+    verified_trigger = next(sql for sql in trigger_statements if 'verified_assets_metadata_immutable' in sql and 'CREATE TRIGGER' in sql)
+    assert "BEFORE UPDATE ON" in verified_trigger
