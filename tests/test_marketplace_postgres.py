@@ -38,10 +38,42 @@ def test_postgres_core_marketplace_schema_bootstrap_is_idempotent_and_verified()
             "VALUES (?,?,?,?,?,'gift','telegram_gift_owner','hash-1',1,1)",
             ("asset-1", "telegram_gift", "gift-1", "owner-1", "Gift"),
         )
+        # Ordinary metadata edits and no-op metadata updates are both blocked,
+        # matching SQLite's BEFORE UPDATE OF ... WHEN NOT (ownership-transfer) guard.
         with pytest.raises(Exception, match="verified asset metadata is immutable"):
             adapter.execute(
                 "UPDATE verified_assets SET title=? WHERE id=?",
                 ("Changed", "asset-1"),
+            )
+        with pytest.raises(Exception, match="verified asset metadata is immutable"):
+            adapter.execute(
+                "UPDATE verified_assets SET title=title WHERE id=?",
+                ("asset-1",),
+            )
+
+        # A verified ownership transfer is the one permitted metadata-column
+        # update, provided source and external asset identity remain unchanged.
+        adapter.execute(
+            "UPDATE verified_assets SET owner_telegram_id=?, status='verified' WHERE id=?",
+            ("owner-2", "asset-1"),
+        )
+        owner = adapter.execute(
+            "SELECT owner_telegram_id FROM verified_assets WHERE id=?",
+            ("asset-1",),
+        ).fetchone()
+        assert owner["owner_telegram_id"] == "owner-2"
+
+        # The exception does not permit changing the asset's identity or
+        # transferring an asset into a revoked state.
+        with pytest.raises(Exception, match="verified asset metadata is immutable"):
+            adapter.execute(
+                "UPDATE verified_assets SET owner_telegram_id=?, external_asset_id=? WHERE id=?",
+                ("owner-3", "different-gift", "asset-1"),
+            )
+        with pytest.raises(Exception, match="verified asset metadata is immutable"):
+            adapter.execute(
+                "UPDATE verified_assets SET owner_telegram_id=?, status='revoked' WHERE id=?",
+                ("owner-3", "asset-1"),
             )
     finally:
         try:

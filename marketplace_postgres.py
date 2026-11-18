@@ -38,14 +38,7 @@ _INDEXES = (
 "CREATE INDEX IF NOT EXISTS idx_asset_ownership_history_asset ON asset_ownership_history(asset_id,created_at DESC)",
 "CREATE INDEX IF NOT EXISTS idx_marketplace_orders_asset ON marketplace_orders(asset_id,status)",
 )
-_FUNCTION = """CREATE OR REPLACE FUNCTION hassle_nft_verified_asset_metadata_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
- IF (NEW.source,NEW.external_asset_id,NEW.owner_telegram_id,NEW.title,NEW.asset_type,NEW.image_url,NEW.verification_method,NEW.verification_reference_hash,NEW.verified_at)
- IS DISTINCT FROM
- (OLD.source,OLD.external_asset_id,OLD.owner_telegram_id,OLD.title,OLD.asset_type,OLD.image_url,OLD.verification_method,OLD.verification_reference_hash,OLD.verified_at)
- THEN RAISE EXCEPTION USING MESSAGE = 'verified asset metadata is immutable'; END IF;
- RETURN NEW;
-END; $$"""
+_FUNCTION = "CREATE OR REPLACE FUNCTION hassle_nft_verified_asset_metadata_immutable() RETURNS trigger LANGUAGE plpgsql AS $hassle_nft$\nBEGIN\n -- Match SQLite's verified_assets_metadata_immutable trigger: metadata-column\n -- updates are rejected except for a verified ownership transfer that keeps\n -- the asset's source and external identity unchanged.\n IF NOT (\n     NEW.status = 'verified'\n     AND NEW.owner_telegram_id IS DISTINCT FROM OLD.owner_telegram_id\n     AND NEW.source IS NOT DISTINCT FROM OLD.source\n     AND NEW.external_asset_id IS NOT DISTINCT FROM OLD.external_asset_id\n )\n THEN\n     RAISE EXCEPTION USING MESSAGE = 'verified asset metadata is immutable';\n END IF;\n RETURN NEW;\nEND; $hassle_nft$"
 
 def verify_postgres_marketplace_schema(connection: Any) -> dict[str, Any]:
     tables = {str(r["table_name"]) for r in connection.execute("SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE'").fetchall()}
