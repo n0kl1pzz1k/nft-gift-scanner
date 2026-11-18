@@ -237,6 +237,18 @@ def build_postgres_ddl_plan(manifest: dict[str, Any], data_preflight: dict[str, 
         elif item.get("type") == "view":
             blockers.append({"table": str(item.get("table", "")), "feature": f"view {item.get('name')}", "reason": "View SQL requires PostgreSQL syntax and dependency review."})
 
+    if data_preflight is not None:
+        for profile in data_preflight.get("columns", []):
+            if not profile.get("boolean_conversion_safe", False):
+                blockers.append({
+                    "table": str(profile.get("table", "")),
+                    "feature": f"unsafe boolean data on {profile.get('column', '')}",
+                    "reason": (
+                        f"Cannot map to PostgreSQL BOOLEAN: invalid values={int(profile.get('invalid_value_count', 0))}, "
+                        f"NULL values={int(profile.get('null_value_count', 0))}, nullable={bool(profile.get('nullable'))}."
+                    ),
+                })
+
     return {
         "format_version": 1,
         "target_engine": "postgresql",
