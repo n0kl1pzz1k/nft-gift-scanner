@@ -100,7 +100,7 @@ def select_for_update(connection: object, statement: str) -> str:
     """Append PostgreSQL row locking while leaving SQLite SQL unchanged."""
     if bool(getattr(connection, "supports_for_update", False)):
         sql = statement.rstrip().rstrip(";")
-        if re.search(r"\\bFOR\\s+UPDATE\\b", sql, re.IGNORECASE):
+        if re.search(r"\bFOR\s+UPDATE\b", sql, re.IGNORECASE):
             return sql
         return sql + " FOR UPDATE"
     return statement
