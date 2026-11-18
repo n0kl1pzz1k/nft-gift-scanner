@@ -94,6 +94,15 @@ def list_database_columns(connection: object, table_name: str) -> set[str]:
     raise RuntimeError("Unsupported database connection for schema introspection")
 
 
+def require_sqlite_connection(connection: object, operation: str) -> sqlite3.Connection:
+    """Reject SQLite-only schema/runtime operations before issuing any SQL."""
+    if not isinstance(connection, sqlite3.Connection):
+        raise RuntimeError(
+            f"{operation} requires SQLite; PostgreSQL needs its reviewed migration path."
+        )
+    return connection
+
+
 def connect() -> sqlite3.Connection:
     """Open the configured application database."""
     return connect_database(DB_PATH)
