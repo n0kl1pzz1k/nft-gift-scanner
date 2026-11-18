@@ -478,3 +478,28 @@ def test_postgres_trigger_plan_classifies_atomic_side_effects_and_randomblob():
     assert report["ready_for_cutover"] is False
 
 
+
+
+
+def test_runtime_inventory_blocks_unsafe_boolean_values_in_postgres_ddl_plan():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE telegram_users (is_premium INTEGER);
+        INSERT INTO telegram_users VALUES (0);
+        INSERT INTO telegram_users VALUES (2);
+        INSERT INTO telegram_users VALUES (NULL);
+        """
+    )
+    inventory = build_runtime_inventory(connection)
+    connection.close()
+
+    preflight = inventory["postgresql_data_preflight"]
+    assert preflight["unsafe_column_count"] == 1
+    assert preflight["columns"][0]["invalid_value_count"] == 1
+    assert preflight["columns"][0]["null_value_count"] == 1
+    assert any(
+        item["feature"] == "unsafe boolean data on is_premium"
+        for item in inventory["postgresql_ddl_plan"]["blockers"]
+    )
+    assert inventory["postgresql_ddl_plan"]["ready_for_cutover"] is False
