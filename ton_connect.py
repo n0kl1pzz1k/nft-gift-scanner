@@ -73,6 +73,83 @@ def ensure_ton_connect_schema(connection: object) -> None:
     )
     for statement in statements:
         connection.execute(statement)
+    return verify_ton_connect_schema(connection)
+
+
+def verify_ton_connect_schema(connection: object) -> dict[str, Any]:
+    """Verify TON Connect tables, exact columns, and required indexes.
+
+    This catches partially upgraded PostgreSQL schemas at startup instead of
+    allowing proof challenges or wallet bindings to fail later in requests.
+    Other application tables in the shared schema are intentionally ignored.
+    """
+    expected_columns = {
+        "ton_proof_challenges": {
+            "payload_hash", "telegram_id", "session_hash",
+            "created_at", "expires_at", "consumed_at",
+        },
+        "verified_wallets": {
+            "network", "address", "telegram_id", "public_key",
+            "state_init_hash", "created_at", "last_verified_at", "revoked_at",
+        },
+    }
+    expected_indexes = {
+        "idx_ton_proof_challenges_expiry",
+        "idx_verified_wallets_owner",
+    }
+    postgres = bool(getattr(connection, "supports_for_update", False))
+    if postgres:
+        table_rows = connection.execute(
+            "SELECT table_name AS name FROM information_schema.tables "
+            "WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'"
+        ).fetchall()
+        index_rows = connection.execute(
+            "SELECT indexname AS name FROM pg_indexes WHERE schemaname = current_schema()"
+        ).fetchall()
+    elif isinstance(connection, sqlite3.Connection):
+        table_rows = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+        index_rows = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index'"
+        ).fetchall()
+    else:
+        raise RuntimeError("Unsupported database connection for TON Connect schema verification")
+
+    tables = {str(row["name"]) for row in table_rows}
+    indexes = {str(row["name"]) for row in index_rows}
+    problems: list[str] = []
+    for table_name, expected in expected_columns.items():
+        if table_name not in tables:
+            problems.append(f"missing table: {table_name}")
+            continue
+        if postgres:
+            rows = connection.execute(
+                "SELECT column_name AS name FROM information_schema.columns "
+                "WHERE table_schema = current_schema() AND table_name = ?",
+                (table_name,),
+            ).fetchall()
+        else:
+            quoted = '"' + table_name.replace('"', '""') + '"'
+            rows = connection.execute(f"PRAGMA table_info({quoted})").fetchall()
+        actual = {str(row["name"]) for row in rows}
+        missing = expected - actual
+        unexpected = actual - expected
+        if missing:
+            problems.append(f"missing columns in {table_name}: " + ", ".join(sorted(missing)))
+        if unexpected:
+            problems.append(f"unexpected columns in {table_name}: " + ", ".join(sorted(unexpected)))
+    missing_indexes = expected_indexes - indexes
+    if missing_indexes:
+        problems.append("missing indexes: " + ", ".join(sorted(missing_indexes)))
+    if problems:
+        raise RuntimeError("TON Connect schema verification failed: " + "; ".join(problems))
+    return {
+        "verified": True,
+        "tables_verified": len(expected_columns),
+        "columns_verified": sum(len(columns) for columns in expected_columns.values()),
+        "indexes_verified": len(expected_indexes),
+    }
 
 
 def init_ton_connect_db() -> None:
