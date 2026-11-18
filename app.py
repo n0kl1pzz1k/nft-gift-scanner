@@ -5,6 +5,8 @@ import json
 import hmac
 import hashlib
 import logging
+import re
+from pathlib import Path
 
 import marketplace
 from db_schema_audit import build_runtime_inventory, build_postgres_migration_gate_summary
@@ -33,6 +35,54 @@ app.include_router(create_marketplace_offers_router(lambda value: _authenticate_
 _telegram_bot = None
 _telegram_dispatcher = None
 _telegram_webhook_secret = None
+_shadow_migration_task = None
+
+
+
+
+async def _run_postgres_shadow_migration_once():
+    """Opt-in background shadow copy; production continues serving SQLite."""
+    if os.getenv("HASSLE_RUN_POSTGRES_SHADOW_MIGRATION", "").strip() != "1":
+        return
+    run_id = os.getenv("HASSLE_POSTGRES_SHADOW_MIGRATION_ID", "").strip()
+    dsn = os.getenv("HASSLE_POSTGRES_MIGRATION_DSN", "").strip()
+    target_schema = os.getenv("HASSLE_POSTGRES_SHADOW_TARGET_SCHEMA", "").strip()
+    if not run_id or not re.fullmatch(r"[A-Za-z0-9_-]{1,48}", run_id):
+        logging.getLogger("hassle_nft.database").error("PostgreSQL shadow migration not started: invalid or missing run ID")
+        return
+    if not dsn:
+        logging.getLogger("hassle_nft.database").error("PostgreSQL shadow migration not started: migration DSN is missing")
+        return
+    if not target_schema:
+        target_schema = "hassle_shadow_" + run_id.replace("-", "_")
+    if not re.fullmatch(r"[A-Za-z0-9_]{1,48}", target_schema):
+        logging.getLogger("hassle_nft.database").error("PostgreSQL shadow migration not started: invalid target schema")
+        return
+    try:
+        batch_size = int(os.getenv("HASSLE_POSTGRES_SHADOW_BATCH_SIZE", "1000"))
+    except ValueError:
+        batch_size = 1000
+    if not 1 <= batch_size <= 10000:
+        logging.getLogger("hassle_nft.database").error("PostgreSQL shadow migration not started: invalid batch size")
+        return
+
+    source = Path(marketplace.DB_PATH).expanduser().resolve()
+    backup = source.parent / f"hassle-postgres-shadow-{run_id}.sqlite3"
+    marker = source.parent / f".hassle-postgres-shadow-{run_id}.json"
+    try:
+        from db_postgres_shadow_migration import run_shadow_migration_once
+        result = await asyncio.to_thread(
+            run_shadow_migration_once,
+            str(source), str(backup), dsn, str(marker), run_id, target_schema, batch_size,
+        )
+        logging.getLogger("hassle_nft.database").warning(
+            "postgresql_shadow_migration=%s",
+            json.dumps(result, ensure_ascii=False, sort_keys=True),
+        )
+    except Exception as exc:
+        logging.getLogger("hassle_nft.database").error(
+            "PostgreSQL shadow migration task failed: %s", type(exc).__name__
+        )
 
 
 def _resolve_webhook_secret(bot_token: str) -> str:
@@ -643,6 +693,10 @@ async def start_services():
         "postgresql_migration_gate_summary=%s",
         json.dumps(build_postgres_migration_gate_summary(inventory), ensure_ascii=False, sort_keys=True),
     )
+    global _shadow_migration_task
+    if os.getenv("HASSLE_RUN_POSTGRES_SHADOW_MIGRATION", "").strip() == "1":
+        _shadow_migration_task = asyncio.create_task(_run_postgres_shadow_migration_once())
+
     token = os.getenv("BOT_TOKEN", "").strip()
     if token:
         try:
