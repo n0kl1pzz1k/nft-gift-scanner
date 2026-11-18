@@ -129,6 +129,12 @@ _FUNCTION_NAMES = {
 
 def _verify_postgres_offer_triggers(connection: Any) -> dict[str, Any]:
     """Verify trigger placement, function binding, and enabled state in this schema."""
+    def value(row: Any, key: str, index: int) -> Any:
+        try:
+            return row[key]
+        except (KeyError, TypeError):
+            return row[index]
+
     rows = connection.execute("""
         SELECT t.tgname, c.relname, p.proname, t.tgenabled
         FROM pg_catalog.pg_trigger AS t
@@ -138,9 +144,13 @@ def _verify_postgres_offer_triggers(connection: Any) -> dict[str, Any]:
         WHERE NOT t.tgisinternal AND n.nspname = current_schema()
     """).fetchall()
     actual = {
-        str(row["tgname"]): (str(row["relname"]), str(row["proname"]), str(row["tgenabled"]))
+        str(value(row, "tgname", 0)): (
+            str(value(row, "relname", 1)),
+            str(value(row, "proname", 2)),
+            str(value(row, "tgenabled", 3)),
+        )
         for row in rows
-        if str(row["tgname"]) in _TRIGGER_TABLES
+        if str(value(row, "tgname", 0)) in _TRIGGER_TABLES
     }
     problems = []
     for name, expected_table in _TRIGGER_TABLES.items():
@@ -159,7 +169,7 @@ def _verify_postgres_offer_triggers(connection: Any) -> dict[str, Any]:
         JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace
         WHERE n.nspname = current_schema()
     """).fetchall()
-    installed_functions = {str(row["proname"]) for row in function_rows}
+    installed_functions = {str(value(row, "proname", 0)) for row in function_rows}
     missing_functions = sorted(_FUNCTION_NAMES - installed_functions)
     if missing_functions:
         problems.append("missing functions: " + ", ".join(missing_functions))
