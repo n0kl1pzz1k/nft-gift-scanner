@@ -65,6 +65,18 @@ def _ordered_select(connection: sqlite3.Connection, table: dict[str, Any]) -> tu
     return sql, columns
 
 
+
+def _sqlite_autoincrement_high_water(connection: sqlite3.Connection, table_name: str) -> int:
+    exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'"
+    ).fetchone()
+    if not exists:
+        return 0
+    row = connection.execute(
+        "SELECT seq FROM sqlite_sequence WHERE name = ?", (table_name,)
+    ).fetchone()
+    return max(0, int(row[0])) if row else 0
+
 def _pg_identifier(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
 
@@ -150,8 +162,12 @@ def migrate(source_path: str, dsn: str, batch_size: int, execute: bool) -> dict[
                             sequence = cursor.execute("SELECT pg_get_serial_sequence(%s, %s)", (name, pk[0])).fetchone()[0]
                             if sequence:
                                 max_id = cursor.execute(sql.SQL("SELECT MAX({}) FROM {}").format(sql.Identifier(pk[0]), sql.Identifier(name))).fetchone()[0]
-                                if max_id is not None:
-                                    cursor.execute("SELECT setval(%s, %s, true)", (sequence, max_id))
+                                sqlite_high_water = _sqlite_autoincrement_high_water(sqlite, name)
+                                high_water = max(sqlite_high_water, int(max_id or 0))
+                                if high_water > 0:
+                                    cursor.execute("SELECT setval(%s, %s, true)", (sequence, high_water))
+                                else:
+                                    cursor.execute("SELECT setval(%s, 1, false)", (sequence,))
                     for table, item in zip(tables, report["tables"]):
                         name = str(table["name"])
                         select_sql, columns = _ordered_select(sqlite, table)
