@@ -122,15 +122,6 @@ _CORS_ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_CORS_ALLOWED_ORIGINS,
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Telegram-Init-Data"],
-    max_age=600,
-)
-
 @app.middleware("http")
 async def maintenance_mode_guard(request: Request, call_next):
     """Temporarily reject writes during the final SQLite snapshot and DB cutover."""
@@ -148,6 +139,15 @@ async def maintenance_mode_guard(request: Request, call_next):
         )
     return await call_next(request)
 
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_CORS_ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Telegram-Init-Data"],
+    max_age=600,
+)
 
 class TelegramAuthRequest(BaseModel):
     init_data: str
