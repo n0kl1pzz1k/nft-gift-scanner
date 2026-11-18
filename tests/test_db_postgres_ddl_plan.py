@@ -418,3 +418,101 @@ def test_ddl_plan_uses_double_precision_for_safe_real_values_in_integer_affinity
     assert '"measurement" DOUBLE PRECISION NOT NULL' in rendered
     assert result["integer_type_override_count"] == 1
     assert not any(item["feature"] == "non-integer storage on measurement" for item in result["blockers"])
+
+
+def _build_real_marketplace_schema_manifest():
+    from contextlib import nullcontext
+    from unittest.mock import patch
+
+    import marketplace
+    import marketplace_offers
+
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    with patch("marketplace._db", return_value=nullcontext(connection)):
+        marketplace.init_marketplace_db()
+    with patch("marketplace_offers._db", return_value=nullcontext(connection)):
+        marketplace_offers.init_marketplace_offers_db()
+    manifest = build_schema_manifest(connection)
+    return connection, manifest
+
+
+def test_real_marketplace_bootstrap_has_reviewable_postgres_ddl_without_silent_drops():
+    connection, manifest = _build_real_marketplace_schema_manifest()
+    plan = build_postgres_ddl_plan(manifest)
+    connection.close()
+
+    assert plan["table_count"] == len(manifest["tables"])
+    assert plan["statement_count"] > plan["table_count"]
+    assert plan["execution_enabled"] is False
+    assert plan["ready_for_cutover"] is False
+
+    # Every unsupported schema object must be visible as a blocker. This
+    # assertion deliberately fails if a new production trigger/view/default
+    # is added without a reviewed PostgreSQL translation.
+    blocker_features = {item["feature"] for item in plan["blockers"]}
+    assert not any(feature.startswith("trigger ") for feature in blocker_features)
+    assert not any(feature.startswith("view ") for feature in blocker_features)
+    assert not any(feature.startswith("default on ") for feature in blocker_features)
+
+
+def test_real_marketplace_bootstrap_ddl_executes_in_isolated_postgres_schema():
+    import os
+    import uuid
+
+    import pytest
+    import psycopg
+    from psycopg import sql
+
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    connection, manifest = _build_real_marketplace_schema_manifest()
+    plan = build_postgres_ddl_plan(manifest)
+    source_table_names = sorted(table["name"] for table in manifest["tables"])
+    source_object_counts = {
+        "indexes": sum(len(table.get("indexes", [])) for table in manifest["tables"]),
+        "triggers": sum(item.get("type") == "trigger" for item in manifest.get("objects", [])),
+    }
+    connection.close()
+
+    assert plan["blocker_count"] == 0, plan["blockers"]
+    schema = "marketplace_bootstrap_" + uuid.uuid4().hex[:12]
+    with psycopg.connect(dsn, autocommit=True) as pg:
+        pg.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        pg.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+        try:
+            for statement in plan["statements"]:
+                pg.execute(statement)
+
+            target_table_names = sorted(
+                row[0] for row in pg.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema=%s AND table_type='BASE TABLE'",
+                    (schema,),
+                ).fetchall()
+            )
+            assert target_table_names == source_table_names
+
+            target_trigger_count = pg.execute(
+                "SELECT COUNT(*) FROM pg_trigger t "
+                "JOIN pg_class c ON c.oid=t.tgrelid "
+                "JOIN pg_namespace n ON n.oid=c.relnamespace "
+                "WHERE n.nspname=%s AND NOT t.tgisinternal",
+                (schema,),
+            ).fetchone()[0]
+            assert target_trigger_count == source_object_counts["triggers"]
+
+            target_index_count = pg.execute(
+                "SELECT COUNT(*) FROM pg_indexes WHERE schemaname=%s",
+                (schema,),
+            ).fetchone()[0]
+            # PostgreSQL creates indexes for primary/unique constraints too,
+            # so the target count may exceed the explicit SQLite index count.
+            assert target_index_count >= source_object_counts["indexes"]
+        finally:
+            pg.execute("SET search_path TO public")
+            pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
