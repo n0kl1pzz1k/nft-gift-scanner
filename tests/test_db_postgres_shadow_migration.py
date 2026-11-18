@@ -91,3 +91,29 @@ def test_shadow_migration_rolls_back_schema_and_rows_on_copy_failure(tmp_path):
         finally:
             pg.execute("SET search_path TO public")
             pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
+
+def test_shadow_migration_refuses_nonexistent_target_schema(tmp_path):
+    import os
+    import uuid
+
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    source_path = tmp_path / "missing-schema-source.sqlite3"
+    source = sqlite3.connect(source_path)
+    source.execute("CREATE TABLE items (id TEXT PRIMARY KEY, value TEXT)")
+    source.execute("INSERT INTO items VALUES ('one', 'value')")
+    source.commit()
+    source.close()
+
+    missing_schema = "missing_" + uuid.uuid4().hex[:10]
+    with pytest.raises(RuntimeError, match="target schema does not exist"):
+        run_shadow_migration(
+            str(source_path),
+            str(tmp_path / "missing-schema-backup.sqlite3"),
+            dsn,
+            execute=False,
+            target_schema=missing_schema,
+        )
