@@ -280,3 +280,45 @@ def test_schema_apply_preserves_all_marketplace_trigger_behaviors(tmp_path):
         finally:
             pg.execute("SET search_path TO public")
             pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
+
+def test_schema_apply_rolls_back_all_ddl_when_a_later_statement_fails(tmp_path, monkeypatch):
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    source_path = tmp_path / "rollback.sqlite3"
+    source = sqlite3.connect(source_path)
+    source.execute("CREATE TABLE source_sample (id TEXT PRIMARY KEY)")
+    source.commit()
+    source.close()
+
+    schema = "mig_rollback_" + uuid.uuid4().hex[:12]
+    with psycopg.connect(dsn, autocommit=True) as pg:
+        pg.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+    try:
+        monkeypatch.setattr(
+            "db_postgres_schema_apply.build_postgres_ddl_plan",
+            lambda manifest, data_preflight: {
+                "blocker_count": 0,
+                "statement_count": 2,
+                "statements": [
+                    'CREATE TABLE "rollback_probe" ("id" BIGINT PRIMARY KEY)',
+                    "THIS IS INTENTIONALLY INVALID SQL",
+                ],
+            },
+        )
+
+        with pytest.raises(psycopg.Error):
+            apply_schema(str(source_path), dsn, apply=True, target_schema=schema)
+
+        with psycopg.connect(dsn) as pg:
+            remaining = pg.execute(
+                "SELECT COUNT(*) FROM information_schema.tables "
+                "WHERE table_schema=%s AND table_name='rollback_probe'",
+                (schema,),
+            ).fetchone()[0]
+            assert remaining == 0
+    finally:
+        with psycopg.connect(dsn, autocommit=True) as pg:
+            pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
