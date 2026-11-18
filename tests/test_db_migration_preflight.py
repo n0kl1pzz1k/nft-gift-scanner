@@ -220,5 +220,5 @@ def test_preflight_detects_non_integer_storage_in_bigint_candidates(tmp_path):
     numeric = report["postgresql_integer_data_preflight"]
     assert numeric["conversion_safe_in_both"] is False
     assert numeric["unsafe_column_count"] == 2
-    assert numeric["source"]["integer_columns"][0]["text_storage_count"] == 1
+    assert next(item for item in numeric["source"]["integer_columns"] if item["column"] == "event_time")["text_storage_count"] == 1
     assert report["ready_for_shadow_migration"] is False
