@@ -25,13 +25,19 @@ class ApiContractTests(unittest.TestCase):
         client = TestClient(app)
         with patch.dict("os.environ", {"HASSLE_MAINTENANCE_MODE": "1"}, clear=False):
             write_response = client.post(
-                "/api/auth/telegram", json={"init_data": "not-used-during-maintenance"}
+                "/api/auth/telegram",
+                headers={"Origin": "https://hassle-nft-market.fj7kmzkhn9.workers.dev"},
+                json={"init_data": "not-used-during-maintenance"},
             )
             health_response = client.get("/health")
 
         self.assertEqual(write_response.status_code, 503)
         self.assertEqual(write_response.headers.get("Retry-After"), "30")
         self.assertTrue(write_response.json()["maintenance"])
+        self.assertEqual(
+            write_response.headers.get("Access-Control-Allow-Origin"),
+            "https://hassle-nft-market.fj7kmzkhn9.workers.dev",
+        )
         self.assertEqual(health_response.status_code, 200)
 
     def test_cors_allows_telegram_post_auth(self):
