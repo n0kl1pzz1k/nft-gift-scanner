@@ -492,6 +492,7 @@ def test_runtime_inventory_blocks_unsafe_boolean_values_in_postgres_ddl_plan():
         """
     )
     inventory = build_runtime_inventory(connection)
+    manifest = build_schema_manifest(connection)
     connection.close()
 
     preflight = inventory["postgresql_data_preflight"]
@@ -501,7 +502,7 @@ def test_runtime_inventory_blocks_unsafe_boolean_values_in_postgres_ddl_plan():
     assert preflight["columns"][0]["boolean_conversion_safe"] is False
 
     from db_postgres_ddl_plan import build_postgres_ddl_plan
-    direct_plan = build_postgres_ddl_plan(build_schema_manifest(connection), preflight)
+    direct_plan = build_postgres_ddl_plan(manifest, preflight)
     assert any(
         item["feature"] == "unsafe boolean data on is_premium"
         for item in direct_plan["blockers"]
