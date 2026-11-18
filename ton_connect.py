@@ -15,7 +15,7 @@ import time
 from typing import Any
 
 from marketplace import _db
-from database import begin_write, select_for_update
+from database import begin_write, select_for_update, require_sqlite_connection
 
 # Official TON standard wallet code hashes. Layouts are version-specific.
 _WALLET_LAYOUTS = {
