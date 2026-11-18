@@ -248,3 +248,30 @@ def test_shadow_migration_preserves_real_values_in_generic_integer_affinity_colu
         finally:
             pg.execute("SET search_path TO public")
             pg.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(schema)))
+
+
+def test_shadow_migration_runs_disk_preflight_before_creating_backup(tmp_path, monkeypatch):
+    import db_postgres_shadow_migration as migration
+
+    source_path = tmp_path / "source.sqlite3"
+    source_path.write_bytes(b"source")
+    calls = []
+
+    def reject_for_space(source, backup):
+        calls.append("disk_preflight")
+        raise RuntimeError("Insufficient free disk space")
+
+    def unexpected_backup(source, backup):
+        calls.append("backup")
+        raise AssertionError("backup must not start when disk preflight fails")
+
+    monkeypatch.setattr(migration, "_disk_space_preflight", reject_for_space)
+    monkeypatch.setattr(migration, "backup_database", unexpected_backup)
+
+    with pytest.raises(RuntimeError, match="Insufficient free disk space"):
+        migration.run_shadow_migration(
+            str(source_path), str(tmp_path / "backup.sqlite3"),
+            "postgresql://unused", execute=False,
+        )
+
+    assert calls == ["disk_preflight"]
