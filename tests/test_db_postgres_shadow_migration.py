@@ -43,6 +43,11 @@ def test_shadow_migration_creates_schema_and_copies_all_rows_atomically(tmp_path
             )
             assert report["migration"]["committed"] is True
             assert report["migration"]["verified"] is True
+            assert report["migration"]["schema_objects"]["verified"] is True
+            assert report["migration"]["schema_objects"]["indexes_found"] == report["migration"]["schema_objects"]["indexes_expected"]
+            assert report["migration"]["schema_objects"]["triggers_found"] == report["migration"]["schema_objects"]["triggers_expected"]
+            assert report["migration"]["schema_objects"]["foreign_keys_found"] == report["migration"]["schema_objects"]["foreign_keys_expected"]
+            assert report["migration"]["schema_objects"]["check_constraints_found"] == report["migration"]["schema_objects"]["check_constraints_expected"]
             assert report["migration"]["tables"][0]["content_verified"] is True
             assert report["production_app_switched"] is False
             pg.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
