@@ -879,6 +879,8 @@ def build_postgres_migration_gate_summary(inventory: dict[str, Any]) -> dict[str
         "unsafe_boolean_column_count": sum(not item.get("boolean_conversion_safe", False) for item in boolean_columns),
         "runtime_finding_count": int(runtime.get("finding_count", 0)),
         "runtime_blocker_count": int(runtime.get("blocker_count", 0)),
+        "runtime_sqlite_fallback_count": int(runtime.get("sqlite_fallback_count", 0)),
+        "runtime_static_blockers_clear": bool(runtime.get("static_blockers_clear", False)),
         "runtime_review_count": int(runtime.get("review_count", 0)),
         "runtime_feature_counts": dict(runtime.get("feature_counts", {})),
         "runtime_ready": bool(runtime.get("ready_for_postgresql_runtime", False)),

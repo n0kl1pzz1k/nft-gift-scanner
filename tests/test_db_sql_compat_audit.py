@@ -1,6 +1,7 @@
 import json
+from pathlib import Path
 
-from db_sql_compat_audit import audit_source_tree
+from db_sql_compat_audit import SQLITE_FALLBACK_FUNCTIONS, audit_source_tree
 
 
 def test_audit_finds_sqlite_runtime_assumptions_without_source_or_data_leaks(tmp_path):
@@ -107,3 +108,22 @@ def test_audit_ignores_python_docstrings_but_scans_executable_sql_literals(tmp_p
     assert not any(item["feature"] == "sqlite_transaction_lock" for item in findings)
     assert not any(item["feature"] == "sqlite_script_execution" for item in findings)
     assert any(item["feature"] == "sqlite_pragma" and item["line"] == 4 for item in findings)
+
+
+
+def test_repository_sqlite_only_code_is_confined_to_explicit_fallback_functions():
+    repository_root = Path(__file__).resolve().parents[1]
+    report = audit_source_tree(repository_root)
+
+    assert report["blocker_count"] == 0
+    assert report["static_blockers_clear"] is True
+    assert report["sqlite_fallback_count"] >= 34
+    assert report["ready_for_postgresql_runtime"] is False
+
+    fallback_functions = {
+        (item["file"], item["function"])
+        for item in report["findings"]
+        if item["severity"] == "sqlite_fallback"
+    }
+    assert fallback_functions
+    assert fallback_functions <= SQLITE_FALLBACK_FUNCTIONS
