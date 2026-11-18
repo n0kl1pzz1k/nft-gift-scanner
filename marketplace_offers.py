@@ -17,6 +17,7 @@ from typing import Callable, Literal
 from fastapi import APIRouter, Header, HTTPException, Query
 
 from marketplace import _enforce_user_rate_limit, _verified_asset_actions_enabled, _test_unverified_assets_allowed, _migrate_legacy_marketplace_table_names
+from database import begin_write, select_for_update
 from pydantic import BaseModel, Field, field_validator
 
 DB_PATH = os.getenv("HASSLE_NFT_DB_PATH", os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3")))
@@ -325,8 +326,8 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
         _enforce_user_rate_limit(actor_id, "create_offer", 15)
         now = int(time.time())
         with _db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            order = conn.execute("SELECT * FROM marketplace_orders WHERE id = ?", (payload.order_id,)).fetchone()
+            begin_write(conn, f"order:{payload.order_id}")
+            order = conn.execute(select_for_update(conn, "SELECT * FROM marketplace_orders WHERE id = ?"), (payload.order_id,)).fetchone()
             if order is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Marketplace listing not found")
@@ -415,13 +416,16 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
         _enforce_user_rate_limit(actor_id, "update_offer", 30)
         now = int(time.time())
         with _db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("""
+            initial = conn.execute("SELECT order_id FROM marketplace_offers WHERE id = ?", (offer_id,)).fetchone()
+            if initial is None:
+                raise HTTPException(status_code=404, detail="Offer not found")
+            begin_write(conn, f"order:{initial['order_id']}", f"offer:{offer_id}")
+            row = conn.execute(select_for_update(conn, """
                 SELECT f.*, o.user_id AS order_owner_id, o.owner_name AS order_owner_name,
                        o.title AS order_title, o.status AS order_status
                 FROM marketplace_offers f JOIN marketplace_orders o ON o.id = f.order_id
                 WHERE f.id = ?
-            """, (offer_id,)).fetchone()
+            """), (offer_id,)).fetchone()
             if row is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Offer not found")
@@ -466,11 +470,14 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
         _enforce_user_rate_limit(actor_id, "deal_action", 10)
         now = int(time.time())
         with _db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
+            initial = conn.execute("SELECT order_id FROM marketplace_deals WHERE id = ?", (deal_id,)).fetchone()
+            if initial is None:
+                raise HTTPException(status_code=404, detail="Deal not found")
+            begin_write(conn, f"order:{initial['order_id']}", f"deal:{deal_id}")
             deal = conn.execute(
-                """SELECT d.*, o.status AS order_status
+                select_for_update(conn, """SELECT d.*, o.status AS order_status
                    FROM marketplace_deals d JOIN marketplace_orders o ON o.id = d.order_id
-                   WHERE d.id = ?""",
+                   WHERE d.id = ?"""),
                 (deal_id,),
             ).fetchone()
             if deal is None or actor_id not in (deal["listing_owner_id"], deal["offer_sender_id"]):
