@@ -190,7 +190,7 @@ def init_marketplace_offers_db() -> None:
         if unique_order_index:
             conn.execute("PRAGMA foreign_keys = OFF")
             try:
-                conn.execute("BEGIN IMMEDIATE")
+                begin_write(conn, "schema:marketplace-deals-reservation-index")
                 conn.execute("""
                     CREATE TABLE marketplace_deals_new (
                         id TEXT PRIMARY KEY,
