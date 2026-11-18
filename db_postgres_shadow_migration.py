@@ -26,7 +26,11 @@ from db_postgres_data_migration import (
 from db_postgres_ddl_plan import build_postgres_ddl_plan
 from db_postgres_schema_apply import _source_counts, _target_counts
 from db_restore import restore_database
-from db_schema_audit import build_postgres_data_preflight, build_schema_manifest
+from db_schema_audit import (
+    build_postgres_data_preflight,
+    build_postgres_numeric_data_preflight,
+    build_schema_manifest,
+)
 
 
 def _copy_all_in_one_transaction(
@@ -48,11 +52,16 @@ def _copy_all_in_one_transaction(
 
         manifest = build_schema_manifest(sqlite)
         boolean_preflight = build_postgres_data_preflight(sqlite, manifest)
+        numeric_preflight = build_postgres_numeric_data_preflight(sqlite, manifest)
         if boolean_preflight["unsafe_column_count"]:
             raise RuntimeError(
                 f"PostgreSQL BOOLEAN conversion has {boolean_preflight['unsafe_column_count']} unsafe column(s)."
             )
-        ddl_plan = build_postgres_ddl_plan(manifest, boolean_preflight)
+        if numeric_preflight["unsafe_column_count"]:
+            raise RuntimeError(
+                f"PostgreSQL numeric conversion has {numeric_preflight['unsafe_column_count']} unsafe column(s)."
+            )
+        ddl_plan = build_postgres_ddl_plan(manifest, boolean_preflight, numeric_preflight)
         if ddl_plan["blocker_count"]:
             raise RuntimeError(
                 f"PostgreSQL DDL plan has {ddl_plan['blocker_count']} blocker(s); refusing shadow migration."
@@ -74,6 +83,12 @@ def _copy_all_in_one_transaction(
             "boolean_preflight": {
                 "column_count": len(boolean_preflight["columns"]),
                 "unsafe_column_count": boolean_preflight["unsafe_column_count"],
+            },
+            "numeric_preflight": {
+                "column_count": len(numeric_preflight["columns"]),
+                "unsafe_column_count": numeric_preflight["unsafe_column_count"],
+                "real_backed_integer_column_count": numeric_preflight["real_backed_integer_column_count"],
+                "type_override_count": numeric_preflight["type_override_count"],
             },
             "ddl_statement_count": ddl_plan["statement_count"],
             "ddl_blocker_count": ddl_plan["blocker_count"],
