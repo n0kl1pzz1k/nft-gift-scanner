@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from db_schema_audit import _quote_identifier, build_schema_manifest
+from db_backup import _row_counts, _schema_metadata, _sequence_counters, _sha256_file
 
 
 def _normal(value: Any) -> Any:
@@ -87,10 +88,38 @@ def migrate(source_path: str, dsn: str, batch_size: int, execute: bool) -> dict[
     sqlite = sqlite3.connect(source_uri, uri=True)
     sqlite.row_factory = sqlite3.Row
     try:
+        sqlite.execute("PRAGMA query_only = ON")
+        sqlite.execute("BEGIN")
         integrity = str(sqlite.execute("PRAGMA integrity_check").fetchone()[0])
         fk_errors = int(sqlite.execute("SELECT COUNT(*) FROM pragma_foreign_key_check").fetchone()[0])
         if integrity != "ok" or fk_errors:
             raise RuntimeError(f"Source validation failed: integrity={integrity}, foreign_key_errors={fk_errors}")
+
+        sidecar = Path(str(source) + ".manifest.json")
+        if not sidecar.is_file():
+            raise RuntimeError("Refusing migration: verified SQLite backup sidecar manifest is missing.")
+        try:
+            backup_manifest = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError("Refusing migration: backup sidecar manifest is unreadable.") from exc
+        if backup_manifest.get("format_version") != 1 or backup_manifest.get("backup_file") != source.name:
+            raise RuntimeError("Refusing migration: backup sidecar identity or format does not match.")
+        if backup_manifest.get("backup_sha256") != _sha256_file(source):
+            raise RuntimeError("Refusing migration: backup file SHA256 does not match its sidecar manifest.")
+        _, schema_sha256 = _schema_metadata(sqlite)
+        row_counts = _row_counts(sqlite)
+        sequence_counters = _sequence_counters(sqlite)
+        if (
+            backup_manifest.get("integrity_check") != "ok"
+            or int(backup_manifest.get("foreign_key_violations", -1)) != 0
+            or backup_manifest.get("schema_sha256") != schema_sha256
+            or backup_manifest.get("tables") != row_counts
+            or backup_manifest.get("sequence_counters", {}) != sequence_counters
+            or int(backup_manifest.get("table_count", -1)) != len(row_counts)
+            or int(backup_manifest.get("total_rows", -1)) != sum(row_counts.values())
+        ):
+            raise RuntimeError("Refusing migration: backup contents do not match verified sidecar metadata.")
+
         manifest = build_schema_manifest(sqlite)
         tables = sorted(manifest["tables"], key=lambda item: item["name"])
         import psycopg
@@ -98,6 +127,8 @@ def migrate(source_path: str, dsn: str, batch_size: int, execute: bool) -> dict[
 
         report: dict[str, Any] = {
             "source_schema_sha256": manifest["schema_sha256"],
+            "source_backup_sha256": backup_manifest["backup_sha256"],
+            "source_backup_manifest_verified": True,
             "table_count": len(tables),
             "batch_size": batch_size,
             "execute": execute,
