@@ -187,3 +187,20 @@ def test_shadow_migration_once_records_failure_without_leaking_details(tmp_path,
     assert result["error_type"] == "RuntimeError"
     assert "private connection details" not in marker.read_text(encoding="utf-8")
     assert "private-secret" not in marker.read_text(encoding="utf-8")
+
+
+def test_shadow_migration_checks_backup_and_restore_disk_space_before_writing(tmp_path, monkeypatch):
+    import shutil
+    from types import SimpleNamespace
+    from db_postgres_shadow_migration import _disk_space_preflight
+
+    source_path = tmp_path / "disk-check.sqlite3"
+    source = sqlite3.connect(source_path)
+    source.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)")
+    source.execute("INSERT INTO items VALUES (1, 'value')")
+    source.commit()
+    source.close()
+
+    monkeypatch.setattr(shutil, "disk_usage", lambda path: SimpleNamespace(free=0, total=0, used=0))
+    with pytest.raises(RuntimeError, match="Insufficient free disk space"):
+        _disk_space_preflight(source_path, tmp_path / "disk-check-backup.sqlite3")
