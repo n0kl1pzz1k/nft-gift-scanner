@@ -161,6 +161,9 @@ def build_runtime_inventory(connection: sqlite3.Connection) -> dict[str, Any]:
     from db_postgres_migration_plan import build_postgres_migration_plan
     from db_postgres_ddl_plan import build_postgres_ddl_plan
 
+    boolean_preflight = build_postgres_data_preflight(connection, manifest)
+    ddl_plan = build_postgres_ddl_plan(manifest, boolean_preflight)
+
     return {
         "engine": manifest["engine"],
         "sqlite_version": manifest["sqlite_version"],
@@ -173,7 +176,8 @@ def build_runtime_inventory(connection: sqlite3.Connection) -> dict[str, Any]:
         "objects": object_names,
         "postgresql_portability": build_postgres_portability_report(manifest),
         "postgresql_migration_plan": build_postgres_migration_plan(manifest),
-        "postgresql_ddl_plan": build_postgres_ddl_plan(manifest),
+        "postgresql_ddl_plan": ddl_plan,
+        "postgresql_data_preflight": boolean_preflight,
         "scope_note": "Schema metadata and row counts only; no application row values are read or returned.",
     }
 
