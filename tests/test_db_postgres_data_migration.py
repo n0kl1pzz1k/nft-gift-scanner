@@ -125,3 +125,42 @@ def test_postgres_copy_rolls_back_all_tables_when_later_table_fails(tmp_path):
     with psycopg.connect(dsn) as target:
         assert target.execute("SELECT COUNT(*) FROM a_items").fetchone()[0] == 0
         assert target.execute("SELECT COUNT(*) FROM b_items").fetchone()[0] == 0
+
+
+
+def test_migration_refuses_unverified_live_sqlite_file(tmp_path):
+    import pytest
+    from db_postgres_data_migration import migrate
+
+    source_path = tmp_path / "unverified.sqlite3"
+    connection = sqlite3.connect(source_path)
+    connection.execute("CREATE TABLE items (id TEXT PRIMARY KEY)")
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(RuntimeError, match="sidecar manifest is missing"):
+        migrate(str(source_path), "postgresql://unused", batch_size=100, execute=False)
+
+
+def test_migration_refuses_backup_when_sidecar_sha256_is_tampered(tmp_path):
+    import json
+    import pytest
+    from db_backup import backup_database
+    from db_postgres_data_migration import migrate
+
+    source_path = tmp_path / "source.sqlite3"
+    connection = sqlite3.connect(source_path)
+    connection.execute("CREATE TABLE items (id TEXT PRIMARY KEY)")
+    connection.execute("INSERT INTO items VALUES ('row-1')")
+    connection.commit()
+    connection.close()
+
+    backup_path = tmp_path / "source.backup.sqlite3"
+    backup_database(source_path, backup_path)
+    sidecar = tmp_path / "source.backup.sqlite3.manifest.json"
+    manifest = json.loads(sidecar.read_text(encoding="utf-8"))
+    manifest["backup_sha256"] = "0" * 64
+    sidecar.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="SHA256 does not match"):
+        migrate(str(backup_path), "postgresql://unused", batch_size=100, execute=False)
