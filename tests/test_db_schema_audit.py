@@ -498,8 +498,16 @@ def test_runtime_inventory_blocks_unsafe_boolean_values_in_postgres_ddl_plan():
     assert preflight["unsafe_column_count"] == 1
     assert preflight["columns"][0]["invalid_value_count"] == 1
     assert preflight["columns"][0]["null_value_count"] == 1
+    assert preflight["columns"][0]["boolean_conversion_safe"] is False
+
+    from db_postgres_ddl_plan import build_postgres_ddl_plan
+    direct_plan = build_postgres_ddl_plan(build_schema_manifest(connection), preflight)
+    assert any(
+        item["feature"] == "unsafe boolean data on is_premium"
+        for item in direct_plan["blockers"]
+    ), direct_plan["blockers"]
     assert any(
         item["feature"] == "unsafe boolean data on is_premium"
         for item in inventory["postgresql_ddl_plan"]["blockers"]
-    )
+    ), inventory["postgresql_ddl_plan"]["blockers"]
     assert inventory["postgresql_ddl_plan"]["ready_for_cutover"] is False
