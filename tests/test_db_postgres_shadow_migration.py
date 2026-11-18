@@ -70,7 +70,9 @@ def test_shadow_migration_rolls_back_schema_and_rows_on_ddl_failure(tmp_path):
         CREATE TABLE a_items (id TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE b_items (id TEXT PRIMARY KEY, value INTEGER NOT NULL CHECK(value > 0));
         INSERT INTO a_items VALUES ('a1', 'valid');
+        PRAGMA ignore_check_constraints = ON;
         INSERT INTO b_items VALUES ('b1', -1);
+        PRAGMA ignore_check_constraints = OFF;
         """
     )
     source.commit()
