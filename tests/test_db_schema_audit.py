@@ -697,3 +697,60 @@ def test_postgres_runtime_inventory_reports_only_schema_and_aggregate_counts():
     assert inventory["object_counts"]["index"] == 1
     assert "application_row_value" not in serialized
     assert inventory["postgresql_ddl_plan"]["ready_for_cutover"] is False
+
+
+def test_postgres_runtime_inventory_against_real_postgres_schema():
+    import os
+    import uuid
+
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        import pytest
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    import psycopg
+    from psycopg import sql
+    from db_postgres_compat import PostgresConnectionAdapter
+    from db_schema_audit import build_postgres_runtime_inventory
+
+    schema_name = "inventory_test_" + uuid.uuid4().hex[:12]
+    raw = psycopg.connect(dsn, autocommit=True)
+    try:
+        raw.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema_name)))
+        raw.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema_name)))
+        raw.execute(
+            "CREATE TABLE inventory_sample (id BIGINT PRIMARY KEY, private_value TEXT NOT NULL)"
+        )
+        raw.execute("CREATE INDEX inventory_sample_private_idx ON inventory_sample(private_value)")
+        raw.execute("INSERT INTO inventory_sample VALUES (1, 'not-returned'), (2, 'also-not-returned')")
+        raw.execute(
+            """
+            CREATE FUNCTION inventory_test_trigger_fn() RETURNS trigger
+            LANGUAGE plpgsql AS $$
+            BEGIN
+              RETURN NEW;
+            END;
+            $$
+            """
+        )
+        raw.execute(
+            """
+            CREATE TRIGGER inventory_test_trigger
+            BEFORE INSERT ON inventory_sample
+            FOR EACH ROW EXECUTE FUNCTION inventory_test_trigger_fn()
+            """
+        )
+
+        inventory = build_postgres_runtime_inventory(PostgresConnectionAdapter(raw))
+        assert inventory["engine"] == "postgresql"
+        assert inventory["schema"] == schema_name
+        assert inventory["table_count"] == 1
+        assert inventory["total_rows"] == 2
+        assert inventory["tables"][0]["name"] == "inventory_sample"
+        assert inventory["object_counts"]["index"] >= 2
+        assert inventory["object_counts"]["trigger"] == 1
+        assert "not-returned" not in json.dumps(inventory)
+        assert inventory["postgresql_ddl_plan"]["ready_for_cutover"] is False
+    finally:
+        raw.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(schema_name)))
+        raw.close()
