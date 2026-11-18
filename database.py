@@ -122,14 +122,17 @@ def require_sqlite_connection(connection: object, operation: str) -> sqlite3.Con
 
 
 def connect_postgres_database(dsn: str):
-    """Open a staged PostgreSQL connection without changing the production default.
+    """Open an autocommit PostgreSQL connection and select the configured schema.
 
-    This explicit factory is for isolated integration tests and reviewed
-    migration tooling only. The application connection factory remains
-    SQLite until all runtime compatibility blockers have been resolved.
+    HASSLE_POSTGRES_SCHEMA is optional. When set, it is validated as a simple
+    identifier and applied to every connection so a verified shadow schema can
+    become the runtime schema without moving or rewriting its data.
     """
     if not isinstance(dsn, str) or not dsn.strip():
         raise ValueError("A non-empty PostgreSQL DSN is required")
+    schema = os.getenv("HASSLE_POSTGRES_SCHEMA", "").strip()
+    if schema and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,62}", schema):
+        raise ValueError("HASSLE_POSTGRES_SCHEMA must be a valid PostgreSQL schema identifier")
 
     try:
         import psycopg
@@ -140,6 +143,8 @@ def connect_postgres_database(dsn: str):
 
     connection = psycopg.connect(dsn.strip(), autocommit=True)
     try:
+        if schema:
+            connection.execute(f'SET search_path TO "{schema}"')
         return PostgresConnectionAdapter(connection)
     except BaseException:
         connection.close()
