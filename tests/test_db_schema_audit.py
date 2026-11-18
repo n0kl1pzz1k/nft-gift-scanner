@@ -674,7 +674,7 @@ def test_postgres_runtime_inventory_reports_only_schema_and_aggregate_counts():
         supports_for_update = True
 
         def execute(self, statement, parameters=()):
-            if "current_schema()" in statement:
+            if "SELECT current_schema()" in statement:
                 return Cursor([{"schema_name": "public"}])
             if "information_schema.tables" in statement:
                 return Cursor([{"name": "sample"}])
