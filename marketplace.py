@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
-from database import DB_PATH, connect_database as _connect_database
+from database import DB_PATH, begin_write, select_for_update, connect_database as _connect_database
 
 
 def _connect() -> sqlite3.Connection:
@@ -641,7 +641,7 @@ def consume_telegram_init_data(init_data: str, telegram_id: str, ttl_seconds: in
     digest = hashlib.sha256(replay_material.encode("utf-8")).hexdigest()
     now = int(time.time())
     with _db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+        begin_write(conn, f"telegram-initdata:{digest}")
         conn.execute("DELETE FROM telegram_initdata_uses WHERE expires_at <= ?", (now,))
         try:
             conn.execute(
@@ -759,13 +759,13 @@ def claim_telegram_update(update_id: int, payload: Any, lease_seconds: int = 60)
     now = int(time.time())
     lease = max(15, min(int(lease_seconds), 300))
     with _db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+        begin_write(conn, f"telegram-update:{update_id}")
         conn.execute(
             "DELETE FROM telegram_update_inbox WHERE status = 'processed' AND processed_at < ?",
             (now - 1_209_600,),
         )
         row = conn.execute(
-            "SELECT payload_hash, status, lease_until FROM telegram_update_inbox WHERE update_id = ?",
+            select_for_update(conn, "SELECT payload_hash, status, lease_until FROM telegram_update_inbox WHERE update_id = ?"),
             (update_id,),
         ).fetchone()
         if row is None:
@@ -876,9 +876,9 @@ def register_verified_asset(*, source: str, external_asset_id: str, owner_telegr
     now = int(time.time())
     reference_hash = hashlib.sha256(verification_reference.encode("utf-8")).hexdigest()
     with _db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+        begin_write(conn, f"verified-asset:{source}:{external_asset_id}")
         existing = conn.execute(
-            "SELECT * FROM verified_assets WHERE source = ? AND external_asset_id = ?",
+            select_for_update(conn, "SELECT * FROM verified_assets WHERE source = ? AND external_asset_id = ?"),
             (source, external_asset_id),
         ).fetchone()
         if existing is not None:
@@ -1119,9 +1119,9 @@ def _enforce_sqlite_user_rate_limit(user_id: str, action: str, limit: int, windo
     """Persistent per-Telegram-user mutation limit shared across app restarts."""
     now = int(time.time())
     with _db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+        begin_write(conn, f"rate-limit:{user_id}:{action}")
         row = conn.execute(
-            "SELECT window_started_at, request_count FROM api_rate_limits WHERE user_id = ? AND action = ?",
+            select_for_update(conn, "SELECT window_started_at, request_count FROM api_rate_limits WHERE user_id = ? AND action = ?"),
             (user_id, action),
         ).fetchone()
         if row is None or now - row["window_started_at"] >= window_seconds:
@@ -1350,7 +1350,7 @@ def create_marketplace_router(
         now = int(time.time())
         fallback_name = (user.get("first_name") or user.get("username") or "Telegram user")[:48]
         with _db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
+            begin_write(conn, f"seller-profile:{telegram_id}")
             conn.execute(
                 """INSERT OR IGNORE INTO user_profiles
                    (profile_id, telegram_id, display_name, bio, created_at, updated_at)
@@ -1428,8 +1428,8 @@ def create_marketplace_router(
         _enforce_user_rate_limit(reporter_id, "create_order_report", 5)
         now = int(time.time())
         with _db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            order = conn.execute("SELECT * FROM marketplace_orders WHERE id = ?", (order_id,)).fetchone()
+            begin_write(conn, f"order:{order_id}", f"order-report:{order_id}:{reporter_id}")
+            order = conn.execute(select_for_update(conn, "SELECT * FROM marketplace_orders WHERE id = ?"), (order_id,)).fetchone()
             if order is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Marketplace order not found")
@@ -1506,10 +1506,10 @@ def create_marketplace_router(
         _enforce_user_rate_limit(admin_id, "moderate_order_report", 30)
         now = int(time.time())
         with _db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
+            begin_write(conn, f"order-report-id:{report_id}")
             report = conn.execute(
-                """SELECT r.*, o.status AS order_status FROM marketplace_order_reports r
-                   JOIN marketplace_orders o ON o.id = r.order_id WHERE r.id = ?""",
+                select_for_update(conn, """SELECT r.*, o.status AS order_status FROM marketplace_order_reports r
+                   JOIN marketplace_orders o ON o.id = r.order_id WHERE r.id = ?"""),
                 (report_id,),
             ).fetchone()
             if report is None:
@@ -1585,9 +1585,9 @@ def create_marketplace_router(
             raise HTTPException(status_code=413, detail="Gift data is too large")
         now = int(time.time())
         with _db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
+            begin_write(conn, f"user-favorites:{user['id']}")
             exists = conn.execute(
-                "SELECT 1 FROM user_favorites WHERE telegram_id = ? AND gift_id = ?",
+                select_for_update(conn, "SELECT 1 FROM user_favorites WHERE telegram_id = ? AND gift_id = ?"),
                 (str(user["id"]), gift_id),
             ).fetchone()
             count = conn.execute(
@@ -1784,12 +1784,12 @@ def create_marketplace_router(
                     )
 
         with _db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
+            begin_write(conn, f"marketplace-listing:{owner_id}:{payload.asset_id or 'unverified'}")
             asset = None
             if payload.kind == "listing":
                 if payload.asset_id:
                     asset = conn.execute(
-                        "SELECT * FROM verified_assets WHERE id = ? AND status = 'verified'",
+                        select_for_update(conn, "SELECT * FROM verified_assets WHERE id = ? AND status = 'verified'"),
                         (payload.asset_id,),
                     ).fetchone()
                     if asset is None:
@@ -1866,8 +1866,8 @@ def create_marketplace_router(
         assignments.append("updated_at = ?")
         values.extend([now, order_id])
         with _db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("SELECT * FROM marketplace_orders WHERE id = ?", (order_id,)).fetchone()
+            begin_write(conn, f"order:{order_id}")
+            row = conn.execute(select_for_update(conn, "SELECT * FROM marketplace_orders WHERE id = ?"), (order_id,)).fetchone()
             if row is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Order not found")
@@ -1902,8 +1902,8 @@ def create_marketplace_router(
         _enforce_user_rate_limit(actor_id, "cancel_order", 12)
         now = int(time.time())
         with _db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("SELECT * FROM marketplace_orders WHERE id = ?", (order_id,)).fetchone()
+            begin_write(conn, f"order:{order_id}")
+            row = conn.execute(select_for_update(conn, "SELECT * FROM marketplace_orders WHERE id = ?"), (order_id,)).fetchone()
             if row is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Order not found")
