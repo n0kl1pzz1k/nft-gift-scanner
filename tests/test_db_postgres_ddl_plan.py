@@ -407,8 +407,8 @@ def test_ddl_plan_uses_double_precision_for_safe_real_values_in_integer_affinity
     from db_schema_audit import build_postgres_data_preflight
 
     connection = sqlite3.connect(":memory:")
-    connection.execute("CREATE TABLE catalogue_gift_snapshots (id INTEGER PRIMARY KEY, observed_at INTEGER NOT NULL)")
-    connection.execute("INSERT INTO catalogue_gift_snapshots VALUES (1, 1794389573.0240138)")
+    connection.execute("CREATE TABLE sample_data (id INTEGER PRIMARY KEY, measurement INTEGER NOT NULL)")
+    connection.execute("INSERT INTO sample_data VALUES (1, 1794389573.0240138)")
     manifest = build_schema_manifest(connection)
     preflight = build_postgres_data_preflight(connection, manifest)
     result = build_postgres_ddl_plan(manifest, preflight)
@@ -417,4 +417,4 @@ def test_ddl_plan_uses_double_precision_for_safe_real_values_in_integer_affinity
     rendered = "\\n".join(result["statements"])
     assert '"observed_at" DOUBLE PRECISION NOT NULL' in rendered
     assert result["integer_type_override_count"] == 1
-    assert not any(item["feature"] == "non-integer storage on observed_at" for item in result["blockers"])
+    assert not any(item["feature"] == "non-integer storage on measurement" for item in result["blockers"])
