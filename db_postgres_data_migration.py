@@ -108,11 +108,10 @@ def migrate(source_path: str, dsn: str, batch_size: int, execute: bool) -> dict[
                     ).fetchone()[0]
                     if int(target_count) != 0:
                         raise RuntimeError(f"Target table {name} is not empty; refusing to overwrite or merge.")
-                    source_count = int(sqlite.execute(
-                        f"SELECT COUNT(*) FROM {_quote_identifier(name)}"
-                    ).fetchone()[0])
+                    source_count, source_sha256 = _fingerprint(sqlite.execute(select_sql))
                     report["tables"].append({
                         "table": name, "source_rows": source_count,
+                        "source_sha256": source_sha256,
                         "target_rows_before": int(target_count), "columns": len(columns),
                     })
                 if execute:
@@ -147,10 +146,37 @@ def migrate(source_path: str, dsn: str, batch_size: int, execute: bool) -> dict[
                                 max_id = cursor.execute(sql.SQL("SELECT MAX({}) FROM {}").format(sql.Identifier(pk[0]), sql.Identifier(name))).fetchone()[0]
                                 if max_id is not None:
                                     cursor.execute("SELECT setval(%s, %s, true)", (sequence, max_id))
-                    for item in report["tables"]:
-                        actual = cursor.execute(sql.SQL("SELECT COUNT(*) FROM {}").format(sql.Identifier(item["table"]))).fetchone()[0]
-                        if int(actual) != item["source_rows"]:
-                            raise RuntimeError(f"Post-copy row count mismatch for {item['table']}")
+                    for table, item in zip(tables, report["tables"]):
+                        name = str(table["name"])
+                        select_sql, columns = _ordered_select(sqlite, table)
+                        target_order = [
+                            str(col["name"]) for col in sorted(
+                                (col for col in table["columns"] if int(col.get("primary_key_position", 0)) > 0),
+                                key=lambda col: int(col["primary_key_position"]),
+                            )
+                        ] or columns
+                        target_select = sql.SQL("SELECT {} FROM {} ORDER BY {}").format(
+                            sql.SQL(", ").join(sql.Identifier(col) for col in columns),
+                            sql.Identifier(name),
+                            sql.SQL(", ").join(sql.Identifier(col) for col in target_order),
+                        )
+                        target_cursor = cursor.execute(target_select)
+                        def target_rows():
+                            while True:
+                                batch = target_cursor.fetchmany(batch_size)
+                                if not batch:
+                                    break
+                                yield from batch
+                        target_count, target_sha256 = _fingerprint(target_rows())
+                        if target_count != item["source_rows"] or target_sha256 != item["source_sha256"]:
+                            raise RuntimeError(
+                                f"Post-copy content fingerprint mismatch for {name}: "
+                                f"rows {target_count}/{item['source_rows']}, "
+                                f"sha256 {target_sha256}/{item['source_sha256']}"
+                            )
+                        item["target_rows"] = target_count
+                        item["target_sha256"] = target_sha256
+                        item["content_verified"] = True
                     pg.commit()
                     report["committed"] = True
                 else:
