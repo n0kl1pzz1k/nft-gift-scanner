@@ -196,17 +196,37 @@ def _copy_all_in_one_transaction(
                     sequence = cursor.execute(
                         "SELECT pg_get_serial_sequence(%s, %s)", (str(table["name"]), column_name)
                     ).fetchone()[0]
-                    if sequence:
-                        max_id = cursor.execute(
-                            sql.SQL("SELECT MAX({}) FROM {}").format(
-                                sql.Identifier(column_name), sql.Identifier(str(table["name"]))
-                            )
+                    if not sequence:
+                        raise RuntimeError(
+                            f"PostgreSQL AUTOINCREMENT column {table['name']}.{column_name} has no owned identity sequence."
+                        )
+                    max_id = cursor.execute(
+                        sql.SQL("SELECT MAX({}) FROM {}").format(
+                            sql.Identifier(column_name), sql.Identifier(str(table["name"]))
+                        )
+                    ).fetchone()[0]
+                    high_water = max(_sqlite_autoincrement_high_water(sqlite, str(table["name"])), int(max_id or 0))
+                    if high_water > 0:
+                        sequence_value = cursor.execute(
+                            "SELECT setval(%s, %s, true)", (sequence, high_water)
                         ).fetchone()[0]
-                        high_water = max(_sqlite_autoincrement_high_water(sqlite, str(table["name"])), int(max_id or 0))
-                        if high_water > 0:
-                            cursor.execute("SELECT setval(%s, %s, true)", (sequence, high_water))
-                        else:
-                            cursor.execute("SELECT setval(%s, 1, false)", (sequence,))
+                        expected_next = high_water + 1
+                    else:
+                        sequence_value = cursor.execute(
+                            "SELECT setval(%s, 1, false)", (sequence,)
+                        ).fetchone()[0]
+                        expected_next = 1
+                    if int(sequence_value) != max(high_water, 1):
+                        raise RuntimeError(
+                            f"PostgreSQL identity sequence for {table['name']} was not restored to its expected high-water mark."
+                        )
+                    report.setdefault("identity_sequences", []).append({
+                        "table": str(table["name"]),
+                        "column": column_name,
+                        "high_water": high_water,
+                        "next_generated_id": expected_next,
+                        "restored": True,
+                    })
 
                 for table in tables:
                     name = str(table["name"])
