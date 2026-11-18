@@ -31,6 +31,57 @@ class DatabaseConnectionBoundaryTests(unittest.TestCase):
             finally:
                 connection.close()
 
+
+    def test_schema_introspection_uses_sqlite_catalog_for_sqlite_connections(self):
+        from database import list_database_tables, list_database_columns
+
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.execute("CREATE TABLE sample (id TEXT, title TEXT)")
+            self.assertEqual(list_database_tables(connection), {"sample"})
+            self.assertEqual(list_database_columns(connection, "sample"), {"id", "title"})
+        finally:
+            connection.close()
+
+    def test_schema_introspection_uses_information_schema_for_postgres_adapter(self):
+        from database import list_database_tables, list_database_columns
+
+        class Cursor:
+            def __init__(self, rows):
+                self.rows = rows
+
+            def fetchall(self):
+                return self.rows
+
+        class PostgresLikeConnection:
+            supports_for_update = True
+
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, statement, parameters=()):
+                self.calls.append((statement, parameters))
+                if "information_schema.tables" in statement:
+                    return Cursor([{"name": "sample"}])
+                if "information_schema.columns" in statement:
+                    return Cursor([{"name": "id"}, {"name": "title"}])
+                raise AssertionError("Unexpected schema query")
+
+        connection = PostgresLikeConnection()
+        self.assertEqual(list_database_tables(connection), {"sample"})
+        self.assertEqual(list_database_columns(connection, "sample"), {"id", "title"})
+        self.assertEqual(connection.calls[1][1], ("sample",))
+        self.assertIn("information_schema.columns", connection.calls[1][0])
+
+    def test_schema_introspection_rejects_unsupported_connection(self):
+        from database import list_database_tables, list_database_columns
+
+        with self.assertRaisesRegex(RuntimeError, "Unsupported database connection"):
+            list_database_tables(object())
+        with self.assertRaisesRegex(RuntimeError, "Unsupported database connection"):
+            list_database_columns(object(), "sample")
+
     def test_db_context_closes_connection_without_adding_transaction_semantics(self):
         connection = sqlite3.connect(":memory:", isolation_level=None)
         with patch("database.connect", return_value=connection):
