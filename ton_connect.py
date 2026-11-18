@@ -36,6 +36,7 @@ CHALLENGE_TTL_SECONDS = 300
 
 def init_ton_connect_db() -> None:
     with _db() as conn:
+        require_sqlite_connection(conn, "TON Connect schema initialization")
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS ton_proof_challenges (
             payload_hash TEXT PRIMARY KEY,
