@@ -92,3 +92,13 @@ class PostgresWriteTransactionIntegrationTests(unittest.TestCase):
     def test_sqlite_select_is_not_rewritten_for_update(self):
         from database import select_for_update
         self.assertEqual(select_for_update(object(), "SELECT 1"), "SELECT 1")
+
+
+    def test_for_update_helper_does_not_duplicate_clause(self):
+        from database import select_for_update
+        class SupportsLocks:
+            supports_for_update = True
+        self.assertEqual(
+            select_for_update(SupportsLocks(), "SELECT 1 FOR UPDATE;"),
+            "SELECT 1 FOR UPDATE",
+        )
