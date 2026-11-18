@@ -209,6 +209,7 @@ def test_shadow_migration_once_records_failure_without_leaking_details(tmp_path,
     )
     assert result["status"] == "failed"
     assert result["error_type"] == "RuntimeError"
+    assert result["error_code"] == "unclassified_runtimeerror"
     assert "private connection details" not in marker.read_text(encoding="utf-8")
     assert "private-secret" not in marker.read_text(encoding="utf-8")
 
@@ -299,3 +300,19 @@ def test_shadow_migration_runs_disk_preflight_before_creating_backup(tmp_path, m
         )
 
     assert calls == ["disk_preflight"]
+
+
+
+@pytest.mark.parametrize(
+    ("message", "expected_code"),
+    [
+        ("Insufficient free disk space for backup", "insufficient_disk_space"),
+        ("PostgreSQL target schema is not empty; refusing overwrite", "target_schema_not_empty"),
+        ("PostgreSQL content fingerprint mismatch for marketplace_orders", "content_fingerprint_mismatch"),
+        ("PostgreSQL schema verification mismatch: {'indexes': []}", "schema_verification_mismatch"),
+    ],
+)
+def test_shadow_migration_failure_codes_are_safe_and_actionable(message, expected_code):
+    from db_postgres_shadow_migration import _shadow_migration_error_code
+
+    assert _shadow_migration_error_code(RuntimeError(message)) == expected_code
