@@ -40,8 +40,8 @@ def test_shadow_migration_creates_schema_and_copies_all_rows_atomically(tmp_path
     with psycopg.connect(dsn, autocommit=True) as pg:
         try:
             dry = run_shadow_migration(str(source_path), str(backup_path), dsn, execute=False, target_schema=schema)
-            assert dry["restore_verified"] is True
-            assert dry["preflight_exact_match"] is True
+            assert dry["backup_verified"] is True
+            assert dry["preflight_verified"] is True
             assert dry["migration"]["committed"] is False
             assert dry["migration"]["target_schema_empty"] is True
             assert pg.execute(
