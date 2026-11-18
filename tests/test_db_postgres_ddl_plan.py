@@ -415,6 +415,6 @@ def test_ddl_plan_uses_double_precision_for_safe_real_values_in_integer_affinity
     connection.close()
 
     rendered = "\\n".join(result["statements"])
-    assert '"observed_at" DOUBLE PRECISION NOT NULL' in rendered
+    assert '"measurement" DOUBLE PRECISION NOT NULL' in rendered
     assert result["integer_type_override_count"] == 1
     assert not any(item["feature"] == "non-integer storage on measurement" for item in result["blockers"])
