@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
-from database import DB_PATH, begin_write, select_for_update, connect_database as _connect_database
+from database import DB_PATH, begin_write, select_for_update, require_sqlite_connection, connect_database as _connect_database
 
 
 def _connect() -> sqlite3.Connection:
