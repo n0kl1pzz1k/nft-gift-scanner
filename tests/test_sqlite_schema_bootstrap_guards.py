@@ -63,16 +63,15 @@ def test_marketplace_offers_schema_initializer_fails_before_sql():
     assert connection.statements == []
 
 
-def test_ton_connect_schema_initializer_fails_before_sql():
+def test_ton_connect_schema_initializer_uses_portable_single_statement_ddl():
     connection = PostgresLikeConnection()
     with patch("ton_connect._db", return_value=nullcontext(connection)):
         try:
             ton_connect.init_ton_connect_db()
-        except RuntimeError as error:
-            assert "TON Connect schema initialization requires SQLite" in str(error)
-        else:
-            raise AssertionError("SQLite-only TON Connect bootstrap must fail closed")
-    assert connection.statements == []
+        except AssertionError:
+            pass  # The fake records each statement, then deliberately stops execution.
+    assert len(connection.statements) == 1
+    assert connection.statements[0][0].lstrip().startswith("CREATE TABLE IF NOT EXISTS ton_proof_challenges")
 
 
 def test_legacy_marketplace_migrations_reject_postgres_adapter_before_catalog_queries():
