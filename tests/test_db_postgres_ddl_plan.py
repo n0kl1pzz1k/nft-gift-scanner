@@ -115,7 +115,7 @@ def test_ddl_plan_translates_all_known_production_trigger_categories():
         CREATE TRIGGER trg_marketplace_offer_received AFTER INSERT ON marketplace_offers BEGIN SELECT 1; END;
         CREATE TRIGGER trg_marketplace_offer_status_notification AFTER UPDATE OF status ON marketplace_offers BEGIN SELECT 1; END;
         CREATE TRIGGER trg_marketplace_order_cancel_declines_offers AFTER UPDATE OF status ON marketplace_orders BEGIN SELECT 1; END;
-        CREATE TRIGGER verified_assets_metadata_immutable BEFORE UPDATE ON verified_assets BEGIN SELECT 1; END;
+        CREATE TRIGGER verified_assets_metadata_immutable BEFORE UPDATE OF source, external_asset_id, owner_telegram_id, title, asset_type, image_url, verification_method, verification_reference_hash, verified_at ON verified_assets BEGIN SELECT 1; END;
         """
     )
     result = build_postgres_ddl_plan(build_schema_manifest(connection))
@@ -132,7 +132,7 @@ def test_ddl_plan_translates_all_known_production_trigger_categories():
     assert "$migration$\n" in rendered
     assert "\\n" not in rendered
     verified_trigger = next(sql for sql in trigger_statements if 'verified_assets_metadata_immutable' in sql and 'CREATE TRIGGER' in sql)
-    assert "BEFORE UPDATE ON" in verified_trigger
+    assert "BEFORE UPDATE OF source, external_asset_id, owner_telegram_id, title, asset_type" in verified_trigger
 
 
 
@@ -366,3 +366,38 @@ def test_generated_production_trigger_ddl_executes_and_enforces_in_postgres():
         finally:
             pg.execute("SET search_path TO public")
             pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
+
+
+
+def test_verified_asset_immutability_trigger_preserves_update_of_column_scope():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """
+        CREATE TABLE verified_assets (
+            id TEXT PRIMARY KEY, source TEXT, external_asset_id TEXT,
+            owner_telegram_id TEXT, title TEXT, asset_type TEXT, image_url TEXT,
+            verification_method TEXT, verification_reference_hash TEXT,
+            verified_at INTEGER, status TEXT, revoked_at INTEGER
+        );
+        CREATE TRIGGER verified_assets_metadata_immutable
+        BEFORE UPDATE OF source, external_asset_id, owner_telegram_id, title, asset_type,
+                         image_url, verification_method, verification_reference_hash, verified_at
+        ON verified_assets
+        WHEN NOT (
+            NEW.status = 'verified'
+            AND NEW.owner_telegram_id != OLD.owner_telegram_id
+            AND NEW.source = OLD.source
+            AND NEW.external_asset_id = OLD.external_asset_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'verified asset metadata is immutable');
+        END;
+        """
+    )
+    plan = build_postgres_ddl_plan(build_schema_manifest(connection))
+    connection.close()
+
+    trigger_sql = "\\n".join(plan["statements"])
+    assert "BEFORE UPDATE OF source, external_asset_id, owner_telegram_id, title, asset_type" in trigger_sql
+    assert "image_url, verification_method, verification_reference_hash, verified_at ON" in trigger_sql
