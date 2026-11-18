@@ -65,3 +65,40 @@ class PostgresConnectionAdapterIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class PostgresWriteTransactionIntegrationTests(unittest.TestCase):
+    def test_advisory_lock_and_for_update_support(self):
+        dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+        if not dsn:
+            self.skipTest("isolated PostgreSQL service is not configured")
+        import psycopg
+        from database import begin_write, select_for_update
+
+        raw = psycopg.connect(dsn, autocommit=True)
+        adapter = PostgresConnectionAdapter(raw)
+        try:
+            begin_write(adapter, "test-order:one", "test-user:two")
+            self.assertTrue(adapter.supports_for_update)
+            self.assertEqual(
+                select_for_update(adapter, "SELECT 1"),
+                "SELECT 1 FOR UPDATE",
+            )
+            adapter.rollback()
+        finally:
+            adapter.close()
+
+    def test_sqlite_select_is_not_rewritten_for_update(self):
+        from database import select_for_update
+        self.assertEqual(select_for_update(object(), "SELECT 1"), "SELECT 1")
+
+
+    def test_for_update_helper_does_not_duplicate_clause(self):
+        from database import select_for_update
+        class SupportsLocks:
+            supports_for_update = True
+        self.assertEqual(
+            select_for_update(SupportsLocks(), "SELECT 1 FOR UPDATE;"),
+            "SELECT 1 FOR UPDATE",
+        )

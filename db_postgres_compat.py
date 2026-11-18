@@ -237,8 +237,30 @@ class PostgresCursorAdapter:
 class PostgresConnectionAdapter:
     """Minimal connection facade; not yet enabled for marketplace runtime."""
 
+    supports_for_update = True
+
     def __init__(self, connection: Any):
         self._connection = connection
+
+    @staticmethod
+    def _advisory_lock_id(key: str) -> int:
+        import hashlib
+
+        digest = hashlib.blake2b(
+            key.encode("utf-8"), digest_size=8, person=b"hassle-db"
+        ).digest()
+        return int.from_bytes(digest, "big", signed=True)
+
+    def begin_write(self, *lock_keys: str) -> None:
+        # The production factory will use autocommit=True so this explicit
+        # BEGIN is the only transaction boundary. Sorting prevents deadlocks
+        # when a flow needs more than one business-key lock.
+        self._connection.execute("BEGIN")
+        lock_ids = sorted({self._advisory_lock_id(str(key)) for key in lock_keys})
+        for lock_id in lock_ids:
+            self._connection.execute(
+                "SELECT pg_advisory_xact_lock(%s)", (lock_id,)
+            )
 
     def execute(self, statement: str, parameters: Sequence[Any] | None = None) -> PostgresCursorAdapter:
         translated = translate_qmark_sql(statement, parameters)

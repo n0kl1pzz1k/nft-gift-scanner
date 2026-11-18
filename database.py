@@ -8,6 +8,7 @@ silently writing to SQLite while an operator expects PostgreSQL.
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -74,3 +75,32 @@ def db() -> Iterator[sqlite3.Connection]:
         yield connection
     finally:
         connection.close()
+
+
+
+def begin_write(connection: object, *lock_keys: str) -> None:
+    """Begin a write transaction with backend-specific serialization.
+
+    SQLite keeps its existing BEGIN IMMEDIATE single-writer behavior.
+    PostgreSQL uses transaction-scoped advisory locks for the supplied stable
+    business keys. Callers must still lock the actual rows they read/modify
+    with SELECT ... FOR UPDATE where applicable.
+    """
+    if isinstance(connection, sqlite3.Connection):
+        connection.execute("BEGIN IMMEDIATE")
+        return
+    begin = getattr(connection, "begin_write", None)
+    if callable(begin):
+        begin(*lock_keys)
+        return
+    raise RuntimeError("Unsupported database connection for write transaction")
+
+
+def select_for_update(connection: object, statement: str) -> str:
+    """Append PostgreSQL row locking while leaving SQLite SQL unchanged."""
+    if bool(getattr(connection, "supports_for_update", False)):
+        sql = statement.rstrip().rstrip(";")
+        if re.search(r"\bFOR\s+UPDATE\b", sql, re.IGNORECASE):
+            return sql
+        return sql + " FOR UPDATE"
+    return statement
