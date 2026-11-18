@@ -16,7 +16,7 @@ _FUNCTION_DDL = (
     LANGUAGE plpgsql
     AS $$
     BEGIN
-        RAISE EXCEPTION '% are immutable', TG_TABLE_NAME;
+        RAISE EXCEPTION '%% are immutable', TG_TABLE_NAME;
     END;
     $$
     """,
