@@ -17,16 +17,15 @@ from typing import Callable, Literal
 from fastapi import APIRouter, Header, HTTPException, Query
 
 from marketplace import _enforce_user_rate_limit, _verified_asset_actions_enabled, _test_unverified_assets_allowed, _migrate_legacy_marketplace_table_names
-from database import begin_write, select_for_update, require_sqlite_connection
+from database import begin_write, select_for_update, require_sqlite_connection, connect as _database_connect
 from pydantic import BaseModel, Field, field_validator
 
 DB_PATH = os.getenv("HASSLE_NFT_DB_PATH", os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3")))
 
 
 def _connect() -> sqlite3.Connection:
-    # Keep both marketplace subsystems on the same connection policy.
-    from marketplace import _connect_database
-    return _connect_database(DB_PATH)
+    # Keep both marketplace subsystems on the shared database boundary.
+    return _database_connect(DB_PATH)
 
 
 @contextmanager
