@@ -2,8 +2,8 @@
 
 The current production adapter is SQLite. Keep connection policy in one module
 so a future PostgreSQL adapter can replace it without changing marketplace
-domain code. This module deliberately does not inspect DATABASE_URL or switch
-engines implicitly.
+domain code. Unsupported backend configuration must fail closed rather than
+silently writing to SQLite while an operator expects PostgreSQL.
 """
 from __future__ import annotations
 
@@ -12,6 +12,27 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
+
+
+def validate_database_configuration(environ: dict[str, str] | None = None) -> str:
+    """Fail closed when configuration implies an unsupported PostgreSQL backend."""
+    values = os.environ if environ is None else environ
+    configured_backend = values.get("HASSLE_NFT_DB_BACKEND", "").strip().lower()
+    database_url = values.get("DATABASE_URL", "").strip()
+
+    if configured_backend and configured_backend != "sqlite":
+        raise RuntimeError(
+            "The configured HASSLE_NFT_DB_BACKEND is not supported by this application build."
+        )
+    if database_url and not configured_backend:
+        raise RuntimeError(
+            "DATABASE_URL is configured but PostgreSQL runtime support is not enabled; "
+            "set HASSLE_NFT_DB_BACKEND=sqlite to explicitly keep SQLite active."
+        )
+    return "sqlite"
+
+
+validate_database_configuration()
 
 DB_PATH = os.getenv(
     "HASSLE_NFT_DB_PATH",
