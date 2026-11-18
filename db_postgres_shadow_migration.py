@@ -88,6 +88,8 @@ def _copy_all_in_one_transaction(
                 if target_schema:
                     cursor.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(target_schema)))
                 schema = cursor.execute("SELECT current_schema()").fetchone()[0]
+                if not schema:
+                    raise RuntimeError("PostgreSQL target schema does not exist or is not visible in search_path.")
                 existing = cursor.execute(
                     """
                     SELECT
@@ -259,6 +261,11 @@ def run_shadow_migration(
         source_connection = sqlite3.connect(source.as_uri() + "?mode=ro", uri=True, timeout=30)
         backup_connection = sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True, timeout=30)
         try:
+            # Hold a consistent read snapshot while comparing the live database
+            # to the verified backup. A concurrent write must not create a
+            # mixed-time preflight report.
+            source_connection.execute("BEGIN")
+            backup_connection.execute("BEGIN")
             preflight = build_migration_preflight(
                 source_connection,
                 backup_connection,
