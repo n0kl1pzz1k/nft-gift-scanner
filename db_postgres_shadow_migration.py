@@ -321,6 +321,9 @@ def run_shadow_migration(
 ) -> dict[str, Any]:
     source = Path(source_path).expanduser().resolve(strict=True)
     backup = Path(backup_path).expanduser().resolve()
+    # Refuse before creating any snapshot artifacts if the backup and restore
+    # cannot fit on their respective filesystems.
+    disk_preflight = _disk_space_preflight(source, backup)
     backup_report = backup_database(source, backup)
     manifest_path = Path(str(backup) + ".manifest.json")
 
@@ -366,6 +369,7 @@ def run_shadow_migration(
                 "total_rows": backup_report["total_rows"],
             },
             "restore_verified": bool(restore_report["restored"]),
+            "disk_preflight": disk_preflight,
             "preflight_exact_match": bool(preflight["comparison"]["exact_match"]),
             "target_schema": target_schema,
             "migration": migration_report,
