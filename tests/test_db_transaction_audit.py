@@ -106,6 +106,12 @@ def sql_rollback(conn):
         self.assertFalse(by_name["sql_transaction_end"]["transaction_without_explicit_end"])
         self.assertEqual(by_name["sql_rollback"]["rollback_count"], 1)
         self.assertFalse(by_name["sql_rollback"]["transaction_without_explicit_end"])
+        self.assertTrue(by_name["sql_rollback"]["executescript_after_transaction_start"])
+        self.assertEqual(report["executescript_after_transaction_start_count"], 1)
+        self.assertEqual(
+            report["review_items"]["executescript_after_transaction_start"][0]["function"],
+            "sql_rollback",
+        )
 
     def test_sql_comment_markers_inside_string_literals_do_not_hide_statements(self):
         (self.root / "marketplace.py").write_text(
