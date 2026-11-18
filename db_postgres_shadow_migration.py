@@ -551,6 +551,33 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _shadow_migration_error_code(error: BaseException) -> str:
+    """Map migration failures to safe diagnostic codes without persisting secrets or row values."""
+    message = str(error).lower()
+    known = (
+        ("insufficient free disk space", "insufficient_disk_space"),
+        ("migration source is unhealthy", "source_integrity_failed"),
+        ("boolean conversion", "unsafe_boolean_data"),
+        ("ddl plan has", "ddl_blockers_present"),
+        ("target schema is not empty", "target_schema_not_empty"),
+        ("target schema does not exist", "target_schema_not_visible"),
+        ("copied row count mismatch", "row_count_mismatch"),
+        ("unexpected autoincrement primary key", "identity_definition_mismatch"),
+        ("has no owned identity sequence", "identity_sequence_missing"),
+        ("identity sequence", "identity_sequence_mismatch"),
+        ("content fingerprint mismatch", "content_fingerprint_mismatch"),
+        ("schema verification mismatch", "schema_verification_mismatch"),
+        ("backup and restored copy differ", "backup_restore_mismatch"),
+        ("boolean candidate data", "unsafe_boolean_data"),
+        ("integer-affinity columns contain", "unsafe_integer_data"),
+        ("double precision candidates contain", "unsafe_real_data"),
+    )
+    for fragment, code in known:
+        if fragment in message:
+            return code
+    return "unclassified_" + type(error).__name__.lower()
+
+
 def run_shadow_migration_once(
     source_path: str,
     backup_path: str,
@@ -630,6 +657,7 @@ def run_shadow_migration_once(
             "status": "failed",
             "failed_at": datetime.now(timezone.utc).isoformat(),
             "error_type": type(exc).__name__,
+            "error_code": _shadow_migration_error_code(exc),
             "production_app_switched": False,
         }
         _write_json_atomic(marker, failure)
