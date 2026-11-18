@@ -132,7 +132,7 @@ def test_ddl_plan_translates_all_known_production_trigger_categories():
     assert "$migration$\n" in rendered
     assert "\\n" not in rendered
     verified_trigger = next(sql for sql in trigger_statements if 'verified_assets_metadata_immutable' in sql and 'CREATE TRIGGER' in sql)
-    assert "BEFORE UPDATE ON" in verified_trigger
+    assert "BEFORE UPDATE OF" in verified_trigger
 
 
 
