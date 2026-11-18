@@ -78,7 +78,7 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
             ).fetchone()[0]
             assert status == "declined"
             declined = pg.execute(
-                "SELECT user_id,event_type,actor_name FROM marketplace_notifications WHERE offer_id='offer-2'"
+                "SELECT user_id,event_type,actor_name FROM marketplace_notifications WHERE offer_id='offer-2' AND event_type='offer_declined'"
             ).fetchone()
             assert declined == ("buyer-2", "offer_declined", "Owner")
 
