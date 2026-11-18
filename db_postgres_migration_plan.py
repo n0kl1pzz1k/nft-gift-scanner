@@ -5,6 +5,9 @@ PostgreSQL, reads application rows, executes DDL, or authorizes cutover.
 """
 from __future__ import annotations
 
+import argparse
+import json
+from pathlib import Path
 from typing import Any
 
 from db_schema_audit import _extract_check_constraints, _postgres_type_candidate
@@ -151,3 +154,25 @@ def build_postgres_migration_plan(manifest: dict[str, Any]) -> dict[str, Any]:
             "connect to PostgreSQL, migrate rows, or authorize production cutover."
         ),
     }
+
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Create a data-free PostgreSQL migration plan from SQLite.")
+    parser.add_argument("--database", required=True, help="Path to an existing SQLite database or verified backup")
+    parser.add_argument("--output", help="Optional JSON output path; stdout is used by default")
+    args = parser.parse_args()
+
+    from db_schema_audit import audit_database
+
+    plan = build_postgres_migration_plan(audit_database(args.database))
+    rendered = json.dumps(plan, ensure_ascii=False, indent=2) + "\\n"
+    if args.output:
+        Path(args.output).expanduser().write_text(rendered, encoding="utf-8")
+    else:
+        print(rendered, end="")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
