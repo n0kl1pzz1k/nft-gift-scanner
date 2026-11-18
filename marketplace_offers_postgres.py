@@ -190,6 +190,22 @@ def initialize_postgres_offer_schema(connection: Any) -> dict[str, Any]:
             CHECK (status IN ('payment_not_enabled', 'awaiting_payment', 'payment_pending',
                 'paid', 'delivery_pending', 'completed', 'disputed', 'cancelled', 'expired')))""",
         "ALTER TABLE marketplace_deals ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'payment_not_enabled'",
+        """
+        DO $migration$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname = 'marketplace_deals_status_allowed'
+                  AND conrelid = 'marketplace_deals'::regclass
+            ) THEN
+                ALTER TABLE marketplace_deals
+                ADD CONSTRAINT marketplace_deals_status_allowed
+                CHECK (status IN ('payment_not_enabled', 'awaiting_payment', 'payment_pending',
+                    'paid', 'delivery_pending', 'completed', 'disputed', 'cancelled', 'expired'));
+            END IF;
+        END;
+        $migration$
+        """,
         """CREATE TABLE IF NOT EXISTS marketplace_deal_events (
             id TEXT PRIMARY KEY, deal_id TEXT NOT NULL REFERENCES marketplace_deals(id),
             order_id TEXT NOT NULL REFERENCES marketplace_orders(id), actor_user_id TEXT NOT NULL,
@@ -221,7 +237,7 @@ def initialize_postgres_offer_schema(connection: Any) -> dict[str, Any]:
     return {
         "tables": ["marketplace_offers", "marketplace_deals", "marketplace_deal_events",
                    "marketplace_deal_lifecycle_events", "marketplace_notifications"],
-        "indexes_created_or_verified": 9,
+        "indexes_created_or_verified": 8,
         "trigger_report": trigger_report,
         "verified": True,
     }
