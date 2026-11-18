@@ -24,6 +24,7 @@ from db_postgres_data_migration import (
     _sqlite_autoincrement_high_water,
 )
 from db_postgres_ddl_plan import build_postgres_ddl_plan
+from db_postgres_migration_plan import build_postgres_migration_plan
 from db_postgres_schema_apply import _source_counts, _target_counts
 from db_restore import restore_database
 from db_schema_audit import build_postgres_data_preflight, build_schema_manifest
@@ -265,6 +266,86 @@ def _copy_all_in_one_transaction(
                     ]
                 if expected_tables != actual_tables:
                     mismatches["table_columns"] = {"source": expected_tables, "target": actual_tables}
+
+                # Verify non-row schema objects too. Matching row fingerprints
+                # alone cannot detect a missing index, FK, CHECK, or trigger.
+                structural = build_postgres_migration_plan(manifest)
+                expected_indexes = {
+                    str(index["name"])
+                    for table in tables
+                    for index in table.get("indexes", [])
+                    if index.get("sql")
+                }
+                actual_indexes = {
+                    item[0] for item in cursor.execute(
+                        "SELECT indexname FROM pg_indexes WHERE schemaname=%s", (schema,)
+                    ).fetchall()
+                }
+                missing_indexes = sorted(expected_indexes - actual_indexes)
+                if missing_indexes:
+                    mismatches["indexes"] = {"missing": missing_indexes}
+
+                expected_triggers = {
+                    str(item["name"]) for item in manifest.get("objects", [])
+                    if item.get("type") == "trigger"
+                }
+                actual_triggers = {
+                    item[0] for item in cursor.execute(
+                        """SELECT t.tgname
+                           FROM pg_trigger t
+                           JOIN pg_class c ON c.oid=t.tgrelid
+                           JOIN pg_namespace n ON n.oid=c.relnamespace
+                           WHERE n.nspname=%s AND NOT t.tgisinternal""",
+                        (schema,),
+                    ).fetchall()
+                }
+                missing_triggers = sorted(expected_triggers - actual_triggers)
+                if missing_triggers:
+                    mismatches["triggers"] = {"missing": missing_triggers}
+
+                expected_foreign_keys = sum(
+                    len(item.get("foreign_keys", [])) for item in structural["tables"]
+                )
+                actual_foreign_keys = int(cursor.execute(
+                    """SELECT COUNT(*) FROM pg_constraint con
+                       JOIN pg_class c ON c.oid=con.conrelid
+                       JOIN pg_namespace n ON n.oid=c.relnamespace
+                       WHERE n.nspname=%s AND con.contype='f'""",
+                    (schema,),
+                ).fetchone()[0])
+                if actual_foreign_keys != expected_foreign_keys:
+                    mismatches["foreign_keys"] = {
+                        "source": expected_foreign_keys, "target": actual_foreign_keys
+                    }
+
+                expected_checks = sum(
+                    len(item.get("check_constraints", [])) for item in structural["tables"]
+                )
+                actual_checks = int(cursor.execute(
+                    """SELECT COUNT(*) FROM pg_constraint con
+                       JOIN pg_class c ON c.oid=con.conrelid
+                       JOIN pg_namespace n ON n.oid=c.relnamespace
+                       WHERE n.nspname=%s AND con.contype='c'""",
+                    (schema,),
+                ).fetchone()[0])
+                if actual_checks != expected_checks:
+                    mismatches["check_constraints"] = {
+                        "source": expected_checks, "target": actual_checks
+                    }
+
+                report["schema_objects"] = {
+                    "indexes_expected": len(expected_indexes),
+                    "indexes_found": len(expected_indexes) - len(missing_indexes),
+                    "triggers_expected": len(expected_triggers),
+                    "triggers_found": len(expected_triggers) - len(missing_triggers),
+                    "foreign_keys_expected": expected_foreign_keys,
+                    "foreign_keys_found": actual_foreign_keys,
+                    "check_constraints_expected": expected_checks,
+                    "check_constraints_found": actual_checks,
+                    "verified": not any(key in mismatches for key in (
+                        "indexes", "triggers", "foreign_keys", "check_constraints"
+                    )),
+                }
                 if mismatches:
                     raise RuntimeError(f"PostgreSQL schema verification mismatch: {mismatches}")
 
