@@ -36,6 +36,14 @@ class TonConnectProofTests(unittest.TestCase):
         self.db_patch.stop()
         self.temp_dir.cleanup()
 
+    def test_ton_connect_schema_verifier_detects_missing_sqlite_column(self):
+        with marketplace._db() as conn:
+            conn.execute("ALTER TABLE verified_wallets DROP COLUMN public_key")
+            with self.assertRaisesRegex(
+                RuntimeError, "missing columns in verified_wallets: public_key"
+            ):
+                ton_connect.verify_ton_connect_schema(conn)
+
     def _signed_proof(self, payload, **overrides):
         timestamp = self.now
         domain_bytes = self.domain.encode("utf-8")
