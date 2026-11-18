@@ -44,6 +44,13 @@ def test_shadow_migration_creates_schema_and_copies_all_rows_atomically(tmp_path
             assert report["migration"]["committed"] is True
             assert report["migration"]["verified"] is True
             assert report["migration"]["tables"][0]["content_verified"] is True
+            assert report["migration"]["identity_sequences"] == [{
+                "table": "items",
+                "column": "id",
+                "high_water": 2,
+                "next_generated_id": 3,
+                "restored": True,
+            }]
             assert report["production_app_switched"] is False
             pg.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
             rows = pg.execute("SELECT id, value FROM items").fetchall()
