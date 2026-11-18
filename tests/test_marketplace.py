@@ -114,6 +114,33 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(response.json()["dependency"], "database_schema")
         self.assertIn("verified_wallets.address", response.json()["missing_columns"])
 
+    def test_marketplace_startup_never_deletes_existing_user_listings(self):
+        now = int(time.time())
+        rows = [
+            ("startup-preserve-pepe", "101", "n0kl1pzz1k", "listing", "Plush Pepe #1", "70000", "TON", "active", now, now, ""),
+            ("startup-preserve-legacy", "101", "n0kl1pzz1k", "listing", "ndmd", "999999", "TON", "active", now, now, ""),
+        ]
+        with marketplace._db() as connection:
+            connection.executemany(
+                """INSERT INTO marketplace_orders
+                   (id, user_id, owner_name, kind, title, price, currency, status,
+                    created_at, updated_at, note)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows,
+            )
+
+        marketplace.init_marketplace_db()
+
+        with marketplace._db() as connection:
+            preserved = connection.execute(
+                "SELECT id FROM marketplace_orders WHERE id IN (?, ?) ORDER BY id",
+                ("startup-preserve-pepe", "startup-preserve-legacy"),
+            ).fetchall()
+        self.assertEqual([row["id"] for row in preserved], [
+            "startup-preserve-legacy",
+            "startup-preserve-pepe",
+        ])
+
     def test_database_initializers_are_idempotent_and_foreign_keys_are_valid(self):
         marketplace.init_marketplace_db()
         marketplace_offers.init_marketplace_offers_db()
