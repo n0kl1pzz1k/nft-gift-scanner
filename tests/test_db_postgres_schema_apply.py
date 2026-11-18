@@ -211,7 +211,31 @@ def test_schema_apply_preserves_all_marketplace_trigger_behaviors(tmp_path):
 
                 target.execute(
                     "INSERT INTO marketplace_offers (id,order_id,sender_user_id,sender_name,status,created_at,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                    ("offer-2", "order-1", "buyer-2", "Buyer Two", "pending", 103, 103),
+                    ("offer-withdrawn", "order-1", "buyer-3", "Buyer Three", "pending", 102, 102),
+                )
+                target.execute(
+                    "UPDATE marketplace_offers SET status='withdrawn',updated_at=103 WHERE id='offer-withdrawn'"
+                )
+                withdrawn = target.execute(
+                    "SELECT user_id,event_type,actor_name FROM marketplace_notifications WHERE offer_id='offer-withdrawn' AND event_type='offer_withdrawn'"
+                ).fetchone()
+                assert withdrawn == ("seller", "offer_withdrawn", "Buyer Three")
+
+                target.execute(
+                    "INSERT INTO marketplace_offers (id,order_id,sender_user_id,sender_name,status,created_at,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    ("offer-declined", "order-1", "buyer-4", "Buyer Four", "pending", 103, 103),
+                )
+                target.execute(
+                    "UPDATE marketplace_offers SET status='declined',updated_at=104 WHERE id='offer-declined'"
+                )
+                direct_decline = target.execute(
+                    "SELECT user_id,event_type,actor_name FROM marketplace_notifications WHERE offer_id='offer-declined' AND event_type='offer_declined'"
+                ).fetchone()
+                assert direct_decline == ("buyer-4", "offer_declined", "Seller")
+
+                target.execute(
+                    "INSERT INTO marketplace_offers (id,order_id,sender_user_id,sender_name,status,created_at,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    ("offer-2", "order-1", "buyer-2", "Buyer Two", "pending", 105, 105),
                 )
                 target.execute(
                     "UPDATE marketplace_orders SET status='cancelled',updated_at=104 WHERE id='order-1'"
