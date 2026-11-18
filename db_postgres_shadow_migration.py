@@ -1,14 +1,15 @@
 """One-command, all-or-nothing SQLite -> PostgreSQL shadow migration.
 
-Creates a no-clobber SQLite backup, restores and verifies that backup,
-compares it to the live source, then creates the PostgreSQL schema and copies
-all rows in one PostgreSQL transaction. The production app is never switched.
+Creates a no-clobber SQLite snapshot, restores and verifies that snapshot,
+compares the immutable backup with its restore, then creates the PostgreSQL
+schema and copies all rows in one transaction. The production app is never switched.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import shutil
 import sqlite3
 import tempfile
 from datetime import datetime, timezone
@@ -270,6 +271,40 @@ def _copy_all_in_one_transaction(
         sqlite.close()
 
 
+
+def _disk_space_preflight(source: Path, backup: Path) -> dict[str, Any]:
+    """Ensure the backup and temporary restore fit before writing to the SQLite volume."""
+    if not source.is_file():
+        raise ValueError("SQLite source database does not exist.")
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(source.as_uri() + "?mode=ro", uri=True, timeout=30) as connection:
+        page_count = int(connection.execute("PRAGMA page_count").fetchone()[0])
+        page_size = int(connection.execute("PRAGMA page_size").fetchone()[0])
+    snapshot_bytes = max(source.stat().st_size, page_count * page_size)
+    reserve_bytes = 32 * 1024 * 1024
+    backup_usage = shutil.disk_usage(backup.parent)
+    restore_directory = Path(tempfile.gettempdir())
+    restore_usage = shutil.disk_usage(restore_directory)
+    same_filesystem = os.stat(backup.parent).st_dev == os.stat(restore_directory).st_dev
+
+    if same_filesystem:
+        required_bytes = snapshot_bytes * 2 + reserve_bytes
+        if backup_usage.free < required_bytes:
+            raise RuntimeError("Insufficient free disk space for the verified SQLite backup and restore.")
+    else:
+        required_bytes = snapshot_bytes + reserve_bytes
+        if backup_usage.free < required_bytes or restore_usage.free < required_bytes:
+            raise RuntimeError("Insufficient free disk space for the verified SQLite backup or restore.")
+
+    return {
+        "snapshot_bytes": snapshot_bytes,
+        "backup_free_bytes": backup_usage.free,
+        "restore_free_bytes": restore_usage.free,
+        "required_bytes_per_filesystem": required_bytes,
+        "same_filesystem": same_filesystem,
+    }
+
+
 def run_shadow_migration(
     source_path: str,
     backup_path: str,
@@ -406,6 +441,7 @@ def run_shadow_migration_once(
             "status": "verified",
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "backup_sha256": result["backup"]["sha256"],
+            "disk_preflight": result.get("disk_preflight"),
             "table_count": result["backup"]["table_count"],
             "total_rows": result["backup"]["total_rows"],
             "schema_sha256": migration.get("source_schema_sha256"),
