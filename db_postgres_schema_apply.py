@@ -51,7 +51,7 @@ def _target_counts(cursor: Any) -> dict[str, int]:
             (schema,),
         ).fetchone()[0],
         "check_constraints": cursor.execute(
-            "SELECT COUNT(*) FROM information_schema.table_constraints WHERE constraint_schema=%s AND constraint_type='CHECK'",
+            "SELECT COUNT(*) FROM pg_constraint con JOIN pg_class rel ON rel.oid=con.conrelid JOIN pg_namespace ns ON ns.oid=rel.relnamespace WHERE ns.nspname=%s AND con.contype='c'",
             (schema,),
         ).fetchone()[0],
         "indexes": cursor.execute(
