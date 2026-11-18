@@ -345,6 +345,8 @@ def run_shadow_migration(
             raise RuntimeError("SQLite BOOLEAN candidate data is not safe for PostgreSQL conversion.")
         if not preflight["postgresql_integer_data_preflight"]["conversion_safe_in_both"]:
             raise RuntimeError("SQLite INTEGER-affinity columns contain non-integer storage classes; refusing BIGINT conversion.")
+        if not preflight["postgresql_real_data_preflight"]["conversion_safe_in_both"]:
+            raise RuntimeError("SQLite DOUBLE PRECISION candidates contain text/blob storage classes; refusing numeric conversion.")
 
         migration_report = _copy_all_in_one_transaction(
             str(backup), dsn, batch_size, execute, target_schema
