@@ -55,7 +55,7 @@ def test_shadow_migration_creates_schema_and_copies_all_rows_atomically(tmp_path
             pg.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(schema)))
 
 
-def test_shadow_migration_rolls_back_schema_and_rows_on_copy_failure(tmp_path):
+def test_shadow_migration_rolls_back_schema_and_rows_on_ddl_failure(tmp_path):
     import os
     import uuid
 
@@ -68,9 +68,9 @@ def test_shadow_migration_rolls_back_schema_and_rows_on_copy_failure(tmp_path):
     source.executescript(
         """
         CREATE TABLE a_items (id TEXT PRIMARY KEY, value TEXT NOT NULL);
-        CREATE TABLE b_items (id TEXT PRIMARY KEY, value TEXT NOT NULL CHECK(value <> 'reject'));
+        CREATE TABLE b_items (id TEXT PRIMARY KEY, value INTEGER NOT NULL CHECK(value <> 'reject'));
         INSERT INTO a_items VALUES ('a1', 'valid');
-        INSERT INTO b_items VALUES ('b1', 'reject');
+        INSERT INTO b_items VALUES ('b1', 1);
         """
     )
     source.commit()
