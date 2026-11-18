@@ -34,7 +34,7 @@ PROOF_MAX_AGE_SECONDS = 600
 CHALLENGE_TTL_SECONDS = 300
 
 
-def ensure_ton_connect_schema(connection: object) -> None:
+def ensure_ton_connect_schema(connection: object) -> dict[str, Any]:
     """Create TON Connect tables using portable, single-statement DDL.
 
     SQLite and the staged PostgreSQL adapter both support this schema. Runtime
