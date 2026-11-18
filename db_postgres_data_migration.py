@@ -194,6 +194,14 @@ def migrate(source_path: str, dsn: str, batch_size: int, execute: bool) -> dict[
                         "target_rows_before": int(target_count), "columns": len(columns),
                     })
                 if execute:
+                    # Do not replay business side effects for historical rows.
+                    # DISABLE TRIGGER USER leaves internal FK enforcement active.
+                    for table in tables:
+                        cursor.execute(
+                            sql.SQL("ALTER TABLE {} DISABLE TRIGGER USER").format(
+                                sql.Identifier(str(table["name"]))
+                            )
+                        )
                     for table in tables:
                         name = str(table["name"])
                         select_sql, columns = _ordered_select(sqlite, table)
@@ -211,6 +219,15 @@ def migrate(source_path: str, dsn: str, batch_size: int, execute: bool) -> dict[
                         expected = next(item["source_rows"] for item in report["tables"] if item["table"] == name)
                         if copied != expected:
                             raise RuntimeError(f"Copied row count mismatch for {name}: {copied} != {expected}")
+                    # Flush deferred FK checks before ALTER TABLE; pending
+                    # constraint trigger events otherwise block trigger DDL.
+                    cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+                    for table in tables:
+                        cursor.execute(
+                            sql.SQL("ALTER TABLE {} ENABLE TRIGGER USER").format(
+                                sql.Identifier(str(table["name"]))
+                            )
+                        )
                     for table in tables:
                         name = str(table["name"])
                         pk = [
