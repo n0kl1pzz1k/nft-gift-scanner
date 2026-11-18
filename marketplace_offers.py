@@ -40,6 +40,7 @@ def _db():
 
 def init_marketplace_offers_db() -> None:
     with _db() as conn:
+        require_sqlite_connection(conn, "Marketplace offers schema initialization")
         _migrate_legacy_marketplace_table_names(conn)
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS marketplace_offers (
