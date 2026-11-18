@@ -102,7 +102,7 @@ def _migrate_legacy_order_event_types(conn: sqlite3.Connection) -> None:
     ).fetchone()
     if table is None or "simulated_fill" not in (table["sql"] or ""):
         return
-    conn.execute("BEGIN IMMEDIATE")
+    begin_write(conn, "schema:legacy-order-event-types")
     try:
         conn.execute("""
             CREATE TABLE marketplace_order_events_new (
