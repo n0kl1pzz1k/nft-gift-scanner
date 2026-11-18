@@ -654,3 +654,46 @@ def test_runtime_inventory_gate_reports_real_backed_integer_type_override():
     summary = build_postgres_migration_gate_summary(inventory)
     assert summary["real_backed_integer_column_count"] == 1
     assert summary["integer_type_override_count"] == 1
+
+
+
+def test_postgres_runtime_inventory_reports_only_schema_and_aggregate_counts():
+    from db_schema_audit import build_postgres_runtime_inventory
+
+    class Cursor:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def fetchone(self):
+            return self.rows[0] if self.rows else None
+
+        def fetchall(self):
+            return self.rows
+
+    class PostgresLikeConnection:
+        supports_for_update = True
+
+        def execute(self, statement, parameters=()):
+            if "SELECT current_schema()" in statement:
+                return Cursor([{"schema_name": "public"}])
+            if "information_schema.tables" in statement:
+                return Cursor([{"name": "sample"}])
+            if "COUNT(*) AS row_count" in statement:
+                return Cursor([{"row_count": 7}])
+            if "information_schema.columns" in statement:
+                return Cursor([{"name": "id", "type": "bigint", "is_nullable": "NO"}])
+            if "FROM pg_indexes" in statement:
+                return Cursor([{"name": "sample_pkey"}])
+            if "information_schema.triggers" in statement:
+                return Cursor([])
+            raise AssertionError(f"Unexpected query: {statement}")
+
+    inventory = build_postgres_runtime_inventory(PostgresLikeConnection())
+    serialized = json.dumps(inventory, ensure_ascii=False)
+    assert inventory["engine"] == "postgresql"
+    assert inventory["table_count"] == 1
+    assert inventory["total_rows"] == 7
+    assert inventory["tables"][0]["columns"][0]["name"] == "id"
+    assert inventory["object_counts"]["index"] == 1
+    assert "application_row_value" not in serialized
+    assert inventory["postgresql_ddl_plan"]["ready_for_cutover"] is False
