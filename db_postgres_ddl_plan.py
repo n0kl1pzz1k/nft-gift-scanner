@@ -138,7 +138,7 @@ END;"""
         return [prefix + body + suffix, trigger]
     return None
 
-def build_postgres_ddl_plan(manifest: dict[str, Any]) -> dict[str, Any]:
+def build_postgres_ddl_plan(manifest: dict[str, Any], data_preflight: dict[str, Any] | None = None) -> dict[str, Any]:
     """Render candidate CREATE/ALTER statements and explicit blockers."""
     structural = build_postgres_migration_plan(manifest)
     source_tables = {str(item.get("name", "")): item for item in manifest.get("tables", [])}
