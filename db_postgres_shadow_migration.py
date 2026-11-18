@@ -155,6 +155,10 @@ def _copy_all_in_one_transaction(
                         "copied_rows": copied,
                     })
 
+                # Force deferred FK checks now; PostgreSQL will not allow
+                # ALTER TABLE while deferred constraint trigger events remain.
+                cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+
                 # Re-enable business triggers only after every historical row
                 # has been copied. They will process future application writes.
                 for table in tables:
