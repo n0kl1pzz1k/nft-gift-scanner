@@ -39,15 +39,14 @@ def test_sqlite_guard_rejects_postgres_adapter_before_sql():
     assert connection.statements == []
 
 
-def test_marketplace_schema_initializer_fails_before_legacy_migrations():
+def test_marketplace_schema_initializer_dispatches_to_postgres_bootstrap():
     connection = PostgresLikeConnection()
-    with patch("marketplace._db", return_value=nullcontext(connection)):
-        try:
-            marketplace.init_marketplace_db()
-        except RuntimeError as error:
-            assert "Marketplace schema initialization requires SQLite" in str(error)
-        else:
-            raise AssertionError("SQLite-only marketplace bootstrap must fail closed")
+    with patch("marketplace._db", return_value=nullcontext(connection)), patch(
+        "marketplace_postgres.initialize_postgres_marketplace_schema",
+        return_value={"verified": True},
+    ) as initialize:
+        marketplace.init_marketplace_db()
+    initialize.assert_called_once_with(connection)
     assert connection.statements == []
 
 

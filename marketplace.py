@@ -130,6 +130,11 @@ def _migrate_legacy_order_event_types(conn: sqlite3.Connection) -> None:
 
 def init_marketplace_db() -> None:
     with _db() as conn:
+        if bool(getattr(conn, "supports_for_update", False)):
+            from marketplace_postgres import initialize_postgres_marketplace_schema
+
+            initialize_postgres_marketplace_schema(conn)
+            return
         require_sqlite_connection(conn, "Marketplace schema initialization")
         _migrate_legacy_marketplace_table_names(conn)
         _migrate_legacy_order_event_types(conn)
