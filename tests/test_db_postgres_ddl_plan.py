@@ -129,3 +129,153 @@ def test_ddl_plan_translates_all_known_production_trigger_categories():
     assert "gen_random_uuid()" in rendered
     assert "verified asset metadata is immutable" in rendered
     assert "deal lifecycle events are immutable" in rendered
+
+
+
+def test_generated_production_trigger_ddl_executes_and_preserves_behavior():
+    import os
+    import uuid
+    import pytest
+    import psycopg
+    from psycopg import sql
+
+    from db_postgres_ddl_plan import build_postgres_ddl_plan
+
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    sqlite = sqlite3.connect(":memory:")
+    sqlite.executescript(
+        """
+        CREATE TABLE marketplace_orders (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            owner_name TEXT NOT NULL,
+            status TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE marketplace_offers (
+            id TEXT PRIMARY KEY,
+            order_id TEXT NOT NULL,
+            sender_user_id TEXT NOT NULL,
+            sender_name TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY(order_id) REFERENCES marketplace_orders(id)
+        );
+        CREATE TABLE marketplace_notifications (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            offer_id TEXT,
+            order_id TEXT,
+            order_title TEXT,
+            actor_name TEXT,
+            created_at INTEGER NOT NULL
+        );
+        CREATE TABLE marketplace_deal_events (id TEXT PRIMARY KEY);
+        CREATE TABLE marketplace_deal_lifecycle_events (id TEXT PRIMARY KEY);
+        CREATE TABLE verified_assets (
+            id TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            external_asset_id TEXT NOT NULL,
+            owner_telegram_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            asset_type TEXT NOT NULL,
+            image_url TEXT NOT NULL DEFAULT '',
+            verification_method TEXT NOT NULL,
+            verification_reference_hash TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'verified',
+            verified_at INTEGER NOT NULL
+        );
+
+        CREATE TRIGGER trg_marketplace_deal_events_no_delete
+        BEFORE DELETE ON marketplace_deal_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
+        CREATE TRIGGER trg_marketplace_deal_events_no_update
+        BEFORE UPDATE ON marketplace_deal_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
+        CREATE TRIGGER trg_marketplace_deal_lifecycle_events_no_delete
+        BEFORE DELETE ON marketplace_deal_lifecycle_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
+        CREATE TRIGGER trg_marketplace_deal_lifecycle_events_no_update
+        BEFORE UPDATE ON marketplace_deal_lifecycle_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
+        CREATE TRIGGER trg_marketplace_offer_received
+        AFTER INSERT ON marketplace_offers BEGIN SELECT 1; END;
+        CREATE TRIGGER trg_marketplace_offer_status_notification
+        AFTER UPDATE OF status ON marketplace_offers BEGIN SELECT 1; END;
+        CREATE TRIGGER trg_marketplace_order_cancel_declines_offers
+        AFTER UPDATE OF status ON marketplace_orders BEGIN SELECT 1; END;
+        CREATE TRIGGER verified_assets_metadata_immutable
+        BEFORE UPDATE ON verified_assets BEGIN SELECT 1; END;
+        """
+    )
+    plan = build_postgres_ddl_plan(build_schema_manifest(sqlite))
+    sqlite.close()
+    assert plan["blocker_count"] == 0, plan["blockers"]
+    assert plan["trigger_translation_count"] == 8
+
+    schema = "mig_trigger_" + uuid.uuid4().hex[:12]
+    with psycopg.connect(dsn, autocommit=True) as pg:
+        pg.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        pg.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+        try:
+            for statement in plan["statements"]:
+                pg.execute(statement)
+
+            pg.execute(
+                "INSERT INTO marketplace_orders VALUES (%s, %s, %s, %s, %s, %s)",
+                ("o1", "seller", "Rare gift", "Seller", "active", 10),
+            )
+            pg.execute(
+                "INSERT INTO marketplace_offers VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                ("of1", "o1", "buyer", "Buyer", "pending", 11, 11),
+            )
+            received = pg.execute(
+                "SELECT user_id, event_type FROM marketplace_notifications WHERE offer_id='of1'"
+            ).fetchone()
+            assert received == ("seller", "offer_received")
+
+            pg.execute("UPDATE marketplace_offers SET status='declined', updated_at=12 WHERE id='of1'")
+            declined = pg.execute(
+                "SELECT user_id, event_type FROM marketplace_notifications WHERE offer_id='of1' ORDER BY event_type"
+            ).fetchall()
+            assert set(declined) == {("seller", "offer_received"), ("buyer", "offer_declined")}
+
+            pg.execute(
+                "INSERT INTO marketplace_offers VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                ("of2", "o1", "buyer2", "Buyer Two", "pending", 13, 13),
+            )
+            pg.execute("UPDATE marketplace_orders SET status='cancelled', updated_at=14 WHERE id='o1'")
+            status = pg.execute("SELECT status FROM marketplace_offers WHERE id='of2'").fetchone()[0]
+            assert status == "declined"
+            assert pg.execute(
+                "SELECT COUNT(*) FROM marketplace_notifications WHERE offer_id='of2' AND event_type='offer_declined'"
+            ).fetchone()[0] == 1
+
+            pg.execute("INSERT INTO marketplace_deal_events VALUES ('de1')")
+            pg.execute("INSERT INTO marketplace_deal_lifecycle_events VALUES ('dl1')")
+            for table in ("marketplace_deal_events", "marketplace_deal_lifecycle_events"):
+                with pytest.raises(psycopg.Error):
+                    with pg.transaction():
+                        pg.execute(sql.SQL("UPDATE {} SET id=id").format(sql.Identifier(table)))
+                with pytest.raises(psycopg.Error):
+                    with pg.transaction():
+                        pg.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(table)))
+
+            pg.execute(
+                """
+                INSERT INTO verified_assets
+                  (id, source, external_asset_id, owner_telegram_id, title, asset_type,
+                   verification_method, verification_reference_hash, verified_at)
+                VALUES ('asset1', 'ton_nft', 'nft1', 'owner1', 'Gift', 'gift',
+                        'ton_connect_proof', 'hash1', 20)
+                """
+            )
+            pg.execute("UPDATE verified_assets SET owner_telegram_id='owner2' WHERE id='asset1'")
+            with pytest.raises(psycopg.Error):
+                with pg.transaction():
+                    pg.execute("UPDATE verified_assets SET title='Changed' WHERE id='asset1'")
+        finally:
+            pg.execute("SET search_path TO public")
+            pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
