@@ -124,6 +124,7 @@ class _FunctionScanner(ast.NodeVisitor):
             "commit_count": 0,
             "rollback_count": 0,
             "executescript_count": 0,
+            "executescript_after_transaction_start_count": 0,
             "dynamic_sql_count": 0,
             "connection_context_count": 0,
             "connection_context_mutation_count": 0,
@@ -143,6 +144,9 @@ class _FunctionScanner(ast.NodeVisitor):
             record["transaction_without_explicit_end"] = (
                 record["transaction_start_count"] > 0
                 and record["commit_count"] + record["rollback_count"] == 0
+            )
+            record["executescript_after_transaction_start"] = (
+                record["executescript_after_transaction_start_count"] > 0
             )
             record["single_statement_autocommit_write"] = (
                 record["mutation_count"] == 1
@@ -194,6 +198,8 @@ class _FunctionScanner(ast.NodeVisitor):
         elif method in {"execute", "executemany", "executescript"}:
             if method == "executescript":
                 self.current["executescript_count"] += 1
+                if self.current["transaction_start_count"] > 0:
+                    self.current["executescript_after_transaction_start_count"] += 1
             if not node.args:
                 self.current["dynamic_sql_count"] += 1
             else:
@@ -252,6 +258,9 @@ def audit_transaction_boundaries(root: str | Path) -> dict[str, Any]:
     open_transactions = [
         item for item in functions if item["transaction_without_explicit_end"]
     ]
+    executescript_transaction_hazards = [
+        item for item in functions if item["executescript_after_transaction_start"]
+    ]
     return {
         "format_version": 1,
         "source_files": scanned,
@@ -259,10 +268,12 @@ def audit_transaction_boundaries(root: str | Path) -> dict[str, Any]:
         "mutation_function_count": sum(item["mutation_count"] > 0 for item in functions),
         "multi_statement_mutation_without_explicit_begin_count": len(multi_without_begin),
         "transaction_without_explicit_end_count": len(open_transactions),
+        "executescript_after_transaction_start_count": len(executescript_transaction_hazards),
         "functions": functions,
         "review_items": {
             "multi_statement_mutation_without_explicit_begin": multi_without_begin,
             "transaction_without_explicit_end": open_transactions,
+            "executescript_after_transaction_start": executescript_transaction_hazards,
         },
         "parse_errors": parse_errors,
         "ready_for_postgresql_runtime": False,
@@ -272,6 +283,7 @@ def audit_transaction_boundaries(root: str | Path) -> dict[str, Any]:
             "A Python sqlite3.Connection context manager does not itself issue BEGIN; with isolation_level=None, writes remain autocommit unless explicit transaction SQL is used.",
             "Single-statement writes without an explicit transaction are reported as autocommit candidates, including writes nested in connection context managers.",
             "SQLite triggers and transaction semantics require separate engine-specific analysis.",
+            "sqlite3 executescript() commits any pending transaction before running its script; calls after an explicit BEGIN are flagged for manual review.",
         ],
     }
 
