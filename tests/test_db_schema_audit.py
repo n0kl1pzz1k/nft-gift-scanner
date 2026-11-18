@@ -591,7 +591,7 @@ def test_double_precision_profile_accepts_real_and_integer_but_rejects_text():
     preflight = build_postgres_data_preflight(connection)
     connection.close()
 
-    profile = next(item for item in preflight["real_columns"] if item["column"] == "measurement")
+    profile = next(item for item in preflight["real_columns"] if item["column"] == "observed_at")
     assert profile["integer_storage_count"] == 1
     assert profile["real_storage_count"] == 1
     assert profile["text_storage_count"] == 1
