@@ -4,6 +4,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+import uuid
 from unittest.mock import patch
 
 from nacl.signing import SigningKey
@@ -199,6 +200,28 @@ class TonConnectProofTests(unittest.TestCase):
         self.assertEqual(state_hash, state_init.bytes_hash())
         self.assertEqual(extracted_key, self.public_key)
         self.assertEqual(parsed_code_hash, code_hash)
+
+    def test_ton_connect_schema_runs_on_postgres_adapter_when_configured(self):
+        dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN", "").strip()
+        if not dsn:
+            self.skipTest("HASSLE_TEST_POSTGRES_DSN is not configured")
+
+        from database import connect_postgres_database, list_database_tables
+
+        connection = connect_postgres_database(dsn)
+        schema = "ton_connect_test_" + uuid.uuid4().hex
+        schema_created = False
+        try:
+            connection.execute(f'CREATE SCHEMA "{schema}"')
+            schema_created = True
+            connection.execute(f'SET search_path TO "{schema}"')
+            ton_connect.ensure_ton_connect_schema(connection)
+            tables = list_database_tables(connection)
+            self.assertTrue({"ton_proof_challenges", "verified_wallets"}.issubset(tables))
+        finally:
+            if schema_created:
+                connection.execute(f'DROP SCHEMA "{schema}" CASCADE')
+            connection.close()
 
     def test_network_must_be_enabled(self):
         with self.assertRaisesRegex(ValueError, "not enabled"):
