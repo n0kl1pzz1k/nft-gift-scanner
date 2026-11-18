@@ -251,6 +251,17 @@ def build_postgres_ddl_plan(manifest: dict[str, Any], data_preflight: dict[str, 
                         f"blob={int(profile.get('blob_storage_count', 0))}."
                     ),
                 })
+        for profile in data_preflight.get("real_columns", []):
+            if not profile.get("real_conversion_safe", False):
+                blockers.append({
+                    "table": str(profile.get("table", "")),
+                    "feature": f"non-numeric storage on {profile.get('column', '')}",
+                    "reason": (
+                        "SQLite DOUBLE PRECISION candidate contains text/blob storage: "
+                        f"text={int(profile.get('text_storage_count', 0))}, "
+                        f"blob={int(profile.get('blob_storage_count', 0))}."
+                    ),
+                })
         for profile in data_preflight.get("columns", []):
             if not profile.get("boolean_conversion_safe", False):
                 blockers.append({
