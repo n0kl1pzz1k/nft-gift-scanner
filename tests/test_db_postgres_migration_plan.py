@@ -28,6 +28,8 @@ def test_postgres_plan_orders_parent_tables_before_children_and_preserves_constr
     child = next(item for item in plan["tables"] if item["table"] == "child")
     assert child["primary_key"] == ["id"]
     assert child["has_autoincrement"] is True
+    assert plan["implicit_rowid_primary_key_index_count"] == 1
+    assert plan["index_count"] == plan["sqlite_index_count"] + 1
     assert child["foreign_keys"][0]["referenced_table"] == "parent"
     assert child["check_constraints"] == ["state IN ('open', 'closed')"]
     assert child["indexes"][0]["partial"] is True
