@@ -621,6 +621,18 @@ def build_postgres_data_preflight(
                 "boolean_conversion_safe": invalid_values == 0 and (nullable or null_values == 0),
             })
 
+    foreign_key_participants: set[tuple[str, str]] = set()
+    for table in schema.get("tables", []):
+        table_name = str(table.get("name", ""))
+        for foreign_key in table.get("foreign_keys", []):
+            local_column = str(foreign_key.get("from_column", ""))
+            referenced_table = str(foreign_key.get("referenced_table", ""))
+            referenced_column = str(foreign_key.get("to_column", ""))
+            if local_column:
+                foreign_key_participants.add((table_name, local_column))
+            if referenced_table and referenced_column:
+                foreign_key_participants.add((referenced_table, referenced_column))
+
     integer_profiles: list[dict[str, Any]] = []
     for table in schema.get("tables", []):
         table_name = str(table.get("name", ""))
@@ -651,16 +663,37 @@ def build_postgres_data_preflight(
                 int(aggregate[offset]), int(aggregate[offset + 1]), int(aggregate[offset + 2])
             )
             offset += 3
+            column_name = str(column.get("name", ""))
+            primary_key = int(column.get("primary_key_position", 0)) > 0
+            foreign_key_participant = (table_name, column_name) in foreign_key_participants
+            base_type = _postgres_type_candidate(table_name, column, table_ddl)["postgresql_type_candidate"]
+            type_override = (
+                real_count > 0
+                and text_count == 0
+                and blob_count == 0
+                and not primary_key
+                and not foreign_key_participant
+            )
+            candidate_type = "DOUBLE PRECISION" if type_override else base_type
             non_integer_count = real_count + text_count + blob_count
+            integer_safe = (
+                text_count == 0
+                and blob_count == 0
+                and (real_count == 0 or type_override)
+            )
             integer_profiles.append({
                 "table": table_name,
-                "column": str(column.get("name", "")),
+                "column": column_name,
                 "total_rows": total_rows,
                 "real_storage_count": real_count,
                 "text_storage_count": text_count,
                 "blob_storage_count": blob_count,
                 "non_integer_storage_count": non_integer_count,
-                "integer_conversion_safe": non_integer_count == 0,
+                "primary_key": primary_key,
+                "foreign_key_participant": foreign_key_participant,
+                "type_override": type_override,
+                "postgresql_type_candidate": candidate_type,
+                "integer_conversion_safe": integer_safe,
             })
 
     return {
@@ -673,6 +706,8 @@ def build_postgres_data_preflight(
         "integer_profiled_column_count": len(integer_profiles),
         "unsafe_integer_column_count": sum(not item["integer_conversion_safe"] for item in integer_profiles),
         "non_integer_storage_value_count": sum(item["non_integer_storage_count"] for item in integer_profiles),
+        "real_backed_integer_column_count": sum(item["real_storage_count"] > 0 for item in integer_profiles),
+        "integer_type_override_count": sum(item["type_override"] for item in integer_profiles),
         "integer_columns": integer_profiles,
         "ready_for_cutover": False,
         "scope_note": "Aggregate-only BOOLEAN and BIGINT storage-class profile; no application row values are returned. This does not authorize cutover.",
@@ -710,5 +745,7 @@ def build_postgres_migration_gate_summary(inventory: dict[str, Any]) -> dict[str
         "integer_column_count": int(preflight.get("integer_profiled_column_count", 0)),
         "unsafe_integer_column_count": int(preflight.get("unsafe_integer_column_count", 0)),
         "non_integer_storage_value_count": int(preflight.get("non_integer_storage_value_count", 0)),
+        "real_backed_integer_column_count": int(preflight.get("real_backed_integer_column_count", 0)),
+        "integer_type_override_count": int(preflight.get("integer_type_override_count", 0)),
         "cutover_allowed": bool(inventory.get("postgresql_ddl_plan", {}).get("ready_for_cutover", False)),
     }
