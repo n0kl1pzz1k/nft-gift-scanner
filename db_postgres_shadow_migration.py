@@ -1,8 +1,8 @@
 """One-command, all-or-nothing SQLite -> PostgreSQL shadow migration.
 
-Creates a no-clobber SQLite backup, restores and verifies that backup,
-compares it to the live source, then creates the PostgreSQL schema and copies
-all rows in one PostgreSQL transaction. The production app is never switched.
+Creates a no-clobber SQLite snapshot, restores and verifies that snapshot,
+compares the immutable backup with its restore, then creates the PostgreSQL
+schema and copies all rows in one transaction. The production app is never switched.
 """
 from __future__ import annotations
 
