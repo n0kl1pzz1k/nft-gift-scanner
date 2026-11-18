@@ -58,6 +58,42 @@ def connect_database(database_path: str | Path) -> sqlite3.Connection:
     return connection
 
 
+
+def list_database_tables(connection: object) -> set[str]:
+    """List base tables using the active backend's system catalog."""
+    if isinstance(connection, sqlite3.Connection):
+        rows = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+        return {str(row["name"]) for row in rows}
+    if bool(getattr(connection, "supports_for_update", False)):
+        rows = connection.execute(
+            "SELECT table_name AS name FROM information_schema.tables "
+            "WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'"
+        ).fetchall()
+        return {str(row["name"]) for row in rows}
+    raise RuntimeError("Unsupported database connection for schema introspection")
+
+
+def list_database_columns(connection: object, table_name: str) -> set[str]:
+    """List columns for one table without exposing backend-specific SQL to callers."""
+    if not isinstance(table_name, str) or not table_name:
+        raise ValueError("Table name must be a non-empty string")
+    if isinstance(connection, sqlite3.Connection):
+        quoted_table = '"' + table_name.replace('"', '""') + '"'
+        rows = connection.execute(f"PRAGMA table_info({quoted_table})").fetchall()
+        return {str(row["name"]) for row in rows}
+    if bool(getattr(connection, "supports_for_update", False)):
+        rows = connection.execute(
+            "SELECT column_name AS name FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = ? "
+            "ORDER BY ordinal_position",
+            (table_name,),
+        ).fetchall()
+        return {str(row["name"]) for row in rows}
+    raise RuntimeError("Unsupported database connection for schema introspection")
+
+
 def connect() -> sqlite3.Connection:
     """Open the configured application database."""
     return connect_database(DB_PATH)
