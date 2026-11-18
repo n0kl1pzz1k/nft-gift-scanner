@@ -203,3 +203,84 @@ def test_target_schema_requires_exact_tables_and_columns_in_postgres():
         finally:
             pg.execute("SET search_path TO public")
             pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
+
+def test_data_copy_suppresses_historical_trigger_side_effects_and_reenables_triggers(tmp_path):
+    import os
+    import uuid
+    import pytest
+    import psycopg
+    from db_backup import backup_database
+    from db_postgres_data_migration import migrate
+
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    source_path = tmp_path / "offers.sqlite3"
+    source = sqlite3.connect(source_path)
+    source.executescript(
+        """
+        CREATE TABLE marketplace_orders (
+            id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL,
+            owner_name TEXT NOT NULL, status TEXT NOT NULL, updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE marketplace_offers (
+            id TEXT PRIMARY KEY, order_id TEXT NOT NULL, sender_user_id TEXT NOT NULL,
+            sender_name TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL, FOREIGN KEY(order_id) REFERENCES marketplace_orders(id)
+        );
+        CREATE TABLE marketplace_notifications (
+            id TEXT PRIMARY KEY, user_id TEXT NOT NULL, event_type TEXT NOT NULL,
+            offer_id TEXT, order_id TEXT, order_title TEXT, actor_name TEXT, created_at INTEGER NOT NULL
+        );
+        INSERT INTO marketplace_orders VALUES ('order1', 'seller', 'Gift', 'Seller', 'active', 10);
+        INSERT INTO marketplace_offers VALUES ('offer1', 'order1', 'buyer', 'Buyer', 'pending', 11, 11);
+        INSERT INTO marketplace_notifications VALUES ('notice1', 'seller', 'offer_received', 'offer1', 'order1', 'Gift', 'Buyer', 11);
+        """
+    )
+    source.commit()
+    source.close()
+    backup_path = tmp_path / "offers.backup.sqlite3"
+    backup_database(source_path, backup_path)
+
+    schema = "mig_data_trigger_" + uuid.uuid4().hex[:10]
+    with psycopg.connect(dsn, autocommit=True) as pg:
+        pg.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        pg.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+        try:
+            pg.execute("CREATE TABLE marketplace_orders (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL, owner_name TEXT NOT NULL, status TEXT NOT NULL, updated_at BIGINT NOT NULL)")
+            pg.execute("CREATE TABLE marketplace_offers (id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES marketplace_orders(id), sender_user_id TEXT NOT NULL, sender_name TEXT NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)")
+            pg.execute("CREATE TABLE marketplace_notifications (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, event_type TEXT NOT NULL, offer_id TEXT, order_id TEXT, order_title TEXT, actor_name TEXT, created_at BIGINT NOT NULL)")
+            pg.execute(
+                """
+                CREATE FUNCTION notify_offer() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    INSERT INTO marketplace_notifications
+                      (id, user_id, event_type, offer_id, order_id, order_title, actor_name, created_at)
+                    SELECT 'new-' || NEW.id, o.user_id, 'offer_received', NEW.id, NEW.order_id, o.title, NEW.sender_name, NEW.created_at
+                    FROM marketplace_orders o WHERE o.id=NEW.order_id AND o.user_id<>NEW.sender_user_id;
+                    RETURN NEW;
+                END;
+                $$
+                """
+            )
+            pg.execute("CREATE TRIGGER trg_offer_received AFTER INSERT ON marketplace_offers FOR EACH ROW EXECUTE FUNCTION notify_offer()")
+            pg.execute("SET search_path TO public")
+        finally:
+            pg.execute("SET search_path TO public")
+        # migrate connects independently and uses the public schema; use a DSN
+        # search_path option so this test remains isolated.
+    from psycopg.conninfo import make_conninfo
+    isolated_dsn = make_conninfo(dsn, options=f"-c search_path={schema}")
+    report = migrate(str(backup_path), isolated_dsn, batch_size=10, execute=True)
+    assert report["committed"] is True
+    with psycopg.connect(isolated_dsn) as pg:
+        assert pg.execute("SELECT COUNT(*) FROM marketplace_notifications").fetchone()[0] == 1
+        pg.execute(
+            "INSERT INTO marketplace_offers VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            ("offer2", "order1", "buyer2", "Buyer Two", "pending", 12, 12),
+        )
+        assert pg.execute("SELECT COUNT(*) FROM marketplace_notifications").fetchone()[0] == 2
+    with psycopg.connect(dsn, autocommit=True) as pg:
+        pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
