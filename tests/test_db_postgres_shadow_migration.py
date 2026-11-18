@@ -204,3 +204,45 @@ def test_shadow_migration_checks_backup_and_restore_disk_space_before_writing(tm
     monkeypatch.setattr(shutil, "disk_usage", lambda path: SimpleNamespace(free=0, total=0, used=0))
     with pytest.raises(RuntimeError, match="Insufficient free disk space"):
         _disk_space_preflight(source_path, tmp_path / "disk-check-backup.sqlite3")
+
+
+def test_shadow_migration_preserves_real_values_in_integer_affinity_columns(tmp_path):
+    import os
+    import uuid
+
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    source_path = tmp_path / "real-integer-affinity.sqlite3"
+    source = sqlite3.connect(source_path)
+    source.execute(
+        "CREATE TABLE catalogue_gift_snapshots (id INTEGER PRIMARY KEY, observed_at INTEGER NOT NULL)"
+    )
+    expected = 1794389573.0240138
+    source.execute("INSERT INTO catalogue_gift_snapshots VALUES (?, ?)", (1, expected))
+    source.commit()
+    source.close()
+
+    schema = "real_numeric_" + uuid.uuid4().hex[:10]
+    report = run_shadow_migration(
+        str(source_path),
+        str(tmp_path / "real-integer-affinity.backup.sqlite3"),
+        dsn,
+        execute=True,
+        target_schema=schema,
+    )
+    assert report["migration"]["verified"] is True
+    assert report["migration"]["numeric_preflight"]["type_override_count"] == 1
+    with psycopg.connect(dsn) as pg:
+        pg.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+        column_type = pg.execute(
+            "SELECT data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='catalogue_gift_snapshots' AND column_name='observed_at'"
+        ).fetchone()[0]
+        actual = pg.execute(
+            "SELECT observed_at FROM catalogue_gift_snapshots WHERE id=1"
+        ).fetchone()[0]
+        assert column_type == "double precision"
+        assert actual == pytest.approx(expected)
+        pg.execute("SET search_path TO public")
+        pg.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(schema)))
