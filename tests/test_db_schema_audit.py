@@ -2,7 +2,7 @@ import json
 import sqlite3
 
 
-from db_schema_audit import audit_database, build_postgres_portability_report, build_runtime_inventory, build_schema_manifest
+from db_schema_audit import audit_database, build_postgres_data_preflight, build_postgres_portability_report, build_runtime_inventory, build_schema_manifest
 
 
 def test_manifest_captures_constraints_indexes_and_triggers_without_rows():
