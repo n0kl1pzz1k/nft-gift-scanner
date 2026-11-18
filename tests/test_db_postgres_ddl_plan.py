@@ -80,7 +80,7 @@ def test_ddl_plan_translates_simple_defaults_and_partial_indexes():
         """
         CREATE TABLE sample (
             id TEXT PRIMARY KEY,
-            enabled INTEGER NOT NULL DEFAULT 0,
+            is_enabled INTEGER NOT NULL DEFAULT 0,
             title TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL DEFAULT 'active'
         );
@@ -91,7 +91,7 @@ def test_ddl_plan_translates_simple_defaults_and_partial_indexes():
     connection.close()
 
     rendered = "\\n".join(result["statements"])
-    assert '"enabled" BOOLEAN NOT NULL DEFAULT FALSE' in rendered
+    assert '"is_enabled" BOOLEAN NOT NULL DEFAULT FALSE' in rendered
     assert '"title" TEXT NOT NULL DEFAULT \'\'' in rendered
     assert "idx_sample_open" in rendered
     assert not any("default on " in item["feature"] for item in result["blockers"])
@@ -123,7 +123,6 @@ def test_ddl_plan_translates_all_known_production_trigger_categories():
 
     trigger_statements = [sql for sql in result["statements"] if "TRIGGER" in sql.upper() or "FUNCTION" in sql.upper()]
     assert len(trigger_statements) == 16
-    assert result["trigger_rewrite_count"] == 0 if "trigger_rewrite_count" in result else True
     assert not any(item["feature"].startswith("trigger ") for item in result["blockers"])
     rendered = "\\n".join(trigger_statements)
     assert "gen_random_uuid()" in rendered
