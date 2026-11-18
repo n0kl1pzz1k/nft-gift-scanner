@@ -625,9 +625,77 @@ async def readiness():
     }
 
 
+
+_postgres_shadow_migration_task: asyncio.Task | None = None
+
+
+async def _run_postgres_shadow_migration_once() -> None:
+    """Run an explicitly enabled, one-time shadow copy without switching the app."""
+    logger = logging.getLogger("hassle_nft.database")
+    dsn = os.getenv("HASSLE_POSTGRES_MIGRATION_DSN", "").strip()
+    if not dsn:
+        logger.error("postgresql_shadow_migration_skipped reason=missing_dsn")
+        return
+
+    source_path = os.path.abspath(os.path.expanduser(str(marketplace.DB_PATH)))
+    marker_path = os.getenv(
+        "HASSLE_POSTGRES_MIGRATION_MARKER",
+        os.path.join(os.path.dirname(source_path), ".hassle-postgres-shadow-migration.json"),
+    )
+    if os.path.exists(marker_path):
+        logger.warning("postgresql_shadow_migration_skipped reason=success_marker_exists")
+        return
+
+    backup_path = os.path.join(
+        os.path.dirname(source_path),
+        f"hassle-postgres-shadow-{time.time_ns()}.sqlite3",
+    )
+    logger.warning("postgresql_shadow_migration_started mode=atomic_shadow_copy")
+    try:
+        from db_postgres_shadow_migration import run_shadow_migration
+
+        report = await asyncio.to_thread(
+            run_shadow_migration,
+            source_path,
+            backup_path,
+            dsn,
+            True,
+            1000,
+            None,
+        )
+        migration = report["migration"]
+        if not migration.get("committed") or not migration.get("verified"):
+            raise RuntimeError("PostgreSQL shadow migration did not pass its final commit and verification gates")
+
+        summary = {
+            "backup_file": report["backup"]["file"],
+            "backup_sha256": report["backup"]["sha256"],
+            "table_count": report["backup"]["table_count"],
+            "total_rows": report["backup"]["total_rows"],
+            "ddl_statement_count": migration["ddl_statement_count"],
+            "copied_table_count": len(migration["tables"]),
+            "copied_rows": sum(int(item["copied_rows"]) for item in migration["tables"]),
+            "content_verified_table_count": sum(bool(item.get("content_verified")) for item in migration["tables"]),
+            "committed": True,
+            "verified": True,
+            "production_app_switched": False,
+            "cutover_allowed": False,
+        }
+        marker_tmp = f"{marker_path}.{os.getpid()}.{time.time_ns()}.tmp"
+        with open(marker_tmp, "x", encoding="utf-8") as marker_file:
+            json.dump(summary, marker_file, ensure_ascii=False, sort_keys=True)
+            marker_file.write("\n")
+        os.replace(marker_tmp, marker_path)
+        logger.warning(
+            "postgresql_shadow_migration_completed=%s",
+            json.dumps(summary, ensure_ascii=False, sort_keys=True),
+        )
+    except Exception:
+        logger.exception("postgresql_shadow_migration_failed; SQLite remains the active application database")
+
 @app.on_event("startup")
 async def start_services():
-    global _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret
+    global _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret, _postgres_shadow_migration_task
     init_marketplace_db()
     init_marketplace_offers_db()
     init_ton_connect_db()
@@ -643,6 +711,8 @@ async def start_services():
         "postgresql_migration_gate_summary=%s",
         json.dumps(build_postgres_migration_gate_summary(inventory), ensure_ascii=False, sort_keys=True),
     )
+    if os.getenv("HASSLE_POSTGRES_SHADOW_MIGRATION", "").strip().lower() == "execute":
+        _postgres_shadow_migration_task = asyncio.create_task(_run_postgres_shadow_migration_once())
     token = os.getenv("BOT_TOKEN", "").strip()
     if token:
         try:
