@@ -89,7 +89,7 @@ def build_postgres_ddl_plan(manifest: dict[str, Any]) -> dict[str, Any]:
             if on_delete not in allowed_actions or on_update not in allowed_actions:
                 blockers.append({"table": table_name, "feature": "foreign-key action", "reason": f"Unsupported action: {on_delete}/{on_update}"})
                 continue
-            statement += f" ON DELETE {on_delete} ON UPDATE {on_update}"
+            statement += f" ON DELETE {on_delete} ON UPDATE {on_update} DEFERRABLE INITIALLY DEFERRED"
             statements.append(statement)
             if table_name in structural["cyclic_tables"] and fk["referenced_table"] in structural["cyclic_tables"]:
                 deferred_fk_count += 1
