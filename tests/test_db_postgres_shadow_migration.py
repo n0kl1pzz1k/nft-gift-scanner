@@ -117,3 +117,16 @@ def test_shadow_migration_refuses_nonexistent_target_schema(tmp_path):
             execute=False,
             target_schema=missing_schema,
         )
+
+
+
+@pytest.mark.parametrize("value", ["execute", "EXECUTE", " Execute "])
+def test_startup_shadow_migration_requires_explicit_execute(value):
+    from db_postgres_shadow_migration import startup_migration_requested
+    assert startup_migration_requested(value) is True
+
+
+@pytest.mark.parametrize("value", [None, "", "true", "1", "dry-run", "enabled"])
+def test_startup_shadow_migration_is_disabled_for_other_values(value):
+    from db_postgres_shadow_migration import startup_migration_requested
+    assert startup_migration_requested(value) is False
