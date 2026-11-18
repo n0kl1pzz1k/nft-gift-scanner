@@ -286,6 +286,20 @@ class StagedPostgresConnectionFactoryTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "non-empty PostgreSQL DSN"):
                     connect_postgres_database(dsn)
 
+    def test_rejects_unsafe_postgres_schema_identifier_before_connecting(self):
+        import sys
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        from database import connect_postgres_database
+
+        driver_connect = Mock()
+        with patch.dict(sys.modules, {"psycopg": SimpleNamespace(connect=driver_connect)}), patch.dict(
+            "os.environ", {"HASSLE_POSTGRES_SCHEMA": 'public"; DROP SCHEMA public;--'}, clear=False
+        ):
+            with self.assertRaisesRegex(ValueError, "valid PostgreSQL schema identifier"):
+                connect_postgres_database("postgresql://isolated/test")
+        driver_connect.assert_not_called()
+
     def test_opens_autocommit_connection_and_wraps_adapter_without_changing_default(self):
         import sys
         from types import SimpleNamespace
@@ -299,13 +313,16 @@ class StagedPostgresConnectionFactoryTests(unittest.TestCase):
         driver_connect = Mock(return_value=raw)
         fake_driver = SimpleNamespace(connect=driver_connect)
 
-        with patch.dict(sys.modules, {"psycopg": fake_driver}):
+        with patch.dict(sys.modules, {"psycopg": fake_driver}), patch.dict(
+            "os.environ", {"HASSLE_POSTGRES_SCHEMA": "hassle_shadow_test"}, clear=False
+        ):
             adapter = connect_postgres_database("  postgresql://isolated/test  ")
 
         self.assertIsInstance(adapter, PostgresConnectionAdapter)
         driver_connect.assert_called_once_with(
             "postgresql://isolated/test", autocommit=True
         )
+        raw.execute.assert_called_once_with('SET search_path TO "hassle_shadow_test"')
         adapter.close()
         raw.close.assert_called_once()
 

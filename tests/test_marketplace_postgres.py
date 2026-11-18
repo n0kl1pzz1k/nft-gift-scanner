@@ -131,16 +131,9 @@ def test_postgres_runtime_smoke_initializes_auth_assets_listing_and_readiness():
     with psycopg.connect(dsn, autocommit=True) as admin:
         admin.execute(f'CREATE SCHEMA "{schema}"')
 
-    original_factory = database.connect_postgres_database
-
-    def connect_in_schema(configured_dsn):
-        connection = original_factory(configured_dsn)
-        connection.execute(f'SET search_path TO "{schema}"')
-        return connection
-
     @contextmanager
     def scoped_connection():
-        connection = connect_in_schema(dsn)
+        connection = database.connect()
         try:
             yield connection
         finally:
@@ -150,10 +143,9 @@ def test_postgres_runtime_smoke_initializes_auth_assets_listing_and_readiness():
         with patch.dict(os.environ, {
             "HASSLE_NFT_DB_BACKEND": "postgres",
             "DATABASE_URL": dsn,
+            "HASSLE_POSTGRES_SCHEMA": schema,
             "HASSLE_VERIFIED_ASSETS_ENABLED": "true",
-        }, clear=False), patch(
-            "database.connect_postgres_database", side_effect=connect_in_schema
-        ), patch.object(marketplace, "_db", side_effect=scoped_connection), patch.object(
+        }, clear=False), patch.object(marketplace, "_db", side_effect=scoped_connection), patch.object(
             marketplace_offers, "_db", side_effect=scoped_connection
         ), patch.object(ton_connect, "_db", side_effect=scoped_connection):
             marketplace.init_marketplace_db()
