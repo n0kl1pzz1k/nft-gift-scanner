@@ -10,7 +10,7 @@ from pathlib import Path
 
 import marketplace
 from database import list_database_tables, list_database_columns
-from db_schema_audit import build_runtime_inventory, build_postgres_migration_gate_summary
+from db_schema_audit import build_runtime_inventory, build_postgres_runtime_inventory, build_postgres_migration_gate_summary
 from urllib.parse import parse_qsl
 from pydantic import BaseModel
 
@@ -675,9 +675,15 @@ async def start_services():
     # Emit a privacy-safe inventory of the actual mounted SQLite database.
     # This records schema metadata and row counts only, never row contents.
     with marketplace._db() as connection:
-        inventory = build_runtime_inventory(connection)
+        if bool(getattr(connection, "supports_for_update", False)):
+            inventory = build_postgres_runtime_inventory(connection)
+            inventory_event = "postgresql_runtime_inventory"
+        else:
+            inventory = build_runtime_inventory(connection)
+            inventory_event = "sqlite_runtime_inventory"
     logging.getLogger("hassle_nft.database").warning(
-        "sqlite_runtime_inventory=%s",
+        "%s=%s",
+        inventory_event,
         json.dumps(inventory, ensure_ascii=False, sort_keys=True),
     )
     logging.getLogger("hassle_nft.database").warning(
