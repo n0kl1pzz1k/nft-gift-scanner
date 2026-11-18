@@ -17,9 +17,20 @@ def test_shadow_migration_creates_schema_and_copies_all_rows_atomically(tmp_path
 
     source_path = tmp_path / "source.sqlite3"
     source = sqlite3.connect(source_path)
-    source.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT NOT NULL)")
-    source.execute("INSERT INTO items(value) VALUES ('first')")
-    source.execute("INSERT INTO items(value) VALUES ('deleted-high-water')")
+    source.execute(
+        "CREATE TABLE categories (id TEXT PRIMARY KEY, label TEXT NOT NULL CHECK(length(label) > 0))"
+    )
+    source.execute("INSERT INTO categories VALUES ('category-1', 'Collectibles')")
+    source.execute(
+        """CREATE TABLE items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category_id TEXT NOT NULL,
+            value TEXT NOT NULL,
+            FOREIGN KEY(category_id) REFERENCES categories(id) ON DELETE CASCADE
+        )"""
+    )
+    source.execute("INSERT INTO items(category_id, value) VALUES ('category-1', 'first')")
+    source.execute("INSERT INTO items(category_id, value) VALUES ('category-1', 'deleted-high-water')")
     source.execute("DELETE FROM items WHERE id = 2")
     source.commit()
     source.close()
@@ -47,6 +58,7 @@ def test_shadow_migration_creates_schema_and_copies_all_rows_atomically(tmp_path
             assert report["migration"]["schema_objects"]["indexes_found"] == report["migration"]["schema_objects"]["indexes_expected"]
             assert report["migration"]["schema_objects"]["triggers_found"] == report["migration"]["schema_objects"]["triggers_expected"]
             assert report["migration"]["schema_objects"]["foreign_keys_found"] == report["migration"]["schema_objects"]["foreign_keys_expected"]
+            assert report["migration"]["schema_objects"]["foreign_keys_semantically_verified"] is True
             assert report["migration"]["schema_objects"]["check_constraints_found"] == report["migration"]["schema_objects"]["check_constraints_expected"]
             assert report["migration"]["tables"][0]["content_verified"] is True
             assert report["migration"]["identity_sequences"] == [{
