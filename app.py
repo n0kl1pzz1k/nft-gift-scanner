@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 
 import marketplace
+from database import list_database_tables, list_database_columns
 from db_schema_audit import build_runtime_inventory, build_postgres_migration_gate_summary
 from urllib.parse import parse_qsl
 from pydantic import BaseModel
@@ -631,23 +632,13 @@ async def readiness():
     try:
         with marketplace._db() as connection:
             connection.execute("SELECT 1").fetchone()
-            existing = {
-                row["name"]
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                ).fetchall()
-            }
+            existing = list_database_tables(connection)
             missing = [table for table in _READINESS_TABLES if table not in existing]
             missing_columns = []
             for table, required_columns in _READINESS_COLUMNS.items():
                 if table not in existing:
                     continue
-                actual_columns = {
-                    row["name"]
-                    for row in connection.execute(
-                        f"PRAGMA table_info(\"{table}\")"
-                    ).fetchall()
-                }
+                actual_columns = list_database_columns(connection, table)
                 missing_columns.extend(
                     f"{table}.{column}"
                     for column in sorted(required_columns - actual_columns)
