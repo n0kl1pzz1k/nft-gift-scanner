@@ -106,6 +106,8 @@ def apply_schema(source_path: str, dsn: str, apply: bool = False, target_schema:
                 if target_schema:
                     cursor.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(target_schema)))
                 schema = cursor.execute("SELECT current_schema()").fetchone()[0]
+                if not schema:
+                    raise RuntimeError("PostgreSQL target schema does not exist or is not visible in search_path.")
                 existing_objects = cursor.execute(
                     """
                     SELECT
