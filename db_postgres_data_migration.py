@@ -219,6 +219,9 @@ def migrate(source_path: str, dsn: str, batch_size: int, execute: bool) -> dict[
                         expected = next(item["source_rows"] for item in report["tables"] if item["table"] == name)
                         if copied != expected:
                             raise RuntimeError(f"Copied row count mismatch for {name}: {copied} != {expected}")
+                    # Flush deferred FK checks before ALTER TABLE; pending
+                    # constraint trigger events otherwise block trigger DDL.
+                    cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
                     for table in tables:
                         cursor.execute(
                             sql.SQL("ALTER TABLE {} ENABLE TRIGGER USER").format(
