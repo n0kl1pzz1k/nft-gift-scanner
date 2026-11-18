@@ -241,6 +241,15 @@ def _postgres_type_candidate(table_name: str, column: dict[str, Any], table_ddl:
             "mapping_confidence": "conditional",
             "mapping_reason": "Preserves SQLite 64-bit integer key range and requires explicit sequence high-water restoration.",
         }
+    # Historical catalogue snapshots store fractional Unix timestamps in
+    # this legacy INTEGER-affinity column. PostgreSQL BIGINT cannot represent
+    # fractional seconds; DOUBLE PRECISION preserves SQLite REAL values.
+    if table_name == "catalogue_gift_snapshots" and name == "observed_at":
+        return {
+            "postgresql_type_candidate": "DOUBLE PRECISION",
+            "mapping_confidence": "conditional",
+            "mapping_reason": "Production data contains fractional Unix timestamps; preserve sub-second precision.",
+        }
     if affinity == "INTEGER":
         boolean_columns = {
             "is_enabled", "can_view_gifts_and_stars",
@@ -663,6 +672,48 @@ def build_postgres_data_preflight(
                 "integer_conversion_safe": non_integer_count == 0,
             })
 
+    real_profiles: list[dict[str, Any]] = []
+    for table in schema.get("tables", []):
+        table_name = str(table.get("name", ""))
+        table_ddl = str(table.get("sql") or "")
+        candidates = [
+            column for column in table.get("columns", [])
+            if _postgres_type_candidate(table_name, column, table_ddl)["postgresql_type_candidate"] == "DOUBLE PRECISION"
+        ]
+        if not candidates:
+            continue
+        expressions: list[str] = []
+        for column in candidates:
+            quoted_column = _quote_identifier(str(column.get("name", "")))
+            for storage_class in ("integer", "real", "text", "blob"):
+                expressions.append(
+                    "COALESCE(SUM(CASE WHEN "
+                    f"typeof({quoted_column}) = '{storage_class}' THEN 1 ELSE 0 END), 0)"
+                )
+        aggregate = connection.execute(
+            "SELECT COUNT(*), " + ", ".join(expressions) + f" FROM {_quote_identifier(table_name)}"
+        ).fetchone()
+        total_rows = int(aggregate[0])
+        offset = 1
+        for column in candidates:
+            integer_count, real_count, text_count, blob_count = (
+                int(aggregate[offset]), int(aggregate[offset + 1]),
+                int(aggregate[offset + 2]), int(aggregate[offset + 3])
+            )
+            offset += 4
+            non_numeric_count = text_count + blob_count
+            real_profiles.append({
+                "table": table_name,
+                "column": str(column.get("name", "")),
+                "total_rows": total_rows,
+                "integer_storage_count": integer_count,
+                "real_storage_count": real_count,
+                "text_storage_count": text_count,
+                "blob_storage_count": blob_count,
+                "non_numeric_storage_count": non_numeric_count,
+                "real_conversion_safe": non_numeric_count == 0,
+            })
+
     return {
         "format_version": 1,
         "target_engine": "postgresql",
@@ -674,6 +725,10 @@ def build_postgres_data_preflight(
         "unsafe_integer_column_count": sum(not item["integer_conversion_safe"] for item in integer_profiles),
         "non_integer_storage_value_count": sum(item["non_integer_storage_count"] for item in integer_profiles),
         "integer_columns": integer_profiles,
+        "real_profiled_column_count": len(real_profiles),
+        "unsafe_real_column_count": sum(not item["real_conversion_safe"] for item in real_profiles),
+        "non_numeric_storage_value_count": sum(item["non_numeric_storage_count"] for item in real_profiles),
+        "real_columns": real_profiles,
         "ready_for_cutover": False,
         "scope_note": "Aggregate-only BOOLEAN and BIGINT storage-class profile; no application row values are returned. This does not authorize cutover.",
     }
@@ -710,5 +765,27 @@ def build_postgres_migration_gate_summary(inventory: dict[str, Any]) -> dict[str
         "integer_column_count": int(preflight.get("integer_profiled_column_count", 0)),
         "unsafe_integer_column_count": int(preflight.get("unsafe_integer_column_count", 0)),
         "non_integer_storage_value_count": int(preflight.get("non_integer_storage_value_count", 0)),
+        "real_column_count": int(preflight.get("real_profiled_column_count", 0)),
+        "unsafe_real_column_count": int(preflight.get("unsafe_real_column_count", 0)),
+        "non_numeric_storage_value_count": int(preflight.get("non_numeric_storage_value_count", 0)),
+        "unsafe_integer_columns": [
+            {
+                "table": item["table"], "column": item["column"],
+                "real": int(item["real_storage_count"]),
+                "text": int(item["text_storage_count"]),
+                "blob": int(item["blob_storage_count"]),
+            }
+            for item in preflight.get("integer_columns", [])
+            if not item.get("integer_conversion_safe", False)
+        ],
+        "unsafe_real_columns": [
+            {
+                "table": item["table"], "column": item["column"],
+                "text": int(item["text_storage_count"]),
+                "blob": int(item["blob_storage_count"]),
+            }
+            for item in preflight.get("real_columns", [])
+            if not item.get("real_conversion_safe", False)
+        ],
         "cutover_allowed": bool(inventory.get("postgresql_ddl_plan", {}).get("ready_for_cutover", False)),
     }
