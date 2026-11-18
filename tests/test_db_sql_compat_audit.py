@@ -36,6 +36,15 @@ def test_audit_finds_sqlite_runtime_assumptions_without_source_or_data_leaks(tmp
     assert report["source_files"] == ["app.py", "marketplace.py", "marketplace_offers.py", "ton_connect.py"]
     assert report["ready_for_postgresql_runtime"] is False
     assert report["blocker_count"] >= 8
+    adapter_findings = [
+        item for item in report["findings"]
+        if item["severity"] == "postgres_adapter"
+    ]
+    assert {
+        "sqlite_qmark_parameters",
+        "sqlite_autoincrement",
+        "sqlite_row_factory",
+    } <= {item["feature"] for item in adapter_findings}
     features = {item["feature"] for item in report["findings"]}
     assert {
         "sqlite_connection_factory",
@@ -118,7 +127,9 @@ def test_repository_sqlite_only_code_is_confined_to_explicit_fallback_functions(
     assert report["blocker_count"] == 0
     assert report["static_blockers_clear"] is True
     assert report["sqlite_fallback_count"] >= 34
-    assert report["ready_for_postgresql_runtime"] is False
+    assert report["postgres_adapter_count"] >= 327
+    assert report["review_count"] == 0
+    assert report["ready_for_postgresql_runtime"] is True
 
     fallback_functions = {
         (item["file"], item["function"])
