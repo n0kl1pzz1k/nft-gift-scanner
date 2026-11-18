@@ -82,6 +82,23 @@ class DatabaseConnectionBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Unsupported database connection"):
             list_database_columns(object(), "sample")
 
+    def test_shared_connect_boundary_accepts_explicit_legacy_path(self):
+        from database import connect
+
+        connection = sqlite3.connect(":memory:")
+        with patch("database.connect_database", return_value=connection) as sqlite_factory:
+            opened = connect("legacy/test.sqlite3")
+        self.assertIs(opened, connection)
+        sqlite_factory.assert_called_once_with("legacy/test.sqlite3")
+        connection.close()
+
+    def test_db_context_forwards_explicit_path_to_shared_factory(self):
+        connection = sqlite3.connect(":memory:", isolation_level=None)
+        with patch("database.connect", return_value=connection) as shared_factory:
+            with db("legacy/test.sqlite3") as yielded:
+                self.assertIs(yielded, connection)
+            shared_factory.assert_called_once_with("legacy/test.sqlite3")
+
     def test_db_context_closes_connection_without_adding_transaction_semantics(self):
         connection = sqlite3.connect(":memory:", isolation_level=None)
         with patch("database.connect", return_value=connection):
