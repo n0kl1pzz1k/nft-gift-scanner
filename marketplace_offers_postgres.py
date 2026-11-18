@@ -161,8 +161,8 @@ def initialize_postgres_offer_schema(connection: Any) -> dict[str, Any]:
     legacy_unique = execute(
         "SELECT indexname FROM pg_indexes "
         "WHERE schemaname = current_schema() AND tablename = 'marketplace_deals' "
-        "AND indexdef ILIKE 'CREATE UNIQUE INDEX%' "
-        "AND indexdef ILIKE '%(order_id)%' AND indexdef NOT ILIKE '% WHERE %'"
+        "AND indexdef ILIKE 'CREATE UNIQUE INDEX%%' "
+        "AND indexdef ILIKE '%%(order_id)%%' AND indexdef NOT ILIKE '%% WHERE %%'"
     ).fetchall()
     if legacy_unique:
         raise RuntimeError(
