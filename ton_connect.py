@@ -15,6 +15,7 @@ import time
 from typing import Any
 
 from marketplace import _db
+from database import begin_write, select_for_update
 
 # Official TON standard wallet code hashes. Layouts are version-specific.
 _WALLET_LAYOUTS = {
@@ -71,7 +72,7 @@ def create_proof_challenge(telegram_id: str, session_token: str, now: int | None
     payload_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     session_hash = hashlib.sha256(session_token.encode("utf-8")).hexdigest()
     with _db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+        begin_write(conn, f"ton-session:{user_id}:{session_hash}")
         conn.execute("DELETE FROM ton_proof_challenges WHERE expires_at <= ? OR consumed_at IS NOT NULL", (issued_at,))
         conn.execute(
             "DELETE FROM ton_proof_challenges WHERE telegram_id = ? AND session_hash = ? AND consumed_at IS NULL",
@@ -232,10 +233,20 @@ def consume_challenge_and_link_wallet(
     payload_hash = hashlib.sha256(verified["payload"].encode("utf-8")).hexdigest()
     session_hash = hashlib.sha256(session_token.encode("utf-8")).hexdigest()
     with _db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+        initial = conn.execute(
+            "SELECT telegram_id, session_hash FROM ton_proof_challenges WHERE payload_hash = ?",
+            (payload_hash,),
+        ).fetchone()
+        if initial is None:
+            return False
+        begin_write(
+            conn,
+            f"ton-session:{initial['telegram_id']}:{initial['session_hash']}",
+            f"ton-challenge:{payload_hash}",
+        )
         challenge = conn.execute(
-            """SELECT telegram_id, session_hash FROM ton_proof_challenges
-               WHERE payload_hash = ? AND expires_at > ? AND consumed_at IS NULL""",
+            select_for_update(conn, """SELECT telegram_id, session_hash FROM ton_proof_challenges
+               WHERE payload_hash = ? AND expires_at > ? AND consumed_at IS NULL"""),
             (payload_hash, current),
         ).fetchone()
         if challenge is None or challenge["telegram_id"] != str(telegram_id) or challenge["session_hash"] != session_hash:
