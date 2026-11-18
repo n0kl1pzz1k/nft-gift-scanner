@@ -17,7 +17,7 @@ from typing import Callable, Literal
 from fastapi import APIRouter, Header, HTTPException, Query
 
 from marketplace import _enforce_user_rate_limit, _verified_asset_actions_enabled, _test_unverified_assets_allowed, _migrate_legacy_marketplace_table_names
-from database import begin_write, select_for_update
+from database import begin_write, select_for_update, require_sqlite_connection
 from pydantic import BaseModel, Field, field_validator
 
 DB_PATH = os.getenv("HASSLE_NFT_DB_PATH", os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3")))
