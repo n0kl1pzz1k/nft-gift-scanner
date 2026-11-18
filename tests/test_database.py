@@ -243,6 +243,7 @@ class StagedPostgresConnectionFactoryTests(unittest.TestCase):
         from types import SimpleNamespace
         from unittest.mock import Mock, patch
 
+        import database
         from database import connect, connect_postgres_database
         from db_postgres_compat import PostgresConnectionAdapter
 
@@ -265,6 +266,6 @@ class StagedPostgresConnectionFactoryTests(unittest.TestCase):
             default_connection = connect()
             try:
                 self.assertIsInstance(default_connection, sqlite3.Connection)
-                sqlite_factory.assert_called_once()
+                sqlite_factory.assert_called_once_with(database.DB_PATH)
             finally:
                 default_connection.close()
