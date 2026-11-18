@@ -28,3 +28,9 @@ def test_ordered_select_falls_back_to_all_columns_without_primary_key():
     statement, columns = _ordered_select(connection, manifest["tables"][0])
     assert 'ORDER BY "a", "b"' in statement
     connection.close()
+
+
+
+def test_fingerprint_is_independent_of_row_order():
+    rows = [(1, "alpha"), (2, "beta"), (3, None)]
+    assert _fingerprint(rows) == _fingerprint(list(reversed(rows)))
