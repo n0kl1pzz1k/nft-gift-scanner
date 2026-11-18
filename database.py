@@ -155,7 +155,7 @@ def db(database_path: str | Path | None = None) -> Iterator[sqlite3.Connection]:
     This context manager does not begin, commit, or roll back transactions.
     Callers retain the existing explicit transaction/autocommit semantics.
     """
-    connection = connect(database_path)
+    connection = connect() if database_path is None else connect(database_path)
     try:
         yield connection
     finally:
