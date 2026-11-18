@@ -126,6 +126,11 @@ def build_migration_preflight(
         source_boolean_profile["unsafe_integer_column_count"] == 0
         and backup_boolean_profile["unsafe_integer_column_count"] == 0
     )
+    real_profiles_match = source_boolean_profile["real_columns"] == backup_boolean_profile["real_columns"]
+    real_conversion_safe_in_both = (
+        source_boolean_profile["unsafe_real_column_count"] == 0
+        and backup_boolean_profile["unsafe_real_column_count"] == 0
+    )
     runtime = audit_source_tree(repository_root)
     left.pop("schema_manifest")
     right.pop("schema_manifest")
@@ -167,8 +172,19 @@ def build_migration_preflight(
             ),
             "scope_note": "Aggregate storage-class counts only; no SQLite application values are returned.",
         },
+        "postgresql_real_data_preflight": {
+            "source": source_boolean_profile,
+            "backup": backup_boolean_profile,
+            "profiles_match": real_profiles_match,
+            "conversion_safe_in_both": real_conversion_safe_in_both,
+            "unsafe_column_count": (
+                source_boolean_profile["unsafe_real_column_count"]
+                + backup_boolean_profile["unsafe_real_column_count"]
+            ),
+            "scope_note": "Aggregate storage-class counts only for DOUBLE PRECISION candidates; no row values are returned.",
+        },
         "postgresql_runtime_compatibility": runtime,
-        "ready_for_shadow_migration": exact_match and integer_conversion_safe_in_both and source_boolean_profile["unsafe_column_count"] == 0 and backup_boolean_profile["unsafe_column_count"] == 0,
+        "ready_for_shadow_migration": exact_match and integer_conversion_safe_in_both and real_conversion_safe_in_both and source_boolean_profile["unsafe_column_count"] == 0 and backup_boolean_profile["unsafe_column_count"] == 0,
         "postgresql_cutover_allowed": False,
         "cutover_note": (
             "An exact SQLite backup match is only a prerequisite. PostgreSQL schema, "
