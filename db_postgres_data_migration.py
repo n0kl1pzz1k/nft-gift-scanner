@@ -82,6 +82,44 @@ def _pg_identifier(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
 
 
+def _validate_target_schema(cursor: Any, tables: list[dict[str, Any]]) -> set[str]:
+    """Require an exact target table/column layout before any copy is attempted."""
+    source_names = {str(item["name"]) for item in tables}
+    target_names = {
+        str(row[0]) for row in cursor.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'"
+        ).fetchall()
+    }
+    missing = sorted(source_names - target_names)
+    extra = sorted(target_names - source_names)
+    if missing or extra:
+        raise RuntimeError(
+            f"Target table set does not exactly match the verified SQLite backup: "
+            f"missing={missing}, extra={extra}"
+        )
+
+    for table in tables:
+        name = str(table["name"])
+        expected = {
+            str(column["name"]) for column in table["columns"]
+            if int(column.get("hidden", 0)) == 0
+        }
+        actual = {
+            str(row[0]) for row in cursor.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = current_schema() AND table_name = %s",
+                (name,),
+            ).fetchall()
+        }
+        if actual != expected:
+            raise RuntimeError(
+                f"Target columns for {name} do not exactly match the verified SQLite backup: "
+                f"missing={sorted(expected - actual)}, extra={sorted(actual - expected)}"
+            )
+    return target_names
+
+
 def migrate(source_path: str, dsn: str, batch_size: int, execute: bool) -> dict[str, Any]:
     source = Path(source_path).expanduser().resolve(strict=True)
     source_uri = f"file:{source.as_posix()}?mode=ro"
@@ -138,15 +176,7 @@ def migrate(source_path: str, dsn: str, batch_size: int, execute: bool) -> dict[
         with psycopg.connect(dsn, autocommit=False) as pg:
             with pg.cursor() as cursor:
                 cursor.execute("SET CONSTRAINTS ALL DEFERRED")
-                target_tables = {
-                    row[0] for row in cursor.execute(
-                        "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_type='BASE TABLE'"
-                    ).fetchall()
-                }
-                source_names = {str(item["name"]) for item in tables}
-                missing = sorted(source_names - target_tables)
-                if missing:
-                    raise RuntimeError(f"Target is missing tables: {missing}")
+                _validate_target_schema(cursor, tables)
                 for table in tables:
                     name = str(table["name"])
                     select_sql, columns = _ordered_select(sqlite, table)
