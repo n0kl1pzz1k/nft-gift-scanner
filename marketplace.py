@@ -40,7 +40,7 @@ _SECURITY_AUDIT_ACTIONS = {
     "admin_asset_revoked",
 }
 _SECURITY_AUDIT_TARGET_TYPES = {"session", "account", "wallet", "order_report", "order", "user", "admin_role", "reconciliation", "asset"}
-_SECURITY_AUDIT_METADATA_KEYS = {"network", "report_id", "order_id", "revoked_count", "reason", "role", "status", "resolution_action"}
+_SECURITY_AUDIT_METADATA_KEYS = {"network", "report_id", "order_id", "revoked_count", "reason", "role", "status", "resolution_action", "reason_hash"}
 
 
 def insert_security_audit_event(
@@ -82,6 +82,8 @@ def insert_security_audit_event(
         elif key == "status" and value in {"active", "suspended"}:
             safe_metadata[key] = value
         elif key == "resolution_action" and value in {"resolve", "ignore"}:
+            safe_metadata[key] = value
+        elif key == "reason_hash" and isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value):
             safe_metadata[key] = value
     target_hash = hashlib.sha256(f"{target_type}:{target}".encode("utf-8")).hexdigest()
     event_id = "sa_" + uuid.uuid4().hex[:24]
