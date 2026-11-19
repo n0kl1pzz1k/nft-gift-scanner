@@ -173,6 +173,8 @@ def create_payment_intent(
 ) -> dict[str, Any]:
     if provider not in PAYMENT_PROVIDERS:
         raise ValueError("Unsupported payment provider")
+    if currency not in PAYMENT_CURRENCIES:
+        raise ValueError("Unsupported payment currency")
     expected_currency = {"telegram_stars": "XTR", "ton": "TON"}[provider]
     if currency != expected_currency:
         raise ValueError("Payment provider and currency do not match")
