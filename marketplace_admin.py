@@ -68,6 +68,22 @@ def get_admin_access(telegram_id: str | int) -> dict[str, Any] | None:
     return {"telegram_id": actor, "role": str(row["role"]), "permissions": permissions}
 
 
+def get_admin_ids_with_permission(permission: str) -> set[str]:
+    """Return active, configured administrators eligible for a specific two-person approval."""
+    ids = set(_environment_admins())
+    if permission not in ALL_PERMISSIONS:
+        return ids
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT telegram_id FROM marketplace_admin_roles WHERE revoked_at IS NULL"
+        ).fetchall()
+    for row in rows:
+        access = get_admin_access(str(row["telegram_id"]))
+        if access is not None and permission in access["permissions"]:
+            ids.add(str(row["telegram_id"]))
+    return ids
+
+
 def user_is_suspended(telegram_id: str | int) -> bool:
     actor = str(telegram_id).strip()
     if not actor.isdigit():
