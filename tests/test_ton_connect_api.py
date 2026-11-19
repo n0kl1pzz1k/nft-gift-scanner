@@ -66,6 +66,50 @@ class TonConnectApiTests(unittest.TestCase):
         self.assertEqual(len(wallets.json()["items"]), 1)
         self.assertEqual(wallets.json()["items"][0]["address"], verified["address"])
 
+    def test_ton_proof_challenge_is_rate_limited_per_account(self):
+        with patch.object(app, "_enforce_user_rate_limit") as limiter:
+            response = self.client.post(
+                "/api/ton-proof/payload",
+                headers={"X-Telegram-Init-Data": self.session},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        limiter.assert_called_once_with("101", "ton_proof_payload", 10, 60)
+
+    def test_ton_proof_verification_is_rate_limited_before_signature_work(self):
+        challenge = self.client.post(
+            "/api/ton-proof/payload",
+            headers={"X-Telegram-Init-Data": self.session},
+        ).json()["payload"]
+        request = {
+            "address": "0:" + "a" * 64,
+            "network": "-239",
+            "public_key": "b" * 64,
+            "state_init": "c3RhdGU=",
+            "proof": {
+                "timestamp": 1800000000,
+                "domain": {"lengthBytes": 40, "value": "hassle-nft-market.fj7kmzkhn9.workers.dev"},
+                "signature": "c2ln",
+                "payload": challenge,
+            },
+        }
+        verified = {
+            "address": request["address"],
+            "network": "-239",
+            "public_key": request["public_key"],
+            "state_init_hash": "c" * 64,
+            "payload": challenge,
+        }
+        with patch.object(app, "_enforce_user_rate_limit") as limiter, \
+             patch.object(app, "verify_ton_proof", return_value=verified), \
+             patch.object(app, "consume_challenge_and_link_wallet", return_value=True):
+            response = self.client.post(
+                "/api/ton-proof/verify",
+                headers={"X-Telegram-Init-Data": self.session},
+                json=request,
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        limiter.assert_called_once_with("101", "ton_proof_verify", 10, 60)
+
     def test_wallet_challenge_requires_authenticated_telegram_session(self):
         response = self.client.post("/api/ton-proof/payload")
         self.assertEqual(response.status_code, 401)

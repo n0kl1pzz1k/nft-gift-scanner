@@ -11,7 +11,7 @@ from pathlib import Path
 import marketplace
 from database import list_database_tables, list_database_columns
 from db_schema_audit import build_runtime_inventory, build_postgres_runtime_inventory, build_postgres_migration_gate_summary
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, urlsplit
 from pydantic import BaseModel
 
 from fastapi import FastAPI, HTTPException, Header, Request, Response
@@ -117,11 +117,49 @@ def _resolve_webhook_secret(bot_token: str) -> str:
 _CORS_DEFAULT_ORIGINS = [
     "https://hassle-nft-market.fj7kmzkhn9.workers.dev",
 ]
-_CORS_ALLOWED_ORIGINS = [
-    origin.strip().rstrip("/")
-    for origin in os.getenv("CORS_ALLOWED_ORIGINS", ",".join(_CORS_DEFAULT_ORIGINS)).split(",")
-    if origin.strip()
-]
+
+
+def _validate_cors_origins(raw_origins: str, *, app_env: str | None = None) -> list[str]:
+    """Accept explicit HTTPS origins only; never permit wildcard or credential-bearing origins."""
+    environment = (app_env or os.getenv("APP_ENV", "production")).strip().lower()
+    allow_local_http = environment in {"test", "development"}
+    origins: list[str] = []
+    for raw_origin in str(raw_origins or "").split(","):
+        origin = raw_origin.strip().rstrip("/")
+        if not origin:
+            continue
+        parsed = urlsplit(origin)
+        try:
+            parsed.port
+        except ValueError as exc:
+            raise RuntimeError("CORS_ALLOWED_ORIGINS contains an invalid port") from exc
+        local_http = (
+            allow_local_http
+            and parsed.scheme == "http"
+            and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+        )
+        if (
+            origin == "*"
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or (parsed.scheme != "https" and not local_http)
+        ):
+            raise RuntimeError("CORS_ALLOWED_ORIGINS must contain only explicit HTTPS origins")
+        canonical = f"{parsed.scheme}://{parsed.netloc}"
+        if canonical not in origins:
+            origins.append(canonical)
+    if not origins:
+        raise RuntimeError("CORS_ALLOWED_ORIGINS must contain at least one valid origin")
+    return origins
+
+
+_CORS_ALLOWED_ORIGINS = _validate_cors_origins(
+    os.getenv("CORS_ALLOWED_ORIGINS", ",".join(_CORS_DEFAULT_ORIGINS))
+)
 
 @app.middleware("http")
 async def maintenance_mode_guard(request: Request, call_next):
@@ -149,6 +187,35 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-Telegram-Init-Data"],
     max_age=600,
 )
+
+MAX_TELEGRAM_WEBHOOK_BODY_BYTES = 1_048_576
+
+
+async def _read_limited_request_body(request: Request, max_bytes: int) -> bytes:
+    """Read request chunks incrementally and reject oversized bodies before buffering them all."""
+    if max_bytes < 1:
+        raise ValueError("max_bytes must be positive")
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared_length = int(content_length)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid content length")
+        if declared_length < 0:
+            raise HTTPException(status_code=400, detail="Invalid content length")
+        if declared_length > max_bytes:
+            raise HTTPException(status_code=413, detail="Telegram update is too large")
+
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        if not isinstance(chunk, bytes):
+            raise HTTPException(status_code=400, detail="Invalid request body")
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(status_code=413, detail="Telegram update is too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 class TelegramAuthRequest(BaseModel):
     init_data: str
@@ -249,6 +316,7 @@ def _require_admin(credential: str | None) -> dict:
 @app.post("/api/auth/telegram")
 async def telegram_auth(payload: TelegramAuthRequest):
     user = _verify_telegram_init_data(payload.init_data)
+    _enforce_user_rate_limit(str(user["id"]), "telegram_auth_exchange", 30, 60)
     if not consume_telegram_init_data(payload.init_data, str(user["id"])):
         raise HTTPException(status_code=409, detail="This Telegram initData was already exchanged; reopen the Mini App")
     profile = upsert_telegram_user(user)
@@ -313,16 +381,7 @@ async def telegram_webhook(
     ):
         raise HTTPException(status_code=403, detail="Invalid Telegram webhook secret")
 
-    content_length = request.headers.get("content-length")
-    if content_length:
-        try:
-            if int(content_length) > 1_048_576:
-                raise HTTPException(status_code=413, detail="Telegram update is too large")
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid content length")
-    raw_body = await request.body()
-    if len(raw_body) > 1_048_576:
-        raise HTTPException(status_code=413, detail="Telegram update is too large")
+    raw_body = await _read_limited_request_body(request, MAX_TELEGRAM_WEBHOOK_BODY_BYTES)
     try:
         payload = json.loads(raw_body)
         if not isinstance(payload, dict):
@@ -355,6 +414,7 @@ async def telegram_webhook(
 async def ton_proof_payload(x_telegram_init_data: str | None = Header(default=None)):
     credential = x_telegram_init_data or ""
     user = _authenticate_telegram_credential(credential)
+    _enforce_user_rate_limit(str(user["id"]), "ton_proof_payload", 10, 60)
     try:
         payload = create_proof_challenge(str(user["id"]), credential)
     except ValueError as exc:
@@ -369,6 +429,7 @@ async def ton_proof_verify(
 ):
     credential = x_telegram_init_data or ""
     user = _authenticate_telegram_credential(credential)
+    _enforce_user_rate_limit(str(user["id"]), "ton_proof_verify", 10, 60)
     expected_domain = os.getenv(
         "TON_CONNECT_DOMAIN",
         "hassle-nft-market.fj7kmzkhn9.workers.dev",

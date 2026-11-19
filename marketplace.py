@@ -1505,7 +1505,8 @@ def create_marketplace_router(
     ):
         if verify_admin is None:
             raise HTTPException(status_code=503, detail="Admin moderation is not configured")
-        verify_admin(x_telegram_init_data)
+        admin = verify_admin(x_telegram_init_data)
+        _enforce_user_rate_limit(str(admin["id"]), "list_order_reports", 60)
         where = ""
         values: list[object] = []
         if status != "all":
