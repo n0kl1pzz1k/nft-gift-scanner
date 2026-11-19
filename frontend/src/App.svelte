@@ -669,9 +669,13 @@
 
   function activityLabel(item: AccountActivity) {
     const labels: Record<string,string> = {
-      order_created:t.orderCreatedActivity, order_updated:t.orderUpdatedActivity, order_simulated_fill:t.orderFilledActivity,
+      order_created:t.orderCreatedActivity, order_updated:t.orderUpdatedActivity, order_filled:t.orderFilledActivity,
       order_cancelled:t.orderCancelledActivity, offer_received:t.offerReceivedActivity,
-      offer_accepted:t.offerAcceptedActivity, offer_declined:t.offerDeclinedActivity,      offer_withdrawn:t.offerWithdrawnActivity, demo_deal_created:t.dealCreatedActivity,
+      offer_accepted:t.offerAcceptedActivity, offer_declined:t.offerDeclinedActivity, offer_withdrawn:t.offerWithdrawnActivity,
+      deal_created:lang==='ru'?'Сделка создана':'Deal created',
+      listing_reserved:lang==='ru'?'Объявление зарезервировано':'Listing reserved',
+      payment_not_enabled:lang==='ru'?'Оплата пока недоступна':'Payment not enabled',
+      deal_cancelled:lang==='ru'?'Резерв отменён':'Reservation cancelled',
     };
     return labels[item.type] || item.type;
   }
