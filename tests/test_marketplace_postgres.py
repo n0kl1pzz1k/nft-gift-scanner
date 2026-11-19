@@ -677,3 +677,106 @@ def test_postgres_offer_creation_racing_listing_cancel_leaves_no_pending_offer()
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
             admin.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+
+
+
+def test_postgres_concurrent_duplicate_listings_are_serialized_per_asset():
+    """Two concurrent listing attempts for one verified NFT must produce one active listing."""
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+    from threading import Barrier
+    from unittest.mock import patch
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    import psycopg
+    import database
+    import marketplace
+    from marketplace import create_marketplace_router
+
+    schema = "listing_race_" + uuid.uuid4().hex[:10]
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(f'CREATE SCHEMA "{schema}"')
+
+    @contextmanager
+    def scoped_connection():
+        connection = database.connect()
+        try:
+            yield connection
+        finally:
+            connection.close()
+
+    try:
+        with patch.dict(os.environ, {
+            "HASSLE_NFT_DB_BACKEND": "postgres",
+            "DATABASE_URL": dsn,
+            "HASSLE_POSTGRES_SCHEMA": schema,
+            "HASSLE_VERIFIED_ASSETS_ENABLED": "true",
+        }, clear=False), patch.object(
+            marketplace, "_db", side_effect=scoped_connection
+        ):
+            marketplace.init_marketplace_db()
+            marketplace.upsert_telegram_user({
+                "id": "101", "username": "seller", "first_name": "Seller",
+            })
+            asset = marketplace.register_verified_asset(
+                source="ton_nft",
+                external_asset_id="ton-nft-duplicate-listing-race",
+                owner_telegram_id="101",
+                title="Verified duplicate-listing gift",
+                asset_type="gift",
+                image_url="",
+                verification_method="ton_connect_proof",
+                verification_reference="duplicate-listing-race-verification-reference",
+            )
+
+            api = FastAPI()
+            def verify_user(_value):
+                return {"id": "101", "first_name": "Seller", "username": "seller"}
+            api.include_router(create_marketplace_router(verify_user))
+
+            with patch.object(
+                marketplace, "_verified_asset_actions_enabled", return_value=True
+            ), patch.object(
+                marketplace, "_test_ton_owner_recheck_skipped", return_value=True
+            ), TestClient(api) as client:
+                barrier = Barrier(2)
+                def create_listing():
+                    barrier.wait(timeout=10)
+                    return client.post(
+                        "/api/marketplace/orders",
+                        headers={"X-Telegram-Init-Data": "seller"},
+                        json={
+                            "kind": "listing",
+                            "asset_id": asset["id"],
+                            "title": "Client title is ignored",
+                            "price": "5",
+                            "currency": "TON",
+                        },
+                    )
+
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    responses = list(executor.map(lambda _index: create_listing(), range(2)))
+
+            assert sorted(response.status_code for response in responses) == [201, 409]
+            with database.db() as conn:
+                active_count = conn.execute(
+                    "SELECT COUNT(*) FROM marketplace_orders WHERE asset_id=? AND status='active'",
+                    (asset["id"],),
+                ).fetchone()[0]
+                total_count = conn.execute(
+                    "SELECT COUNT(*) FROM marketplace_orders WHERE asset_id=?",
+                    (asset["id"],),
+                ).fetchone()[0]
+
+            assert active_count == 1
+            assert total_count == 1
+
+    finally:
+        with psycopg.connect(dsn, autocommit=True) as admin:
+            admin.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
