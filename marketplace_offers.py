@@ -330,6 +330,10 @@ class TonNftDeliveryPrepareRequest(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=128)
 
 
+class TonNftDeliverySubmittedRequest(BaseModel):
+    boc: str = Field(min_length=20, max_length=20000)
+
+
 class TonNftDeliveryConfirmRequest(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=128)
 
@@ -1206,8 +1210,9 @@ def create_marketplace_offers_router(
                     )
                 else:
                     existing = conn.execute(
-                        "SELECT 1 FROM marketplace_escrow_events WHERE event_key = ?",
-                        (f"{deal_id}:ton-nft-delivery:{payload.idempotency_key}",),
+                        """SELECT 1 FROM marketplace_escrow_events
+                           WHERE deal_id = ? AND event_type = 'asset_transfer_requested'""",
+                        (deal_id,),
                     ).fetchone()
                     if existing is None:
                         conn.rollback()
@@ -1234,6 +1239,53 @@ def create_marketplace_offers_router(
             "buyer_wallet": buyer_address,
             "asset_title": str(deal["asset_title"]),
         }
+
+
+    @router.post("/deals/{deal_id}/ton-nft-delivery/submitted")
+    async def record_ton_nft_delivery_submission(
+        deal_id: str,
+        payload: TonNftDeliverySubmittedRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Record a wallet-submitted BOC digest without treating it as proof of delivery."""
+        import base64
+        import hashlib
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        seller_id = str(user["id"])
+        _enforce_user_rate_limit(seller_id, "ton_nft_delivery_submitted", 10)
+        try:
+            raw_boc = base64.b64decode(payload.boc, validate=True)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="TON wallet returned an invalid BOC") from exc
+        if not raw_boc or len(raw_boc) > 12000:
+            raise HTTPException(status_code=422, detail="TON wallet BOC is outside the allowed size")
+        digest = hashlib.sha256(raw_boc).hexdigest()
+        with _db() as conn:
+            deal = conn.execute(
+                "SELECT listing_owner_id, status FROM marketplace_deals WHERE id = ?",
+                (deal_id,),
+            ).fetchone()
+            if deal is None or str(deal["listing_owner_id"]) != seller_id:
+                raise HTTPException(status_code=404, detail="Deal not found")
+            if deal["status"] != "delivery_pending":
+                raise HTTPException(status_code=409, detail="Deal is not awaiting asset delivery")
+            begin_write(conn, f"deal:{deal_id}")
+            from marketplace_payments import append_escrow_event
+            try:
+                event = append_escrow_event(
+                    conn,
+                    deal_id=deal_id,
+                    actor_user_id=seller_id,
+                    event_type="asset_transfer_submitted",
+                    event_key=f"{deal_id}:ton-nft-boc:{digest}",
+                    event_data={"wallet_boc_sha256": digest, "network": "ton-mainnet"},
+                    now=int(time.time()),
+                )
+            except Exception as exc:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Could not record the wallet submission") from exc
+            conn.commit()
+        return {"deal_id": deal_id, "status": "delivery_pending", "submission_recorded": True, "idempotent_replay": event["idempotent_replay"]}
 
 
     @router.post("/deals/{deal_id}/ton-nft-delivery/confirm")
