@@ -1856,3 +1856,45 @@ class SharedMarketplaceTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["total"], len(payload["items"]))
         self.assertNotIn("legacy_unverified", {item["type"] for item in payload["items"]})
+
+
+class RequestBodyLimitTests(unittest.IsolatedAsyncioTestCase):
+    class FakeRequest:
+        def __init__(self, chunks, headers=None):
+            self.headers = headers or {}
+            self._chunks = list(chunks)
+            self.yielded = 0
+
+        async def stream(self):
+            for chunk in self._chunks:
+                self.yielded += 1
+                yield chunk
+
+    async def test_streaming_body_reader_accepts_body_at_limit(self):
+        request = self.FakeRequest([b"abc", b"def"])
+        result = await api._read_limited_request_body(request, 6)
+        self.assertEqual(result, b"abcdef")
+        self.assertEqual(request.yielded, 2)
+
+    async def test_streaming_body_reader_rejects_chunked_body_before_reading_later_chunks(self):
+        request = self.FakeRequest([b"abc", b"def", b"must-not-be-read"])
+        with self.assertRaises(api.HTTPException) as raised:
+            await api._read_limited_request_body(request, 5)
+        self.assertEqual(raised.exception.status_code, 413)
+        self.assertEqual(request.yielded, 2)
+
+    async def test_streaming_body_reader_rejects_oversized_declared_length_without_reading(self):
+        request = self.FakeRequest([b"unused"], headers={"content-length": "6"})
+        with self.assertRaises(api.HTTPException) as raised:
+            await api._read_limited_request_body(request, 5)
+        self.assertEqual(raised.exception.status_code, 413)
+        self.assertEqual(request.yielded, 0)
+
+    async def test_streaming_body_reader_rejects_invalid_or_negative_content_length(self):
+        for value in ("unknown", "-1"):
+            request = self.FakeRequest([b"unused"], headers={"content-length": value})
+            with self.assertRaises(api.HTTPException) as raised:
+                await api._read_limited_request_body(request, 5)
+            self.assertEqual(raised.exception.status_code, 400)
+            self.assertEqual(request.yielded, 0)
+
