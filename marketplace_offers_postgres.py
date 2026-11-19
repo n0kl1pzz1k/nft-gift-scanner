@@ -379,10 +379,6 @@ def verify_postgres_offer_schema(connection: Any) -> dict[str, Any]:
             "id", "deal_id", "actor_user_id", "event_type", "event_key",
             "event_data", "created_at",
         },
-    }        "marketplace_ledger_entries": {
-            "id", "transaction_id", "account_type", "account_id",
-            "direction", "currency", "amount", "created_at",
-        },
     }
     expected_indexes = {
         "idx_marketplace_offers_order",
