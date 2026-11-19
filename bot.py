@@ -16,7 +16,7 @@ from aiogram.types import (
 )
 from dotenv import load_dotenv
 from marketplace import upsert_telegram_business_connection
-from marketplace_stars import confirm_stars_payment, validate_stars_pre_checkout
+from marketplace_stars import confirm_stars_payment, record_stars_reconciliation_required, validate_stars_pre_checkout
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
@@ -102,6 +102,18 @@ def create_dispatcher() -> Dispatcher:
             logging.getLogger("hassle_nft.payments").exception(
                 "Stars successful_payment requires reconciliation"
             )
+            try:
+                await asyncio.to_thread(
+                    record_stars_reconciliation_required,
+                    invoice_payload=payment.invoice_payload,
+                    telegram_user_id=user.id,
+                    telegram_payment_charge_id=payment.telegram_payment_charge_id,
+                    error_code="successful_payment_confirmation_failed",
+                )
+            except Exception:
+                logging.getLogger("hassle_nft.payments").exception(
+                    "Could not persist Stars reconciliation case"
+                )
             await message.answer(
                 "Платёж получен Telegram, но подтверждение сделки требует проверки. "
                 "Не оплачивай повторно. Напиши /paysupport и укажи ID сделки."
