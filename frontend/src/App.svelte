@@ -13,6 +13,11 @@
   type MarketplaceOffer = { id:string; order_id:string; sender_name:string; amount:string; currency:'TON'|'XTR'; note:string; status:'pending'|'accepted'|'declined'|'withdrawn'; created_at:number; is_mine:boolean; order_title:string; order_owner_id:string; order_owner_name:string; order_status:string; order_kind:'listing'|'buy-order' };
   type MarketplaceDeal = { id:string; order_id:string; offer_id:string; is_seller:boolean; order_title:string; agreed_amount:string; currency:'TON'|'XTR'; status:'payment_not_enabled'|'awaiting_payment'|'payment_pending'|'paid'|'delivery_pending'|'completed'|'disputed'|'cancelled'|'expired'; order_status:string; created_at:number; reservation_active:boolean; payments_enabled:boolean; delivery_completed:boolean; asset_source?:string|null };
   
+  type AdminUser = {telegram_id:string;username:string;first_name:string;last_name:string;created_at:number;account_status:'active'|'suspended';control_reason:string;admin_role:string;order_count:number;verified_asset_count:number;is_environment_admin:boolean};
+  type AdminDispute = {id:string;listing_owner_id:string;offer_sender_id:string;agreed_amount:string;currency:'TON'|'XTR';status:string;created_at:number;title:string;approvals:number};
+  type ReconciliationItem = {id:string;kind:string;deal_id:string|null;payment_intent_id:string|null;provider_reference:string|null;summary:string;status:'open'|'resolved'|'ignored';created_at:number};
+  type AdminAuditItem = {id:string;actor_telegram_id:string;action:string;target_type:string;target_hash:string;outcome:string;metadata:Record<string,unknown>;created_at:number};
+  type AdminRoleItem = {telegram_id:string;role:string;permissions:string[];assigned_by:string;created_at:number;updated_at:number;revoked_at:number|null};
   type DealTimelineEvent = {id:string;actor_user_id:string;type:string;data:Record<string,unknown>;created_at:number};
   type AccountNotification = { id:string; type:'offer_received'|'offer_accepted'|'offer_declined'|'offer_withdrawn'; offer_id:string; order_id:string; order_title:string; actor_name:string; created_at:number; read_at:number|null };
   type AccountStats = { active_orders:number; completed_orders:number; pending_offers_sent:number; pending_offers_received:number; unread_notifications:number };
@@ -111,6 +116,8 @@
   let walletConnected = $state(false);
   let authToken = $state('');
   let isAdmin = $state(false);
+  let adminPermissions = $state<string[]>([]);
+  let adminRole = $state('');
   let notice = $state('');
   let createKind = $state<'listing' | 'buy-order'>('listing');
   let createTitle = $state('');
@@ -129,6 +136,27 @@
   let adminReports = $state<OrderReport[]>([]);
   let adminReportsBusy = $state(false);
   let adminReportActionBusy = $state('');
+  let adminRole = $state('');
+  let adminPermissions = $state<string[]>([]);
+  let adminTab = $state<'overview'|'reports'|'users'|'disputes'|'reconciliation'|'audit'|'roles'>('overview');
+  let adminOverview = $state<Record<string,number>>({});
+  let adminUsers = $state<AdminUser[]>([]);
+  let adminUserQuery = $state('');
+  let adminUsersBusy = $state(false);
+  let adminUserActionBusy = $state('');
+  let adminDisputes = $state<AdminDispute[]>([]);
+  let adminDisputesBusy = $state(false);
+  let adminReconciliation = $state<ReconciliationItem[]>([]);
+  let adminReconciliationBusy = $state(false);
+  let adminReconciliationActionBusy = $state('');
+  let adminAudit = $state<AdminAuditItem[]>([]);
+  let adminAuditBusy = $state(false);
+  let adminRoles = $state<AdminRoleItem[]>([]);
+  let adminRolesBusy = $state(false);
+  let adminRoleUserId = $state('');
+  let adminRoleChoice = $state<'moderator'|'finance'|'support'|'auditor'>('moderator');
+  let adminRoleActionBusy = $state('');
+
   let orderStatusFilter = $state<'all' | 'active' | 'matched' | 'cancelled'>('active');
   let orderKindFilter = $state<'all' | 'listing' | 'buy-order'>('all');
 
@@ -1058,11 +1086,158 @@
   }
 
   async function loadAdminOverview() {
-    if (isAdmin) await loadAdminReports();
+    if (!isAdmin) return;
+    if (adminPermissions.includes('dashboard.read')) {
+      try {
+        const data = await request('/api/marketplace/admin/overview');
+        adminOverview = data.counts || {};
+      } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    }
+    if (adminPermissions.includes('reports.read')) await loadAdminReports();
+  }
+
+  async function loadAdminUsers() {
+    if (!adminPermissions.includes('users.read') || adminUsersBusy) return;
+    adminUsersBusy = true;
+    try {
+      const data = await request('/api/marketplace/admin/users?q=' + encodeURIComponent(adminUserQuery.trim()) + '&limit=50');
+      adminUsers = Array.isArray(data.items) ? data.items as AdminUser[] : [];
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { adminUsersBusy = false; }
+  }
+
+  async function updateAdminUserStatus(user: AdminUser) {
+    if (!adminPermissions.includes('users.suspend') || adminUserActionBusy) return;
+    const status = user.account_status === 'suspended' ? 'active' : 'suspended';
+    const reason = window.prompt(lang==='ru' ? 'Причина изменения статуса пользователя:' : 'Reason for changing user status:');
+    if (!reason || !reason.trim()) return;
+    adminUserActionBusy = user.telegram_id;
+    try {
+      await request('/api/marketplace/admin/users/' + encodeURIComponent(user.telegram_id), undefined, {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({status,reason:reason.trim().slice(0,500)}),
+      });
+      await loadAdminUsers();
+      notice = lang==='ru' ? 'Статус пользователя обновлён.' : 'User status updated.';
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { adminUserActionBusy = ''; }
+  }
+
+  async function loadAdminDisputes() {
+    if (!adminPermissions.includes('disputes.read') || adminDisputesBusy) return;
+    adminDisputesBusy = true;
+    try {
+      const data = await request('/api/marketplace/admin/disputes?limit=50');
+      adminDisputes = Array.isArray(data.items) ? data.items as AdminDispute[] : [];
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { adminDisputesBusy = false; }
+  }
+
+  async function approveAdminDispute(dealId: string, decision: 'refund_buyer'|'release_to_seller') {
+    if (!adminPermissions.includes('disputes.resolve') || adminUserActionBusy) return;
+    adminUserActionBusy = dealId;
+    try {
+      const data = await request('/api/marketplace/admin/deals/' + encodeURIComponent(dealId) + '/dispute-approvals', undefined, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({decision,idempotency_key:crypto.randomUUID()}),
+      });
+      notice = lang==='ru'
+        ? 'Одобрений: ' + data.approvals + '/2. ' + (data.ready_for_execution ? 'Решение согласовано двумя администраторами.' : 'Ожидается второй администратор.')
+        : 'Approvals: ' + data.approvals + '/2. ' + (data.ready_for_execution ? 'Two-admin decision reached.' : 'Waiting for the second administrator.');
+      await loadAdminDisputes();
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { adminUserActionBusy = ''; }
+  }
+
+  async function executeAdminRefund(dealId: string) {
+    if (!adminPermissions.includes('payments.refund') || adminUserActionBusy) return;
+    if (!window.confirm(lang==='ru' ? 'Выполнить одобренный возврат Stars покупателю?' : 'Execute the approved Telegram Stars refund?')) return;
+    adminUserActionBusy = dealId;
+    try {
+      await request('/api/marketplace/admin/deals/' + encodeURIComponent(dealId) + '/execute-refund', undefined, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({idempotency_key:crypto.randomUUID()}),
+      });
+      notice = lang==='ru' ? 'Возврат Stars подтверждён Telegram.' : 'Telegram confirmed the Stars refund.';
+      await loadAdminDisputes();
+      await loadAdminReconciliation();
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { adminUserActionBusy = ''; }
+  }
+
+  async function loadAdminReconciliation() {
+    if (!adminPermissions.includes('payments.reconcile') || adminReconciliationBusy) return;
+    adminReconciliationBusy = true;
+    try {
+      const data = await request('/api/marketplace/admin/reconciliation?status=open&limit=100');
+      adminReconciliation = Array.isArray(data.items) ? data.items as ReconciliationItem[] : [];
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { adminReconciliationBusy = false; }
+  }
+
+  async function resolveAdminReconciliation(itemId: string, action: 'resolve'|'ignore') {
+    if (!adminPermissions.includes('payments.reconcile') || adminReconciliationActionBusy) return;
+    const note = window.prompt(lang==='ru' ? 'Комментарий сверки (что проверено):' : 'Reconciliation note (what was checked):');
+    if (!note || !note.trim()) return;
+    adminReconciliationActionBusy = itemId;
+    try {
+      await request('/api/marketplace/admin/reconciliation/' + encodeURIComponent(itemId), undefined, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action,note:note.trim().slice(0,1000)}),
+      });
+      await loadAdminReconciliation();
+      notice = lang==='ru' ? 'Запись сверки закрыта.' : 'Reconciliation item closed.';
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { adminReconciliationActionBusy = ''; }
+  }
+
+  async function loadAdminAudit() {
+    if (!adminPermissions.includes('audit.read') || adminAuditBusy) return;
+    adminAuditBusy = true;
+    try {
+      const data = await request('/api/marketplace/admin/audit?limit=100');
+      adminAudit = Array.isArray(data.items) ? data.items as AdminAuditItem[] : [];
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { adminAuditBusy = false; }
+  }
+
+  async function loadAdminRoles() {
+    if (!adminPermissions.includes('roles.manage') || adminRolesBusy) return;
+    adminRolesBusy = true;
+    try {
+      const data = await request('/api/marketplace/admin/roles');
+      adminRoles = Array.isArray(data.items) ? data.items as AdminRoleItem[] : [];
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { adminRolesBusy = false; }
+  }
+
+  async function saveAdminRole(active: boolean) {
+    if (!adminPermissions.includes('roles.manage') || adminRoleActionBusy || !adminRoleUserId.trim()) return;
+    adminRoleActionBusy = adminRoleUserId;
+    try {
+      await request('/api/marketplace/admin/roles/' + encodeURIComponent(adminRoleUserId.trim()), undefined, {
+        method:'PUT', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({role:adminRoleChoice,active}),
+      });
+      await loadAdminRoles();
+      notice = lang==='ru' ? 'Роль администратора обновлена.' : 'Administrator role updated.';
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { adminRoleActionBusy = ''; }
+  }
+
+  function selectAdminTab(tab: typeof adminTab) {
+    adminTab = tab;
+    if (tab==='reports') void loadAdminReports();
+    else if (tab==='users') void loadAdminUsers();
+    else if (tab==='disputes') void loadAdminDisputes();
+    else if (tab==='reconciliation') void loadAdminReconciliation();
+    else if (tab==='audit') void loadAdminAudit();
+    else if (tab==='roles') void loadAdminRoles();
+    else if (tab==='overview') void loadAdminOverview();
   }
 
   async function loadAdminReports() {
-    if (!isAdmin || adminReportsBusy) return;
+    if (!isAdmin || !adminPermissions.includes('reports.read') || adminReportsBusy) return;
     adminReportsBusy = true;
     try {
       const data = await request('/api/marketplace/admin/reports?status=open&limit=50');
@@ -1128,6 +1303,10 @@
       telegramUsername = data.user.username ? '@' + data.user.username : '';
       telegramPremium = data.user.is_premium === true;
       isAdmin = data.is_admin === true;
+      adminPermissions = Array.isArray(data.admin_permissions) ? data.admin_permissions as string[] : [];
+      adminRole = String(data.admin_role || '');
+      adminPermissions = Array.isArray(data.admin_permissions) ? data.admin_permissions as string[] : [];
+      adminRole = String(data.admin_role || '');
       signedIn = true;
       await loadMarketplace();
       await loadFavorites();
@@ -1140,6 +1319,10 @@
       signedIn = false;
       walletConnected = false;
       isAdmin = false;
+      adminPermissions = [];
+      adminRole = '';
+      adminPermissions = [];
+      adminRole = '';
       try { sessionStorage.removeItem('hassle-nft-session-v1'); } catch {}
       return false;
     }
@@ -1556,28 +1739,103 @@
       <article class="profile-card preferences-card"><div class="eyebrow">PREFERENCES</div><h2>HASSLE NFT</h2><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang==='ru'?'Язык интерфейса':'Interface language'} · {lang.toUpperCase()}</button></article>{#if isAdmin}
         <article class="profile-card moderation-card">
           <div class="notification-heading">
-            <div><div class="eyebrow">MODERATION</div><h2>{t.adminReports}</h2></div>
-            <button class="refresh-button" onclick={loadAdminReports} disabled={adminReportsBusy}>{adminReportsBusy?'…':t.refresh}</button>
+            <div><div class="eyebrow">ADMINISTRATION · {adminRole.toUpperCase()}</div><h2>{lang==='ru'?'Панель управления':'Admin control panel'}</h2></div>
+            <button class="refresh-button" onclick={()=>selectAdminTab(adminTab)}>{t.refresh}</button>
           </div>
-          {#if adminReportsBusy}
-            <div class="state-panel">{t.loading}</div>
-          {:else if adminReports.length===0}
-            <div class="state-panel">{t.noAdminReports}</div>
-          {:else}
-            <div class="orders-list">
-              {#each adminReports as report (report.id)}
-                <article class="order-card">
-                  <div class="order-main">
+          <div class="admin-tabs">
+            {#if adminPermissions.includes('dashboard.read')}<button class:active={adminTab==='overview'} class="language" onclick={()=>selectAdminTab('overview')}>{lang==='ru'?'Обзор':'Overview'}</button>{/if}
+            {#if adminPermissions.includes('reports.read')}<button class:active={adminTab==='reports'} class="language" onclick={()=>selectAdminTab('reports')}>{lang==='ru'?'Жалобы':'Reports'}</button>{/if}
+            {#if adminPermissions.includes('users.read')}<button class:active={adminTab==='users'} class="language" onclick={()=>selectAdminTab('users')}>{lang==='ru'?'Пользователи':'Users'}</button>{/if}
+            {#if adminPermissions.includes('disputes.read')}<button class:active={adminTab==='disputes'} class="language" onclick={()=>selectAdminTab('disputes')}>{lang==='ru'?'Споры':'Disputes'}</button>{/if}
+            {#if adminPermissions.includes('payments.reconcile')}<button class:active={adminTab==='reconciliation'} class="language" onclick={()=>selectAdminTab('reconciliation')}>{lang==='ru'?'Сверка':'Reconciliation'}</button>{/if}
+            {#if adminPermissions.includes('audit.read')}<button class:active={adminTab==='audit'} class="language" onclick={()=>selectAdminTab('audit')}>{lang==='ru'?'Аудит':'Audit'}</button>{/if}
+            {#if adminPermissions.includes('roles.manage')}<button class:active={adminTab==='roles'} class="language" onclick={()=>selectAdminTab('roles')}>{lang==='ru'?'Роли':'Roles'}</button>{/if}
+          </div>
+          {#if adminTab==='overview'}
+            <div class="admin-stats-grid">
+              {#each [{key:'users',label:lang==='ru'?'Пользователи':'Users'},{key:'suspended_users',label:lang==='ru'?'Ограничены':'Suspended'},{key:'verified_assets',label:lang==='ru'?'Проверенные активы':'Verified assets'},{key:'active_listings',label:lang==='ru'?'Активные объявления':'Active listings'},{key:'open_reports',label:lang==='ru'?'Жалобы':'Open reports'},{key:'disputed_deals',label:lang==='ru'?'Споры':'Disputed deals'},{key:'open_reconciliation',label:lang==='ru'?'Сверка':'Open reconciliation'}] as metric}
+                <div class="admin-stat"><strong>{adminOverview[metric.key]??'—'}</strong><span>{metric.label}</span></div>
+              {/each}
+            </div>
+          {:else if adminTab==='reports'}
+            {#if adminReportsBusy}<div class="state-panel">{t.loading}</div>
+            {:else if adminReports.length===0}<div class="state-panel">{t.noAdminReports}</div>
+            {:else}
+              <div class="orders-list">
+                {#each adminReports as report (report.id)}
+                  <article class="order-card"><div class="order-main">
                     <div class="order-kind">{report.order_title} · {report.order_owner}</div>
                     <h3>{reportReasonLabel(report.reason)}</h3>
                     <p>{report.reporter_name} · {new Date(report.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p>
                     {#if report.details}<p>{report.details}</p>{/if}
-                  </div>
+                  </div><div class="order-actions">
+                    {#if adminPermissions.includes('reports.resolve')}
+                      <button class="match-button" onclick={()=>moderateOrderReport(report.id,'dismiss')} disabled={adminReportActionBusy===report.id}>{t.dismissReport}</button>
+                      <button class="cancel-button" onclick={()=>moderateOrderReport(report.id,'remove_order')} disabled={adminReportActionBusy===report.id}>{t.removeReportedOrder}</button>
+                    {/if}
+                  </div></article>
+                {/each}
+              </div>
+            {/if}
+          {:else if adminTab==='users'}
+            <div class="admin-filter-row"><input class="form-input" bind:value={adminUserQuery} placeholder={lang==='ru'?'ID, username или имя':'ID, username or name'} /><button class="refresh-button" onclick={loadAdminUsers} disabled={adminUsersBusy}>{adminUsersBusy?'…':(lang==='ru'?'Найти':'Search')}</button></div>
+            <div class="orders-list">
+              {#each adminUsers as user (user.telegram_id)}
+                <article class="order-card"><div class="order-main">
+                  <h3>{user.first_name} {user.last_name} {user.username?'@'+user.username:''}</h3>
+                  <p>ID {user.telegram_id} · {user.admin_role||'user'} · {user.order_count} {lang==='ru'?'сделок':'orders'} · {user.verified_asset_count} {lang==='ru'?'активов':'assets'}</p>
+                  <p>{user.account_status==='suspended'?(lang==='ru'?'ОГРАНИЧЕН':'SUSPENDED'):(lang==='ru'?'Активен':'Active')} {user.control_reason?('· '+user.control_reason):''}</p>
+                </div><div class="order-actions">
+                  {#if adminPermissions.includes('users.suspend') && !user.is_environment_admin}
+                    <button class="cancel-button" onclick={()=>updateAdminUserStatus(user)} disabled={adminUserActionBusy===user.telegram_id}>{user.account_status==='suspended'?(lang==='ru'?'Восстановить':'Reactivate'):(lang==='ru'?'Ограничить':'Suspend')}</button>
+                  {/if}
+                </div></article>
+              {/each}
+            </div>
+          {:else if adminTab==='disputes'}
+            {#if adminDisputesBusy}<div class="state-panel">{t.loading}</div>
+            {:else if adminDisputes.length===0}<div class="state-panel">{lang==='ru'?'Открытых споров нет.':'No open disputes.'}</div>
+            {:else}<div class="orders-list">
+              {#each adminDisputes as dispute (dispute.id)}
+                <article class="order-card"><div class="order-main"><h3>{dispute.title}</h3><p>{dispute.id} · {dispute.agreed_amount} {dispute.currency} · {lang==='ru'?'Одобрения':'Approvals'} {dispute.approvals}/2</p><p>{dispute.listing_owner_id} → {dispute.offer_sender_id}</p></div>
                   <div class="order-actions">
-                    <button class="match-button" onclick={()=>moderateOrderReport(report.id,'dismiss')} disabled={adminReportActionBusy===report.id}>{t.dismissReport}</button>
-                    <button class="cancel-button" onclick={()=>moderateOrderReport(report.id,'remove_order')} disabled={adminReportActionBusy===report.id}>{t.removeReportedOrder}</button>
+                    {#if adminPermissions.includes('disputes.resolve')}
+                      <button class="match-button" onclick={()=>approveAdminDispute(dispute.id,'refund_buyer')} disabled={adminUserActionBusy===dispute.id}>{lang==='ru'?'Одобрить возврат':'Approve refund'}</button>
+                      <button class="cancel-button" onclick={()=>approveAdminDispute(dispute.id,'release_to_seller')} disabled={adminUserActionBusy===dispute.id}>{lang==='ru'?'Одобрить продавцу':'Approve seller release'}</button>
+                    {/if}
+                    {#if adminPermissions.includes('payments.refund') && dispute.approvals>=2}
+                      <button class="ton-primary" onclick={()=>executeAdminRefund(dispute.id)} disabled={adminUserActionBusy===dispute.id}>{lang==='ru'?'Выполнить возврат Stars':'Execute Stars refund'}</button>
+                    {/if}
                   </div>
                 </article>
+              {/each}
+            </div>{/if}
+          {:else if adminTab==='reconciliation'}
+            {#if adminReconciliationBusy}<div class="state-panel">{t.loading}</div>
+            {:else if adminReconciliation.length===0}<div class="state-panel">{lang==='ru'?'Очередь сверки пуста.':'No reconciliation cases.'}</div>
+            {:else}<div class="orders-list">
+              {#each adminReconciliation as item (item.id)}
+                <article class="order-card"><div class="order-main"><h3>{item.kind}</h3><p>{item.summary}</p><small>{item.deal_id||item.payment_intent_id||item.id} · {item.provider_reference||'—'}</small></div>
+                  <div class="order-actions"><button class="match-button" onclick={()=>resolveAdminReconciliation(item.id,'resolve')} disabled={adminReconciliationActionBusy===item.id}>{lang==='ru'?'Сверено':'Resolve'}</button><button class="cancel-button" onclick={()=>resolveAdminReconciliation(item.id,'ignore')} disabled={adminReconciliationActionBusy===item.id}>{lang==='ru'?'Игнорировать':'Ignore'}</button></div>
+                </article>
+              {/each}
+            </div>{/if}
+          {:else if adminTab==='audit'}
+            {#if adminAuditBusy}<div class="state-panel">{t.loading}</div>
+            {:else if adminAudit.length===0}<div class="state-panel">{lang==='ru'?'Журнал пуст.':'Audit log is empty.'}</div>
+            {:else}<div class="orders-list">
+              {#each adminAudit as event (event.id)}
+                <article class="order-card"><div class="order-main"><h3>{event.action}</h3><p>{event.actor_telegram_id} · {event.target_type} · {event.target_hash.slice(0,12)}…</p><small>{new Date(event.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</small></div></article>
+              {/each}
+            </div>{/if}
+          {:else if adminTab==='roles'}
+            <div class="admin-role-form"><input class="form-input" bind:value={adminRoleUserId} placeholder={lang==='ru'?'Telegram ID сотрудника':'Staff Telegram ID'} />
+              <select class="form-input" bind:value={adminRoleChoice}><option value="moderator">moderator</option><option value="finance">finance</option><option value="support">support</option><option value="auditor">auditor</option></select>
+              <button class="ton-primary" onclick={()=>saveAdminRole(true)} disabled={adminRoleActionBusy!==''}>{lang==='ru'?'Назначить роль':'Assign role'}</button>
+            </div>
+            <div class="orders-list">
+              {#each adminRoles as role (role.telegram_id)}
+                <article class="order-card"><div class="order-main"><h3>{role.telegram_id} · {role.role}</h3><p>{role.permissions.join(', ')}</p></div><div class="order-actions"><button class="cancel-button" onclick={()=>{adminRoleUserId=role.telegram_id;adminRoleChoice=role.role as any;void saveAdminRole(false);}} disabled={adminRoleActionBusy===role.telegram_id}>{lang==='ru'?'Отозвать':'Revoke'}</button></div></article>
               {/each}
             </div>
           {/if}
