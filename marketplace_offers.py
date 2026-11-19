@@ -356,7 +356,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                     conn.rollback()
                     raise HTTPException(status_code=403, detail="You cannot respond to your own buy request")
                 seller_listing = conn.execute(
-                    """SELECT id FROM marketplace_orders
+                    """SELECT id, asset_id FROM marketplace_orders
                        WHERE user_id = ? AND kind = 'listing' AND status = 'active' AND currency = ?
                        ORDER BY created_at DESC LIMIT 1""",
                     (actor_id, order["currency"]),
@@ -375,7 +375,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                     verified_asset = conn.execute(
                         """SELECT 1 FROM verified_assets
                            WHERE id = ? AND owner_telegram_id = ? AND status = 'verified'""",
-                        (seller_listing["id"], actor_id),
+                        (seller_listing["asset_id"], actor_id),
                     ).fetchone()
                 else:
                     verified_asset = conn.execute(
