@@ -33,10 +33,23 @@ class TonNftImportApiTests(unittest.TestCase):
             )
         self.auth_patch = patch.object(app, "_authenticate_telegram_credential", return_value={"id": "101"})
         self.auth_patch.start()
+        self.owner_verify_patch = patch.object(
+            app,
+            "verify_nft_owner_onchain",
+            new=AsyncMock(return_value={
+                "verified": True,
+                "owner_address": "0:" + "a" * 64,
+                "collection_address": None,
+                "index": 1,
+                "provider": "test",
+            }),
+        )
+        self.owner_verify_patch.start()
         self.client = TestClient(app.app)
 
     def tearDown(self):
         self.client.close()
+        self.owner_verify_patch.stop()
         self.auth_patch.stop()
         self.offers_patch.stop()
         self.db_patch.stop()
@@ -409,6 +422,41 @@ class TonNftImportApiTests(unittest.TestCase):
         self.assertEqual(rows[0]["external_asset_id"], "0:" + "e" * 64)
         self.assertEqual(rows[0]["status"], "verified")
 
+
+    def test_regular_ton_nft_import_rejects_stale_indexer_owner_when_contract_disagrees(self):
+        wallet = "0:" + "a" * 64
+        address = "0:" + "d" * 64
+        snapshot = {
+            "wallet_address": wallet,
+            "complete": True,
+            "items": [{
+                "address": address,
+                "wallet_address": wallet,
+                "title": "Index-only NFT",
+                "image_url": "",
+                "collection_address": "",
+            }],
+        }
+        with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(return_value=snapshot)), \
+             patch.object(app, "verify_nft_owner_onchain", new=AsyncMock(return_value={
+                 "verified": False,
+                 "owner_address": "0:" + "e" * 64,
+                 "collection_address": None,
+                 "index": 9,
+                 "provider": "tonapi_get_method",
+             })) as verify:
+            response = self.client.post(
+                "/api/marketplace/assets/import-ton",
+                headers={"X-Telegram-Init-Data": "verified-session"},
+            )
+        self.assertEqual(response.status_code, 409)
+        verify.assert_awaited_once_with(address, wallet)
+        inventory = self.client.get(
+            "/api/marketplace/assets/me",
+            headers={"X-Telegram-Init-Data": "verified-session"},
+        )
+        self.assertEqual(inventory.status_code, 200)
+        self.assertEqual(inventory.json()["items"], [])
 
     def test_fragment_username_and_number_import_require_contract_verification(self):
         wallet = "0:" + "a" * 64
