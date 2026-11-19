@@ -11,6 +11,7 @@
     createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; seller_profile_id?: string | null; events?: {type:string;createdAt:number}[];
   };
   type MarketplaceOffer = { id:string; order_id:string; sender_name:string; amount:string; currency:'TON'|'XTR'; note:string; status:'pending'|'accepted'|'declined'|'withdrawn'; created_at:number; is_mine:boolean; order_title:string; order_owner_id:string; order_owner_name:string; order_status:string };
+  type MarketplaceDeal = { id:string; order_id:string; offer_id:string; is_seller:boolean; order_title:string; agreed_amount:string; currency:'TON'|'XTR'; status:'payment_not_enabled'|'awaiting_payment'|'payment_pending'|'paid'|'delivery_pending'|'completed'|'disputed'|'cancelled'|'expired'; order_status:string; created_at:number; reservation_active:boolean; payments_enabled:boolean; delivery_completed:boolean };
   
   type AccountNotification = { id:string; type:'offer_received'|'offer_accepted'|'offer_declined'|'offer_withdrawn'; offer_id:string; order_id:string; order_title:string; actor_name:string; created_at:number; read_at:number|null };
   type AccountStats = { active_orders:number; completed_orders:number; pending_offers_sent:number; pending_offers_received:number; unread_notifications:number };
@@ -67,6 +68,7 @@
   let ordersLoadingMore = $state(false);
   let offers = $state<MarketplaceOffer[]>([]);
   let offersTotal = $state(0);
+  let deals = $state<MarketplaceDeal[]>([]);
   let offersLoadingMore = $state(false);
   let notifications = $state<AccountNotification[]>([]);
   let notificationTotal = $state(0);
@@ -238,6 +240,21 @@
 
   function offerStatusLabel(status: MarketplaceOffer['status']) {
     return status === 'pending' ? t.offerPending : status === 'accepted' ? t.offerAccepted : status === 'declined' ? t.offerDeclined : t.offerWithdrawn;
+  }
+
+  function dealStatusLabel(status: MarketplaceDeal['status']) {
+    const labels: Record<MarketplaceDeal['status'], string> = {
+      payment_not_enabled: lang === 'ru' ? 'Резерв · оплата не подключена' : 'Reserved · payment unavailable',
+      awaiting_payment: lang === 'ru' ? 'Ожидает оплаты' : 'Awaiting payment',
+      payment_pending: lang === 'ru' ? 'Проверка оплаты' : 'Payment pending',
+      paid: lang === 'ru' ? 'Оплачено' : 'Paid',
+      delivery_pending: lang === 'ru' ? 'Ожидает передачи' : 'Awaiting delivery',
+      completed: lang === 'ru' ? 'Завершена' : 'Completed',
+      disputed: lang === 'ru' ? 'Спор' : 'Disputed',
+      cancelled: lang === 'ru' ? 'Отменена' : 'Cancelled',
+      expired: lang === 'ru' ? 'Истекла' : 'Expired',
+    };
+    return labels[status];
   }
 
   const authHeaders = (): Record<string, string> => {
@@ -587,15 +604,33 @@
   }
 
   async function loadOffersAndDeals() {
-    if (!window.Telegram?.WebApp?.initData) { offers = []; await loadAccountOverview(); return; }
+    if (!window.Telegram?.WebApp?.initData) { offers = []; deals = []; await loadAccountOverview(); return; }
     offersBusy = true;
     try {
       const offerStatusQuery = offerStatusFilter === 'all' ? '' : '&status=' + encodeURIComponent(offerStatusFilter);
-      const results = await Promise.all([request('/api/marketplace/offers?limit=100&offset=0' + offerStatusQuery), loadAccountOverview()]);
+      const results = await Promise.all([
+        request('/api/marketplace/offers?limit=100&offset=0' + offerStatusQuery),
+        loadAccountOverview(),
+        request('/api/marketplace/deals?limit=100&offset=0'),
+      ]);
       offers = Array.isArray(results[0].items) ? results[0].items : [];
       offersTotal = Number(results[0].total) || offers.length;
+      deals = Array.isArray(results[2].items) ? results[2].items as MarketplaceDeal[] : [];
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
     finally { offersBusy = false; }
+  }
+
+  async function cancelDealReservation(dealId: string) {
+    if (!dealId || offerActionBusy) return;
+    offerActionBusy = dealId;
+    try {
+      await request('/api/marketplace/deals/' + encodeURIComponent(dealId) + '/actions', undefined, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cancel' }),
+      });
+      notice = lang === 'ru' ? 'Резерв снят. Объявление снова доступно.' : 'Reservation released. The listing is available again.';
+      await Promise.all([loadOffersAndDeals(), loadMarketplace()]);
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { offerActionBusy = ''; }
   }
 
   async function changeOfferStatus(event: Event) {
@@ -986,9 +1021,39 @@
         {#if offersBusy}<div class="state-panel">{t.loading}</div>{:else if offers.length===0}<div class="state-panel">{t.noOffers}</div>{:else if visibleOffers.length===0}<div class="state-panel">{lang==='ru'?'Нет офферов с таким статусом.':'No offers with this status.'}</div>{:else}
           <div class="orders-list">{#each visibleOffers as offer (offer.id)}
             <article class="order-card"><div class="order-icon">↗</div><div class="order-main"><div class="order-kind">{offer.is_mine?t.outgoing:t.incoming} · {offer.order_title}</div><h3>{offer.amount} {offer.currency==='XTR'?'⭐ Stars':'TON'}</h3><p>{offer.note || offer.sender_name} · {new Date(offer.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p></div><div class="order-price"><span class={'status-'+(offer.status==='pending'?'active':offer.status==='accepted'?'matched':'cancelled')}>{offerStatusLabel(offer.status)}</span></div>
-            {#if offer.status==='pending' && offer.is_mine}<div class="order-actions"><button class="cancel-button" onclick={()=>respondToOffer(offer.id,'withdraw')} disabled={offerActionBusy===offer.id}>{offerActionBusy===offer.id?'…':t.withdrawOffer}</button></div>{:else if offer.status==='pending' && !offer.is_mine}<div class="order-actions"><button class="cancel-button" onclick={()=>respondToOffer(offer.id,'decline')} disabled={offerActionBusy===offer.id}>{t.declineOffer}</button></div><p class="safety-note">{lang==='ru'?'Принятие оффера станет доступно после подключения эскроу TON/Stars и реальной передачи NFT.':'Offer acceptance will be enabled after TON/Stars escrow and real NFT transfer are connected.'}</p>{/if}</article>
+            {#if offer.status==='pending' && offer.is_mine}<div class="order-actions"><button class="cancel-button" onclick={()=>respondToOffer(offer.id,'withdraw')} disabled={offerActionBusy===offer.id}>{offerActionBusy===offer.id?'…':t.withdrawOffer}</button></div>{:else if offer.status==='pending' && !offer.is_mine}<div class="order-actions"><button class="cancel-button" onclick={()=>respondToOffer(offer.id,'decline')} disabled={offerActionBusy===offer.id}>{t.declineOffer}</button></div><p class="safety-note">{lang==='ru'?'Принятие создаёт резерв объявления. Оплата и передача NFT пока не выполняются, поэтому сделка не считается завершённой.':'Accepting creates a listing reservation. Payment and NFT delivery are not active, so the trade is not completed.'}</p>{/if}</article>
           {/each}</div>{/if}
         {#if offers.length < offersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOffers} disabled={offersLoadingMore}>{offersLoadingMore?'…':t.loadMore}</button></div>{/if}
+
+        <div class="activity-history-panel">
+          <div class="section-title"><div><div class="eyebrow">RESERVATIONS</div><h2>{lang==='ru'?'Резервы и сделки':'Reservations and deals'}</h2></div><span>{deals.length}</span></div>
+          {#if deals.length}
+            <div class="orders-list">
+              {#each deals as deal (deal.id)}
+                <article class="order-card">
+                  <div class="order-icon">◇</div>
+                  <div class="order-main">
+                    <div class="order-kind">{deal.is_seller ? (lang==='ru'?'Ты продавец':'You are the seller') : (lang==='ru'?'Ты покупатель':'You are the buyer')}</div>
+                    <h3>{deal.order_title}</h3>
+                    <p>{deal.agreed_amount} {deal.currency==='XTR'?'⭐ Stars':'TON'} · {new Date(deal.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p>
+                    <small>{dealStatusLabel(deal.status)}</small>
+                    {#if deal.status==='payment_not_enabled'}
+                      <p class="safety-note">{lang==='ru'?'Резерв удерживает объявление, но деньги не списаны, NFT не передан.':'The listing is reserved, but no funds were charged and no NFT was transferred.'}</p>
+                    {/if}
+                  </div>
+                  <div class="order-price">
+                    <span class={'status-'+(deal.reservation_active?'matched':'cancelled')}>{deal.reservation_active?(lang==='ru'?'РЕЗЕРВ':'RESERVED'):(lang==='ru'?'ЗАКРЫТА':'CLOSED')}</span>
+                    {#if deal.status==='payment_not_enabled'}
+                      <button class="cancel-button" onclick={()=>cancelDealReservation(deal.id)} disabled={offerActionBusy===deal.id}>{offerActionBusy===deal.id?'…':(lang==='ru'?'Снять резерв':'Release reservation')}</button>
+                    {/if}
+                  </div>
+                </article>
+              {/each}
+            </div>
+          {:else}
+            <div class="state-panel">{lang==='ru'?'Пока нет зарезервированных объявлений.':'No reserved listings yet.'}</div>
+          {/if}
+        </div>
 
         <div class="activity-history-panel">
           <div class="section-title"><div><div class="eyebrow">TRADE JOURNAL</div><h2>{lang==='ru'?'История операций':'Recent activity'}</h2></div><span>{accountActivity.length} / {activityTotal}</span></div>
