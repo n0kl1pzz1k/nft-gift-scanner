@@ -66,6 +66,16 @@ class TonConnectApiTests(unittest.TestCase):
         self.assertEqual(len(wallets.json()["items"]), 1)
         self.assertEqual(wallets.json()["items"][0]["address"], verified["address"])
 
+        with marketplace._db() as conn:
+            audit = conn.execute(
+                "SELECT action, actor_telegram_id, target_type, metadata_json FROM security_audit_events "
+                "WHERE action='ton_wallet_linked' ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        self.assertEqual(audit["action"], "ton_wallet_linked")
+        self.assertEqual(audit["actor_telegram_id"], "101")
+        self.assertEqual(audit["target_type"], "wallet")
+        self.assertEqual(__import__("json").loads(audit["metadata_json"]), {"network": "-239"})
+
     def test_ton_proof_challenge_is_rate_limited_per_account(self):
         with patch.object(app, "_enforce_user_rate_limit") as limiter:
             response = self.client.post(
@@ -140,6 +150,15 @@ class TonConnectApiTests(unittest.TestCase):
         self.assertEqual(owner.status_code, 200, owner.text)
         self.assertEqual(owner.json(), {"revoked": True})
         self.assertEqual(ton_connect.list_verified_wallets("101"), [])
+        with marketplace._db() as conn:
+            audit = conn.execute(
+                "SELECT action, actor_telegram_id, target_type, metadata_json FROM security_audit_events "
+                "WHERE action='ton_wallet_revoked' ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        self.assertEqual(audit["action"], "ton_wallet_revoked")
+        self.assertEqual(audit["actor_telegram_id"], "101")
+        self.assertEqual(audit["target_type"], "wallet")
+        self.assertEqual(__import__("json").loads(audit["metadata_json"]), {"network": "-239"})
 
         repeated = self.client.delete(
             f"/api/ton-proof/wallets/-239/{address}",
