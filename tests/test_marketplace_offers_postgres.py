@@ -52,12 +52,22 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
                 )
             """)
             pg.execute("CREATE TABLE marketplace_payment_events (id TEXT PRIMARY KEY)")
-            pg.execute("CREATE TABLE marketplace_ledger_transactions (id TEXT PRIMARY KEY)")
-            pg.execute("CREATE TABLE marketplace_ledger_entries (id TEXT PRIMARY KEY)")
+            pg.execute("""
+                CREATE TABLE marketplace_ledger_transactions (
+                    id TEXT PRIMARY KEY, amount TEXT NOT NULL, currency TEXT NOT NULL
+                )
+            """)
+            pg.execute("""
+                CREATE TABLE marketplace_ledger_entries (
+                    id TEXT PRIMARY KEY,
+                    transaction_id TEXT NOT NULL REFERENCES marketplace_ledger_transactions(id),
+                    direction TEXT NOT NULL, currency TEXT NOT NULL, amount TEXT NOT NULL
+                )
+            """)
 
             installed = install_postgres_offer_triggers(pg)
             assert installed["verified"] is True
-            assert installed["triggers_installed"] == 13
+            assert installed["triggers_installed"] == 15
 
             pg.execute(
                 "INSERT INTO marketplace_orders VALUES (%s,%s,%s,%s,%s,%s)",
@@ -97,16 +107,41 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
             with pytest.raises(psycopg.Error):
                 pg.execute("DELETE FROM marketplace_deal_lifecycle_events WHERE id='life-1'")
 
-            for table, row_id in (
-                ("marketplace_payment_events", "pay-event-1"),
-                ("marketplace_ledger_transactions", "ledger-tx-1"),
-                ("marketplace_ledger_entries", "ledger-entry-1"),
-            ):
-                pg.execute(f"INSERT INTO {table}(id) VALUES (%s)", (row_id,))
-                with pytest.raises(psycopg.Error):
-                    pg.execute(f"UPDATE {table} SET id='changed' WHERE id=%s", (row_id,))
-                with pytest.raises(psycopg.Error):
-                    pg.execute(f"DELETE FROM {table} WHERE id=%s", (row_id,))
+            pg.execute("INSERT INTO marketplace_payment_events(id) VALUES (%s)", ("pay-event-1",))
+            with pytest.raises(psycopg.Error):
+                pg.execute("UPDATE marketplace_payment_events SET id='changed' WHERE id='pay-event-1'")
+            with pytest.raises(psycopg.Error):
+                pg.execute("DELETE FROM marketplace_payment_events WHERE id='pay-event-1'")
+
+            with pg.transaction():
+                pg.execute(
+                    "INSERT INTO marketplace_ledger_transactions(id,amount,currency) VALUES (%s,%s,%s)",
+                    ("ledger-tx-1", "2.5", "TON"),
+                )
+                pg.execute(
+                    "INSERT INTO marketplace_ledger_entries(id,transaction_id,direction,currency,amount) VALUES (%s,%s,%s,%s,%s)",
+                    ("ledger-debit-1", "ledger-tx-1", "debit", "TON", "2.5"),
+                )
+                pg.execute(
+                    "INSERT INTO marketplace_ledger_entries(id,transaction_id,direction,currency,amount) VALUES (%s,%s,%s,%s,%s)",
+                    ("ledger-credit-1", "ledger-tx-1", "credit", "TON", "2.5"),
+                )
+
+            with pytest.raises(psycopg.Error):
+                pg.execute("UPDATE marketplace_ledger_transactions SET amount='99' WHERE id='ledger-tx-1'")
+            with pytest.raises(psycopg.Error):
+                pg.execute("DELETE FROM marketplace_ledger_entries WHERE id='ledger-debit-1'")
+
+            with pytest.raises(psycopg.Error, match="ledger transaction must contain exactly one balanced debit and credit matching its amount"):
+                with pg.transaction():
+                    pg.execute(
+                        "INSERT INTO marketplace_ledger_transactions(id,amount,currency) VALUES (%s,%s,%s)",
+                        ("ledger-unbalanced", "2", "TON"),
+                    )
+                    pg.execute(
+                        "INSERT INTO marketplace_ledger_entries(id,transaction_id,direction,currency,amount) VALUES (%s,%s,%s,%s,%s)",
+                        ("ledger-only-debit", "ledger-unbalanced", "debit", "TON", "2"),
+                    )
 
             # A successful DDL call is not proof that the final trigger set is intact.
             pg.execute("DROP TRIGGER trg_marketplace_offer_received ON marketplace_offers")
@@ -148,7 +183,7 @@ def test_postgres_offer_schema_bootstrap_is_idempotent_and_creates_all_objects()
             second = initialize_postgres_offer_schema(adapter)
             assert first["verified"] is True
             assert second["verified"] is True
-            assert first["verification"]["triggers_verified"] == 13
+            assert first["verification"]["triggers_verified"] == 15
             assert first["verification"]["tables_verified"] == 9
             assert first["verification"]["columns_verified"] == 79
             assert first["verification"]["indexes_verified"] == 20
