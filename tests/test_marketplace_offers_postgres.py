@@ -140,7 +140,7 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
             with pytest.raises(psycopg.Error, match="immutable"):
                 pg.execute("TRUNCATE TABLE marketplace_ledger_entries")
             with pytest.raises(psycopg.Error, match="immutable"):
-                pg.execute("TRUNCATE TABLE marketplace_ledger_transactions")
+                pg.execute("TRUNCATE TABLE marketplace_ledger_transactions CASCADE")
 
             with pytest.raises(psycopg.Error, match="ledger transaction must contain exactly one balanced debit and credit matching its amount"):
                 with pg.transaction():
