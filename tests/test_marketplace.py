@@ -2149,6 +2149,64 @@ class SharedMarketplaceTests(unittest.TestCase):
         unrelated = self.client.get("/api/marketplace/activity?limit=10", headers=headers_c)
         self.assertEqual(unrelated.json()["items"], [])
 
+    def test_unpaid_reservation_timeout_expires_deal_and_releases_listing(self):
+        seller_headers = {"X-Telegram-Init-Data": "user-a"}
+        buyer_headers = {"X-Telegram-Init-Data": "user-b"}
+        listing = self.client.post(
+            "/api/marketplace/orders", headers=seller_headers,
+            json={"kind": "listing", "title": "Timeout gift", "price": "10", "currency": "TON"},
+        )
+        self.assertEqual(listing.status_code, 201, listing.text)
+        offer = self.client.post(
+            "/api/marketplace/offers", headers=buyer_headers,
+            json={"order_id": listing.json()["item"]["id"], "amount": "9", "note": "timeout"},
+        )
+        self.assertEqual(offer.status_code, 201, offer.text)
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer.json()['item']['id']}", headers=seller_headers,
+            json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        deal_id = accepted.json()["deal_id"]
+        with marketplace_offers._db() as conn:
+            created_at = conn.execute("SELECT created_at FROM marketplace_deals WHERE id=?", (deal_id,)).fetchone()["created_at"]
+        result = marketplace_offers.expire_unpaid_marketplace_deals(now=created_at + 301, ttl_seconds=300)
+        self.assertEqual(result, {"expired_deals": 1, "reservations_released": 1, "skipped_confirmed_payment": 0})
+        with marketplace_offers._db() as conn:
+            deal = conn.execute("SELECT status FROM marketplace_deals WHERE id=?", (deal_id,)).fetchone()
+            order = conn.execute("SELECT status FROM marketplace_orders WHERE id=?", (listing.json()["item"]["id"],)).fetchone()
+        self.assertEqual(deal["status"], "expired")
+        self.assertEqual(order["status"], "active")
+
+    def test_unpaid_timeout_never_releases_a_deal_with_confirmed_payment(self):
+        seller_headers = {"X-Telegram-Init-Data": "user-a"}
+        buyer_headers = {"X-Telegram-Init-Data": "user-b"}
+        listing = self.client.post(
+            "/api/marketplace/orders", headers=seller_headers,
+            json={"kind": "listing", "title": "Paid timeout gift", "price": "10", "currency": "TON"},
+        )
+        offer = self.client.post(
+            "/api/marketplace/offers", headers=buyer_headers,
+            json={"order_id": listing.json()["item"]["id"], "amount": "9", "note": "paid timeout"},
+        )
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer.json()['item']['id']}", headers=seller_headers,
+            json={"action": "accept"},
+        )
+        deal_id = accepted.json()["deal_id"]
+        with marketplace_offers._db() as conn:
+            created_at = conn.execute("SELECT created_at FROM marketplace_deals WHERE id=?", (deal_id,)).fetchone()["created_at"]
+            conn.execute("UPDATE marketplace_deals SET status='paid' WHERE id=?", (deal_id,))
+            conn.commit()
+        result = marketplace_offers.expire_unpaid_marketplace_deals(now=created_at + 86401, ttl_seconds=300)
+        self.assertEqual(result["expired_deals"], 0)
+        self.assertEqual(result["skipped_confirmed_payment"], 0)
+        with marketplace_offers._db() as conn:
+            deal = conn.execute("SELECT status FROM marketplace_deals WHERE id=?", (deal_id,)).fetchone()
+            order = conn.execute("SELECT status FROM marketplace_orders WHERE id=?", (listing.json()["item"]["id"],)).fetchone()
+        self.assertEqual(deal["status"], "paid")
+        self.assertEqual(order["status"], "matched")
+
     def test_dispute_requires_confirmed_payment_and_is_idempotent_and_private(self):
         seller_headers = {"X-Telegram-Init-Data": "user-a"}
         buyer_headers = {"X-Telegram-Init-Data": "user-b"}
