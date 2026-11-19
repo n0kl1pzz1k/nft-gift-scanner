@@ -17,11 +17,11 @@ from database import begin_write, select_for_update
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "moderator": {
         "dashboard.read", "users.read", "assets.moderate", "reports.read",
-        "reports.resolve", "disputes.read",
+        "reports.resolve", "disputes.read", "users.suspend",
     },
     "finance": {
         "dashboard.read", "disputes.read", "disputes.resolve",
-        "payments.reconcile", "payments.refund", "audit.read",
+        "payments.reconcile", "payments.reconcile.read", "payments.refund", "audit.read",
     },
     "support": {
         "dashboard.read", "users.read", "reports.read", "disputes.read",
@@ -29,12 +29,12 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     },
     "auditor": {
         "dashboard.read", "users.read", "reports.read", "disputes.read",
-        "payments.reconcile", "audit.read",
+        "payments.reconcile.read", "audit.read",
     },
 }
 ALL_PERMISSIONS = set().union(*ROLE_PERMISSIONS.values()) | {
     "roles.manage", "users.suspend", "assets.moderate", "reports.resolve",
-    "disputes.resolve", "payments.refund",
+    "disputes.resolve", "payments.refund", "payments.reconcile.read",
 }
 
 
@@ -303,7 +303,7 @@ def create_marketplace_admin_router(verify_credential: Callable[[str], dict]) ->
         offset: int = Query(default=0, ge=0, le=100000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        require_permission(x_telegram_init_data, "payments.reconcile")
+        require_permission(x_telegram_init_data, "payments.reconcile.read")
         with _db() as conn:
             rows = conn.execute(
                 """SELECT id, kind, deal_id, payment_intent_id, provider_reference,
