@@ -32,6 +32,13 @@ def fragment_asset_type(collection_address: str) -> str | None:
         return None
 
 
+def fragment_collection_address(asset_type: str) -> str | None:
+    for address, kind in FRAGMENT_COLLECTIONS.items():
+        if kind == str(asset_type):
+            return address
+    return None
+
+
 def _raw_address(value: str) -> str:
     from tonsdk.utils import Address
 
