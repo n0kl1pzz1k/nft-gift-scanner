@@ -347,6 +347,9 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             if order["kind"] != "listing":
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Offers can only be made on seller listings")
+            if order["currency"] == "XTR" and payload.amount != payload.amount.to_integral_value():
+                conn.rollback()
+                raise HTTPException(status_code=422, detail="Star offers must be whole numbers")
             if not _test_unverified_assets_allowed():
                 verified_asset = conn.execute(
                     """SELECT 1 FROM verified_assets
