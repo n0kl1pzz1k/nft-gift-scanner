@@ -661,7 +661,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             orders = conn.execute(
                 """SELECT
                      SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active_orders,
-                     SUM(CASE WHEN status = 'matched' THEN 1 ELSE 0 END) AS completed_orders
+                     0 AS completed_orders
                    FROM marketplace_orders WHERE user_id = ?""",
                 (user_id,),
             ).fetchone()

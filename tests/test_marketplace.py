@@ -1583,6 +1583,28 @@ class SharedMarketplaceTests(unittest.TestCase):
     def test_account_stats_require_verified_telegram_session(self):
         response = self.client.get("/api/marketplace/account/stats")
         self.assertEqual(response.status_code, 401)
+    
+    def test_account_stats_do_not_count_matched_reservations_as_completed(self):
+        created = self.client.post(
+            "/api/marketplace/orders",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"kind": "listing", "title": "Reserved but unpaid", "price": "4", "currency": "TON"},
+        )
+        self.assertEqual(created.status_code, 201)
+        order_id = created.json()["item"]["id"]
+        with marketplace._db() as connection:
+            connection.execute(
+                "UPDATE marketplace_orders SET status='matched' WHERE id=?",
+                (order_id,),
+            )
+
+        response = self.client.get(
+            "/api/marketplace/account/stats",
+            headers={"X-Telegram-Init-Data": "user-a"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["active_orders"], 0)
+        self.assertEqual(response.json()["completed_orders"], 0)
 
 
 
