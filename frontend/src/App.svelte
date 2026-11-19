@@ -10,7 +10,7 @@
     price: string | number; currency: 'TON' | 'XTR'; status: 'active' | 'matched' | 'cancelled';
     createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; seller_profile_id?: string | null; events?: {type:string;createdAt:number}[];
   };
-  type MarketplaceOffer = { id:string; order_id:string; sender_name:string; amount:string; currency:'TON'|'XTR'; note:string; status:'pending'|'accepted'|'declined'|'withdrawn'; created_at:number; is_mine:boolean; order_title:string; order_owner_id:string; order_owner_name:string; order_status:string };
+  type MarketplaceOffer = { id:string; order_id:string; sender_name:string; amount:string; currency:'TON'|'XTR'; note:string; status:'pending'|'accepted'|'declined'|'withdrawn'; created_at:number; is_mine:boolean; order_title:string; order_owner_id:string; order_owner_name:string; order_status:string; order_kind:'listing'|'buy-order' };
   type MarketplaceDeal = { id:string; order_id:string; offer_id:string; is_seller:boolean; order_title:string; agreed_amount:string; currency:'TON'|'XTR'; status:'payment_not_enabled'|'awaiting_payment'|'payment_pending'|'paid'|'delivery_pending'|'completed'|'disputed'|'cancelled'|'expired'; order_status:string; created_at:number; reservation_active:boolean; payments_enabled:boolean; delivery_completed:boolean };
   
   type AccountNotification = { id:string; type:'offer_received'|'offer_accepted'|'offer_declined'|'offer_withdrawn'; offer_id:string; order_id:string; order_title:string; actor_name:string; created_at:number; read_at:number|null };
@@ -752,12 +752,21 @@
       return false;
     }
     const amount = Number(offerAmount);
-    if (!Number.isFinite(amount) || amount <= 0 || (selectedOfferOrder?.currency === 'XTR' && !Number.isInteger(amount))) { notice = selectedOfferOrder?.currency === 'XTR' ? (lang === 'ru' ? 'Сумма оффера в Stars должна быть целым числом.' : 'Star offers must be a whole number.') : (lang === 'ru' ? 'Укажи положительную сумму оффера.' : 'Enter a positive offer amount.'); return false; }
+    if (!Number.isFinite(amount) || amount <= 0 || (selectedOfferOrder?.currency === 'XTR' && !Number.isInteger(amount)) || (selectedOfferOrder?.kind === 'buy-order' && !offerNote.trim())) {
+      notice = selectedOfferOrder?.kind === 'buy-order'
+        ? (lang === 'ru' ? 'Опиши актив, который предлагаешь покупателю.' : 'Describe the asset you are offering to the buyer.')
+        : selectedOfferOrder?.currency === 'XTR'
+          ? (lang === 'ru' ? 'Сумма оффера в Stars должна быть целым числом.' : 'Star offers must be a whole number.')
+          : (lang === 'ru' ? 'Укажи положительную сумму оффера.' : 'Enter a positive offer amount.');
+      return false;
+    }
     try {
       await request('/api/marketplace/offers', undefined, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order_id:orderId,amount,note:offerNote.trim()}) });
       offerAmount = ''; offerNote = '';
       haptic('success');
-      notice = lang === 'ru' ? 'Оффер отправлен владельцу актива.' : 'Offer sent to the asset owner.';
+      notice = selectedOfferOrder?.kind === 'buy-order'
+        ? (lang === 'ru' ? 'Ответное предложение отправлено покупателю. Это ещё не резерв и не сделка.' : 'Your seller response was sent. It is not a reservation or a completed trade.')
+        : (lang === 'ru' ? 'Оффер отправлен владельцу актива.' : 'Offer sent to the asset owner.');
       await loadOffersAndDeals();
       return true;
     } catch (e) { notice = e instanceof Error ? e.message : String(e); haptic('error'); return false; }
@@ -1169,6 +1178,7 @@
                    <p>{request.owner}{request.note ? ' · '+request.note : ''}</p>
                  </div>
                  <div class="order-price"><strong>{request.price} {request.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class="status-active">{lang==='ru'?'БЮДЖЕТ':'BUDGET'}</span></div>
+                 {#if request.user_id!==userId}<div class="order-actions"><button class="asset-offer-button" disabled={!signedIn} onclick={()=>{selectedOfferOrder=request;offerAmount=String(request.price);offerNote='';showOfferModal=true;}}>{lang==='ru'?'Предложить свой актив':'Respond with an asset'}</button></div>{/if}
                </article>
              {/each}
            </div>
@@ -1507,12 +1517,12 @@
           <div class="sell-modal offer-modal" role="dialog" aria-modal="true" aria-labelledby="offer-title">
             <button class="modal-close" onclick={()=>showOfferModal=false} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={offerSubmitBusy}>×</button>
             <div class="eyebrow">HASSLE NFT · OFFER</div>
-            <h2 id="offer-title">{lang==='ru'?'Предложить цену':'Make an offer'}</h2>
-            <div class="offer-asset-preview"><span>{assetTypeOf(selectedOfferOrder)==='username'?'＠':assetTypeOf(selectedOfferOrder)==='number'?'888':assetTypeOf(selectedOfferOrder)==='gift'?'NFT':'ASSET'}</span><div><strong>{selectedOfferOrder.title}</strong><small>{lang==='ru'?'Цена продавца':'Seller price'}: {selectedOfferOrder.price} {selectedOfferOrder.currency==='XTR'?'⭐':'TON'}</small></div></div>
-            <label>{lang==='ru'?'Твоё предложение':'Your offer'}<input class="form-input" type="number" min="0.01" step={selectedOfferOrder.currency==='XTR'?'1':'0.01'} bind:value={offerAmount} placeholder={selectedOfferOrder.currency==='XTR'?'100':'1.25'}/></label>
-            <label>{lang==='ru'?'Сообщение продавцу':'Message to seller'}<textarea class="form-input note-input" bind:value={offerNote} maxlength="300" placeholder={lang==='ru'?'Необязательно':'Optional'}></textarea></label>
+            <h2 id="offer-title">{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Ответить покупателю':'Respond to buyer'):(lang==='ru'?'Предложить цену':'Make an offer')}</h2>
+            <div class="offer-asset-preview"><span>{assetTypeOf(selectedOfferOrder)==='username'?'＠':assetTypeOf(selectedOfferOrder)==='number'?'888':assetTypeOf(selectedOfferOrder)==='gift'?'NFT':'ASSET'}</span><div><strong>{selectedOfferOrder.title}</strong><small>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Бюджет покупателя':'Buyer budget'):(lang==='ru'?'Цена продавца':'Seller price')}: {selectedOfferOrder.price} {selectedOfferOrder.currency==='XTR'?'⭐':'TON'}</small></div></div>
+            <label>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Твоя цена покупателю':'Your price to buyer'):(lang==='ru'?'Твоё предложение':'Your offer')}<input class="form-input" type="number" min="0.01" step={selectedOfferOrder.currency==='XTR'?'1':'0.01'} bind:value={offerAmount} placeholder={selectedOfferOrder.currency==='XTR'?'100':'1.25'}/></label>
+            <label>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Опиши предлагаемый актив':'Describe the asset you offer'):(lang==='ru'?'Сообщение продавцу':'Message to seller')}<textarea class="form-input note-input" bind:value={offerNote} maxlength="300" placeholder={selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Название, коллекция и детали актива (обязательно)':'Asset name, collection and details (required)'):(lang==='ru'?'Необязательно':'Optional')}></textarea></label>
             <button class="ton-primary offer-submit" disabled={offerSubmitBusy} onclick={async()=>{if(!selectedOfferOrder)return;offerSubmitBusy=true;try{const sent=await createOffer(selectedOfferOrder.id);if(sent){showOfferModal=false;selectedOfferOrder=null;}}finally{offerSubmitBusy=false;}}}>{offerSubmitBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendOffer+' →'}</button>
-            <small class="sell-modal-hint">{lang==='ru'?'Оффер отправится владельцу актива. Это не перевод средств и не завершение сделки.':'The offer goes to the asset owner. It does not transfer funds or complete a trade.'}</small>
+            <small class="sell-modal-hint">{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Ответ увидит покупатель. Актив пока не резервируется, а принять ответ можно будет после подключения защищённого исполнения.':'The buyer will see your response. The asset is not reserved; accepting the response will be enabled with protected deal execution.'):(lang==='ru'?'Оффер отправится владельцу актива. Это не перевод средств и не завершение сделки.':'The offer goes to the asset owner. It does not transfer funds or complete a trade.')}</small>
           </div>
         </div>
       {/if}
