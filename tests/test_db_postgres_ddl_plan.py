@@ -220,15 +220,17 @@ def test_generated_production_trigger_ddl_executes_and_preserves_behavior():
         CREATE TRIGGER trg_marketplace_order_cancel_declines_offers
         AFTER UPDATE OF status ON marketplace_orders BEGIN SELECT 1; END;
         CREATE TRIGGER verified_assets_metadata_immutable
+        BEFORE UPDATE OF source, external_asset_id, owner_telegram_id, title, asset_type,
+                         image_url, verification_method, verification_reference_hash, verified_at
+        ON verified_assets BEGIN SELECT 1; END;
         CREATE TRIGGER verified_assets_consume_transfer_authorization
         AFTER UPDATE OF owner_telegram_id ON verified_assets BEGIN SELECT 1; END;
-        BEFORE UPDATE ON verified_assets BEGIN SELECT 1; END;
         """
     )
     plan = build_postgres_ddl_plan(build_schema_manifest(sqlite))
     sqlite.close()
     assert plan["blocker_count"] == 0, plan["blockers"]
-    assert plan["trigger_translation_count"] == 8
+    assert plan["trigger_translation_count"] == 9
 
     schema = "mig_trigger_" + uuid.uuid4().hex[:12]
     with psycopg.connect(dsn, autocommit=True) as pg:
