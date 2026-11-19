@@ -101,6 +101,99 @@ class SharedMarketplaceTests(unittest.TestCase):
             conn.commit()
         return deal_id, invoice_payload, intent["id"]
 
+    def test_ton_nft_delivery_requires_live_buyer_ownership_before_completion(self):
+        asset = marketplace.register_verified_asset(
+            source="ton_nft",
+            external_asset_id="0:" + "33" * 32,
+            owner_telegram_id="101",
+            title="Verified TON gift",
+            asset_type="gift",
+            image_url="",
+            verification_method="ton_connect_proof",
+            verification_reference="seller-proof-reference-001",
+        )
+        seller_address = "0:" + "11" * 32
+        buyer_address = "0:" + "22" * 32
+        with marketplace._db() as conn:
+            for telegram_id, address in (("101", seller_address), ("202", buyer_address)):
+                conn.execute(
+                    """INSERT INTO verified_wallets
+                       (network, address, telegram_id, public_key, state_init_hash,
+                        created_at, last_verified_at, revoked_at)
+                       VALUES ('-239', ?, ?, ?, ?, 1700000000, 1700000000, NULL)""",
+                    (address, telegram_id, "ab" * 32, "cd" * 32),
+                )
+            conn.commit()
+        listing = self.client.post(
+            "/api/marketplace/orders",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={
+                "kind": "listing", "title": "Verified TON gift", "price": "10",
+                "currency": "XTR", "asset_id": asset["id"],
+            },
+        )
+        self.assertEqual(listing.status_code, 201, listing.text)
+        offer = self.client.post(
+            "/api/marketplace/offers",
+            headers={"X-Telegram-Init-Data": "user-b"},
+            json={"order_id": listing.json()["item"]["id"], "amount": "9", "note": "buy"},
+        )
+        self.assertEqual(offer.status_code, 201, offer.text)
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer.json()['item']['id']}",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        deal_id = accepted.json()["deal_id"]
+        with marketplace_offers._db() as conn:
+            conn.execute("UPDATE marketplace_deals SET status='paid' WHERE id=?", (deal_id,))
+            conn.commit()
+
+        seller_owner = {"owner_address": seller_address, "is_scam": False}
+        buyer_owner = {"owner_address": buyer_address, "is_scam": False}
+        with patch("ton_nft_inventory.fetch_nft_owner", new=AsyncMock(return_value=seller_owner)):
+            prepared = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/ton-nft-delivery/prepare",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"idempotency_key": "prepare-ton-transfer-001"},
+            )
+        self.assertEqual(prepared.status_code, 200, prepared.text)
+        self.assertEqual(prepared.json()["status"], "delivery_pending")
+        self.assertEqual(prepared.json()["transaction"]["network"], "-239")
+        self.assertEqual(prepared.json()["transaction"]["messages"][0]["address"], asset["external_asset_id"])
+
+        with patch("ton_nft_inventory.fetch_nft_owner", new=AsyncMock(return_value=seller_owner)):
+            not_yet = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/ton-nft-delivery/confirm",
+                headers={"X-Telegram-Init-Data": "user-b"},
+                json={"idempotency_key": "confirm-ton-transfer-too-early"},
+            )
+        self.assertEqual(not_yet.status_code, 409)
+
+        with patch("ton_nft_inventory.fetch_nft_owner", new=AsyncMock(return_value=buyer_owner)):
+            confirmed = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/ton-nft-delivery/confirm",
+                headers={"X-Telegram-Init-Data": "user-b"},
+                json={"idempotency_key": "confirm-ton-transfer-001"},
+            )
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertEqual(confirmed.json()["status"], "completed")
+        with marketplace._db() as conn:
+            current_asset = conn.execute(
+                "SELECT owner_telegram_id FROM verified_assets WHERE id=?", (asset["id"],)
+            ).fetchone()
+            ownership = conn.execute(
+                "SELECT previous_owner_id, new_owner_id FROM asset_ownership_history WHERE asset_id=?",
+                (asset["id"],),
+            ).fetchall()
+            deal = conn.execute(
+                "SELECT status FROM marketplace_deals WHERE id=?", (deal_id,)
+            ).fetchone()
+        self.assertEqual(current_asset["owner_telegram_id"], "202")
+        self.assertEqual(len(ownership), 1)
+        self.assertEqual(deal["status"], "completed")
+
     def test_ton_nft_transfer_payload_encodes_standard_tep62_body(self):
         payload = build_nft_transfer_payload(
             new_owner_address="0:" + "11" * 32,
