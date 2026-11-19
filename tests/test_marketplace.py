@@ -931,33 +931,63 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(unrelated.json()["total"], 0)
         self.assertEqual(unrelated.json()["items"], [])
 
-    def test_offer_acceptance_stays_disabled_until_real_escrow_is_live(self):
+    def test_accepting_offer_creates_an_unpaid_reservation_and_private_deal_history(self):
+        seller_headers = {"X-Telegram-Init-Data": "user-a"}
+        buyer_headers = {"X-Telegram-Init-Data": "user-b"}
         created = self.client.post(
             "/api/marketplace/orders",
-            headers={"X-Telegram-Init-Data": "user-a"},
-            json={"kind": "listing", "title": "Plush Pepe", "price": "2.5", "currency": "TON"},
+            headers=seller_headers,
+            json={"kind": "listing", "title": "Verified marketplace asset", "price": "2.5", "currency": "TON"},
         )
+        self.assertEqual(created.status_code, 201, created.text)
         order_id = created.json()["item"]["id"]
         offered = self.client.post(
             "/api/marketplace/offers",
-            headers={"X-Telegram-Init-Data": "user-b"},
+            headers=buyer_headers,
             json={"order_id": order_id, "amount": "2.2", "note": "offer"},
         )
-        self.assertEqual(offered.status_code, 201)
+        self.assertEqual(offered.status_code, 201, offered.text)
         offer_id = offered.json()["item"]["id"]
         accepted = self.client.patch(
             f"/api/marketplace/offers/{offer_id}",
-            headers={"X-Telegram-Init-Data": "user-a"},
+            headers=seller_headers,
             json={"action": "accept"},
         )
-        self.assertEqual(accepted.status_code, 409)
-        self.assertIn("escrow", accepted.json()["detail"].lower())
-        offers = self.client.get("/api/marketplace/offers", headers={"X-Telegram-Init-Data": "user-a"})
-        self.assertEqual(offers.json()["items"][0]["status"], "pending")
-        deals = self.client.get("/api/marketplace/deals", headers={"X-Telegram-Init-Data": "user-b"})
-        self.assertEqual(deals.json()["items"], [])
-        order = self.client.get("/api/marketplace/orders?status=active")
-        self.assertTrue(any(item["id"] == order_id for item in order.json()["items"]))
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        self.assertTrue(accepted.json()["reservation_created"])
+        self.assertFalse(accepted.json()["payments_enabled"])
+        self.assertEqual(accepted.json()["deal_status"], "payment_not_enabled")
+        self.assertEqual(accepted.json()["item"]["status"], "accepted")
+
+        listing = self.client.get("/api/marketplace/orders?status=matched")
+        reserved = next(item for item in listing.json()["items"] if item["id"] == order_id)
+        self.assertEqual(reserved["status"], "matched")
+
+        seller_deals = self.client.get("/api/marketplace/deals", headers=seller_headers)
+        buyer_deals = self.client.get("/api/marketplace/deals", headers=buyer_headers)
+        outsider_deals = self.client.get(
+            "/api/marketplace/deals", headers={"X-Telegram-Init-Data": "user-c"}
+        )
+        self.assertEqual(seller_deals.status_code, 200)
+        self.assertEqual(buyer_deals.status_code, 200)
+        self.assertEqual(len(seller_deals.json()["items"]), 1)
+        self.assertEqual(len(buyer_deals.json()["items"]), 1)
+        self.assertEqual(outsider_deals.json()["items"], [])
+        deal = buyer_deals.json()["items"][0]
+        self.assertEqual(deal["id"], accepted.json()["deal_id"])
+        self.assertEqual(deal["status"], "payment_not_enabled")
+        self.assertTrue(deal["reservation_active"])
+        self.assertFalse(deal["payments_enabled"])
+        self.assertFalse(deal["delivery_completed"])
+
+        events = self.client.get(
+            f"/api/marketplace/deals/{deal['id']}/events", headers=buyer_headers
+        )
+        self.assertEqual(events.status_code, 200)
+        self.assertEqual(
+            {item["type"] for item in events.json()["items"]},
+            {"deal_created", "listing_reserved", "payment_not_enabled"},
+        )
 
     def test_offer_creation_rolls_back_when_received_notification_insert_fails(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
@@ -1933,7 +1963,7 @@ class SharedMarketplaceTests(unittest.TestCase):
 
 
 
-    def test_competing_offer_acceptance_is_blocked_without_escrow(self):
+    def test_competing_offer_acceptance_reserves_listing_once_and_declines_competitors(self):
         created = self.client.post(
             "/api/marketplace/orders",
             headers={"X-Telegram-Init-Data": "user-a"},
@@ -1949,41 +1979,60 @@ class SharedMarketplaceTests(unittest.TestCase):
             )
             self.assertEqual(offered.status_code, 201)
             offer_ids.append(offered.json()["item"]["id"])
-        for offer_id in offer_ids:
-            response = self.client.patch(
-                f"/api/marketplace/offers/{offer_id}",
-                headers={"X-Telegram-Init-Data": "user-a"},
-                json={"action": "accept"},
-            )
-            self.assertEqual(response.status_code, 409)
-        order = self.client.get("/api/marketplace/orders?status=active")
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer_ids[0]}",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        rejected_competitor = self.client.patch(
+            f"/api/marketplace/offers/{offer_ids[1]}",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"action": "accept"},
+        )
+        self.assertEqual(rejected_competitor.status_code, 409)
+        order = self.client.get("/api/marketplace/orders?status=matched")
         self.assertTrue(any(item["id"] == order_id for item in order.json()["items"]))
-        for user_token in ("user-b", "user-c"):
+        for user_token, expected in (("user-b", "accepted"), ("user-c", "declined")):
             offers = self.client.get(
                 "/api/marketplace/offers",
                 headers={"X-Telegram-Init-Data": user_token},
             )
             own = next(item for item in offers.json()["items"] if item["order_id"] == order_id)
-            self.assertEqual(own["status"], "pending")
+            self.assertEqual(own["status"], expected)
 
-    def test_deal_history_stays_empty_until_real_escrow_is_enabled(self):
-        headers_a = {"X-Telegram-Init-Data": "user-a"}
-        headers_b = {"X-Telegram-Init-Data": "user-b"}
+    def test_participants_can_cancel_unpaid_reservation_and_reopen_listing(self):
+        seller_headers = {"X-Telegram-Init-Data": "user-a"}
+        buyer_headers = {"X-Telegram-Init-Data": "user-b"}
         created = self.client.post(
-            "/api/marketplace/orders", headers=headers_a,
-            json={"kind": "listing", "title": "Escrow gated gift", "price": "4", "currency": "TON"},
+            "/api/marketplace/orders", headers=seller_headers,
+            json={"kind": "listing", "title": "Reservation release asset", "price": "4", "currency": "XTR"},
         )
+        self.assertEqual(created.status_code, 201, created.text)
+        order_id = created.json()["item"]["id"]
         offered = self.client.post(
-            "/api/marketplace/offers", headers=headers_b,
-            json={"order_id": created.json()["item"]["id"], "amount": "3.5"},
+            "/api/marketplace/offers", headers=buyer_headers,
+            json={"order_id": order_id, "amount": "3"},
         )
+        self.assertEqual(offered.status_code, 201, offered.text)
         accepted = self.client.patch(
-            f"/api/marketplace/offers/{offered.json()['item']['id']}", headers=headers_a,
+            f"/api/marketplace/offers/{offered.json()['item']['id']}", headers=seller_headers,
             json={"action": "accept"},
         )
-        self.assertEqual(accepted.status_code, 409)
-        self.assertEqual(self.client.get("/api/marketplace/deals", headers=headers_a).json()["items"], [])
-        self.assertEqual(self.client.get("/api/marketplace/deals", headers=headers_b).json()["items"], [])
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        deal_id = accepted.json()["deal_id"]
+        cancelled = self.client.post(
+            f"/api/marketplace/deals/{deal_id}/actions", headers=buyer_headers,
+            json={"action": "cancel"},
+        )
+        self.assertEqual(cancelled.status_code, 200, cancelled.text)
+        self.assertTrue(cancelled.json()["reservation_released"])
+        self.assertFalse(cancelled.json()["payments_enabled"])
+        deal = self.client.get("/api/marketplace/deals", headers=seller_headers).json()["items"][0]
+        self.assertEqual(deal["status"], "cancelled")
+        self.assertFalse(deal["reservation_active"])
+        active_orders = self.client.get("/api/marketplace/orders?status=active")
+        self.assertTrue(any(item["id"] == order_id for item in active_orders.json()["items"]))
 
 
     def test_legacy_table_names_migrate_without_losing_listing_or_event_rows(self):
