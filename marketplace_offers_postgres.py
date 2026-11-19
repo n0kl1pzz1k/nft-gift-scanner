@@ -191,6 +191,15 @@ _TRIGGER_DDL = (
     ("trg_marketplace_ledger_entries_no_truncate",
      "CREATE TRIGGER trg_marketplace_ledger_entries_no_truncate BEFORE TRUNCATE ON marketplace_ledger_entries "
      "FOR EACH STATEMENT EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
+    ("trg_marketplace_escrow_events_no_update",
+     "CREATE TRIGGER trg_marketplace_escrow_events_no_update BEFORE UPDATE ON marketplace_escrow_events "
+     "FOR EACH ROW EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
+    ("trg_marketplace_escrow_events_no_delete",
+     "CREATE TRIGGER trg_marketplace_escrow_events_no_delete BEFORE DELETE ON marketplace_escrow_events "
+     "FOR EACH ROW EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
+    ("trg_marketplace_escrow_events_no_truncate",
+     "CREATE TRIGGER trg_marketplace_escrow_events_no_truncate BEFORE TRUNCATE ON marketplace_escrow_events "
+     "FOR EACH STATEMENT EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
     ("trg_marketplace_ledger_transaction_balanced",
      "CREATE CONSTRAINT TRIGGER trg_marketplace_ledger_transaction_balanced AFTER INSERT ON marketplace_ledger_transactions "
      "DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION hassle_nft_assert_ledger_transaction_balanced()"),
@@ -213,6 +222,9 @@ _TRIGGER_TABLES = {
     "trg_marketplace_ledger_transactions_no_delete": "marketplace_ledger_transactions",
     "trg_marketplace_ledger_entries_no_update": "marketplace_ledger_entries",
     "trg_marketplace_ledger_entries_no_delete": "marketplace_ledger_entries",
+    "trg_marketplace_escrow_events_no_update": "marketplace_escrow_events",
+    "trg_marketplace_escrow_events_no_delete": "marketplace_escrow_events",
+    "trg_marketplace_escrow_events_no_truncate": "marketplace_escrow_events",
     "trg_marketplace_deal_events_no_truncate": "marketplace_deal_events",
     "trg_marketplace_deal_lifecycle_events_no_truncate": "marketplace_deal_lifecycle_events",
     "trg_marketplace_payment_events_no_truncate": "marketplace_payment_events",
@@ -363,6 +375,14 @@ def verify_postgres_offer_schema(connection: Any) -> dict[str, Any]:
             "id", "transaction_id", "account_type", "account_id",
             "direction", "currency", "amount", "created_at",
         },
+        "marketplace_escrow_events": {
+            "id", "deal_id", "actor_user_id", "event_type", "event_key",
+            "event_data", "created_at",
+        },
+    }        "marketplace_ledger_entries": {
+            "id", "transaction_id", "account_type", "account_id",
+            "direction", "currency", "amount", "created_at",
+        },
     }
     expected_indexes = {
         "idx_marketplace_offers_order",
@@ -385,6 +405,9 @@ def verify_postgres_offer_schema(connection: Any) -> dict[str, Any]:
         "idx_marketplace_ledger_transactions_reference",
         "idx_marketplace_ledger_entries_transaction",
         "idx_marketplace_ledger_entries_unique_account_direction",
+        "idx_marketplace_escrow_events_deal_created",
+        "idx_marketplace_escrow_events_event_key",
+    }        "idx_marketplace_ledger_entries_unique_account_direction",
     }
     table_rows = connection.execute(
         "SELECT table_name AS name FROM information_schema.tables "
@@ -538,7 +561,20 @@ def initialize_postgres_offer_schema(connection: Any) -> dict[str, Any]:
             created_at BIGINT NOT NULL)""",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_marketplace_payment_events_provider_event ON marketplace_payment_events(provider, provider_event_id)",
         "CREATE INDEX IF NOT EXISTS idx_marketplace_payment_events_intent ON marketplace_payment_events(payment_intent_id, created_at ASC)",
-        """CREATE TABLE IF NOT EXISTS marketplace_ledger_transactions (
+        """CREATE TABLE IF NOT EXISTS marketplace_escrow_events (
+             id TEXT PRIMARY KEY, deal_id TEXT NOT NULL REFERENCES marketplace_deals(id),
+             actor_user_id TEXT NOT NULL,
+             event_type TEXT NOT NULL CHECK (event_type IN (
+                 'deal_payment_requested', 'payment_intent_created', 'payment_pending',
+                 'payment_confirmed', 'escrow_funded', 'asset_transfer_requested',
+                 'asset_transfer_submitted', 'asset_transfer_confirmed', 'deal_completed',
+                 'deal_disputed', 'refund_requested', 'refund_confirmed', 'payout_released',
+                 'deal_cancelled', 'deal_expired')),
+             event_key TEXT NOT NULL, event_data TEXT NOT NULL DEFAULT '{}',
+             created_at BIGINT NOT NULL)""",
+         "CREATE UNIQUE INDEX IF NOT EXISTS idx_marketplace_escrow_events_event_key ON marketplace_escrow_events(event_key)",
+         "CREATE INDEX IF NOT EXISTS idx_marketplace_escrow_events_deal_created ON marketplace_escrow_events(deal_id, created_at ASC, id ASC)",
+         """CREATE TABLE IF NOT EXISTS marketplace_ledger_transactions (
             id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL, reference_type TEXT NOT NULL
                 CHECK (reference_type IN ('payment_intent', 'deal', 'refund', 'withdrawal', 'fee')),
             reference_id TEXT NOT NULL, currency TEXT NOT NULL CHECK (currency IN ('XTR', 'TON')),
@@ -563,7 +599,8 @@ def initialize_postgres_offer_schema(connection: Any) -> dict[str, Any]:
     return {
         "tables": ["marketplace_offers", "marketplace_deals", "marketplace_deal_events",
                    "marketplace_deal_lifecycle_events", "marketplace_notifications", "marketplace_payment_intents",
-                    "marketplace_payment_events", "marketplace_ledger_transactions", "marketplace_ledger_entries"],
+                    "marketplace_payment_events", "marketplace_ledger_transactions", "marketplace_ledger_entries",
+                    "marketplace_escrow_events"],"marketplace_payment_events", "marketplace_ledger_transactions", "marketplace_ledger_entries"],
         "indexes_created_or_verified": verification["indexes_verified"],
         "verification": verification,
         "verified": verification["verified"],
