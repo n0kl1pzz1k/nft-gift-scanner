@@ -302,6 +302,9 @@ def test_generated_production_trigger_ddl_executes_and_preserves_behavior():
             ).fetchone()[0] == 0
             with pytest.raises(psycopg.Error):
                 with pg.transaction():
+                    pg.execute("UPDATE verified_assets SET owner_telegram_id='owner1', verification_reference_hash='hash1' WHERE id='asset1'")
+            with pytest.raises(psycopg.Error):
+                with pg.transaction():
                     pg.execute("UPDATE verified_assets SET title='Changed' WHERE id='asset1'")
         finally:
             pg.execute("SET search_path TO public")
