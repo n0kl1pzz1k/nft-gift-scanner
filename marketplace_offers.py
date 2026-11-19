@@ -326,6 +326,11 @@ class DealAction(BaseModel):
     action: Literal["cancel"]
 
 
+class DisputeResolutionApprovalRequest(BaseModel):
+    decision: Literal["refund_buyer", "release_to_seller"]
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+
 class DealDisputeRequest(BaseModel):
     reason: str = Field(min_length=10, max_length=500)
     idempotency_key: str = Field(min_length=1, max_length=128)
@@ -417,8 +422,23 @@ def expire_unpaid_marketplace_deals(
     return {"expired_deals": expired, "reservations_released": released, "skipped_confirmed_payment": skipped_paid}
 
 
-def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], dict]) -> APIRouter:
+def create_marketplace_offers_router(
+    verify_telegram_init_data: Callable[[str], dict],
+    require_admin: Callable[[str | None], dict] | None = None,
+) -> APIRouter:
     router = APIRouter(prefix="/api/marketplace", tags=["marketplace-offers"])
+
+    def _admin_user(credential: str | None) -> dict:
+        if require_admin is not None:
+            return require_admin(credential)
+        user = _require_user(credential, verify_telegram_init_data)
+        raw_ids = os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", ""))
+        admin_ids = {part.strip() for part in raw_ids.split(",") if part.strip().isdigit()}
+        if str(user["id"]) not in admin_ids:
+            raise HTTPException(status_code=403, detail="Administrator access only")
+        if len(admin_ids) < 2:
+            raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
+        return user
 
     @router.post("/offers", status_code=201)
     async def create_offer(payload: CreateOffer, x_telegram_init_data: str | None = Header(default=None)):
@@ -873,6 +893,56 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
         } for row in escrow_rows)
         items.sort(key=lambda item: (item["created_at"], item["id"]))
         return {"deal_id": deal_id, "items": items, "total": len(items)}
+
+    @router.post("/admin/deals/{deal_id}/dispute-approvals")
+    async def approve_dispute_resolution(
+        deal_id: str,
+        payload: DisputeResolutionApprovalRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        admin = _admin_user(x_telegram_init_data)
+        admin_id = str(admin["id"])
+        _enforce_user_rate_limit(admin_id, "dispute_resolution_approval", 10)
+        raw_ids = os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", ""))
+        configured_admins = {part.strip() for part in raw_ids.split(",") if part.strip().isdigit()}
+        if len(configured_admins) < 2:
+            raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
+        with _db() as conn:
+            begin_write(conn, f"deal:{deal_id}")
+            deal = conn.execute(
+                select_for_update(conn, "SELECT status FROM marketplace_deals WHERE id = ?"),
+                (deal_id,),
+            ).fetchone()
+            if deal is None:
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Deal not found")
+            if deal["status"] != "disputed":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Only disputed deals can receive resolution approvals")
+            from marketplace_payments import record_dispute_resolution_approval
+            try:
+                result = record_dispute_resolution_approval(
+                    conn,
+                    deal_id=deal_id,
+                    admin_user_id=admin_id,
+                    decision=payload.decision,
+                    idempotency_key=payload.idempotency_key,
+                    now=int(time.time()),
+                )
+            except Exception:
+                conn.rollback()
+                raise
+            conn.commit()
+        return {
+            "deal_id": deal_id,
+            "decision": payload.decision,
+            "approvals": result["approvals"],
+            "required": 2,
+            "ready_for_execution": result["ready_for_execution"],
+            "execution_enabled": False,
+            "idempotent_replay": result["idempotent_replay"],
+        }
+
 
     @router.get("/deals/{deal_id}/payment-status")
     async def get_deal_payment_status(
