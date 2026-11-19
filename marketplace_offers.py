@@ -1118,8 +1118,7 @@ def create_marketplace_offers_router(
     ):
         """Prepare a seller-signed TEP-62 transfer; the platform never holds wallet keys."""
         import hashlib
-        from marketplace import _raw_address
-        from ton_nft_inventory import build_nft_transfer_payload, fetch_nft_owner
+        from ton_nft_inventory import build_nft_transfer_payload, fetch_nft_owner, normalise_ton_address
 
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         seller_id = str(user["id"])
@@ -1159,8 +1158,8 @@ def create_marketplace_offers_router(
         buyer_address = buyer_wallet["address"]
         try:
             current_owner = await fetch_nft_owner(str(deal["external_asset_id"]))
-            seller_raw = _raw_address(seller_address)
-            buyer_raw = _raw_address(buyer_address)
+            seller_raw = normalise_ton_address(seller_address)
+            buyer_raw = normalise_ton_address(buyer_address)
         except Exception as exc:
             raise HTTPException(status_code=503, detail="TON ownership verification is temporarily unavailable") from exc
         if current_owner.get("is_scam") or current_owner.get("owner_address") != seller_raw:
@@ -1245,8 +1244,7 @@ def create_marketplace_offers_router(
     ):
         """Complete delivery only after TonAPI independently reports the buyer as owner."""
         import hashlib
-        from marketplace import _raw_address
-        from ton_nft_inventory import fetch_nft_owner
+        from ton_nft_inventory import fetch_nft_owner, normalise_ton_address
 
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         buyer_id = str(user["id"])
@@ -1278,7 +1276,7 @@ def create_marketplace_offers_router(
             raise HTTPException(status_code=409, detail="Link and verify your TON mainnet wallet first")
         try:
             current_owner = await fetch_nft_owner(str(deal["external_asset_id"]))
-            buyer_raw = _raw_address(buyer_wallet["address"])
+            buyer_raw = normalise_ton_address(buyer_wallet["address"])
         except Exception as exc:
             raise HTTPException(status_code=503, detail="TON ownership verification is temporarily unavailable") from exc
         if current_owner.get("is_scam") or current_owner.get("owner_address") != buyer_raw:
