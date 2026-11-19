@@ -4,7 +4,12 @@ from unittest.mock import patch
 
 import httpx
 
-from ton_nft_chain import _stack_address, _stack_number, verify_nft_collection_membership
+from ton_nft_chain import (
+    _stack_address,
+    _stack_number,
+    _wait_for_toncenter_public_rate_limit,
+    verify_nft_collection_membership,
+)
 
 
 ITEM = "0:" + "a" * 64
@@ -96,13 +101,32 @@ class TonNftChainVerificationTests(unittest.IsolatedAsyncioTestCase):
         await client.aclose()
         self.assertFalse(result["verified"])
 
+    async def test_public_toncenter_requests_are_spaced_at_least_one_second(self):
+        clock = [10.0]
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+            clock[0] += delay
+
+        with patch.dict("os.environ", {}, clear=True), \
+             patch("ton_nft_chain._TONCENTER_LAST_REQUEST_AT", 0.0), \
+             patch("ton_nft_chain.time.monotonic", side_effect=lambda: clock[0]), \
+             patch("ton_nft_chain.asyncio.sleep", new=fake_sleep):
+            await _wait_for_toncenter_public_rate_limit()
+            await _wait_for_toncenter_public_rate_limit()
+
+        self.assertEqual(len(sleeps), 1)
+        self.assertGreaterEqual(sleeps[0], 1.0)
+
     async def test_fails_closed_when_contract_getter_fails(self):
         client = httpx.AsyncClient(
             transport=httpx.MockTransport(lambda request: httpx.Response(503)),
             base_url="https://toncenter.com/api/v2",
         )
-        with self.assertRaises(httpx.HTTPStatusError):
-            await verify_nft_collection_membership(ITEM, COLLECTION, OWNER, client=client)
+        with patch.dict("os.environ", {"TONCENTER_API_KEY": "test-token"}):
+            with self.assertRaises(httpx.HTTPStatusError):
+                await verify_nft_collection_membership(ITEM, COLLECTION, OWNER, client=client)
         await client.aclose()
 
 
