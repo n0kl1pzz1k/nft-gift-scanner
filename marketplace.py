@@ -846,6 +846,8 @@ def register_verified_asset(*, source: str, external_asset_id: str, owner_telegr
     allowed = {
         ("telegram_gift", "gift", "telegram_gift_owner"),
         ("ton_nft", "gift", "ton_connect_proof"),
+        ("ton_nft", "username", "ton_connect_proof"),
+        ("ton_nft", "number", "ton_connect_proof"),
         ("telegram_username", "username", "telegram_username_owner"),
         ("anonymous_number", "number", "anonymous_number_owner"),
     }
@@ -1009,15 +1011,23 @@ def sync_ton_nft_assets(*, owner_telegram_id: str, wallets: list[dict[str, Any]]
             continue
         # Wallet proof binds the Telegram account to this address; TonAPI's
         # direct-owner NFT response supplies the current on-chain owner assertion.
+        asset_type = str(item.get("asset_type") or "gift")
+        if asset_type not in {"gift", "username", "number"}:
+            asset_type = "gift"
+        verification_reference = str(item.get("verification_reference") or "")
+        if asset_type in {"username", "number"} and not verification_reference.startswith("ton-contract-v1:"):
+            raise ValueError("Fragment assets require a successful TON contract verification")
+        if not verification_reference:
+            verification_reference = f"tonapi-owner-index:{evidence_wallet}:{address}:{int(time.time())}"
         registered.append(register_verified_asset(
             source="ton_nft",
             external_asset_id=address,
             owner_telegram_id=owner_id,
             title=str(item.get("title") or "TON NFT")[:120],
-            asset_type="gift",
+            asset_type=asset_type,
             image_url=str(item.get("image_url") or ""),
             verification_method="ton_connect_proof",
-            verification_reference=f"tonapi-owner-index:{evidence_wallet}:{address}:{int(time.time())}",
+            verification_reference=verification_reference,
             allow_owner_transfer=True,
         ))
     if complete:
@@ -1774,27 +1784,53 @@ def create_marketplace_router(
                 )
             if preflight_asset["source"] == "ton_nft" and not _test_ton_owner_recheck_skipped():
                 from ton_connect import list_verified_wallets
-                from ton_nft_inventory import fetch_nft_owner
+                from ton_nft_inventory import fetch_nft_owner, fragment_collection_address
                 linked_wallets = [
                     wallet for wallet in list_verified_wallets(owner_id)
                     if wallet.get("network") == "-239"
                 ]
                 if not linked_wallets:
                     raise HTTPException(status_code=403, detail="A verified TON mainnet wallet is required")
-                try:
-                    live_owner = await fetch_nft_owner(preflight_asset["external_asset_id"])
-                except Exception as exc:
-                    raise HTTPException(
-                        status_code=503,
-                        detail="Could not re-check NFT ownership on TON; listing was not created",
-                        headers={"Retry-After": "30"},
-                    ) from exc
-                linked_addresses = {wallet["address"] for wallet in linked_wallets}
-                if (
-                    live_owner.get("owner_address") not in linked_addresses
-                    or live_owner.get("is_scam")
-                    or live_owner.get("trust") == "blacklist"
-                ):
+
+                if preflight_asset["asset_type"] in {"username", "number"}:
+                    from ton_nft_chain import verify_nft_collection_membership
+                    collection_address = fragment_collection_address(preflight_asset["asset_type"])
+                    if not collection_address:
+                        raise HTTPException(status_code=409, detail="Fragment collection is not configured")
+                    verified = False
+                    try:
+                        for wallet in linked_wallets:
+                            proof = await verify_nft_collection_membership(
+                                preflight_asset["external_asset_id"],
+                                collection_address,
+                                wallet["address"],
+                            )
+                            if proof.get("verified") is True:
+                                verified = True
+                                break
+                    except Exception as exc:
+                        raise HTTPException(
+                            status_code=503,
+                            detail="Could not verify Fragment ownership from TON contracts; listing was not created",
+                            headers={"Retry-After": "30"},
+                        ) from exc
+                else:
+                    try:
+                        live_owner = await fetch_nft_owner(preflight_asset["external_asset_id"])
+                    except Exception as exc:
+                        raise HTTPException(
+                            status_code=503,
+                            detail="Could not re-check NFT ownership on TON; listing was not created",
+                            headers={"Retry-After": "30"},
+                        ) from exc
+                    linked_addresses = {wallet["address"] for wallet in linked_wallets}
+                    verified = (
+                        live_owner.get("owner_address") in linked_addresses
+                        and not live_owner.get("is_scam")
+                        and live_owner.get("trust") != "blacklist"
+                    )
+
+                if not verified:
                     with _db() as conn:
                         conn.execute(
                             "UPDATE verified_assets SET status = 'revoked', revoked_at = ? WHERE id = ? AND status = 'verified'",

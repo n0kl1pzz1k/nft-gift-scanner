@@ -296,6 +296,91 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201, response.text)
         self.assertEqual(response.json()["item"]["title"], "Live owner NFT")
 
+    def test_fragment_username_listing_uses_contract_owner_and_collection_recheck(self):
+        wallet_address = "0:" + "a" * 64
+        nft_address = "0:" + "b" * 64
+        asset = marketplace.register_verified_asset(
+            source="ton_nft", external_asset_id=nft_address,
+            owner_telegram_id="101", title="@verifiedname", asset_type="username",
+            image_url="", verification_method="ton_connect_proof",
+            verification_reference="ton-contract-v1:username:12345:verified",
+        )
+        with patch.dict(os.environ, {"HASSLE_TEST_SKIP_TON_OWNER_RECHECK": "false"}), patch(
+            "ton_connect.list_verified_wallets",
+            return_value=[{"network": "-239", "address": wallet_address}],
+        ), patch(
+            "ton_nft_chain.verify_nft_collection_membership",
+            new=AsyncMock(return_value={"verified": True, "block_seqno": 12346}),
+        ) as verify, patch(
+            "ton_nft_inventory.fetch_nft_owner",
+            new=AsyncMock(side_effect=AssertionError("Fragment listing must use contract verification")),
+        ):
+            response = self.client.post(
+                "/api/marketplace/orders",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"kind": "listing", "asset_id": asset["id"], "title": "Spoof", "price": "2", "currency": "TON"},
+            )
+        self.assertEqual(response.status_code, 201, response.text)
+        verify.assert_awaited_once_with(
+            nft_address,
+            "0:80d78a35f955a14b679faa887ff4cd5bfc0f43b4a4eea2a7e6927f3701b273c2",
+            wallet_address,
+        )
+        self.assertEqual(response.json()["item"]["asset_type"], "username")
+        self.assertEqual(response.json()["item"]["title"], "@verifiedname")
+
+    def test_fragment_listing_is_revoked_when_contract_owner_no_longer_matches(self):
+        wallet_address = "0:" + "a" * 64
+        nft_address = "0:" + "b" * 64
+        asset = marketplace.register_verified_asset(
+            source="ton_nft", external_asset_id=nft_address,
+            owner_telegram_id="101", title="+888 1234 5678", asset_type="number",
+            image_url="", verification_method="ton_connect_proof",
+            verification_reference="ton-contract-v1:number:12345:verified",
+        )
+        with patch.dict(os.environ, {"HASSLE_TEST_SKIP_TON_OWNER_RECHECK": "false"}), patch(
+            "ton_connect.list_verified_wallets",
+            return_value=[{"network": "-239", "address": wallet_address}],
+        ), patch(
+            "ton_nft_chain.verify_nft_collection_membership",
+            new=AsyncMock(return_value={"verified": False, "block_seqno": 12346}),
+        ):
+            response = self.client.post(
+                "/api/marketplace/orders",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"kind": "listing", "asset_id": asset["id"], "title": "Spoof", "price": "2", "currency": "TON"},
+            )
+        self.assertEqual(response.status_code, 409)
+        with marketplace._db() as conn:
+            row = conn.execute("SELECT status FROM verified_assets WHERE id = ?", (asset["id"],)).fetchone()
+        self.assertEqual(row["status"], "revoked")
+
+    def test_fragment_listing_provider_failure_keeps_asset_verified(self):
+        wallet_address = "0:" + "a" * 64
+        nft_address = "0:" + "b" * 64
+        asset = marketplace.register_verified_asset(
+            source="ton_nft", external_asset_id=nft_address,
+            owner_telegram_id="101", title="@temporarilyoffline", asset_type="username",
+            image_url="", verification_method="ton_connect_proof",
+            verification_reference="ton-contract-v1:username:12345:verified",
+        )
+        with patch.dict(os.environ, {"HASSLE_TEST_SKIP_TON_OWNER_RECHECK": "false"}), patch(
+            "ton_connect.list_verified_wallets",
+            return_value=[{"network": "-239", "address": wallet_address}],
+        ), patch(
+            "ton_nft_chain.verify_nft_collection_membership",
+            new=AsyncMock(side_effect=RuntimeError("TON Center unavailable")),
+        ):
+            response = self.client.post(
+                "/api/marketplace/orders",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"kind": "listing", "asset_id": asset["id"], "title": "Spoof", "price": "2", "currency": "TON"},
+            )
+        self.assertEqual(response.status_code, 503)
+        with marketplace._db() as conn:
+            row = conn.execute("SELECT status FROM verified_assets WHERE id = ?", (asset["id"],)).fetchone()
+        self.assertEqual(row["status"], "verified")
+
     def test_ton_nft_listing_is_rejected_and_asset_revoked_when_owner_changed(self):
         wallet_address = "0:" + "a" * 64
         nft_address = "0:" + "b" * 64

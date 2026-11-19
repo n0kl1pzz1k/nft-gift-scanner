@@ -17,6 +17,27 @@ TONAPI_BASE_URL = "https://tonapi.io"
 PAGE_SIZE = 100
 MAX_ITEMS = 500
 
+# Official Fragment NFT collections. Addresses are stored in raw form to avoid
+# friendly/raw representation mismatches during classification.
+FRAGMENT_COLLECTIONS = {
+    "0:80d78a35f955a14b679faa887ff4cd5bfc0f43b4a4eea2a7e6927f3701b273c2": "username",
+    "0:0e41dc1dc3c9067ed24248580e12b3359818d83dee0304fabcf80845eafafdb2": "number",
+}
+
+
+def fragment_asset_type(collection_address: str) -> str | None:
+    try:
+        return FRAGMENT_COLLECTIONS.get(_raw_address(collection_address))
+    except Exception:
+        return None
+
+
+def fragment_collection_address(asset_type: str) -> str | None:
+    for address, kind in FRAGMENT_COLLECTIONS.items():
+        if kind == str(asset_type):
+            return address
+    return None
+
 
 def _raw_address(value: str) -> str:
     from tonsdk.utils import Address
@@ -84,12 +105,19 @@ def _normalise_nft(item: dict[str, Any], wallet_address: str) -> dict[str, str] 
     if not image_url:
         image_url = _https_image(metadata.get("image"))
 
+    raw_collection_address = ""
+    if collection.get("address"):
+        try:
+            raw_collection_address = _raw_address(str(collection["address"]))
+        except Exception:
+            raw_collection_address = ""
+
     return {
         "address": item_address,
         "wallet_address": wallet_address,
         "title": title,
         "image_url": image_url,
-        "collection_address": str(collection.get("address") or "")[:128],
+        "collection_address": raw_collection_address,
         "trust": str(item.get("trust") or "none"),
         "collection_verified": "true" if item.get("verified") is True else "false",
     }
