@@ -876,6 +876,20 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(removed.status_code, 200)
         self.assertEqual(self.client.get("/api/marketplace/favorites", headers=owner_headers).json()["items"], [])
 
+    def test_buy_requests_can_be_published_without_seller_asset_listing_gate(self):
+        with patch.object(marketplace, "_verified_asset_actions_enabled", return_value=False):
+            response = self.client.post(
+                "/api/marketplace/orders",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"kind": "buy-order", "title": "Plush Pepe", "price": "50", "currency": "XTR"},
+            )
+        self.assertEqual(response.status_code, 201, response.text)
+        item = response.json()["item"]
+        self.assertEqual(item["kind"], "buy-order")
+        self.assertEqual(item["currency"], "XTR")
+        self.assertEqual(item["status"], "active")
+        self.assertIsNone(item.get("asset_id"))
+
     def test_orders_are_shared_and_stats_are_server_calculated(self):
         created = self.client.post(
             "/api/marketplace/orders",
