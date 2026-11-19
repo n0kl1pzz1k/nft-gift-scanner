@@ -44,7 +44,7 @@ _INDEXES = (
 "CREATE INDEX IF NOT EXISTS idx_security_audit_action_created ON security_audit_events(action,created_at DESC)",
 )
 _FUNCTION = "CREATE OR REPLACE FUNCTION hassle_nft_verified_asset_metadata_immutable() RETURNS trigger LANGUAGE plpgsql AS $hassle_nft$\nBEGIN\n -- A verified transfer must have a one-use server authorization.\n IF NOT (\n     NEW.status = 'verified'\n     AND NEW.owner_telegram_id IS DISTINCT FROM OLD.owner_telegram_id\n     AND NEW.source IS NOT DISTINCT FROM OLD.source\n     AND NEW.external_asset_id IS NOT DISTINCT FROM OLD.external_asset_id\n     AND EXISTS (\n         SELECT 1 FROM asset_owner_transfer_authorizations auth\n         WHERE auth.asset_id = OLD.id\n           AND auth.previous_owner_id = OLD.owner_telegram_id\n           AND auth.new_owner_id = NEW.owner_telegram_id\n           AND auth.verification_reference_hash = NEW.verification_reference_hash\n     )\n )\n THEN\n     RAISE EXCEPTION USING MESSAGE = 'verified asset metadata is immutable';\n END IF;\n DELETE FROM asset_owner_transfer_authorizations\n  WHERE asset_id = NEW.id\n    AND previous_owner_id = OLD.owner_telegram_id\n    AND new_owner_id = NEW.owner_telegram_id;\n RETURN NEW;\nEND; $hassle_nft$"
-_AUDIT_FUNCTION = "CREATE OR REPLACE FUNCTION hassle_nft_security_audit_immutable() RETURNS trigger LANGUAGE plpgsql AS $hassle_nft$\\nBEGIN\\n RAISE EXCEPTION USING MESSAGE = 'security audit events are immutable';\\nEND; $hassle_nft$"
+_AUDIT_FUNCTION = "CREATE OR REPLACE FUNCTION hassle_nft_security_audit_immutable() RETURNS trigger LANGUAGE plpgsql AS $hassle_nft$\nBEGIN\n RAISE EXCEPTION USING MESSAGE = 'security audit events are immutable';\nEND; $hassle_nft$"
 
 
 def _expected_table_columns() -> dict[str, set[str]]:
