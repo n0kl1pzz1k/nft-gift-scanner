@@ -104,6 +104,24 @@ _TRIGGER_DDL = (
     ("trg_marketplace_order_cancel_declines_offers",
      "CREATE TRIGGER trg_marketplace_order_cancel_declines_offers AFTER UPDATE OF status ON marketplace_orders "
      "FOR EACH ROW EXECUTE FUNCTION hassle_nft_order_cancel_declines_offers()"),
+    ("trg_marketplace_payment_events_no_update",
+     "CREATE TRIGGER trg_marketplace_payment_events_no_update BEFORE UPDATE ON marketplace_payment_events "
+     "FOR EACH ROW EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
+    ("trg_marketplace_payment_events_no_delete",
+     "CREATE TRIGGER trg_marketplace_payment_events_no_delete BEFORE DELETE ON marketplace_payment_events "
+     "FOR EACH ROW EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
+    ("trg_marketplace_ledger_transactions_no_update",
+     "CREATE TRIGGER trg_marketplace_ledger_transactions_no_update BEFORE UPDATE ON marketplace_ledger_transactions "
+     "FOR EACH ROW EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
+    ("trg_marketplace_ledger_transactions_no_delete",
+     "CREATE TRIGGER trg_marketplace_ledger_transactions_no_delete BEFORE DELETE ON marketplace_ledger_transactions "
+     "FOR EACH ROW EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
+    ("trg_marketplace_ledger_entries_no_update",
+     "CREATE TRIGGER trg_marketplace_ledger_entries_no_update BEFORE UPDATE ON marketplace_ledger_entries "
+     "FOR EACH ROW EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
+    ("trg_marketplace_ledger_entries_no_delete",
+     "CREATE TRIGGER trg_marketplace_ledger_entries_no_delete BEFORE DELETE ON marketplace_ledger_entries "
+     "FOR EACH ROW EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
 )
 
 _TRIGGER_TABLES = {
@@ -114,6 +132,12 @@ _TRIGGER_TABLES = {
     "trg_marketplace_offer_received": "marketplace_offers",
     "trg_marketplace_offer_status_notification": "marketplace_offers",
     "trg_marketplace_order_cancel_declines_offers": "marketplace_orders",
+    "trg_marketplace_payment_events_no_update": "marketplace_payment_events",
+    "trg_marketplace_payment_events_no_delete": "marketplace_payment_events",
+    "trg_marketplace_ledger_transactions_no_update": "marketplace_ledger_transactions",
+    "trg_marketplace_ledger_transactions_no_delete": "marketplace_ledger_transactions",
+    "trg_marketplace_ledger_entries_no_update": "marketplace_ledger_entries",
+    "trg_marketplace_ledger_entries_no_delete": "marketplace_ledger_entries",
 }
 
 
@@ -233,6 +257,23 @@ def verify_postgres_offer_schema(connection: Any) -> dict[str, Any]:
             "id", "user_id", "event_type", "offer_id", "order_id",
             "order_title", "actor_name", "created_at", "read_at",
         },
+        "marketplace_payment_intents": {
+            "id", "deal_id", "provider", "currency", "amount", "status",
+            "idempotency_key", "provider_reference", "invoice_payload",
+            "expires_at", "created_at", "updated_at", "confirmed_at", "metadata_json",
+        },
+        "marketplace_payment_events": {
+            "id", "provider", "provider_event_id", "payment_intent_id",
+            "event_type", "payload_hash", "created_at",
+        },
+        "marketplace_ledger_transactions": {
+            "id", "idempotency_key", "reference_type", "reference_id",
+            "currency", "amount", "created_at",
+        },
+        "marketplace_ledger_entries": {
+            "id", "transaction_id", "account_type", "account_id",
+            "direction", "currency", "amount", "created_at",
+        },
     }
     expected_indexes = {
         "idx_marketplace_offers_order",
@@ -243,6 +284,18 @@ def verify_postgres_offer_schema(connection: Any) -> dict[str, Any]:
         "idx_marketplace_notifications_user_created",
         "idx_marketplace_notifications_user_unread",
         "idx_marketplace_deals_one_open_reservation",
+        "idx_marketplace_payment_intents_deal",
+        "idx_marketplace_payment_intents_status",
+        "idx_marketplace_payment_intents_one_open_per_deal",
+        "idx_marketplace_payment_intents_idempotency_key",
+        "idx_marketplace_payment_intents_provider_reference",
+        "idx_marketplace_payment_intents_invoice_payload",
+        "idx_marketplace_payment_events_provider_event",
+        "idx_marketplace_payment_events_intent",
+        "idx_marketplace_ledger_transactions_idempotency_key",
+        "idx_marketplace_ledger_transactions_reference",
+        "idx_marketplace_ledger_entries_transaction",
+        "idx_marketplace_ledger_entries_unique_account_direction",
     }
     table_rows = connection.execute(
         "SELECT table_name AS name FROM information_schema.tables "
@@ -373,6 +426,44 @@ def initialize_postgres_offer_schema(connection: Any) -> dict[str, Any]:
             created_at BIGINT NOT NULL, read_at BIGINT)""",
         "CREATE INDEX IF NOT EXISTS idx_marketplace_notifications_user_created ON marketplace_notifications(user_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_marketplace_notifications_user_unread ON marketplace_notifications(user_id, read_at, created_at DESC)",
+        """CREATE TABLE IF NOT EXISTS marketplace_payment_intents (
+            id TEXT PRIMARY KEY, deal_id TEXT NOT NULL REFERENCES marketplace_deals(id),
+            provider TEXT NOT NULL CHECK (provider IN ('telegram_stars', 'ton')),
+            currency TEXT NOT NULL CHECK (currency IN ('XTR', 'TON')),
+            amount TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'created'
+                CHECK (status IN ('created', 'pending', 'confirmed', 'failed', 'expired', 'refunded')),
+            idempotency_key TEXT NOT NULL, provider_reference TEXT, invoice_payload TEXT,
+            expires_at BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+            confirmed_at BIGINT, metadata_json TEXT NOT NULL DEFAULT '{}',
+            CHECK (expires_at > created_at))""",
+        "CREATE INDEX IF NOT EXISTS idx_marketplace_payment_intents_deal ON marketplace_payment_intents(deal_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_marketplace_payment_intents_status ON marketplace_payment_intents(status, expires_at)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_marketplace_payment_intents_one_open_per_deal ON marketplace_payment_intents(deal_id) WHERE status IN ('created', 'pending')",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_marketplace_payment_intents_idempotency_key ON marketplace_payment_intents(idempotency_key)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_marketplace_payment_intents_provider_reference ON marketplace_payment_intents(provider_reference)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_marketplace_payment_intents_invoice_payload ON marketplace_payment_intents(invoice_payload)",
+        """CREATE TABLE IF NOT EXISTS marketplace_payment_events (
+            id TEXT PRIMARY KEY, provider TEXT NOT NULL CHECK (provider IN ('telegram_stars', 'ton')),
+            provider_event_id TEXT NOT NULL, payment_intent_id TEXT NOT NULL REFERENCES marketplace_payment_intents(id),
+            event_type TEXT NOT NULL, payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+            created_at BIGINT NOT NULL)""",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_marketplace_payment_events_provider_event ON marketplace_payment_events(provider, provider_event_id)",
+        "CREATE INDEX IF NOT EXISTS idx_marketplace_payment_events_intent ON marketplace_payment_events(payment_intent_id, created_at ASC)",
+        """CREATE TABLE IF NOT EXISTS marketplace_ledger_transactions (
+            id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL, reference_type TEXT NOT NULL
+                CHECK (reference_type IN ('payment_intent', 'deal', 'refund', 'withdrawal', 'fee')),
+            reference_id TEXT NOT NULL, currency TEXT NOT NULL CHECK (currency IN ('XTR', 'TON')),
+            amount TEXT NOT NULL, created_at BIGINT NOT NULL)""",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_marketplace_ledger_transactions_idempotency_key ON marketplace_ledger_transactions(idempotency_key)",
+        "CREATE INDEX IF NOT EXISTS idx_marketplace_ledger_transactions_reference ON marketplace_ledger_transactions(reference_type, reference_id, created_at ASC)",
+        """CREATE TABLE IF NOT EXISTS marketplace_ledger_entries (
+            id TEXT PRIMARY KEY, transaction_id TEXT NOT NULL REFERENCES marketplace_ledger_transactions(id),
+            account_type TEXT NOT NULL, account_id TEXT NOT NULL,
+            direction TEXT NOT NULL CHECK (direction IN ('debit', 'credit')),
+            currency TEXT NOT NULL CHECK (currency IN ('XTR', 'TON')),
+            amount TEXT NOT NULL, created_at BIGINT NOT NULL)""",
+        "CREATE INDEX IF NOT EXISTS idx_marketplace_ledger_entries_transaction ON marketplace_ledger_entries(transaction_id, direction)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_marketplace_ledger_entries_unique_account_direction ON marketplace_ledger_entries(transaction_id, account_type, account_id, direction)",
         """CREATE UNIQUE INDEX IF NOT EXISTS idx_marketplace_deals_one_open_reservation
             ON marketplace_deals(order_id) WHERE status NOT IN ('cancelled', 'expired')""",
     )
@@ -382,7 +473,8 @@ def initialize_postgres_offer_schema(connection: Any) -> dict[str, Any]:
     verification = verify_postgres_offer_schema(connection)
     return {
         "tables": ["marketplace_offers", "marketplace_deals", "marketplace_deal_events",
-                   "marketplace_deal_lifecycle_events", "marketplace_notifications"],
+                   "marketplace_deal_lifecycle_events", "marketplace_notifications", "marketplace_payment_intents",
+                    "marketplace_payment_events", "marketplace_ledger_transactions", "marketplace_ledger_entries"],
         "indexes_created_or_verified": verification["indexes_verified"],
         "verification": verification,
         "verified": verification["verified"],
