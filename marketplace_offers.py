@@ -326,6 +326,10 @@ class DealAction(BaseModel):
     action: Literal["cancel"]
 
 
+class DisputeResolutionExecuteRequest(BaseModel):
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+
 class TonNftDeliveryPrepareRequest(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=128)
 
@@ -1112,6 +1116,138 @@ def create_marketplace_offers_router(
             "invoice_url": provider_result["result"],
             "expires_at": intent["expires_at"],
         }
+
+
+    @router.post("/admin/deals/{deal_id}/execute-refund")
+    async def execute_approved_stars_refund(
+        deal_id: str,
+        payload: DisputeResolutionExecuteRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Execute a two-admin-approved Telegram Stars refund and reverse the escrow journal."""
+        import httpx
+        admin = _admin_user(x_telegram_init_data)
+        admin_id = str(admin["id"])
+        _enforce_user_rate_limit(admin_id, "stars_refund_execution", 5)
+        bot_token = os.getenv("BOT_TOKEN", "").strip()
+        if not bot_token:
+            raise HTTPException(status_code=503, detail="Telegram payment bot is not configured")
+        with _db() as conn:
+            deal = conn.execute(
+                "SELECT * FROM marketplace_deals WHERE id = ?",
+                (deal_id,),
+            ).fetchone()
+            if deal is None:
+                raise HTTPException(status_code=404, detail="Deal not found")
+            if deal["status"] == "cancelled":
+                completed = conn.execute(
+                    "SELECT 1 FROM marketplace_escrow_events WHERE deal_id = ? AND event_type = 'refund_confirmed'",
+                    (deal_id,),
+                ).fetchone()
+                if completed:
+                    return {"deal_id": deal_id, "status": "cancelled", "refund_status": "refunded", "idempotent_replay": True}
+                raise HTTPException(status_code=409, detail="Deal was cancelled without a recorded refund")
+            if deal["status"] != "disputed":
+                raise HTTPException(status_code=409, detail="Only a disputed deal can execute a resolution")
+            approvals = int(conn.execute(
+                "SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals WHERE deal_id = ? AND decision = 'refund_buyer'",
+                (deal_id,),
+            ).fetchone()[0])
+            all_approvals = int(conn.execute(
+                "SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals WHERE deal_id = ?",
+                (deal_id,),
+            ).fetchone()[0])
+            if approvals != 2 or all_approvals != 2:
+                raise HTTPException(status_code=409, detail="Two matching administrator refund approvals are required")
+            intent = conn.execute(
+                """SELECT * FROM marketplace_payment_intents
+                   WHERE deal_id = ? AND provider = 'telegram_stars'
+                   ORDER BY created_at DESC LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            if intent is None or intent["status"] not in {"confirmed", "refunded"} or not intent["provider_reference"]:
+                raise HTTPException(status_code=409, detail="A confirmed Telegram Stars payment is required")
+            buyer_id = str(deal["offer_sender_id"])
+            charge_id = str(intent["provider_reference"])
+            amount = str(intent["amount"])
+        provider_already_refunded = False
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                response = await client.post(
+                    f"https://api.telegram.org/bot{bot_token}/refundStarPayment",
+                    json={"user_id": int(buyer_id), "telegram_payment_charge_id": charge_id},
+                )
+                provider_result = response.json()
+                if response.status_code >= 400:
+                    description = str(provider_result.get("description") or "")
+                    if "CHARGE_ALREADY_REFUNDED" in description:
+                        provider_already_refunded = True
+                    else:
+                        raise RuntimeError("Telegram rejected the Stars refund")
+                elif provider_result.get("ok") is not True or provider_result.get("result") is not True:
+                    description = str(provider_result.get("description") or "")
+                    if "CHARGE_ALREADY_REFUNDED" in description:
+                        provider_already_refunded = True
+                    else:
+                        raise RuntimeError("Telegram did not confirm the Stars refund")
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail="Telegram refund could not be confirmed; the deal remains disputed") from exc
+        now = int(time.time())
+        with _db() as conn:
+            begin_write(conn, f"deal:{deal_id}", f"payment-intent:{intent['id']}")
+            locked = conn.execute(
+                select_for_update(conn, "SELECT status FROM marketplace_deals WHERE id = ?"),
+                (deal_id,),
+            ).fetchone()
+            locked_intent = conn.execute(
+                select_for_update(conn, "SELECT status FROM marketplace_payment_intents WHERE id = ?"),
+                (intent["id"],),
+            ).fetchone()
+            if locked is None or locked_intent is None:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Deal or payment intent changed during refund")
+            if locked["status"] == "cancelled" and locked_intent["status"] == "refunded":
+                conn.rollback()
+                return {"deal_id": deal_id, "status": "cancelled", "refund_status": "refunded", "idempotent_replay": True}
+            from marketplace_payments import PaymentConflict, PaymentStateError, post_ledger_transaction, transition_deal_status, transition_payment_intent
+            try:
+                if locked_intent["status"] == "confirmed":
+                    transition_payment_intent(conn, intent["id"], "refunded", now=now)
+                ledger = post_ledger_transaction(
+                    conn,
+                    idempotency_key=f"{deal_id}:stars-refund:{charge_id}",
+                    reference_type="refund",
+                    reference_id=deal_id,
+                    currency="XTR",
+                    debit_account=("escrow", deal_id),
+                    credit_account=("telegram_stars_clearing", charge_id),
+                    debit_amount=amount,
+                    credit_amount=amount,
+                    now=now,
+                )
+                transition_deal_status(
+                    conn,
+                    deal_id=deal_id,
+                    new_status="cancelled",
+                    actor_user_id=admin_id,
+                    idempotency_key=f"{deal_id}:stars-refund-confirmed:{charge_id}",
+                    event_type="refund_confirmed",
+                    event_data={
+                        "provider": "telegram_stars",
+                        "provider_reference": charge_id,
+                        "payment_intent_id": intent["id"],
+                        "ledger_transaction_id": ledger["id"],
+                        "currency": "XTR",
+                        "amount": amount,
+                        "provider_already_refunded": provider_already_refunded,
+                    },
+                    now=now,
+                )
+            except (PaymentConflict, PaymentStateError) as exc:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            conn.commit()
+        return {"deal_id": deal_id, "status": "cancelled", "refund_status": "refunded", "currency": "XTR", "amount": amount, "idempotent_replay": False}
 
 
     @router.post("/deals/{deal_id}/ton-nft-delivery/prepare")
