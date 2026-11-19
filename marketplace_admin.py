@@ -264,8 +264,8 @@ def create_marketplace_admin_router(verify_credential: Callable[[str], dict]) ->
         target = str(telegram_id).strip()
         if not target.isdigit():
             raise HTTPException(status_code=422, detail="Telegram user ID must be numeric")
-        if target == actor:
-            raise HTTPException(status_code=409, detail="Administrators cannot suspend themselves")
+        if target == actor or get_admin_access(target) is not None:
+            raise HTTPException(status_code=409, detail="Administrator accounts cannot be suspended through user moderation")
         reason = payload.reason.strip()
         if not reason:
             raise HTTPException(status_code=422, detail="A moderation reason is required")
@@ -333,8 +333,8 @@ def create_marketplace_admin_router(verify_credential: Callable[[str], dict]) ->
         admin = require_permission(x_telegram_init_data, "roles.manage")
         actor = str(admin["id"])
         target = str(telegram_id).strip()
-        if not target.isdigit() or target == actor:
-            raise HTTPException(status_code=409, detail="A different numeric Telegram user ID is required")
+        if not target.isdigit() or target == actor or target in _environment_admins():
+            raise HTTPException(status_code=409, detail="A different non-root Telegram user ID is required")
         now = int(time.time())
         with _db() as conn:
             begin_write(conn, f"admin-role:{target}")
