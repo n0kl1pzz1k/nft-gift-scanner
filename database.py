@@ -1,9 +1,9 @@
 """Central persistence connection boundary.
 
-The current production adapter is SQLite. Keep connection policy in one module
-so a future PostgreSQL adapter can replace it without changing marketplace
-domain code. Unsupported backend configuration must fail closed rather than
-silently writing to SQLite while an operator expects PostgreSQL.
+PostgreSQL is the production database when HASSLE_NFT_DB_BACKEND=postgres.
+SQLite remains available for explicit local/test use. Keep connection policy in
+one module and fail closed rather than silently writing to SQLite while an
+operator expects PostgreSQL.
 """
 from __future__ import annotations
 
@@ -156,8 +156,8 @@ def connect(database_path: str | Path | None = None):
 
     SQLite keeps its path override. When PostgreSQL is explicitly selected,
     the configured DSN is authoritative and the legacy SQLite path is ignored.
-    This switch is opt-in; production remains on SQLite unless the backend
-    environment variable is deliberately changed.
+    Production explicitly selects PostgreSQL with HASSLE_NFT_DB_BACKEND=postgres.
+    SQLite is retained only for local/test or explicitly configured deployments.
     """
     backend = validate_database_configuration()
     if backend == "postgres":
