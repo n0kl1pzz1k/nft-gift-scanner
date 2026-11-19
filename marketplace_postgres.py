@@ -45,6 +45,7 @@ _INDEXES = (
 )
 _FUNCTION = "CREATE OR REPLACE FUNCTION hassle_nft_verified_asset_metadata_immutable() RETURNS trigger LANGUAGE plpgsql AS $hassle_nft$\nBEGIN\n -- A verified transfer must have a one-use server authorization.\n IF NOT (\n     NEW.status = 'verified'\n     AND NEW.owner_telegram_id IS DISTINCT FROM OLD.owner_telegram_id\n     AND NEW.source IS NOT DISTINCT FROM OLD.source\n     AND NEW.external_asset_id IS NOT DISTINCT FROM OLD.external_asset_id\n     AND EXISTS (\n         SELECT 1 FROM asset_owner_transfer_authorizations auth\n         WHERE auth.asset_id = OLD.id\n           AND auth.previous_owner_id = OLD.owner_telegram_id\n           AND auth.new_owner_id = NEW.owner_telegram_id\n           AND auth.verification_reference_hash = NEW.verification_reference_hash\n     )\n )\n THEN\n     RAISE EXCEPTION USING MESSAGE = 'verified asset metadata is immutable';\n END IF;\n DELETE FROM asset_owner_transfer_authorizations\n  WHERE asset_id = NEW.id\n    AND previous_owner_id = OLD.owner_telegram_id\n    AND new_owner_id = NEW.owner_telegram_id;\n RETURN NEW;\nEND; $hassle_nft$"
 _AUDIT_FUNCTION = "CREATE OR REPLACE FUNCTION hassle_nft_security_audit_immutable() RETURNS trigger LANGUAGE plpgsql AS $hassle_nft$\nBEGIN\n RAISE EXCEPTION USING MESSAGE = 'security audit events are immutable';\nEND; $hassle_nft$"
+_APPEND_ONLY_FUNCTION = "CREATE OR REPLACE FUNCTION hassle_nft_append_only_history_immutable() RETURNS trigger LANGUAGE plpgsql AS $append_only$\nBEGIN\n RAISE EXCEPTION USING MESSAGE = 'append-only history is immutable';\nEND; $append_only$"
 
 
 def _expected_table_columns() -> dict[str, set[str]]:
@@ -112,6 +113,7 @@ def verify_postgres_marketplace_schema(connection: Any) -> dict[str, Any]:
     trigger = next((r for r in triggers if r["tgname"]=="verified_assets_metadata_immutable"),None)
     audit_update = next((r for r in triggers if r["tgname"]=="security_audit_events_no_update"),None)
     audit_delete = next((r for r in triggers if r["tgname"]=="security_audit_events_no_delete"),None)
+    audit_truncate = next((r for r in triggers if r["tgname"]=="security_audit_events_no_truncate"),None)
     problems=[]
     if expected_tables-tables: problems.append("missing tables: "+", ".join(sorted(expected_tables-tables)))
     for table_name, expected in expected_columns.items():
@@ -129,8 +131,19 @@ def verify_postgres_marketplace_schema(connection: Any) -> dict[str, Any]:
         problems.append("missing or disabled security audit update guard")
     if audit_delete is None or (audit_delete["relname"],audit_delete["proname"],audit_delete["tgenabled"])!=("security_audit_events","hassle_nft_security_audit_immutable","O"):
         problems.append("missing or disabled security audit delete guard")
+    if audit_truncate is None or (audit_truncate["relname"],audit_truncate["proname"],audit_truncate["tgenabled"])!=("security_audit_events","hassle_nft_security_audit_immutable","O"):
+        problems.append("missing or disabled security audit truncate guard")
+    append_only_tables = ("marketplace_order_events", "marketplace_order_revisions", "asset_ownership_history")
+    for table in append_only_tables:
+        for action in ("update", "delete", "truncate"):
+            name = f"{table}_no_{action}"
+            trigger = next((r for r in triggers if r["tgname"] == name), None)
+            if trigger is None or (trigger["relname"], trigger["proname"], trigger["tgenabled"]) != (
+                table, "hassle_nft_append_only_history_immutable", "O"
+            ):
+                problems.append(f"missing or disabled append-only history guard {name}")
     if problems: raise RuntimeError("PostgreSQL marketplace schema verification failed: "+"; ".join(problems))
-    return {"verified":True,"tables_verified":len(expected_tables),"columns_verified":sum(len(columns) for columns in expected_columns.values()),"indexes_verified":len(expected_indexes),"triggers_verified":3}
+    return {"verified":True,"tables_verified":len(expected_tables),"columns_verified":sum(len(columns) for columns in expected_columns.values()),"indexes_verified":len(expected_indexes),"triggers_verified":13}
 
 def initialize_postgres_marketplace_schema(connection: Any) -> dict[str, Any]:
     if not callable(getattr(connection,"execute",None)) or not bool(getattr(connection,"supports_for_update",False)):
@@ -139,10 +152,27 @@ def initialize_postgres_marketplace_schema(connection: Any) -> dict[str, Any]:
     for statement in _INDEXES: connection.execute(statement)
     connection.execute(_FUNCTION)
     connection.execute(_AUDIT_FUNCTION)
+    connection.execute(_APPEND_ONLY_FUNCTION)
     connection.execute("DROP TRIGGER IF EXISTS verified_assets_metadata_immutable ON verified_assets")
     connection.execute("CREATE TRIGGER verified_assets_metadata_immutable BEFORE UPDATE OF source,external_asset_id,owner_telegram_id,title,asset_type,image_url,verification_method,verification_reference_hash,verified_at ON verified_assets FOR EACH ROW EXECUTE FUNCTION hassle_nft_verified_asset_metadata_immutable()")
     connection.execute("DROP TRIGGER IF EXISTS security_audit_events_no_update ON security_audit_events")
     connection.execute("DROP TRIGGER IF EXISTS security_audit_events_no_delete ON security_audit_events")
+    connection.execute("DROP TRIGGER IF EXISTS security_audit_events_no_truncate ON security_audit_events")
     connection.execute("CREATE TRIGGER security_audit_events_no_update BEFORE UPDATE ON security_audit_events FOR EACH ROW EXECUTE FUNCTION hassle_nft_security_audit_immutable()")
     connection.execute("CREATE TRIGGER security_audit_events_no_delete BEFORE DELETE ON security_audit_events FOR EACH ROW EXECUTE FUNCTION hassle_nft_security_audit_immutable()")
+    connection.execute("CREATE TRIGGER security_audit_events_no_truncate BEFORE TRUNCATE ON security_audit_events FOR EACH STATEMENT EXECUTE FUNCTION hassle_nft_security_audit_immutable()")
+    for table in ("marketplace_order_events", "marketplace_order_revisions", "asset_ownership_history"):
+        for action in ("update", "delete", "truncate"):
+            name = f"{table}_no_{action}"
+            connection.execute(f"DROP TRIGGER IF EXISTS {name} ON {table}")
+            if action == "truncate":
+                connection.execute(
+                    f"CREATE TRIGGER {name} BEFORE TRUNCATE ON {table} "
+                    "FOR EACH STATEMENT EXECUTE FUNCTION hassle_nft_append_only_history_immutable()"
+                )
+            else:
+                connection.execute(
+                    f"CREATE TRIGGER {name} BEFORE {action.upper()} ON {table} "
+                    "FOR EACH ROW EXECUTE FUNCTION hassle_nft_append_only_history_immutable()"
+                )
     return {**verify_postgres_marketplace_schema(connection),"tables_created_or_verified":len(_TABLES)}

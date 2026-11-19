@@ -29,7 +29,7 @@ def test_postgres_core_marketplace_schema_bootstrap_is_idempotent_and_verified()
         assert first["columns_verified"] > 0
         assert second["columns_verified"] == first["columns_verified"]
         assert first["indexes_verified"] == 18
-        assert first["triggers_verified"] == 3
+        assert first["triggers_verified"] == 13
 
         adapter.execute(
             "INSERT INTO telegram_users "
@@ -49,6 +49,8 @@ def test_postgres_core_marketplace_schema_bootstrap_is_idempotent_and_verified()
             )
         with pytest.raises(Exception, match="security audit events are immutable"):
             adapter.execute("DELETE FROM security_audit_events WHERE id=?", ("audit-1",))
+        with pytest.raises(Exception, match="security audit events are immutable"):
+            adapter.execute("TRUNCATE TABLE security_audit_events")
         adapter.execute(
             "INSERT INTO verified_assets "
             "(id,source,external_asset_id,owner_telegram_id,title,asset_type,"
@@ -56,6 +58,34 @@ def test_postgres_core_marketplace_schema_bootstrap_is_idempotent_and_verified()
             "VALUES (?,?,?,?,?,'gift','telegram_gift_owner','hash-1',1,1)",
             ("asset-1", "telegram_gift", "gift-1", "owner-1", "Gift"),
         )
+        adapter.execute(
+            """INSERT INTO marketplace_orders
+               (id,user_id,owner_name,kind,title,price,currency,status,created_at,updated_at)
+               VALUES ('order-1','owner-1','Owner','listing','Gift','1','TON','active',1,1)"""
+        )
+        adapter.execute(
+            "INSERT INTO marketplace_order_events(order_id,actor_user_id,event_type,created_at) "
+            "VALUES ('order-1','owner-1','created',1)"
+        )
+        adapter.execute(
+            "INSERT INTO marketplace_order_revisions(order_id,actor_user_id,changed_fields,created_at) "
+            "VALUES ('order-1','owner-1','[]',1)"
+        )
+        adapter.execute(
+            "INSERT INTO asset_ownership_history(asset_id,previous_owner_id,new_owner_id,verification_reference_hash,created_at) "
+            "VALUES ('asset-1','old-owner','owner-1','hash-1',1)"
+        )
+        for table, where in (
+            ("marketplace_order_events", "order_id='order-1'"),
+            ("marketplace_order_revisions", "order_id='order-1'"),
+            ("asset_ownership_history", "asset_id='asset-1'"),
+        ):
+            with pytest.raises(Exception, match="append-only history is immutable"):
+                adapter.execute(f"UPDATE {table} SET created_at=2 WHERE {where}")
+            with pytest.raises(Exception, match="append-only history is immutable"):
+                adapter.execute(f"DELETE FROM {table} WHERE {where}")
+            with pytest.raises(Exception, match="append-only history is immutable"):
+                adapter.execute(f"TRUNCATE TABLE {table}")
         # Ordinary metadata edits and no-op metadata updates are both blocked,
         # matching SQLite's BEFORE UPDATE OF ... WHEN NOT (ownership-transfer) guard.
         with pytest.raises(Exception, match="verified asset metadata is immutable"):

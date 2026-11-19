@@ -479,6 +479,21 @@ def init_marketplace_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_asset_ownership_history_asset
             ON asset_ownership_history(asset_id, created_at DESC)
         """)
+        for table in ("marketplace_order_events", "marketplace_order_revisions", "asset_ownership_history"):
+            conn.execute(f"""
+                CREATE TRIGGER IF NOT EXISTS {table}_no_update
+                BEFORE UPDATE ON {table}
+                BEGIN
+                    SELECT RAISE(ABORT, 'append-only history is immutable');
+                END
+            """)
+            conn.execute(f"""
+                CREATE TRIGGER IF NOT EXISTS {table}_no_delete
+                BEFORE DELETE ON {table}
+                BEGIN
+                    SELECT RAISE(ABORT, 'append-only history is immutable');
+                END
+            """)
         # Asset category is server-owned metadata. Older rows remain unknown instead
         # of guessing the category from a seller-editable title.
         order_columns = {row["name"] for row in conn.execute("PRAGMA table_info(marketplace_orders)").fetchall()}

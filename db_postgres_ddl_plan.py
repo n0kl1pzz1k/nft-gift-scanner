@@ -80,6 +80,12 @@ def _trigger_ddl(item: dict[str, Any]) -> list[str] | None:
         "trg_marketplace_ledger_entries_no_delete": ("marketplace_ledger_entries", "DELETE", "ledger entries are immutable"),
         "security_audit_events_no_update": ("security_audit_events", "UPDATE", "security audit events are immutable"),
         "security_audit_events_no_delete": ("security_audit_events", "DELETE", "security audit events are immutable"),
+        "marketplace_order_events_no_update": ("marketplace_order_events", "UPDATE", "append-only history is immutable"),
+        "marketplace_order_events_no_delete": ("marketplace_order_events", "DELETE", "append-only history is immutable"),
+        "marketplace_order_revisions_no_update": ("marketplace_order_revisions", "UPDATE", "append-only history is immutable"),
+        "marketplace_order_revisions_no_delete": ("marketplace_order_revisions", "DELETE", "append-only history is immutable"),
+        "asset_ownership_history_no_update": ("asset_ownership_history", "UPDATE", "append-only history is immutable"),
+        "asset_ownership_history_no_delete": ("asset_ownership_history", "DELETE", "append-only history is immutable"),
     }
     if name in immutable_tables:
         expected_table, action, message = immutable_tables[name]

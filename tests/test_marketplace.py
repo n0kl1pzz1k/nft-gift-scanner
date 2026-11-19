@@ -309,6 +309,42 @@ class SharedMarketplaceTests(unittest.TestCase):
         actual = {(args[0], args[1], args[2]) for args, _kwargs in limiter.call_args_list}
         self.assertEqual(actual, expected)
 
+    def test_order_and_asset_ownership_history_are_append_only(self):
+        with marketplace._db() as conn:
+            conn.execute(
+                """INSERT INTO marketplace_orders
+                   (id,user_id,owner_name,kind,title,price,currency,status,created_at,updated_at)
+                   VALUES ('audit-order','101','Owner','listing','Gift','1','TON','active',1,1)"""
+            )
+            conn.execute(
+                """INSERT INTO verified_assets
+                   (id,source,external_asset_id,owner_telegram_id,title,asset_type,
+                    verification_method,verification_reference_hash,created_at,verified_at)
+                   VALUES ('audit-asset','telegram_gift','gift-1','101','Gift','gift',
+                           'telegram_gift_owner','hash-1',1,1)"""
+            )
+            conn.execute(
+                "INSERT INTO marketplace_order_events(order_id,actor_user_id,event_type,created_at) "
+                "VALUES ('audit-order','101','created',1)"
+            )
+            conn.execute(
+                "INSERT INTO marketplace_order_revisions(order_id,actor_user_id,changed_fields,created_at) "
+                "VALUES ('audit-order','101','[]',1)"
+            )
+            conn.execute(
+                "INSERT INTO asset_ownership_history(asset_id,previous_owner_id,new_owner_id,verification_reference_hash,created_at) "
+                "VALUES ('audit-asset','100','101','hash-1',1)"
+            )
+            for table, where in (
+                ("marketplace_order_events", "order_id='audit-order'"),
+                ("marketplace_order_revisions", "order_id='audit-order'"),
+                ("asset_ownership_history", "asset_id='audit-asset'"),
+            ):
+                with self.assertRaisesRegex(sqlite3.IntegrityError, "append-only history is immutable"):
+                    conn.execute(f"UPDATE {table} SET created_at=2 WHERE {where}")
+                with self.assertRaisesRegex(sqlite3.IntegrityError, "append-only history is immutable"):
+                    conn.execute(f"DELETE FROM {table} WHERE {where}")
+
     def test_telegram_auth_reports_server_verified_admin_role(self):
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
             admin = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
