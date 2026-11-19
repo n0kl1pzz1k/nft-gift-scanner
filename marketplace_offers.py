@@ -422,7 +422,9 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             begin_write(conn, f"order:{initial['order_id']}", f"offer:{offer_id}")
             row = conn.execute(select_for_update(conn, """
                 SELECT f.*, o.user_id AS order_owner_id, o.owner_name AS order_owner_name,
-                       o.title AS order_title, o.status AS order_status
+                       o.title AS order_title, o.status AS order_status,
+                       o.kind AS order_kind, o.asset_id AS order_asset_id,
+                       o.currency AS order_currency
                 FROM marketplace_offers f JOIN marketplace_orders o ON o.id = f.order_id
                 WHERE f.id = ?
             """), (offer_id,)).fetchone()
@@ -439,22 +441,101 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             if action == "withdraw" and actor_id != row["sender_user_id"]:
                 conn.rollback()
                 raise HTTPException(status_code=403, detail="Only the offer author can withdraw it")
+            deal_id = None
             if action == "accept":
-                conn.rollback()
-                raise HTTPException(
-                    status_code=409,
-                    detail="Offer acceptance is disabled until TON/Stars escrow and NFT transfer are live.",
+                if row["order_kind"] != "listing" or row["order_status"] != "active":
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Only an active seller listing can be reserved")
+                if row["currency"] != row["order_currency"]:
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Offer currency no longer matches the listing")
+                if not _test_unverified_assets_allowed():
+                    asset = conn.execute(
+                        """SELECT id FROM verified_assets
+                           WHERE id = ? AND owner_telegram_id = ? AND status = 'verified'""",
+                        (row["order_asset_id"], row["order_owner_id"]),
+                    ).fetchone()
+                    if asset is None:
+                        conn.rollback()
+                        raise HTTPException(status_code=409, detail="The listing no longer has a verified owner asset")
+                open_deal = conn.execute(
+                    """SELECT id FROM marketplace_deals
+                       WHERE order_id = ? AND status NOT IN ('cancelled', 'expired')""",
+                    (row["order_id"],),
+                ).fetchone()
+                if open_deal is not None:
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="This listing already has an active reservation")
+                deal_id = "deal-" + uuid.uuid4().hex[:20]
+                conn.execute(
+                    """INSERT INTO marketplace_deals
+                       (id, order_id, offer_id, listing_owner_id, offer_sender_id,
+                        agreed_amount, currency, created_at, status)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'payment_not_enabled')""",
+                    (deal_id, row["order_id"], offer_id, row["order_owner_id"],
+                     row["sender_user_id"], row["amount"], row["currency"], now),
                 )
-            new_status = {"accept": "accepted", "decline": "declined", "withdraw": "withdrawn"}[action]
-            conn.execute("UPDATE marketplace_offers SET status=?, updated_at=? WHERE id=? AND status='pending'",
-                         (new_status, now, offer_id))
+                conn.execute(
+                    """UPDATE marketplace_orders SET status='matched', updated_at=?
+                       WHERE id=? AND status='active'""",
+                    (now, row["order_id"]),
+                )
+                if conn.execute("SELECT changes()").fetchone()[0] != 1:
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Listing reservation lost a concurrent update")
+                conn.execute(
+                    """UPDATE marketplace_offers SET status='accepted', updated_at=?
+                       WHERE id=? AND status='pending'""",
+                    (now, offer_id),
+                )
+                if conn.execute("SELECT changes()").fetchone()[0] != 1:
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Offer changed before reservation")
+                conn.execute(
+                    """UPDATE marketplace_offers SET status='declined', updated_at=?
+                       WHERE order_id=? AND id<>? AND status='pending'""",
+                    (now, row["order_id"], offer_id),
+                )
+                for event_type, event_data in (
+                    ("deal_created", {"offer_id": offer_id, "payment_status": "not_enabled"}),
+                    ("listing_reserved", {"order_id": row["order_id"]}),
+                    ("payment_not_enabled", {"currency": row["currency"]}),
+                ):
+                    conn.execute(
+                        """INSERT INTO marketplace_deal_events
+                           (id, deal_id, order_id, actor_user_id, event_type, event_data, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        ("de-" + uuid.uuid4().hex[:20], deal_id, row["order_id"],
+                         actor_id, event_type,
+                         json.dumps(event_data, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                         now),
+                    )
+            else:
+                new_status = {"decline": "declined", "withdraw": "withdrawn"}[action]
+                conn.execute(
+                    "UPDATE marketplace_offers SET status=?, updated_at=? WHERE id=? AND status='pending'",
+                    (new_status, now, offer_id),
+                )
             conn.commit()
             updated = conn.execute("""
                 SELECT f.*, o.title AS order_title, o.user_id AS order_owner_id,
                        o.owner_name AS order_owner_name, o.status AS order_status
                 FROM marketplace_offers f JOIN marketplace_orders o ON o.id = f.order_id WHERE f.id = ?
             """, (offer_id,)).fetchone()
-        return {"item": _offer_dict(updated, actor_id)}
+            deal_status = None
+            if deal_id:
+                deal_status = conn.execute(
+                    "SELECT status FROM marketplace_deals WHERE id = ?", (deal_id,)
+                ).fetchone()["status"]
+        result = {"item": _offer_dict(updated, actor_id)}
+        if deal_id:
+            result.update({
+                "deal_id": deal_id,
+                "deal_status": deal_status,
+                "reservation_created": True,
+                "payments_enabled": False,
+            })
+        return result
 
     @router.post("/deals/{deal_id}/actions")
     async def act_on_deal(
@@ -575,10 +656,46 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
         offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        # No deal is presented as real until production TON/Stars settlement,
-        # escrow and verified NFT delivery are implemented and independently enabled.
-        _require_user(x_telegram_init_data, verify_telegram_init_data)
-        return {"items": [], "total": 0, "limit": limit, "offset": offset,
+        """List real reservations for their two participants; never imply payment or delivery."""
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        user_id = str(user["id"])
+        _enforce_user_rate_limit(user_id, "list_deals", 30)
+        with _db() as conn:
+            where = "(d.listing_owner_id = ? OR d.offer_sender_id = ?)"
+            values = (user_id, user_id)
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM marketplace_deals d WHERE {where}", values
+            ).fetchone()[0]
+            rows = conn.execute(
+                f"""SELECT d.*, o.title AS order_title, o.kind AS order_kind,
+                           o.status AS order_status, f.note AS offer_note
+                    FROM marketplace_deals d
+                    JOIN marketplace_orders o ON o.id = d.order_id
+                    JOIN marketplace_offers f ON f.id = d.offer_id
+                    WHERE {where}
+                    ORDER BY d.created_at DESC, d.id DESC LIMIT ? OFFSET ?""",
+                (*values, limit, offset),
+            ).fetchall()
+        items = [{
+            "id": row["id"],
+            "order_id": row["order_id"],
+            "offer_id": row["offer_id"],
+            "listing_owner_id": row["listing_owner_id"],
+            "offer_sender_id": row["offer_sender_id"],
+            "is_seller": row["listing_owner_id"] == user_id,
+            "order_title": row["order_title"],
+            "order_kind": row["order_kind"],
+            "agreed_amount": row["agreed_amount"],
+            "currency": row["currency"],
+            "status": row["status"],
+            "order_status": row["order_status"],
+            "offer_note": row["offer_note"],
+            "created_at": row["created_at"],
+            "reservation_active": row["status"] not in {"cancelled", "expired", "completed"},
+            "payments_enabled": False,
+            "delivery_completed": row["status"] == "completed",
+        } for row in rows]
+        return {"items": items, "total": total, "limit": limit, "offset": offset,
                 "payments_enabled": False}
 
     @router.get("/notifications")
