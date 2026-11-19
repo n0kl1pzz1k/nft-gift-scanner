@@ -2103,6 +2103,56 @@ class SharedMarketplaceTests(unittest.TestCase):
         )
         self.assertEqual(duplicate.status_code, 409)
 
+    def test_security_audit_schema_migration_preserves_old_events_and_allows_new_admin_actions(self):
+        legacy_path = os.path.join(self.temp_dir.name, "legacy-audit.sqlite3")
+        conn = sqlite3.connect(legacy_path)
+        conn.row_factory = sqlite3.Row
+        conn.executescript("""
+            CREATE TABLE security_audit_events (
+                id TEXT PRIMARY KEY,
+                actor_telegram_id TEXT NOT NULL,
+                action TEXT NOT NULL CHECK(action IN (
+                    'telegram_session_revoked', 'telegram_sessions_revoked_all',
+                    'ton_wallet_linked', 'ton_wallet_revoked',
+                    'admin_report_dismissed', 'admin_order_removed'
+                )),
+                target_type TEXT NOT NULL CHECK(target_type IN ('session','account','wallet','order_report','order')),
+                target_hash TEXT NOT NULL CHECK(length(target_hash)=64),
+                outcome TEXT NOT NULL CHECK(outcome IN ('success','denied')),
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX idx_security_audit_actor_created ON security_audit_events(actor_telegram_id,created_at DESC);
+            CREATE INDEX idx_security_audit_action_created ON security_audit_events(action,created_at DESC);
+            CREATE TRIGGER security_audit_events_no_update BEFORE UPDATE ON security_audit_events
+            BEGIN SELECT RAISE(ABORT, 'security audit events are immutable'); END;
+            CREATE TRIGGER security_audit_events_no_delete BEFORE DELETE ON security_audit_events
+            BEGIN SELECT RAISE(ABORT, 'security audit events are immutable'); END;
+            INSERT INTO security_audit_events
+            (id,actor_telegram_id,action,target_type,target_hash,outcome,metadata_json,created_at)
+            VALUES ('old-event','101','ton_wallet_linked','wallet','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','success','{}',1);
+        """)
+        conn.close()
+        with patch.object(marketplace, "DB_PATH", legacy_path):
+            marketplace.init_marketplace_db()
+            with marketplace._db() as migrated:
+                old = migrated.execute("SELECT action FROM security_audit_events WHERE id='old-event'").fetchone()
+                marketplace.insert_security_audit_event(
+                    migrated,
+                    actor_telegram_id="101",
+                    action="admin_asset_revoked",
+                    target_type="asset",
+                    target_id="asset-legacy-test",
+                    now=2,
+                )
+                migrated.commit()
+                new = migrated.execute(
+                    "SELECT action, target_type FROM security_audit_events WHERE action='admin_asset_revoked'"
+                ).fetchone()
+        self.assertEqual(old["action"], "ton_wallet_linked")
+        self.assertEqual(new["action"], "admin_asset_revoked")
+        self.assertEqual(new["target_type"], "asset")
+
     def test_moderator_can_list_and_revoke_verified_asset_only_when_not_listed(self):
         asset = marketplace.register_verified_asset(
             source="ton_nft",
