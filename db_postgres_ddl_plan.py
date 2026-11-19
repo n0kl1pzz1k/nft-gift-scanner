@@ -71,6 +71,21 @@ def _trigger_ddl(item: dict[str, Any]) -> list[str] | None:
         body = "BEGIN\n  RAISE EXCEPTION 'deal lifecycle events are immutable';\nEND;"
         trigger = f"CREATE TRIGGER {qtrigger} BEFORE {action} ON {qtable} FOR EACH ROW EXECUTE FUNCTION {function}()"
         return [prefix + body + suffix, trigger]
+    immutable_tables = {
+        "trg_marketplace_payment_events_no_update": ("marketplace_payment_events", "UPDATE", "payment events are immutable"),
+        "trg_marketplace_payment_events_no_delete": ("marketplace_payment_events", "DELETE", "payment events are immutable"),
+        "trg_marketplace_ledger_transactions_no_update": ("marketplace_ledger_transactions", "UPDATE", "ledger transactions are immutable"),
+        "trg_marketplace_ledger_transactions_no_delete": ("marketplace_ledger_transactions", "DELETE", "ledger transactions are immutable"),
+        "trg_marketplace_ledger_entries_no_update": ("marketplace_ledger_entries", "UPDATE", "ledger entries are immutable"),
+        "trg_marketplace_ledger_entries_no_delete": ("marketplace_ledger_entries", "DELETE", "ledger entries are immutable"),
+    }
+    if name in immutable_tables:
+        expected_table, action, message = immutable_tables[name]
+        if table != expected_table:
+            return None
+        body = f"BEGIN\\n  RAISE EXCEPTION '{message}';\\nEND;"
+        trigger = f"CREATE TRIGGER {qtrigger} BEFORE {action} ON {qtable} FOR EACH ROW EXECUTE FUNCTION {function}()"
+        return [prefix + body + suffix, trigger]
     if name == "trg_marketplace_offer_received" and table == "marketplace_offers":
         body = """BEGIN
   INSERT INTO marketplace_notifications
