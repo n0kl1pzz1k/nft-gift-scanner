@@ -264,6 +264,7 @@ def test_deal_state_machine_is_idempotent_and_rejects_invalid_transitions():
     )
     assert first["status"] == "awaiting_payment"
     assert first["idempotent_replay"] is False
+    conn.commit()
     replay = transition_deal_status(
         conn, deal_id="deal-1", new_status="awaiting_payment", actor_user_id="101",
         idempotency_key="deal-1:checkout-start", event_type="deal_payment_requested",
