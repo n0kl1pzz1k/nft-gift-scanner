@@ -341,7 +341,7 @@ class TonNftImportApiTests(unittest.TestCase):
                 }],
             },
         ]
-        with patch.dict(os.environ, {"TONAPI_TOKEN": "test-token"}), \\
+        with patch.dict(os.environ, {"TONAPI_TOKEN": "test-token"}), \
              patch.object(app, "fetch_wallet_nfts", new=AsyncMock(side_effect=snapshots)) as fetch:
             response = self.client.post(
                 "/api/marketplace/assets/import-ton",
