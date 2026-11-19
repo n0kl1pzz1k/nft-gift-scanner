@@ -13,6 +13,7 @@
   type MarketplaceOffer = { id:string; order_id:string; sender_name:string; amount:string; currency:'TON'|'XTR'; note:string; status:'pending'|'accepted'|'declined'|'withdrawn'; created_at:number; is_mine:boolean; order_title:string; order_owner_id:string; order_owner_name:string; order_status:string; order_kind:'listing'|'buy-order' };
   type MarketplaceDeal = { id:string; order_id:string; offer_id:string; is_seller:boolean; order_title:string; agreed_amount:string; currency:'TON'|'XTR'; status:'payment_not_enabled'|'awaiting_payment'|'payment_pending'|'paid'|'delivery_pending'|'completed'|'disputed'|'cancelled'|'expired'; order_status:string; created_at:number; reservation_active:boolean; payments_enabled:boolean; delivery_completed:boolean; asset_source?:string|null };
   
+  type AdminAsset = {id:string;source:string;external_asset_id:string;owner_telegram_id:string;title:string;asset_type:string;status:string;verified_at:number;revoked_at:number|null;owner_username:string};
   type AdminUser = {telegram_id:string;username:string;first_name:string;last_name:string;created_at:number;account_status:'active'|'suspended';control_reason:string;admin_role:string;order_count:number;verified_asset_count:number;is_environment_admin:boolean};
   type AdminDispute = {id:string;listing_owner_id:string;offer_sender_id:string;agreed_amount:string;currency:'TON'|'XTR';status:string;created_at:number;title:string;approvals:number};
   type ReconciliationItem = {id:string;kind:string;deal_id:string|null;payment_intent_id:string|null;provider_reference:string|null;summary:string;status:'open'|'resolved'|'ignored';created_at:number};
@@ -136,9 +137,13 @@
   let adminReports = $state<OrderReport[]>([]);
   let adminReportsBusy = $state(false);
   let adminReportActionBusy = $state('');
-  let adminTab = $state<'overview'|'reports'|'users'|'disputes'|'reconciliation'|'audit'|'roles'>('overview');
+  let adminTab = $state<'overview'|'reports'|'users'|'assets'|'disputes'|'reconciliation'|'audit'|'roles'>('overview');
   let adminOverview = $state<Record<string,number>>({});
   let adminUsers = $state<AdminUser[]>([]);
+  let adminAssets = $state<AdminAsset[]>([]);
+  let adminAssetsBusy = $state(false);
+  let adminAssetActionBusy = $state('');
+
   let adminUserQuery = $state('');
   let adminUsersBusy = $state(false);
   let adminUserActionBusy = $state('');
@@ -1121,6 +1126,32 @@
     finally { adminUserActionBusy = ''; }
   }
 
+  async function loadAdminAssets() {
+    if (!adminPermissions.includes('assets.moderate') || adminAssetsBusy) return;
+    adminAssetsBusy = true;
+    try {
+      const data = await request('/api/marketplace/admin/assets?status=verified&limit=100');
+      adminAssets = Array.isArray(data.items) ? data.items as AdminAsset[] : [];
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { adminAssetsBusy = false; }
+  }
+
+  async function revokeAdminAsset(assetId: string) {
+    if (!adminPermissions.includes('assets.moderate') || adminAssetActionBusy) return;
+    const reason = window.prompt(lang==='ru' ? 'Причина отзыва верификации актива:' : 'Reason for revoking asset verification:');
+    if (!reason || !reason.trim()) return;
+    adminAssetActionBusy = assetId;
+    try {
+      await request('/api/marketplace/admin/assets/' + encodeURIComponent(assetId) + '/revoke', undefined, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({reason:reason.trim().slice(0,500)}),
+      });
+      await loadAdminAssets();
+      notice = lang==='ru' ? 'Верификация актива отозвана.' : 'Asset verification revoked.';
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { adminAssetActionBusy = ''; }
+  }
+
   async function loadAdminDisputes() {
     if (!adminPermissions.includes('disputes.read') || adminDisputesBusy) return;
     adminDisputesBusy = true;
@@ -1227,6 +1258,7 @@
     adminTab = tab;
     if (tab==='reports') void loadAdminReports();
     else if (tab==='users') void loadAdminUsers();
+    else if (tab==='assets') void loadAdminAssets();
     else if (tab==='disputes') void loadAdminDisputes();
     else if (tab==='reconciliation') void loadAdminReconciliation();
     else if (tab==='audit') void loadAdminAudit();
@@ -1749,6 +1781,7 @@
             {#if adminPermissions.includes('dashboard.read')}<button class:active={adminTab==='overview'} class="language" onclick={()=>selectAdminTab('overview')}>{lang==='ru'?'Обзор':'Overview'}</button>{/if}
             {#if adminPermissions.includes('reports.read')}<button class:active={adminTab==='reports'} class="language" onclick={()=>selectAdminTab('reports')}>{lang==='ru'?'Жалобы':'Reports'}</button>{/if}
             {#if adminPermissions.includes('users.read')}<button class:active={adminTab==='users'} class="language" onclick={()=>selectAdminTab('users')}>{lang==='ru'?'Пользователи':'Users'}</button>{/if}
+            {#if adminPermissions.includes('assets.moderate')}<button class:active={adminTab==='assets'} class="language" onclick={()=>selectAdminTab('assets')}>{lang==='ru'?'Активы':'Assets'}</button>{/if}
             {#if adminPermissions.includes('disputes.read')}<button class:active={adminTab==='disputes'} class="language" onclick={()=>selectAdminTab('disputes')}>{lang==='ru'?'Споры':'Disputes'}</button>{/if}
             {#if adminPermissions.includes('payments.reconcile.read') || adminPermissions.includes('payments.reconcile')}<button class:active={adminTab==='reconciliation'} class="language" onclick={()=>selectAdminTab('reconciliation')}>{lang==='ru'?'Сверка':'Reconciliation'}</button>{/if}
             {#if adminPermissions.includes('audit.read')}<button class:active={adminTab==='audit'} class="language" onclick={()=>selectAdminTab('audit')}>{lang==='ru'?'Аудит':'Audit'}</button>{/if}
@@ -1795,6 +1828,16 @@
                 </div></article>
               {/each}
             </div>
+          {:else if adminTab==='assets'}
+            {#if adminAssetsBusy}<div class="state-panel">{t.loading}</div>
+            {:else if adminAssets.length===0}<div class="state-panel">{lang==='ru'?'Верифицированных активов нет.':'No verified assets.'}</div>
+            {:else}<div class="orders-list">
+              {#each adminAssets as asset (asset.id)}
+                <article class="order-card"><div class="order-main"><h3>{asset.title}</h3><p>{asset.source} · {asset.asset_type} · {asset.owner_telegram_id} {asset.owner_username?'@'+asset.owner_username:''}</p><small>{asset.external_asset_id}</small></div>
+                  <div class="order-actions"><button class="cancel-button" onclick={()=>revokeAdminAsset(asset.id)} disabled={adminAssetActionBusy===asset.id}>{adminAssetActionBusy===asset.id?'…':(lang==='ru'?'Отозвать проверку':'Revoke verification')}</button></div>
+                </article>
+              {/each}
+            </div>{/if}
           {:else if adminTab==='disputes'}
             {#if adminDisputesBusy}<div class="state-panel">{t.loading}</div>
             {:else if adminDisputes.length===0}<div class="state-panel">{lang==='ru'?'Открытых споров нет.':'No open disputes.'}</div>
