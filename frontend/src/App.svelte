@@ -724,10 +724,12 @@
     if (!signedIn || !authToken) return;
     try {
       const data = await request('/api/marketplace/favorites');
-      const ids = Array.isArray(data.items)
-        ? data.items.map((item: {id?: unknown}) => typeof item?.id === 'string' ? item.id : '').filter(Boolean)
+      const ids: string[] = Array.isArray(data.items)
+        ? (data.items as Array<{id?: unknown}>)
+            .map(item => typeof item?.id === 'string' ? item.id : '')
+            .filter((id): id is string => id.length > 0)
         : [];
-      favoriteOrderIds = [...new Set(ids)].slice(0, 300);
+      favoriteOrderIds = Array.from(new Set<string>(ids)).slice(0, 300);
       try { localStorage.setItem('hassle-nft-favorite-orders-v1', JSON.stringify(favoriteOrderIds)); } catch {}
     } catch (e) {
       notice = e instanceof Error ? e.message : String(e);
