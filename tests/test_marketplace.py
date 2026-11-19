@@ -260,6 +260,19 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(len(event["target_hash"]), 64)
         self.assertNotIn(session_token, event["target_hash"])
 
+    def test_session_revocation_rolls_back_if_audit_write_fails(self):
+        authenticated = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
+        token = authenticated.json()["session_token"]
+        with marketplace._db() as conn:
+            conn.execute(
+                """CREATE TRIGGER fail_security_audit_insert
+                   BEFORE INSERT ON security_audit_events
+                   BEGIN SELECT RAISE(ABORT, 'audit store unavailable'); END"""
+            )
+        with self.assertRaises(sqlite3.IntegrityError):
+            marketplace.revoke_telegram_session(token)
+        self.assertIsNotNone(marketplace.get_telegram_session_user(token))
+
     def test_telegram_auth_reports_server_verified_admin_role(self):
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
             admin = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
