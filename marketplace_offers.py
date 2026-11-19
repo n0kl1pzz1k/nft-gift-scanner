@@ -278,7 +278,7 @@ def _offer_dict(row: sqlite3.Row, user_id: str) -> dict:
         "updated_at": row["updated_at"],
         "is_mine": row["sender_user_id"] == user_id,
         "order_title": row["order_title"],
-        "order_kind": row["order_kind"],
+        "order_kind": row["order_kind"] if "order_kind" in row.keys() else "listing",
         "order_owner_id": row["order_owner_id"],
         "order_owner_name": row["order_owner_name"],
         "order_status": row["order_status"],
