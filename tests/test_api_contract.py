@@ -37,6 +37,15 @@ class ApiContractTests(unittest.TestCase):
                 "/api/marketplace/admin/security-audit",
                 "/api/marketplace/admin/deals/{deal_id}/dispute-approvals",
                 "/api/marketplace/admin/deals/{deal_id}/execute-refund",
+                "/api/marketplace/admin/overview",
+                "/api/marketplace/admin/users",
+                "/api/marketplace/admin/users/{telegram_id}",
+                "/api/marketplace/admin/roles",
+                "/api/marketplace/admin/roles/{telegram_id}",
+                "/api/marketplace/admin/disputes",
+                "/api/marketplace/admin/reconciliation",
+                "/api/marketplace/admin/reconciliation/{item_id}",
+                "/api/marketplace/admin/audit",
             },
         )
         self.assertFalse(any("balance" in path or "withdraw" in path for path in admin_paths))
