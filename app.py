@@ -11,7 +11,7 @@ from pathlib import Path
 import marketplace
 from database import list_database_tables, list_database_columns
 from db_schema_audit import build_runtime_inventory, build_postgres_runtime_inventory, build_postgres_migration_gate_summary
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, urlsplit
 from pydantic import BaseModel
 
 from fastapi import FastAPI, HTTPException, Header, Request, Response
@@ -117,11 +117,45 @@ def _resolve_webhook_secret(bot_token: str) -> str:
 _CORS_DEFAULT_ORIGINS = [
     "https://hassle-nft-market.fj7kmzkhn9.workers.dev",
 ]
-_CORS_ALLOWED_ORIGINS = [
-    origin.strip().rstrip("/")
-    for origin in os.getenv("CORS_ALLOWED_ORIGINS", ",".join(_CORS_DEFAULT_ORIGINS)).split(",")
-    if origin.strip()
-]
+
+
+def _validate_cors_origins(raw_origins: str, *, app_env: str | None = None) -> list[str]:
+    """Accept explicit HTTPS origins only; never permit wildcard or credential-bearing origins."""
+    environment = (app_env or os.getenv("APP_ENV", "production")).strip().lower()
+    allow_local_http = environment in {"test", "development"}
+    origins: list[str] = []
+    for raw_origin in str(raw_origins or "").split(","):
+        origin = raw_origin.strip().rstrip("/")
+        if not origin:
+            continue
+        parsed = urlsplit(origin)
+        local_http = (
+            allow_local_http
+            and parsed.scheme == "http"
+            and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+        )
+        if (
+            origin == "*"
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or (parsed.scheme != "https" and not local_http)
+        ):
+            raise RuntimeError("CORS_ALLOWED_ORIGINS must contain only explicit HTTPS origins")
+        canonical = f"{parsed.scheme}://{parsed.netloc}"
+        if canonical not in origins:
+            origins.append(canonical)
+    if not origins:
+        raise RuntimeError("CORS_ALLOWED_ORIGINS must contain at least one valid origin")
+    return origins
+
+
+_CORS_ALLOWED_ORIGINS = _validate_cors_origins(
+    os.getenv("CORS_ALLOWED_ORIGINS", ",".join(_CORS_DEFAULT_ORIGINS))
+)
 
 @app.middleware("http")
 async def maintenance_mode_guard(request: Request, call_next):
