@@ -2149,6 +2149,45 @@ class SharedMarketplaceTests(unittest.TestCase):
         unrelated = self.client.get("/api/marketplace/activity?limit=10", headers=headers_c)
         self.assertEqual(unrelated.json()["items"], [])
 
+    def test_dispute_requires_confirmed_payment_and_is_idempotent_and_private(self):
+        seller_headers = {"X-Telegram-Init-Data": "user-a"}
+        buyer_headers = {"X-Telegram-Init-Data": "user-b"}
+        listing = self.client.post(
+            "/api/marketplace/orders", headers=seller_headers,
+            json={"kind": "listing", "title": "Dispute test gift", "price": "10", "currency": "TON"},
+        )
+        self.assertEqual(listing.status_code, 201, listing.text)
+        offer = self.client.post(
+            "/api/marketplace/offers", headers=buyer_headers,
+            json={"order_id": listing.json()["item"]["id"], "amount": "9", "note": "dispute test"},
+        )
+        self.assertEqual(offer.status_code, 201, offer.text)
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer.json()['item']['id']}", headers=seller_headers,
+            json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        deal_id = accepted.json()["deal_id"]
+        url = f"/api/marketplace/deals/{deal_id}/disputes"
+        payload = {"reason": "The asset delivered does not match the listing.", "idempotency_key": f"{deal_id}:dispute-1"}
+        blocked = self.client.post(url, headers=buyer_headers, json=payload)
+        self.assertEqual(blocked.status_code, 409)
+        with marketplace_offers._db() as conn:
+            conn.execute("UPDATE marketplace_deals SET status='paid' WHERE id=?", (deal_id,))
+            conn.commit()
+        opened = self.client.post(url, headers=buyer_headers, json=payload)
+        self.assertEqual(opened.status_code, 200, opened.text)
+        self.assertEqual(opened.json()["status"], "disputed")
+        replay = self.client.post(url, headers=buyer_headers, json=payload)
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertTrue(replay.json()["idempotent_replay"])
+        unrelated = self.client.post(
+            url,
+            headers={"X-Telegram-Init-Data": "user-c"},
+            json={**payload, "idempotency_key": f"{deal_id}:dispute-2"},
+        )
+        self.assertEqual(unrelated.status_code, 404)
+
     def test_payment_status_endpoint_is_participant_only_and_hides_provider_secrets(self):
         seller_headers = {"X-Telegram-Init-Data": "user-a"}
         buyer_headers = {"X-Telegram-Init-Data": "user-b"}
