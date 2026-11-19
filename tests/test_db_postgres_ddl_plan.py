@@ -307,6 +307,8 @@ def test_generated_production_trigger_ddl_executes_and_preserves_behavior():
                 with pg.transaction():
                     pg.execute("UPDATE verified_assets SET title='Changed' WHERE id='asset1'")
         finally:
+            # Flush deferred FK/trigger events before dropping the isolated schema.
+            pg.commit()
             pg.execute("SET search_path TO public")
             pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
 
