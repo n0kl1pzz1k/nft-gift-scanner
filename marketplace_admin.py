@@ -210,6 +210,7 @@ def create_marketplace_admin_router(verify_credential: Callable[[str], dict]) ->
                 action="admin_asset_revoked",
                 target_type="asset",
                 target_id=asset_id,
+                metadata={"reason_hash": __import__("hashlib").sha256(reason.encode("utf-8")).hexdigest()},
                 now=now,
             )
             conn.commit()
