@@ -46,6 +46,7 @@ class ApiContractTests(unittest.TestCase):
             "http://evil.example",
             "https://trusted.example/path",
             "https://user:password@trusted.example",
+            "https://trusted.example:invalid",
         ):
             with self.subTest(origin=value):
                 with self.assertRaises(RuntimeError):
