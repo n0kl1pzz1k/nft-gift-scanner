@@ -1,5 +1,6 @@
 import asyncio
 import html
+import logging
 import os
 
 import httpx
@@ -15,6 +16,7 @@ from aiogram.types import (
 )
 from dotenv import load_dotenv
 from marketplace import upsert_telegram_business_connection
+from marketplace_stars import confirm_stars_payment, validate_stars_pre_checkout
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
@@ -57,6 +59,94 @@ def create_dispatcher() -> Dispatcher:
             connection.model_dump(mode="json", exclude_none=True)
         )
 
+
+    @dp.pre_checkout_query()
+    async def stars_pre_checkout(query):
+        user = query.from_user
+        if user is None:
+            await query.answer(ok=False, error_message="Telegram user identity is missing.")
+            return
+        try:
+            ok, error_message = await asyncio.to_thread(
+                validate_stars_pre_checkout,
+                invoice_payload=query.invoice_payload,
+                telegram_user_id=user.id,
+                currency=query.currency,
+                total_amount=query.total_amount,
+            )
+        except Exception:
+            logging.getLogger("hassle_nft.payments").exception("Stars pre-checkout validation failed")
+            ok, error_message = False, "Payment verification is temporarily unavailable."
+        await query.answer(
+            ok=bool(ok),
+            error_message=(error_message or "This invoice is no longer valid.") if not ok else None,
+        )
+
+    @dp.message(lambda message: message.successful_payment is not None)
+    async def stars_successful_payment(message: Message):
+        user = message.from_user
+        payment = message.successful_payment
+        if user is None or payment is None:
+            return
+        try:
+            result = await asyncio.to_thread(
+                confirm_stars_payment,
+                invoice_payload=payment.invoice_payload,
+                telegram_user_id=user.id,
+                currency=payment.currency,
+                total_amount=payment.total_amount,
+                telegram_payment_charge_id=payment.telegram_payment_charge_id,
+                provider_payment_charge_id=payment.provider_payment_charge_id,
+            )
+        except Exception:
+            logging.getLogger("hassle_nft.payments").exception(
+                "Stars successful_payment requires reconciliation"
+            )
+            await message.answer(
+                "Платёж получен Telegram, но подтверждение сделки требует проверки. "
+                "Не оплачивай повторно. Напиши /paysupport и укажи ID сделки."
+            )
+            return
+        await message.answer(
+            "⭐ <b>Оплата подтверждена.</b> Средства учтены в защищённом балансе сделки.\n"
+            f"Сделка: <code>{html.escape(result['deal_id'])}</code>\n"
+            "Следующий этап: передача NFT продавцом и проверка нового владельца."
+        )
+
+    @dp.message(Command("paysupport"))
+    async def payment_support(message: Message):
+        user = message.from_user
+        if user is None:
+            return
+        details = (message.text or "").partition(" ")[2].strip()
+        if not details:
+            await message.answer(
+                "🆘 Для обращения отправь одной командой ID сделки и описание проблемы:\n"
+                "<code>/paysupport DEAL-ID описание проблемы</code>"
+            )
+            return
+        if not ADMIN_TELEGRAM_IDS:
+            await message.answer("Платёжная поддержка временно недоступна. Повтори попытку позже.")
+            return
+        username = f"@{html.escape(user.username)}" if user.username else "без username"
+        report = (
+            "🆘 <b>Платёжное обращение HASSLE NFT</b>\n"
+            f"Пользователь: <code>{user.id}</code> ({username})\n"
+            f"Обращение: {html.escape(details[:1500])}"
+        )
+        delivered = 0
+        for admin_id in ADMIN_TELEGRAM_IDS:
+            try:
+                await message.bot.send_message(int(admin_id), report)
+                delivered += 1
+            except Exception:
+                logging.getLogger("hassle_nft.payments").exception(
+                    "Could not forward payment support request to admin"
+                )
+        if delivered:
+            await message.answer("Обращение передано платёжной поддержке. Сохрани ID сделки.")
+        else:
+            await message.answer("Не удалось передать обращение. Попробуй позже.")
 
     @dp.message(Command("myid"))
     async def my_id(message: Message):
@@ -105,7 +195,8 @@ def create_dispatcher() -> Dispatcher:
             "🤖 <b>HASSLE NFT — помощь</b>\n\n"
             "/start — приветствие и запуск Mini App\n"
             "/help — эта справка\n"
-            "/myid — показать твой Telegram ID\n\n"
+            "/myid — показать твой Telegram ID\n"
+            "/paysupport — помощь по платежам\n\n"
             "Если Mini App не открывается, обнови Telegram и попробуй /start ещё раз."
         )
 
