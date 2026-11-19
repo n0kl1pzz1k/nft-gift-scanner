@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 import app as api
 import marketplace
 import marketplace_offers
-from marketplace_payments import create_payment_intent, record_dispute_resolution_approval, transition_deal_status
+from marketplace_payments import create_payment_intent, post_ledger_transaction, record_dispute_resolution_approval, transition_deal_status
 from marketplace_stars import confirm_stars_payment, validate_stars_pre_checkout
 from ton_nft_inventory import build_nft_transfer_payload, normalise_ton_address
 
@@ -148,6 +148,18 @@ class SharedMarketplaceTests(unittest.TestCase):
         deal_id = accepted.json()["deal_id"]
         with marketplace_offers._db() as conn:
             conn.execute("UPDATE marketplace_deals SET status='paid' WHERE id=?", (deal_id,))
+            post_ledger_transaction(
+                conn,
+                idempotency_key=f"{deal_id}:test-escrow-funding",
+                reference_type="deal",
+                reference_id=deal_id,
+                currency="XTR",
+                debit_account=("telegram_stars_clearing", "test-charge"),
+                credit_account=("escrow", deal_id),
+                debit_amount="9",
+                credit_amount="9",
+                now=1700000000,
+            )
             conn.commit()
 
         seller_owner = {"owner_address": seller_address, "is_scam": False}
@@ -190,9 +202,25 @@ class SharedMarketplaceTests(unittest.TestCase):
             deal = conn.execute(
                 "SELECT status FROM marketplace_deals WHERE id=?", (deal_id,)
             ).fetchone()
+            seller_credit = conn.execute(
+                """SELECT e.account_type, e.account_id, e.direction, e.amount
+                   FROM marketplace_ledger_entries e
+                   JOIN marketplace_ledger_transactions t ON t.id = e.transaction_id
+                   WHERE t.idempotency_key = ? AND e.account_type = 'seller_payable'""",
+                (f"{deal_id}:seller-payable:XTR",),
+            ).fetchone()
+            seller_credit_event = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_escrow_events WHERE deal_id=? AND event_type='seller_credit_recorded'",
+                (deal_id,),
+            ).fetchone()[0]
         self.assertEqual(current_asset["owner_telegram_id"], "202")
         self.assertEqual(len(ownership), 1)
         self.assertEqual(deal["status"], "completed")
+        self.assertIsNotNone(seller_credit)
+        self.assertEqual(seller_credit["account_id"], "101")
+        self.assertEqual(seller_credit["direction"], "credit")
+        self.assertEqual(seller_credit["amount"], "9")
+        self.assertEqual(seller_credit_event, 1)
 
     def test_ton_nft_transfer_payload_encodes_standard_tep62_body(self):
         payload = build_nft_transfer_payload(
