@@ -273,5 +273,142 @@ class TonNftImportApiTests(unittest.TestCase):
         self.assertEqual(row["status"], "verified")
 
 
+    def test_repeated_wallet_import_is_idempotent(self):
+        address = "0:" + "d" * 64
+        snapshot = {
+            "wallet_address": "0:" + "a" * 64,
+            "complete": True,
+            "items": [{
+                "address": address,
+                "wallet_address": "0:" + "a" * 64,
+                "title": "Same NFT",
+                "image_url": "",
+            }],
+        }
+        with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(return_value=snapshot)):
+            first = self.client.post(
+                "/api/marketplace/assets/import-ton",
+                headers={"X-Telegram-Init-Data": "verified-session"},
+            )
+            second = self.client.post(
+                "/api/marketplace/assets/import-ton",
+                headers={"X-Telegram-Init-Data": "verified-session"},
+            )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(first.json()["items"][0]["id"], second.json()["items"][0]["id"])
+        inventory = self.client.get(
+            "/api/marketplace/assets/me",
+            headers={"X-Telegram-Init-Data": "verified-session"},
+        )
+        self.assertEqual(inventory.status_code, 200)
+        self.assertEqual(
+            sum(item["external_asset_id"] == address for item in inventory.json()["items"]),
+            1,
+        )
+
+    def test_multiple_verified_wallets_are_imported_as_one_complete_snapshot(self):
+        second_wallet = "0:" + "b" * 64
+        with marketplace._db() as conn:
+            conn.execute(
+                """INSERT INTO verified_wallets
+                   (network, address, telegram_id, public_key, state_init_hash,
+                    created_at, last_verified_at, revoked_at)
+                   VALUES ('-239', ?, '101', ?, ?, 1, 1, NULL)""",
+                (second_wallet, "d" * 64, "e" * 64),
+            )
+        first_address = "0:" + "c" * 64
+        second_address = "0:" + "f" * 64
+        snapshots = [
+            {
+                "wallet_address": "0:" + "a" * 64,
+                "complete": True,
+                "items": [{
+                    "address": first_address,
+                    "wallet_address": "0:" + "a" * 64,
+                    "title": "Wallet A NFT",
+                    "image_url": "",
+                }],
+            },
+            {
+                "wallet_address": second_wallet,
+                "complete": True,
+                "items": [{
+                    "address": second_address,
+                    "wallet_address": second_wallet,
+                    "title": "Wallet B NFT",
+                    "image_url": "",
+                }],
+            },
+        ]
+        with patch.dict(os.environ, {"TONAPI_TOKEN": "test-token"}), \
+             patch.object(app, "fetch_wallet_nfts", new=AsyncMock(side_effect=snapshots)) as fetch:
+            response = self.client.post(
+                "/api/marketplace/assets/import-ton",
+                headers={"X-Telegram-Init-Data": "verified-session"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["wallets_scanned"], 2)
+        self.assertTrue(response.json()["ownership_scan_complete"])
+        self.assertEqual(response.json()["imported"], 2)
+        self.assertEqual(fetch.await_count, 2)
+        inventory = self.client.get(
+            "/api/marketplace/assets/me",
+            headers={"X-Telegram-Init-Data": "verified-session"},
+        )
+        self.assertEqual(
+            {item["external_asset_id"] for item in inventory.json()["items"]},
+            {first_address, second_address},
+        )
+
+    def test_failure_on_second_wallet_leaves_registry_unchanged(self):
+        second_wallet = "0:" + "b" * 64
+        with marketplace._db() as conn:
+            conn.execute(
+                """INSERT INTO verified_wallets
+                   (network, address, telegram_id, public_key, state_init_hash,
+                    created_at, last_verified_at, revoked_at)
+                   VALUES ('-239', ?, '101', ?, ?, 1, 1, NULL)""",
+                (second_wallet, "d" * 64, "e" * 64),
+            )
+            conn.execute(
+                """INSERT INTO verified_assets
+                   (id, source, external_asset_id, owner_telegram_id, title, asset_type,
+                    image_url, verification_method, verification_reference_hash,
+                    status, created_at, verified_at)
+                   VALUES ('asset_existing', 'ton_nft', ?, '101', 'Existing NFT', 'gift', '',
+                           'ton_connect_proof', ?, 'verified', 1, 1)""",
+                ("0:" + "e" * 64, "f" * 64),
+            )
+        first_snapshot = {
+            "wallet_address": "0:" + "a" * 64,
+            "complete": True,
+            "items": [{
+                "address": "0:" + "c" * 64,
+                "wallet_address": "0:" + "a" * 64,
+                "title": "New but uncommitted NFT",
+                "image_url": "",
+            }],
+        }
+        with patch.dict(os.environ, {"TONAPI_TOKEN": "test-token"}), \
+             patch.object(
+                 app,
+                 "fetch_wallet_nfts",
+                 new=AsyncMock(side_effect=[first_snapshot, httpx.ConnectError("second wallet unavailable")]),
+             ):
+            response = self.client.post(
+                "/api/marketplace/assets/import-ton",
+                headers={"X-Telegram-Init-Data": "verified-session"},
+            )
+        self.assertEqual(response.status_code, 503)
+        with marketplace._db() as conn:
+            rows = conn.execute(
+                "SELECT external_asset_id, status FROM verified_assets WHERE owner_telegram_id='101'"
+            ).fetchall()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["external_asset_id"], "0:" + "e" * 64)
+        self.assertEqual(rows[0]["status"], "verified")
+
+
 if __name__ == "__main__":
     unittest.main()
