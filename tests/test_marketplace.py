@@ -876,19 +876,30 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(removed.status_code, 200)
         self.assertEqual(self.client.get("/api/marketplace/favorites", headers=owner_headers).json()["items"], [])
 
-    def test_buy_requests_can_be_published_without_seller_asset_listing_gate(self):
+    def test_buy_requests_can_be_published_and_discovered_without_seller_asset_listing_gate(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
         with patch.object(marketplace, "_verified_asset_actions_enabled", return_value=False):
             response = self.client.post(
                 "/api/marketplace/orders",
-                headers={"X-Telegram-Init-Data": "user-a"},
+                headers=owner_headers,
                 json={"kind": "buy-order", "title": "Plush Pepe", "price": "50", "currency": "XTR"},
             )
-        self.assertEqual(response.status_code, 201, response.text)
-        item = response.json()["item"]
-        self.assertEqual(item["kind"], "buy-order")
-        self.assertEqual(item["currency"], "XTR")
-        self.assertEqual(item["status"], "active")
-        self.assertIsNone(item.get("asset_id"))
+            self.assertEqual(response.status_code, 201, response.text)
+            item = response.json()["item"]
+            self.assertEqual(item["kind"], "buy-order")
+            self.assertEqual(item["currency"], "XTR")
+            self.assertEqual(item["status"], "active")
+            self.assertIsNone(item.get("asset_id"))
+
+            public = self.client.get("/api/marketplace/orders")
+            self.assertEqual(public.status_code, 200)
+            self.assertEqual([row["id"] for row in public.json()["items"]], [item["id"]])
+            mine = self.client.get("/api/marketplace/mine", headers=owner_headers)
+            self.assertEqual(mine.status_code, 200)
+            self.assertEqual([row["id"] for row in mine.json()["items"]], [item["id"]])
+            stats = self.client.get("/api/marketplace/stats")
+            self.assertEqual(stats.json()["active_buy_requests"], 1)
+            self.assertEqual(stats.json()["active_listings"], 0)
 
     def test_orders_are_shared_and_stats_are_server_calculated(self):
         created = self.client.post(
