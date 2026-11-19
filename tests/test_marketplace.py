@@ -876,6 +876,35 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(removed.status_code, 200)
         self.assertEqual(self.client.get("/api/marketplace/favorites", headers=owner_headers).json()["items"], [])
 
+    def test_seller_cannot_respond_to_buy_request_without_active_listing(self):
+        buyer_headers = {"X-Telegram-Init-Data": "user-a"}
+        seller_headers = {"X-Telegram-Init-Data": "user-b"}
+        with patch.object(marketplace, "_verified_asset_actions_enabled", return_value=False):
+            request = self.client.post(
+                "/api/marketplace/orders", headers=buyer_headers,
+                json={"kind": "buy-order", "title": "Collectible gift", "price": "80", "currency": "TON"},
+            )
+        self.assertEqual(request.status_code, 201, request.text)
+        response = self.client.post(
+            "/api/marketplace/offers", headers=seller_headers,
+            json={"order_id": request.json()["item"]["id"], "amount": "75", "note": "Offering my collectible gift"},
+        )
+        self.assertEqual(response.status_code, 409)
+
+    def test_seller_response_to_buy_request_requires_asset_description(self):
+        buyer_headers = {"X-Telegram-Init-Data": "user-a"}
+        seller_headers = {"X-Telegram-Init-Data": "user-b"}
+        request = self.client.post(
+            "/api/marketplace/orders", headers=buyer_headers,
+            json={"kind": "buy-order", "title": "Collectible gift", "price": "80", "currency": "TON"},
+        )
+        self.assertEqual(request.status_code, 201, request.text)
+        response = self.client.post(
+            "/api/marketplace/offers", headers=seller_headers,
+            json={"order_id": request.json()["item"]["id"], "amount": "75", "note": ""},
+        )
+        self.assertEqual(response.status_code, 422)
+
     def test_buy_requests_can_be_published_and_discovered_without_seller_asset_listing_gate(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         with patch.object(marketplace, "_verified_asset_actions_enabled", return_value=False):
