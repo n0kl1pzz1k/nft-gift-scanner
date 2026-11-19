@@ -322,6 +322,80 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertTrue(replay.json()["idempotent_replay"])
         self.assertEqual(len(fake_client.calls), 1)
 
+    def test_stars_checkout_creates_and_reuses_one_open_telegram_invoice(self):
+        seller_headers = {"X-Telegram-Init-Data": "user-a"}
+        buyer_headers = {"X-Telegram-Init-Data": "user-b"}
+        listing = self.client.post(
+            "/api/marketplace/orders", headers=seller_headers,
+            json={"kind": "listing", "title": "Invoice route gift", "price": "10", "currency": "XTR"},
+        )
+        self.assertEqual(listing.status_code, 201, listing.text)
+        offer = self.client.post(
+            "/api/marketplace/offers", headers=buyer_headers,
+            json={"order_id": listing.json()["item"]["id"], "amount": "9", "note": "checkout"},
+        )
+        self.assertEqual(offer.status_code, 201, offer.text)
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer.json()['item']['id']}",
+            headers=seller_headers, json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        deal_id = accepted.json()["deal_id"]
+
+        class FakeTelegramResponse:
+            status_code = 200
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {"ok": True, "result": "https://t.me/$hassle-invoice"}
+
+        class FakeTelegramClient:
+            def __init__(self, **kwargs):
+                self.calls = []
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return False
+            async def post(self, url, json):
+                self.calls.append((url, json))
+                return FakeTelegramResponse()
+
+        fake = FakeTelegramClient()
+        flags = {
+            "HASSLE_STARS_CHECKOUT_ENABLED": "1",
+            "HASSLE_STARS_CUSTODY_ACKNOWLEDGED": "1",
+            "HASSLE_STARS_PAYOUT_MODE": "internal_xtr_credit",
+            "BOT_TOKEN": "test-bot-token",
+            "PAYMENT_SUPPORT_CONTACT": "@hassle_support",
+        }
+        with patch.dict(os.environ, flags):
+            buyer_deals = self.client.get("/api/marketplace/deals", headers=buyer_headers)
+            self.assertTrue(buyer_deals.json()["items"][0]["payments_enabled"])
+            with patch("httpx.AsyncClient", return_value=fake):
+                first = self.client.post(
+                    f"/api/marketplace/deals/{deal_id}/stars-checkout",
+                    headers=buyer_headers,
+                    json={"idempotency_key": "stars-invoice-first"},
+                )
+                second = self.client.post(
+                    f"/api/marketplace/deals/{deal_id}/stars-checkout",
+                    headers=buyer_headers,
+                    json={"idempotency_key": "stars-invoice-second"},
+                )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(first.json()["payment_intent_id"], second.json()["payment_intent_id"])
+        self.assertEqual(first.json()["invoice_url"], "https://t.me/$hassle-invoice")
+        self.assertEqual(second.json()["invoice_url"], "https://t.me/$hassle-invoice")
+        self.assertEqual(len(fake.calls), 2)
+        self.assertEqual(fake.calls[0][1]["payload"], fake.calls[1][1]["payload"])
+        with marketplace_offers._db() as conn:
+            open_intents = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_payment_intents WHERE deal_id=? AND status IN ('created','pending')",
+                (deal_id,),
+            ).fetchone()[0]
+        self.assertEqual(open_intents, 1)
+
     def test_stars_precheckout_binds_user_amount_and_deal_and_is_one_time(self):
         deal_id, invoice_payload, intent_id = self._create_stars_deal_with_intent()
         ok, reason = validate_stars_pre_checkout(
