@@ -32,6 +32,66 @@ class PaymentStateError(ValueError):
     """A payment operation is invalid for the current deal or intent state."""
 
 
+def create_manual_reconciliation_item(
+    conn: Any,
+    *,
+    idempotency_key: str,
+    kind: str,
+    summary: str,
+    deal_id: str | None = None,
+    payment_intent_id: str | None = None,
+    provider_reference: str | None = None,
+    now: int | None = None,
+) -> dict[str, Any]:
+    """Create an append-only reconciliation case without storing raw credentials or invoice payloads."""
+    key = str(idempotency_key or "").strip()
+    category = str(kind or "").strip()
+    description = " ".join(str(summary or "").split())[:500]
+    if not key or len(key) > 180 or not description:
+        raise ValueError("A reconciliation idempotency key and summary are required")
+    if category not in {
+        "stars_callback_error", "ton_payment_mismatch", "asset_delivery_mismatch",
+        "refund_mismatch", "manual_review",
+    }:
+        raise ValueError("Unsupported reconciliation case type")
+    existing = conn.execute(
+        "SELECT * FROM marketplace_manual_reconciliation_items WHERE idempotency_key = ?",
+        (key,),
+    ).fetchone()
+    if existing is not None:
+        row = dict(existing)
+        if row["kind"] != category or row["summary"] != description:
+            raise PaymentConflict("Reconciliation idempotency key was reused with different case data")
+        return {"id": row["id"], "status": row["status"], "idempotent_replay": True}
+    item_id = "rec-" + uuid.uuid4().hex[:24]
+    timestamp = int(now if now is not None else __import__("time").time())
+    conn.execute(
+        """INSERT INTO marketplace_manual_reconciliation_items
+           (id, idempotency_key, kind, deal_id, payment_intent_id, provider_reference,
+            summary, status, resolution_note, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'open', '', ?)""",
+        (
+            item_id, key, category,
+            str(deal_id) if deal_id else None,
+            str(payment_intent_id) if payment_intent_id else None,
+            str(provider_reference)[:256] if provider_reference else None,
+            description, timestamp,
+        ),
+    )
+    return {"id": item_id, "status": "open", "idempotent_replay": False}
+
+
+def record_manual_reconciliation_item(**kwargs: Any) -> dict[str, Any]:
+    """Persist a reconciliation case in its own transaction."""
+    from marketplace_offers import _db
+
+    with _db() as conn:
+        begin_write(conn, f"reconciliation:{kwargs.get('idempotency_key', '')}")
+        result = create_manual_reconciliation_item(conn, **kwargs)
+        conn.commit()
+    return result
+
+
 def initialize_sqlite_payment_schema(conn: Any) -> None:
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS marketplace_payment_intents (
