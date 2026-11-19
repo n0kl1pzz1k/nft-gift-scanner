@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from app import app
+from app import app, _validate_cors_origins
 
 
 class ApiContractTests(unittest.TestCase):
@@ -39,6 +39,30 @@ class ApiContractTests(unittest.TestCase):
             "https://hassle-nft-market.fj7kmzkhn9.workers.dev",
         )
         self.assertEqual(health_response.status_code, 200)
+
+    def test_cors_rejects_wildcards_http_and_path_origins(self):
+        for value in (
+            "*",
+            "http://evil.example",
+            "https://trusted.example/path",
+            "https://user:password@trusted.example",
+        ):
+            with self.subTest(origin=value):
+                with self.assertRaises(RuntimeError):
+                    _validate_cors_origins(value, app_env="production")
+
+    def test_cors_accepts_only_explicit_https_origins_and_local_dev_http(self):
+        self.assertEqual(
+            _validate_cors_origins(
+                "https://hassle.example, https://hassle.example/",
+                app_env="production",
+            ),
+            ["https://hassle.example"],
+        )
+        self.assertEqual(
+            _validate_cors_origins("http://localhost:5173", app_env="development"),
+            ["http://localhost:5173"],
+        )
 
     def test_cors_allows_telegram_post_auth(self):
         cors = next(
