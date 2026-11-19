@@ -29,7 +29,7 @@ def test_postgres_core_marketplace_schema_bootstrap_is_idempotent_and_verified()
         assert first["columns_verified"] > 0
         assert second["columns_verified"] == first["columns_verified"]
         assert first["indexes_verified"] == 18
-        assert first["triggers_verified"] == 3
+        assert first["triggers_verified"] == 4
 
         adapter.execute(
             "INSERT INTO telegram_users "
@@ -49,6 +49,8 @@ def test_postgres_core_marketplace_schema_bootstrap_is_idempotent_and_verified()
             )
         with pytest.raises(Exception, match="security audit events are immutable"):
             adapter.execute("DELETE FROM security_audit_events WHERE id=?", ("audit-1",))
+        with pytest.raises(Exception, match="security audit events are immutable"):
+            adapter.execute("TRUNCATE TABLE security_audit_events")
         adapter.execute(
             "INSERT INTO verified_assets "
             "(id,source,external_asset_id,owner_telegram_id,title,asset_type,"
