@@ -774,15 +774,17 @@
 
   function startEditOrder(order: MarketplaceOrder) {
     editingOrderId = order.id;
-    editTitle = order.title;
     editPrice = String(order.price);
     editNote = order.note || '';
   }
 
   async function saveOrderEdit(id: string) {
     const price = Number(editPrice);
-    if (!editTitle.trim() || !Number.isFinite(price) || price <= 0) {
-      notice = lang === 'ru' ? 'Проверь название и положительную цену.' : 'Enter a title and a positive price.';
+    const order = orders.find(item => item.id === id);
+    if (!Number.isFinite(price) || price <= 0 || (order?.currency === 'XTR' && !Number.isInteger(price))) {
+      notice = lang === 'ru'
+        ? (order?.currency === 'XTR' ? 'Цена в Stars должна быть целым числом.' : 'Укажи корректную положительную цену.')
+        : (order?.currency === 'XTR' ? 'Star prices must be whole numbers.' : 'Enter a valid positive price.');
       return;
     }
     if (orderEditBusy) return;
@@ -791,11 +793,12 @@
       await request('/api/marketplace/orders/' + encodeURIComponent(id), undefined, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: editTitle.trim(), price, note: editNote.trim() }),
+        body: JSON.stringify({ price, note: editNote.trim() }),
       });
       editingOrderId = '';
       notice = t.orderUpdated;
       await loadMarketplace();
+      if (selectedAsset?.id === id) selectedAsset = orders.find(item => item.id === id) || selectedAsset;
     } catch (e) {
       notice = e instanceof Error ? e.message : String(e);
     } finally {
@@ -804,12 +807,16 @@
   }
 
   async function cancelOrder(id: string) {
+    if (orderEditBusy) return;
+    orderEditBusy = true;
     try {
       await request('/api/marketplace/orders/' + encodeURIComponent(id), undefined, {method:'DELETE'});
-      notice = lang === 'ru' ? 'Заявка снята.' : 'Order cancelled.';
-      await loadMarketplace();
-      await loadOffersAndDeals();
+      editingOrderId = '';
+      if (selectedAsset?.id === id) showAssetDetails = false;
+      notice = lang === 'ru' ? 'Объявление снято с продажи.' : 'Listing removed from sale.';
+      await Promise.all([loadMarketplace(), loadOffersAndDeals(), loadVerifiedInventory()]);
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { orderEditBusy = false; }
   }
 
   async function loadAdminOverview() {
@@ -1053,7 +1060,7 @@
         {:else}
           <div class="asset-grid">
             {#each marketAssets as order (order.id)}
-              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} backgroundColor={nftBackground} {lang} sellerProfileId={order.seller_profile_id || null} onSeller={()=>openSellerProfile(order.seller_profile_id || '')} onFavorite={()=>toggleFavoriteOrder(order)} canOffer={signedIn} onOffer={()=>{selectedOfferOrder=order;offerAmount=String(order.price);offerNote='';showOfferModal=true;haptic();}} onOpen={()=>{selectedAsset=order;showAssetDetails=true;haptic();}} />
+              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} backgroundColor={nftBackground} {lang} sellerProfileId={order.seller_profile_id || null} onSeller={()=>openSellerProfile(order.seller_profile_id || '')} onFavorite={()=>toggleFavoriteOrder(order)} canOffer={signedIn && !order.isMine} isMine={order.isMine} onManage={()=>{selectedAsset=order;startEditOrder(order);}} onOffer={()=>{selectedOfferOrder=order;offerAmount=String(order.price);offerNote='';showOfferModal=true;haptic();}} onOpen={()=>{selectedAsset=order;showAssetDetails=true;haptic();}} />
             {/each}
           </div>
           {#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}
@@ -1266,9 +1273,13 @@
             <div class="asset-detail-price"><small>{lang==='ru'?'Цена продавца':'Seller price'}</small><strong>{selectedAsset.price} {selectedAsset.currency==='XTR'?'⭐ Stars':'TON'}</strong></div>
             {#if selectedAsset.note}<p class="asset-detail-note">{selectedAsset.note}</p>{/if}
             <div class="asset-detail-unavailable"><strong>{lang==='ru'?'Характеристики актива':'Asset traits'}</strong><span>{lang==='ru'?'Метаданные и traits появятся после подключения источника NFT-метаданных.':'Metadata and traits will appear after an NFT metadata source is connected.'}</span></div>
-            <button class="ton-primary offer-submit" disabled={!walletConnected} title={lang==='ru'?'Сначала подключи кошелёк и подтверди владение активом':'Connect a wallet and verify asset ownership first'}>{lang==='ru'?'Офферы после TON Connect':'Offers after TON Connect'}</button>
-            {#if selectedAsset && !selectedAsset.isMine}<button class="report-asset-button" onclick={()=>{const asset=selectedAsset;if(!asset)return;if(!signedIn){notice=t.authHint;haptic('error');return;}startOrderReport(asset.id);}}>{t.reportOrder}</button>{/if}
-            <button class="asset-buy-disabled" disabled title={lang==='ru'?'Покупка включится после запуска защищённой оплаты и escrow':'Buying will be enabled after secure payments and escrow are live'}>{lang==='ru'?'Покупка скоро':'Buy · Coming soon'}</button>
+            {#if selectedAsset.isMine}
+              <button class="ton-primary offer-submit" onclick={()=>{startEditOrder(selectedAsset!);showAssetDetails=false;}}>{lang==='ru'?'Управлять объявлением':'Manage listing'}</button>
+            {:else}
+              <button class="ton-primary offer-submit" disabled={!signedIn} title={!signedIn?(lang==='ru'?'Войди через Telegram, чтобы отправить оффер':'Sign in with Telegram to make an offer'):undefined} onclick={()=>{if(!selectedAsset)return;selectedOfferOrder=selectedAsset;offerAmount=String(selectedAsset.price);offerNote='';showOfferModal=true;showAssetDetails=false;}}>{lang==='ru'?'Сделать оффер':'Make an offer'}</button>
+              <button class="report-asset-button" onclick={()=>{const asset=selectedAsset;if(!asset)return;if(!signedIn){notice=t.authHint;haptic('error');return;}startOrderReport(asset.id);}}>{t.reportOrder}</button>
+              <button class="asset-buy-disabled" disabled title={lang==='ru'?'Покупка включится после запуска защищённой оплаты и escrow':'Buying will be enabled after secure payments and escrow are live'}>{lang==='ru'?'Покупка скоро':'Buy · Coming soon'}</button>
+            {/if}
           </div>
         </div>
       {/if}
@@ -1308,6 +1319,20 @@
             </label>
             <label>{t.reportDetails}<textarea class="form-input note-input" bind:value={reportDetails} maxlength="1000" placeholder={lang==='ru'?'Опиши проблему (необязательно)':'Describe the issue (optional)'}></textarea></label>
             <div class="report-actions"><button class="refresh-button" onclick={()=>reportingOrderId=''} disabled={reportBusy}>{t.cancelReport}</button><button class="ton-primary" onclick={()=>submitOrderReport(reportingOrderId)} disabled={reportBusy}>{reportBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendReport}</button></div>
+          </div>
+        </div>
+      {/if}
+      {#if editingOrderId}
+        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !orderEditBusy)editingOrderId='';}}>
+          <div class="sell-modal offer-modal" role="dialog" aria-modal="true" aria-labelledby="edit-listing-title">
+            <button class="modal-close" onclick={()=>editingOrderId=''} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={orderEditBusy}>×</button>
+            <div class="eyebrow">HASSLE NFT · LISTING</div>
+            <h2 id="edit-listing-title">{lang==='ru'?'Управление объявлением':'Manage listing'}</h2>
+            <label>{lang==='ru'?'Цена':'Price'}<input class="form-input" type="number" min="0.01" step={orders.find(item=>item.id===editingOrderId)?.currency==='XTR'?'1':'0.01'} bind:value={editPrice} /></label>
+            <label>{lang==='ru'?'Комментарий':'Description'}<textarea class="form-input note-input" bind:value={editNote} maxlength="300"></textarea></label>
+            <button class="ton-primary offer-submit" onclick={()=>saveOrderEdit(editingOrderId)} disabled={orderEditBusy}>{orderEditBusy?(lang==='ru'?'Сохраняем…':'Saving…'):(lang==='ru'?'Сохранить изменения':'Save changes')}</button>
+            <button class="report-asset-button" onclick={()=>cancelOrder(editingOrderId)} disabled={orderEditBusy}>{lang==='ru'?'Снять объявление с продажи':'Remove listing from sale'}</button>
+            <small class="sell-modal-hint">{lang==='ru'?'Название и данные NFT защищены проверкой владения. Можно изменить цену и комментарий. Снятие объявления не передаёт актив и не списывает средства.':'NFT name and metadata are locked to verified ownership. You can change the price and note. Removing a listing does not transfer the asset or charge funds.'}</small>
           </div>
         </div>
       {/if}
