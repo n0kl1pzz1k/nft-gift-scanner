@@ -274,6 +274,25 @@ class TonConnectApiTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(row["status"], "verified")
 
+    def test_wallet_revocation_rolls_back_if_audit_write_fails(self):
+        address = "0:" + "a" * 64
+        with marketplace._db() as conn:
+            conn.execute(
+                """INSERT INTO verified_wallets
+                   (network, address, telegram_id, public_key, state_init_hash,
+                    created_at, last_verified_at, revoked_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, NULL)""",
+                ("-239", address, "101", "b" * 64, "c" * 64, 1, 1),
+            )
+            conn.execute(
+                """CREATE TRIGGER fail_security_audit_insert
+                   BEFORE INSERT ON security_audit_events
+                   BEGIN SELECT RAISE(ABORT, 'audit store unavailable'); END"""
+            )
+        with self.assertRaises(Exception, msg="audit failure must abort wallet revocation"):
+            ton_connect.revoke_verified_wallet("101", "-239", address)
+        self.assertEqual(len(ton_connect.list_verified_wallets("101")), 1)
+
     def test_wallet_revocation_requires_authenticated_session(self):
         response = self.client.delete(
             "/api/ton-proof/wallets/-239/0:" + "a" * 64,
