@@ -535,3 +535,145 @@ def test_postgres_concurrent_duplicate_offers_are_serialized_per_listing():
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
             admin.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+
+
+
+def test_postgres_offer_creation_racing_listing_cancel_leaves_no_pending_offer():
+    """A concurrent offer/cancel race must never leave a pending offer on a cancelled listing."""
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+    from threading import Barrier
+    from unittest.mock import patch
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    import psycopg
+    import database
+    import marketplace
+    import marketplace_offers
+    from marketplace import create_marketplace_router
+    from marketplace_offers import create_marketplace_offers_router
+
+    schema = "offer_cancel_race_" + uuid.uuid4().hex[:10]
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(f'CREATE SCHEMA "{schema}"')
+
+    @contextmanager
+    def scoped_connection():
+        connection = database.connect()
+        try:
+            yield connection
+        finally:
+            connection.close()
+
+    try:
+        with patch.dict(os.environ, {
+            "HASSLE_NFT_DB_BACKEND": "postgres",
+            "DATABASE_URL": dsn,
+            "HASSLE_POSTGRES_SCHEMA": schema,
+            "HASSLE_VERIFIED_ASSETS_ENABLED": "true",
+        }, clear=False), patch.object(
+            marketplace, "_db", side_effect=scoped_connection
+        ), patch.object(
+            marketplace_offers, "_db", side_effect=scoped_connection
+        ):
+            marketplace.init_marketplace_db()
+            marketplace_offers.init_marketplace_offers_db()
+            marketplace.upsert_telegram_user({
+                "id": "101", "username": "seller", "first_name": "Seller",
+            })
+            marketplace.upsert_telegram_user({
+                "id": "202", "username": "buyer", "first_name": "Buyer",
+            })
+            asset = marketplace.register_verified_asset(
+                source="ton_nft",
+                external_asset_id="ton-nft-offer-cancel-race",
+                owner_telegram_id="101",
+                title="Verified offer-cancel race gift",
+                asset_type="gift",
+                image_url="",
+                verification_method="ton_connect_proof",
+                verification_reference="offer-cancel-race-owner-verification",
+            )
+
+            api = FastAPI()
+            def verify_user(value):
+                user_id = {"seller": "101", "buyer": "202"}[value]
+                return {
+                    "id": user_id,
+                    "first_name": "Seller" if user_id == "101" else "Buyer",
+                    "username": "seller" if user_id == "101" else "buyer",
+                }
+            api.include_router(create_marketplace_router(verify_user))
+            api.include_router(create_marketplace_offers_router(verify_user))
+
+            with patch.object(
+                marketplace, "_verified_asset_actions_enabled", return_value=True
+            ), patch.object(
+                marketplace, "_test_ton_owner_recheck_skipped", return_value=True
+            ), TestClient(api) as client:
+                listing_response = client.post(
+                    "/api/marketplace/orders",
+                    headers={"X-Telegram-Init-Data": "seller"},
+                    json={
+                        "kind": "listing",
+                        "asset_id": asset["id"],
+                        "title": "Verified offer-cancel race gift",
+                        "price": "5",
+                        "currency": "TON",
+                    },
+                )
+                assert listing_response.status_code == 201, listing_response.text
+                order_id = listing_response.json()["item"]["id"]
+
+                barrier = Barrier(2)
+                def create_offer():
+                    barrier.wait(timeout=10)
+                    return client.post(
+                        "/api/marketplace/offers",
+                        headers={"X-Telegram-Init-Data": "buyer"},
+                        json={"order_id": order_id, "amount": "4"},
+                    )
+                def cancel_listing():
+                    barrier.wait(timeout=10)
+                    return client.delete(
+                        f"/api/marketplace/orders/{order_id}",
+                        headers={"X-Telegram-Init-Data": "seller"},
+                    )
+
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    offer_future = executor.submit(create_offer)
+                    cancel_future = executor.submit(cancel_listing)
+                    offer_response = offer_future.result(timeout=20)
+                    cancel_response = cancel_future.result(timeout=20)
+
+            assert cancel_response.status_code == 200, cancel_response.text
+            assert cancel_response.json()["item"]["status"] == "cancelled"
+            assert offer_response.status_code in {201, 409}, offer_response.text
+
+            with database.db() as conn:
+                order = conn.execute(
+                    "SELECT status FROM marketplace_orders WHERE id=?", (order_id,)
+                ).fetchone()
+                offers = conn.execute(
+                    "SELECT status FROM marketplace_offers WHERE order_id=?", (order_id,)
+                ).fetchall()
+                cancellation_events = conn.execute(
+                    "SELECT COUNT(*) FROM marketplace_order_events "
+                    "WHERE order_id=? AND event_type='cancelled'",
+                    (order_id,),
+                ).fetchone()[0]
+
+            assert order["status"] == "cancelled"
+            assert cancellation_events == 1
+            assert len(offers) <= 1
+            assert all(row["status"] == "declined" for row in offers)
+
+    finally:
+        with psycopg.connect(dsn, autocommit=True) as admin:
+            admin.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
