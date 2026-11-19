@@ -1957,6 +1957,8 @@ def create_marketplace_router(
                 detail="Listing is unavailable until TON Connect ownership verification and real asset import are enabled",
             )
         _enforce_user_rate_limit(str(user["id"]), "create_order", 8)
+        if payload.currency == "XTR" and payload.price != payload.price.to_integral_value():
+            raise HTTPException(status_code=422, detail="Star listing prices must be whole numbers")
         now = int(time.time())
         order_id = "gr-" + uuid.uuid4().hex[:16]
         owner_id = str(user["id"])
@@ -2140,6 +2142,9 @@ def create_marketplace_router(
             if row["status"] != "active":
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Only active orders can be edited")
+            if row["currency"] == "XTR" and "price" in changes and changes["price"] != changes["price"].to_integral_value():
+                conn.rollback()
+                raise HTTPException(status_code=422, detail="Star listing prices must be whole numbers")
             if "title" in changes:
                 conn.rollback()
                 raise HTTPException(status_code=422, detail="Asset metadata is immutable and comes from the verified Telegram gift")
