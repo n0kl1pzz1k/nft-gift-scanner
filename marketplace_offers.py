@@ -736,6 +736,40 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
         items.sort(key=lambda item: (item["created_at"], item["id"]))
         return {"deal_id": deal_id, "items": items, "total": len(items)}
 
+    @router.get("/deals/{deal_id}/payment-status")
+    async def get_deal_payment_status(
+        deal_id: str,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Expose safe payment status metadata to the two deal participants only."""
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        actor_id = str(user["id"])
+        _enforce_user_rate_limit(actor_id, "deal_payment_status", 30)
+        with _db() as conn:
+            deal = conn.execute(
+                """SELECT listing_owner_id, offer_sender_id, status, agreed_amount, currency
+                   FROM marketplace_deals WHERE id = ?""",
+                (deal_id,),
+            ).fetchone()
+            if deal is None or actor_id not in (deal["listing_owner_id"], deal["offer_sender_id"]):
+                raise HTTPException(status_code=404, detail="Deal not found")
+            rows = conn.execute(
+                """SELECT id, provider, currency, amount, status, expires_at,
+                          created_at, updated_at, confirmed_at
+                   FROM marketplace_payment_intents
+                   WHERE deal_id = ? ORDER BY created_at DESC, id DESC""",
+                (deal_id,),
+            ).fetchall()
+        return {
+            "deal_id": deal_id,
+            "deal_status": deal["status"],
+            "agreed_amount": deal["agreed_amount"],
+            "currency": deal["currency"],
+            "payments_enabled": deal["status"] != "payment_not_enabled",
+            "intents": [dict(row) for row in rows],
+        }
+
+
     @router.get("/deals")
     async def list_deals(
         limit: int = Query(default=100, ge=1, le=200),
