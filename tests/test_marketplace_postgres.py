@@ -780,3 +780,168 @@ def test_postgres_concurrent_duplicate_listings_are_serialized_per_asset():
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
             admin.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+
+
+
+def test_postgres_concurrent_duplicate_deal_cancellations_release_reservation_once():
+    """Both participants may retry cancellation, but only one lifecycle event is recorded."""
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+    from threading import Barrier
+    from unittest.mock import patch
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    import psycopg
+    import database
+    import marketplace
+    import marketplace_offers
+    from marketplace import create_marketplace_router
+    from marketplace_offers import create_marketplace_offers_router
+
+    schema = "deal_cancel_race_" + uuid.uuid4().hex[:10]
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(f'CREATE SCHEMA "{schema}"')
+
+    @contextmanager
+    def scoped_connection():
+        connection = database.connect()
+        try:
+            yield connection
+        finally:
+            connection.close()
+
+    try:
+        with patch.dict(os.environ, {
+            "HASSLE_NFT_DB_BACKEND": "postgres",
+            "DATABASE_URL": dsn,
+            "HASSLE_POSTGRES_SCHEMA": schema,
+            "HASSLE_VERIFIED_ASSETS_ENABLED": "true",
+        }, clear=False), patch.object(
+            marketplace, "_db", side_effect=scoped_connection
+        ), patch.object(
+            marketplace_offers, "_db", side_effect=scoped_connection
+        ):
+            marketplace.init_marketplace_db()
+            marketplace_offers.init_marketplace_offers_db()
+            marketplace.upsert_telegram_user({
+                "id": "101", "username": "seller", "first_name": "Seller",
+            })
+            marketplace.upsert_telegram_user({
+                "id": "202", "username": "buyer", "first_name": "Buyer",
+            })
+            asset = marketplace.register_verified_asset(
+                source="ton_nft",
+                external_asset_id="ton-nft-deal-cancel-idempotency",
+                owner_telegram_id="101",
+                title="Verified deal cancellation gift",
+                asset_type="gift",
+                image_url="",
+                verification_method="ton_connect_proof",
+                verification_reference="deal-cancel-idempotency-verification",
+            )
+
+            api = FastAPI()
+            def verify_user(value):
+                user_id = {"seller": "101", "buyer": "202"}[value]
+                return {
+                    "id": user_id,
+                    "first_name": "Seller" if user_id == "101" else "Buyer",
+                    "username": "seller" if user_id == "101" else "buyer",
+                }
+            api.include_router(create_marketplace_router(verify_user))
+            api.include_router(create_marketplace_offers_router(verify_user))
+
+            with patch.object(
+                marketplace, "_verified_asset_actions_enabled", return_value=True
+            ), patch.object(
+                marketplace, "_test_ton_owner_recheck_skipped", return_value=True
+            ), TestClient(api) as client:
+                listing = client.post(
+                    "/api/marketplace/orders",
+                    headers={"X-Telegram-Init-Data": "seller"},
+                    json={
+                        "kind": "listing", "asset_id": asset["id"],
+                        "title": "Verified deal cancellation gift",
+                        "price": "5", "currency": "TON",
+                    },
+                )
+                assert listing.status_code == 201, listing.text
+                order_id = listing.json()["item"]["id"]
+
+                offer = client.post(
+                    "/api/marketplace/offers",
+                    headers={"X-Telegram-Init-Data": "buyer"},
+                    json={"order_id": order_id, "amount": "4"},
+                )
+                assert offer.status_code == 201, offer.text
+                offer_id = offer.json()["item"]["id"]
+                deal_id = "deal-" + uuid.uuid4().hex[:16]
+                now = int(time.time())
+
+                with database.db() as conn:
+                    conn.execute(
+                        "UPDATE marketplace_orders SET status='matched', updated_at=? WHERE id=?",
+                        (now, order_id),
+                    )
+                    conn.execute(
+                        "UPDATE marketplace_offers SET status='accepted', updated_at=? WHERE id=?",
+                        (now, offer_id),
+                    )
+                    conn.execute(
+                        """INSERT INTO marketplace_deals
+                           (id, order_id, offer_id, listing_owner_id, offer_sender_id,
+                            agreed_amount, currency, created_at, status)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'payment_not_enabled')""",
+                        (deal_id, order_id, offer_id, "101", "202", "4", "TON", now),
+                    )
+
+                barrier = Barrier(2)
+                def cancel_as(token):
+                    barrier.wait(timeout=10)
+                    return client.post(
+                        f"/api/marketplace/deals/{deal_id}/actions",
+                        headers={"X-Telegram-Init-Data": token},
+                        json={"action": "cancel"},
+                    )
+
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    futures = [
+                        executor.submit(cancel_as, "seller"),
+                        executor.submit(cancel_as, "buyer"),
+                    ]
+                    responses = [future.result(timeout=20) for future in futures]
+
+            assert [response.status_code for response in responses] == [200, 200], [
+                response.text for response in responses
+            ]
+            payloads = [response.json() for response in responses]
+            assert all(item["status"] == "cancelled" for item in payloads)
+            assert sorted(item.get("already_cancelled", False) for item in payloads) == [False, True]
+            assert sum(bool(item.get("reservation_released")) for item in payloads) == 1
+
+            with database.db() as conn:
+                deal = conn.execute(
+                    "SELECT status FROM marketplace_deals WHERE id=?", (deal_id,)
+                ).fetchone()
+                order = conn.execute(
+                    "SELECT status FROM marketplace_orders WHERE id=?", (order_id,)
+                ).fetchone()
+                events = conn.execute(
+                    "SELECT COUNT(*) FROM marketplace_deal_lifecycle_events "
+                    "WHERE deal_id=? AND event_type='deal_cancelled'",
+                    (deal_id,),
+                ).fetchone()[0]
+
+            assert deal["status"] == "cancelled"
+            assert order["status"] == "active"
+            assert events == 1
+
+    finally:
+        with psycopg.connect(dsn, autocommit=True) as admin:
+            admin.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
