@@ -2201,6 +2201,12 @@ class SharedMarketplaceTests(unittest.TestCase):
                 headers={"X-Telegram-Init-Data": "user-b"},
             )
             self.assertEqual(role_admin.status_code, 403)
+            finance_action = self.client.post(
+                "/api/marketplace/admin/deals/nonexistent/execute-refund",
+                headers={"X-Telegram-Init-Data": "user-b"},
+                json={"idempotency_key": "moderator-cannot-refund"},
+            )
+            self.assertEqual(finance_action.status_code, 403)
             access = marketplace_admin.get_admin_access("202")
             self.assertIn("dashboard.read", access["permissions"])
             self.assertNotIn("roles.manage", access["permissions"])
