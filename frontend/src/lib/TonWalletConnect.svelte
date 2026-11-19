@@ -148,12 +148,18 @@
       );
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.detail || copy.disconnectFailed);
-      await tonConnect.disconnect();
+      // The server-side revocation is authoritative. Clear all gated UI even if
+      // the wallet SDK cannot close its modal or clear its local connection.
       address = '';
       network = '';
       status = 'idle';
       onVerified('');
       message = '';
+      try {
+        await tonConnect.disconnect();
+      } catch {
+        // A local SDK disconnect failure must not restore a revoked wallet.
+      }
     } catch (error) {
       status = 'error';
       message = error instanceof Error ? error.message : copy.disconnectFailed;
