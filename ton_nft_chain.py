@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 
-TONCENTER_BASE_URL = "https://toncenter.com/api/v2"
+TONCENTER_BASE_URL = "https://toncenter.com"
 
 
 def _raw_address(value: str) -> str:
@@ -59,14 +59,14 @@ async def _run_get_method(
     if token:
         headers["X-API-Key"] = token
     response = await session.post(
-        "/runGetMethod",
+        "/api/v2/runGetMethod",
         json={"address": _raw_address(address), "method": method, "stack": stack},
         headers=headers,
     )
     response.raise_for_status()
     body = response.json()
     result = body.get("result") if isinstance(body, dict) else None
-    if body.get("ok") is not True or not isinstance(result, dict):
+    if not isinstance(body, dict) or body.get("ok") is not True or not isinstance(result, dict):
         raise ValueError("TON Center could not execute the NFT contract getter")
     if result.get("exit_code") != 0:
         raise ValueError("TON NFT contract getter returned a non-zero exit code")
