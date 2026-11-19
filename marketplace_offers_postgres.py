@@ -69,7 +69,7 @@ _FUNCTION_DDL = (
     CREATE OR REPLACE FUNCTION hassle_nft_order_cancel_declines_offers()
     RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
+    AS $hassle_order$
     BEGIN
         IF OLD.status = 'active' AND NEW.status = 'cancelled' THEN
             UPDATE marketplace_offers
@@ -78,7 +78,61 @@ _FUNCTION_DDL = (
         END IF;
         RETURN NEW;
     END;
-    $$
+    $hassle_order$
+    """,
+    """
+    CREATE OR REPLACE FUNCTION hassle_nft_assert_ledger_transaction_balanced()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $hassle_ledger$
+    DECLARE
+        v_transaction_id TEXT;
+        v_expected_amount NUMERIC;
+        v_currency TEXT;
+        v_entry_count INTEGER;
+        v_debit_count INTEGER;
+        v_credit_count INTEGER;
+        v_debit_total NUMERIC;
+        v_credit_total NUMERIC;
+        v_invalid_count INTEGER;
+    BEGIN
+        IF TG_TABLE_NAME = 'marketplace_ledger_transactions' THEN
+            v_transaction_id := NEW.id;
+        ELSE
+            v_transaction_id := NEW.transaction_id;
+        END IF;
+
+        SELECT amount::numeric, currency
+          INTO v_expected_amount, v_currency
+          FROM marketplace_ledger_transactions
+         WHERE id = v_transaction_id;
+        IF NOT FOUND THEN
+            RETURN NULL;
+        END IF;
+
+        SELECT COUNT(*),
+               COUNT(*) FILTER (WHERE direction = 'debit'),
+               COUNT(*) FILTER (WHERE direction = 'credit'),
+               COALESCE(SUM(CASE WHEN direction = 'debit' THEN amount::numeric ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount::numeric ELSE 0 END), 0),
+               COUNT(*) FILTER (WHERE currency <> v_currency OR amount::numeric <= 0)
+          INTO v_entry_count, v_debit_count, v_credit_count,
+               v_debit_total, v_credit_total, v_invalid_count
+          FROM marketplace_ledger_entries
+         WHERE transaction_id = v_transaction_id;
+
+        IF v_entry_count <> 2
+           OR v_debit_count <> 1
+           OR v_credit_count <> 1
+           OR v_invalid_count <> 0
+           OR v_debit_total <> v_credit_total
+           OR v_debit_total <> v_expected_amount THEN
+            RAISE EXCEPTION USING MESSAGE =
+                'ledger transaction must contain exactly one balanced debit and credit matching its amount';
+        END IF;
+        RETURN NULL;
+    END;
+    $hassle_ledger$
     """,
 )
 
@@ -122,6 +176,12 @@ _TRIGGER_DDL = (
     ("trg_marketplace_ledger_entries_no_delete",
      "CREATE TRIGGER trg_marketplace_ledger_entries_no_delete BEFORE DELETE ON marketplace_ledger_entries "
      "FOR EACH ROW EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
+    ("trg_marketplace_ledger_transaction_balanced",
+     "CREATE CONSTRAINT TRIGGER trg_marketplace_ledger_transaction_balanced AFTER INSERT ON marketplace_ledger_transactions "
+     "DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION hassle_nft_assert_ledger_transaction_balanced()"),
+    ("trg_marketplace_ledger_entries_balanced",
+     "CREATE CONSTRAINT TRIGGER trg_marketplace_ledger_entries_balanced AFTER INSERT ON marketplace_ledger_entries "
+     "DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION hassle_nft_assert_ledger_transaction_balanced()"),
 )
 
 _TRIGGER_TABLES = {
@@ -138,6 +198,8 @@ _TRIGGER_TABLES = {
     "trg_marketplace_ledger_transactions_no_delete": "marketplace_ledger_transactions",
     "trg_marketplace_ledger_entries_no_update": "marketplace_ledger_entries",
     "trg_marketplace_ledger_entries_no_delete": "marketplace_ledger_entries",
+    "trg_marketplace_ledger_transaction_balanced": "marketplace_ledger_transactions",
+    "trg_marketplace_ledger_entries_balanced": "marketplace_ledger_entries",
 }
 
 
@@ -151,6 +213,7 @@ _FUNCTION_NAMES = {
     "hassle_nft_offer_received_notification",
     "hassle_nft_offer_status_notification",
     "hassle_nft_order_cancel_declines_offers",
+    "hassle_nft_assert_ledger_transaction_balanced",
 }
 
 def _verify_postgres_offer_triggers(connection: Any) -> dict[str, Any]:
@@ -162,7 +225,7 @@ def _verify_postgres_offer_triggers(connection: Any) -> dict[str, Any]:
             return row[index]
 
     rows = connection.execute("""
-        SELECT t.tgname, c.relname, p.proname, t.tgenabled
+        SELECT t.tgname, c.relname, p.proname, t.tgenabled, t.tgdeferrable, t.tginitdeferred
         FROM pg_catalog.pg_trigger AS t
         JOIN pg_catalog.pg_class AS c ON c.oid = t.tgrelid
         JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
@@ -174,6 +237,8 @@ def _verify_postgres_offer_triggers(connection: Any) -> dict[str, Any]:
             str(value(row, "relname", 1)),
             str(value(row, "proname", 2)),
             str(value(row, "tgenabled", 3)),
+            bool(value(row, "tgdeferrable", 4)),
+            bool(value(row, "tginitdeferred", 5)),
         )
         for row in rows
         if str(value(row, "tgname", 0)) in _TRIGGER_TABLES
@@ -184,10 +249,14 @@ def _verify_postgres_offer_triggers(connection: Any) -> dict[str, Any]:
         expected_function = _TRIGGER_FUNCTIONS[name]
         if observed is None:
             problems.append(f"missing trigger {name}")
-        elif observed != (expected_table, expected_function, "O"):
-            problems.append(
-                f"trigger {name} expected {(expected_table, expected_function, 'O')}, got {observed}"
-            )
+        else:
+            deferred = name in {
+                "trg_marketplace_ledger_transaction_balanced",
+                "trg_marketplace_ledger_entries_balanced",
+            }
+            expected = (expected_table, expected_function, "O", deferred, deferred)
+            if observed != expected:
+                problems.append(f"trigger {name} expected {expected}, got {observed}")
 
     function_rows = connection.execute("""
         SELECT p.proname
