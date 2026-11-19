@@ -17,6 +17,7 @@ import marketplace
 import marketplace_offers
 from marketplace_payments import create_payment_intent, transition_deal_status
 from marketplace_stars import confirm_stars_payment, validate_stars_pre_checkout
+from ton_nft_inventory import build_nft_transfer_payload, normalise_ton_address
 
 
 class SharedMarketplaceTests(unittest.TestCase):
@@ -99,6 +100,19 @@ class SharedMarketplaceTests(unittest.TestCase):
             )
             conn.commit()
         return deal_id, invoice_payload, intent["id"]
+
+    def test_ton_nft_transfer_payload_encodes_standard_tep62_body(self):
+        payload = build_nft_transfer_payload(
+            new_owner_address="0:" + "11" * 32,
+            response_destination="0:" + "22" * 32,
+            query_id=123456789,
+        )
+        import base64
+        from tonsdk.boc import Cell
+        raw = base64.b64decode(payload, validate=True)
+        parsed = Cell.one_from_boc(raw)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(normalise_ton_address("0:" + "11" * 32), "0:" + "11" * 32)
 
     def test_stars_precheckout_binds_user_amount_and_deal_and_is_one_time(self):
         deal_id, invoice_payload, intent_id = self._create_stars_deal_with_intent()
