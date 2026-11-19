@@ -284,6 +284,44 @@ def test_deal_state_machine_is_idempotent_and_rejects_invalid_transitions():
     conn.close()
 
 
+def test_dispute_resolution_requires_two_distinct_admin_approvals_and_never_executes():
+    conn = _connection()
+    from marketplace_payments import record_dispute_resolution_approval
+    conn.execute("UPDATE marketplace_deals SET status='disputed' WHERE id='deal-1'")
+    conn.commit()
+    first = record_dispute_resolution_approval(
+        conn, deal_id="deal-1", admin_user_id="admin-1", decision="refund_buyer",
+        idempotency_key="deal-1:admin-1:refund", now=1100,
+    )
+    assert first["approvals"] == 1
+    assert first["ready_for_execution"] is False
+    assert first["execution_enabled"] is False
+    conn.commit()
+    replay = record_dispute_resolution_approval(
+        conn, deal_id="deal-1", admin_user_id="admin-1", decision="refund_buyer",
+        idempotency_key="deal-1:admin-1:refund", now=1200,
+    )
+    assert replay["idempotent_replay"] is True
+    second = record_dispute_resolution_approval(
+        conn, deal_id="deal-1", admin_user_id="admin-2", decision="refund_buyer",
+        idempotency_key="deal-1:admin-2:refund", now=1300,
+    )
+    assert second["approvals"] == 2
+    assert second["ready_for_execution"] is True
+    assert second["execution_enabled"] is False
+    with pytest.raises(PaymentConflict, match="threshold"):
+        record_dispute_resolution_approval(
+            conn, deal_id="deal-1", admin_user_id="admin-3", decision="refund_buyer",
+            idempotency_key="deal-1:admin-3:refund", now=1400,
+        )
+    with pytest.raises(sqlite3.IntegrityError, match="dispute approvals are immutable"):
+        conn.execute("UPDATE marketplace_dispute_resolution_approvals SET decision='release_to_seller'")
+    conn.rollback()
+    status = conn.execute("SELECT status FROM marketplace_deals WHERE id='deal-1'").fetchone()["status"]
+    assert status == "disputed"
+    conn.close()
+
+
 def test_ledger_posting_rolls_back_both_entries_if_second_insert_fails():
     conn = _connection()
     conn.execute("""
