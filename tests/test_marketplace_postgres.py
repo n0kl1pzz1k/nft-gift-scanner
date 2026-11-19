@@ -212,3 +212,198 @@ def test_postgres_runtime_smoke_initializes_auth_assets_listing_and_readiness():
         with psycopg.connect(dsn, autocommit=True) as admin:
             admin.execute("SET search_path TO public")
             admin.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+
+
+
+def test_postgres_ownership_transfer_rolls_back_then_cancels_stale_listing():
+    """Exercise transfer atomicity against real PostgreSQL, including dependent offers."""
+    from contextlib import contextmanager
+    from unittest.mock import patch
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    import psycopg
+    import database
+    import marketplace
+    import marketplace_offers
+    from marketplace import create_marketplace_router
+    from marketplace_offers import create_marketplace_offers_router
+
+    schema = "transfer_atomic_" + uuid.uuid4().hex[:10]
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(f'CREATE SCHEMA "{schema}"')
+
+    @contextmanager
+    def scoped_connection():
+        connection = database.connect()
+        try:
+            yield connection
+        finally:
+            connection.close()
+
+    try:
+        with patch.dict(os.environ, {
+            "HASSLE_NFT_DB_BACKEND": "postgres",
+            "DATABASE_URL": dsn,
+            "HASSLE_POSTGRES_SCHEMA": schema,
+            "HASSLE_VERIFIED_ASSETS_ENABLED": "true",
+        }, clear=False), patch.object(
+            marketplace, "_db", side_effect=scoped_connection
+        ), patch.object(
+            marketplace_offers, "_db", side_effect=scoped_connection
+        ):
+            marketplace.init_marketplace_db()
+            marketplace_offers.init_marketplace_offers_db()
+            marketplace.upsert_telegram_user({
+                "id": "101", "username": "seller", "first_name": "Seller",
+            })
+            marketplace.upsert_telegram_user({
+                "id": "202", "username": "buyer", "first_name": "Buyer",
+            })
+
+            asset = marketplace.register_verified_asset(
+                source="ton_nft",
+                external_asset_id="ton-nft-transfer-atomicity",
+                owner_telegram_id="101",
+                title="Original verified gift",
+                asset_type="gift",
+                image_url="",
+                verification_method="ton_connect_proof",
+                verification_reference="original-transfer-verification-reference",
+            )
+
+            api = FastAPI()
+            def verify_user(value):
+                user_id = {"seller": "101", "buyer": "202"}[value]
+                return {
+                    "id": user_id,
+                    "first_name": "Seller" if user_id == "101" else "Buyer",
+                    "username": "seller" if user_id == "101" else "buyer",
+                }
+            api.include_router(create_marketplace_router(verify_user))
+            api.include_router(create_marketplace_offers_router(verify_user))
+
+            with patch.object(
+                marketplace, "_verified_asset_actions_enabled", return_value=True
+            ), patch.object(
+                marketplace, "_test_ton_owner_recheck_skipped", return_value=True
+            ), TestClient(api) as client:
+                listing_response = client.post(
+                    "/api/marketplace/orders",
+                    headers={"X-Telegram-Init-Data": "seller"},
+                    json={
+                        "kind": "listing",
+                        "asset_id": asset["id"],
+                        "title": "Client title is ignored",
+                        "price": "3",
+                        "currency": "TON",
+                    },
+                )
+                assert listing_response.status_code == 201, listing_response.text
+                order_id = listing_response.json()["item"]["id"]
+
+                offer_response = client.post(
+                    "/api/marketplace/offers",
+                    headers={"X-Telegram-Init-Data": "buyer"},
+                    json={"order_id": order_id, "amount": "2"},
+                )
+                assert offer_response.status_code == 201, offer_response.text
+                offer_id = offer_response.json()["item"]["id"]
+
+                with database.db() as conn:
+                    conn.execute("""
+                        CREATE FUNCTION test_fail_ownership_history()
+                        RETURNS trigger LANGUAGE plpgsql AS $$
+                        BEGIN
+                            RAISE EXCEPTION 'injected ownership-history failure';
+                        END;
+                        $$
+                    """)
+                    conn.execute("""
+                        CREATE TRIGGER test_fail_ownership_history
+                        BEFORE INSERT ON asset_ownership_history
+                        FOR EACH ROW EXECUTE FUNCTION test_fail_ownership_history()
+                    """)
+
+                with pytest.raises(psycopg.Error, match="injected ownership-history failure"):
+                    marketplace.register_verified_asset(
+                        source="ton_nft",
+                        external_asset_id="ton-nft-transfer-atomicity",
+                        owner_telegram_id="202",
+                        title="New verified gift owner",
+                        asset_type="gift",
+                        image_url="",
+                        verification_method="ton_connect_proof",
+                        verification_reference="new-owner-transfer-verification-reference",
+                        allow_owner_transfer=True,
+                    )
+
+                with database.db() as conn:
+                    stored_asset = conn.execute(
+                        "SELECT owner_telegram_id, title, status FROM verified_assets WHERE id=?",
+                        (asset["id"],),
+                    ).fetchone()
+                    stored_listing = conn.execute(
+                        "SELECT status FROM marketplace_orders WHERE id=?", (order_id,)
+                    ).fetchone()
+                    stored_offer = conn.execute(
+                        "SELECT status FROM marketplace_offers WHERE id=?", (offer_id,)
+                    ).fetchone()
+                    history_count = conn.execute(
+                        "SELECT COUNT(*) FROM asset_ownership_history WHERE asset_id=?",
+                        (asset["id"],),
+                    ).fetchone()[0]
+
+                assert stored_asset["owner_telegram_id"] == "101"
+                assert stored_asset["title"] == "Original verified gift"
+                assert stored_asset["status"] == "verified"
+                assert stored_listing["status"] == "active"
+                assert stored_offer["status"] == "pending"
+                assert history_count == 0
+
+                with database.db() as conn:
+                    conn.execute("DROP TRIGGER test_fail_ownership_history ON asset_ownership_history")
+                    conn.execute("DROP FUNCTION test_fail_ownership_history()")
+
+                transferred = marketplace.register_verified_asset(
+                    source="ton_nft",
+                    external_asset_id="ton-nft-transfer-atomicity",
+                    owner_telegram_id="202",
+                    title="New verified gift owner",
+                    asset_type="gift",
+                    image_url="",
+                    verification_method="ton_connect_proof",
+                    verification_reference="successful-owner-transfer-verification-reference",
+                    allow_owner_transfer=True,
+                )
+                assert transferred["owner_telegram_id"] == "202"
+
+                with database.db() as conn:
+                    final_asset = conn.execute(
+                        "SELECT owner_telegram_id FROM verified_assets WHERE id=?",
+                        (asset["id"],),
+                    ).fetchone()
+                    final_listing = conn.execute(
+                        "SELECT status FROM marketplace_orders WHERE id=?", (order_id,)
+                    ).fetchone()
+                    final_offer = conn.execute(
+                        "SELECT status FROM marketplace_offers WHERE id=?", (offer_id,)
+                    ).fetchone()
+                    final_history_count = conn.execute(
+                        "SELECT COUNT(*) FROM asset_ownership_history WHERE asset_id=?",
+                        (asset["id"],),
+                    ).fetchone()[0]
+
+                assert final_asset["owner_telegram_id"] == "202"
+                assert final_listing["status"] == "cancelled"
+                assert final_offer["status"] == "declined"
+                assert final_history_count == 1
+
+    finally:
+        with psycopg.connect(dsn, autocommit=True) as admin:
+            admin.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
