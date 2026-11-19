@@ -57,7 +57,7 @@
     <p class="asset-owner">{#if sellerProfileId}<button class="asset-seller-link" onclick={onSeller}>{order.owner}</button>{:else}{order.owner}{/if}{order.note ? ' · ' + order.note : ''}</p>
     <div class="asset-card-footer">
       <div><small>{lang === 'ru' ? 'Цена' : 'Price'}</small><strong>{order.price} <span>{order.currency === 'XTR' ? '⭐' : 'TON'}</span></strong></div>
-      <button class="asset-offer-button" onclick={onOffer} disabled={!canOffer} title={!canOffer ? (lang === 'ru' ? 'Нужны TON Connect и подтверждённый актив' : 'TON Connect and a verified asset are required') : undefined}>{canOffer ? (lang === 'ru' ? 'Сделать оффер' : 'Make offer') : (lang === 'ru' ? 'После TON Connect' : 'After TON Connect')}</button>
+      <button class="asset-offer-button" onclick={onOffer} disabled={!canOffer} title={!canOffer ? (lang === 'ru' ? 'Войди через Telegram, чтобы отправить оффер' : 'Sign in with Telegram to make an offer') : undefined}>{canOffer ? (lang === 'ru' ? 'Сделать оффер' : 'Make offer') : (lang === 'ru' ? 'Войти для оффера' : 'Sign in to offer')}</button>
     </div>
   </div>
 </article>
