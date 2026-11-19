@@ -1274,7 +1274,7 @@ def _get_redis_rate_limit_client():
 
 
 def _enforce_sqlite_user_rate_limit(user_id: str, action: str, limit: int, window_seconds: int) -> None:
-    """Persistent per-Telegram-user mutation limit shared across app restarts."""
+    """Persistent per-Telegram-user limit using the configured database backend."""
     now = int(time.time())
     with _db() as conn:
         begin_write(conn, f"rate-limit:{user_id}:{action}")
@@ -1308,11 +1308,12 @@ def _enforce_sqlite_user_rate_limit(user_id: str, action: str, limit: int, windo
 
 
 def _enforce_user_rate_limit(user_id: str, action: str, limit: int, window_seconds: int = 60) -> None:
-    """Enforce a fixed-window limit with Redis, retaining SQLite as safe fallback.
+    """Enforce a fixed-window limit with Redis and a persistent DB fallback.
 
     Redis uses one atomic Lua operation for INCR + EXPIRE so a crash cannot leave
-    a permanent counter without a TTL. If Redis is unavailable, the existing
-    persistent SQLite limiter remains active.
+    a permanent counter without a TTL. If Redis is unavailable, the configured
+    database remains authoritative. Production PostgreSQL shares fallback
+    counters across replicas; SQLite is only the local/test backend.
     """
     client = _get_redis_rate_limit_client()
     if client is not None:
@@ -1332,8 +1333,7 @@ def _enforce_user_rate_limit(user_id: str, action: str, limit: int, window_secon
         except HTTPException:
             raise
         except RedisError:
-            # Preserve rate limiting during a Redis outage; this fallback is
-            # process-local only when the app is scaled beyond one SQLite writer.
+            # Preserve rate limiting during a Redis outage using the configured DB.
             pass
     _enforce_sqlite_user_rate_limit(user_id, action, limit, window_seconds)
 
