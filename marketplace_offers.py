@@ -303,7 +303,21 @@ class CreateOffer(BaseModel):
 
 
 class OfferAction(BaseModel):
-    action: Literal["accept", "decline", "withdraw"]
+    action: Literal["accept", "decline", "withdraw", "edit"]
+    amount: Decimal | None = None
+    note: str | None = Field(default=None, max_length=300)
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount(cls, value: Decimal | None) -> Decimal | None:
+        if value is not None and (not value.is_finite() or value <= 0 or value > Decimal("1000000000")):
+            raise ValueError("Offer amount must be a positive number")
+        return value
+
+    @field_validator("note")
+    @classmethod
+    def clean_note(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else value
 
 
 class DealAction(BaseModel):
@@ -435,6 +449,34 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="This offer is no longer pending")
             action = payload.action
+            if action == "edit":
+                if actor_id != row["sender_user_id"]:
+                    conn.rollback()
+                    raise HTTPException(status_code=403, detail="Only the offer author can edit it")
+                if row["order_status"] != "active":
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Offers can only be edited while the listing is active")
+                if payload.amount is None:
+                    conn.rollback()
+                    raise HTTPException(status_code=422, detail="An updated offer amount is required")
+                if row["currency"] == "XTR" and payload.amount != payload.amount.to_integral_value():
+                    conn.rollback()
+                    raise HTTPException(status_code=422, detail="Star offers must be whole numbers")
+                changed = conn.execute(
+                    """UPDATE marketplace_offers SET amount=?, note=?, updated_at=?
+                       WHERE id=? AND status='pending'""",
+                    (format(payload.amount, "f"), payload.note if payload.note is not None else row["note"], now, offer_id),
+                )
+                if changed.rowcount != 1:
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Offer changed before it could be edited")
+                conn.commit()
+                updated = conn.execute("""
+                    SELECT f.*, o.title AS order_title, o.user_id AS order_owner_id,
+                           o.owner_name AS order_owner_name, o.status AS order_status
+                    FROM marketplace_offers f JOIN marketplace_orders o ON o.id = f.order_id WHERE f.id = ?
+                """, (offer_id,)).fetchone()
+                return {"item": _offer_dict(updated, actor_id), "edited": True}
             if action in {"accept", "decline"} and actor_id != row["order_owner_id"]:
                 conn.rollback()
                 raise HTTPException(status_code=403, detail="Only the order owner can respond to this offer")
