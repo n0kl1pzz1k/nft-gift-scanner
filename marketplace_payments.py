@@ -116,11 +116,6 @@ def initialize_sqlite_payment_schema(conn: Any) -> None:
     BEGIN
         SELECT RAISE(ABORT, 'escrow events are immutable');
     END;
-    CREATE TRIGGER IF NOT EXISTS trg_marketplace_escrow_events_no_truncate
-    BEFORE TRUNCATE ON marketplace_escrow_events
-    BEGIN
-        SELECT RAISE(ABORT, 'escrow events are immutable');
-    END;
 
     CREATE TABLE IF NOT EXISTS marketplace_ledger_entries (
         id TEXT PRIMARY KEY,
