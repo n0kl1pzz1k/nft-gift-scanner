@@ -581,7 +581,7 @@ def initialize_postgres_offer_schema(connection: Any) -> dict[str, Any]:
                  'deal_payment_requested', 'payment_intent_created', 'payment_pending',
                  'payment_confirmed', 'escrow_funded', 'asset_transfer_requested',
                  'asset_transfer_submitted', 'asset_transfer_confirmed', 'deal_completed',
-                 'deal_disputed', 'refund_requested', 'refund_confirmed', 'payout_released',
+                 'deal_disputed', 'refund_requested', 'refund_confirmed', 'payout_released', 'seller_credit_recorded',
                  'deal_cancelled', 'deal_expired', 'dispute_resolution_approved', 'dispute_resolution_ready')),
              event_key TEXT NOT NULL, event_data TEXT NOT NULL DEFAULT '{}',
              created_at BIGINT NOT NULL)""",
