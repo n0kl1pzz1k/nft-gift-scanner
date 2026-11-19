@@ -117,6 +117,7 @@ def test_ddl_plan_translates_all_known_production_trigger_categories():
         CREATE TRIGGER trg_marketplace_offer_status_notification AFTER UPDATE OF status ON marketplace_offers BEGIN SELECT 1; END;
         CREATE TRIGGER trg_marketplace_order_cancel_declines_offers AFTER UPDATE OF status ON marketplace_orders BEGIN SELECT 1; END;
         CREATE TRIGGER verified_assets_metadata_immutable BEFORE UPDATE OF source, external_asset_id, owner_telegram_id, title, asset_type, image_url, verification_method, verification_reference_hash, verified_at ON verified_assets BEGIN SELECT 1; END;
+        CREATE TRIGGER verified_assets_consume_transfer_authorization AFTER UPDATE OF owner_telegram_id ON verified_assets BEGIN SELECT 1; END;
         """
     )
     result = build_postgres_ddl_plan(build_schema_manifest(connection))
