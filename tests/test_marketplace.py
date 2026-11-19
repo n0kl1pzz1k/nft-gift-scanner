@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 import app as api
 import marketplace
 import marketplace_offers
-from marketplace_payments import create_payment_intent, transition_deal_status
+from marketplace_payments import create_payment_intent, record_dispute_resolution_approval, transition_deal_status
 from marketplace_stars import confirm_stars_payment, validate_stars_pre_checkout
 from ton_nft_inventory import build_nft_transfer_payload, normalise_ton_address
 
@@ -206,6 +206,93 @@ class SharedMarketplaceTests(unittest.TestCase):
         parsed = Cell.one_from_boc(raw)
         self.assertIsNotNone(parsed)
         self.assertEqual(normalise_ton_address("0:" + "11" * 32), "0:" + "11" * 32)
+
+    def test_two_admin_approved_stars_refund_calls_telegram_and_reverses_escrow_ledger(self):
+        deal_id, invoice_payload, intent_id = self._create_stars_deal_with_intent()
+        ok, _ = validate_stars_pre_checkout(
+            invoice_payload=invoice_payload, telegram_user_id="202",
+            currency="XTR", total_amount=9, now=1700000010,
+        )
+        self.assertTrue(ok)
+        confirm_stars_payment(
+            invoice_payload=invoice_payload,
+            telegram_user_id="202",
+            currency="XTR",
+            total_amount=9,
+            telegram_payment_charge_id="tg-refund-charge-001",
+            now=1700000020,
+        )
+        with marketplace_offers._db() as conn:
+            conn.execute("UPDATE marketplace_deals SET status='disputed' WHERE id=?", (deal_id,))
+            record_dispute_resolution_approval(
+                conn, deal_id=deal_id, admin_user_id="101", decision="refund_buyer",
+                idempotency_key=f"{deal_id}:refund-admin-101", now=1700000030,
+            )
+            record_dispute_resolution_approval(
+                conn, deal_id=deal_id, admin_user_id="303", decision="refund_buyer",
+                idempotency_key=f"{deal_id}:refund-admin-303", now=1700000040,
+            )
+            conn.commit()
+
+        class FakeTelegramResponse:
+            status_code = 200
+            def json(self):
+                return {"ok": True, "result": True}
+
+        class FakeTelegramClient:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                self.calls = []
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return False
+            async def post(self, url, json):
+                self.calls.append((url, json))
+                return FakeTelegramResponse()
+
+        fake_client = FakeTelegramClient()
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101,303", "BOT_TOKEN": "test-bot-token"}):
+            with patch("httpx.AsyncClient", return_value=fake_client):
+                response = self.client.post(
+                    f"/api/marketplace/admin/deals/{deal_id}/execute-refund",
+                    headers={"X-Telegram-Init-Data": "user-a"},
+                    json={"idempotency_key": f"{deal_id}:refund-execution-001"},
+                )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["refund_status"], "refunded")
+        self.assertEqual(len(fake_client.calls), 1)
+        self.assertEqual(fake_client.calls[0][1]["user_id"], 202)
+        self.assertEqual(fake_client.calls[0][1]["telegram_payment_charge_id"], "tg-refund-charge-001")
+        with marketplace_offers._db() as conn:
+            intent = conn.execute(
+                "SELECT status FROM marketplace_payment_intents WHERE id=?", (intent_id,)
+            ).fetchone()
+            deal = conn.execute(
+                "SELECT status FROM marketplace_deals WHERE id=?", (deal_id,)
+            ).fetchone()
+            transactions = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_ledger_transactions WHERE reference_id=?",
+                (deal_id,),
+            ).fetchone()[0]
+            refund_events = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_escrow_events WHERE deal_id=? AND event_type='refund_confirmed'",
+                (deal_id,),
+            ).fetchone()[0]
+        self.assertEqual(intent["status"], "refunded")
+        self.assertEqual(deal["status"], "cancelled")
+        self.assertEqual(transactions, 2)
+        self.assertEqual(refund_events, 1)
+
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101,303", "BOT_TOKEN": "test-bot-token"}):
+            replay = self.client.post(
+                f"/api/marketplace/admin/deals/{deal_id}/execute-refund",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"idempotency_key": f"{deal_id}:refund-execution-001"},
+            )
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertTrue(replay.json()["idempotent_replay"])
+        self.assertEqual(len(fake_client.calls), 1)
 
     def test_stars_precheckout_binds_user_amount_and_deal_and_is_one_time(self):
         deal_id, invoice_payload, intent_id = self._create_stars_deal_with_intent()
