@@ -13,6 +13,8 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("/api/auth/telegram", paths)
         self.assertIn("/api/marketplace/orders", paths)
         self.assertIn("/api/marketplace/stats", paths)
+        self.assertIn("/api/marketplace/deals/{deal_id}/ton-nft-delivery/prepare", paths)
+        self.assertIn("/api/marketplace/deals/{deal_id}/ton-nft-delivery/confirm", paths)
         self.assertIn("/api/telegram/webhook", paths)
         self.assertNotIn("/api/status", paths)
         self.assertNotIn("/api/collections", paths)
