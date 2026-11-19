@@ -25,6 +25,32 @@ FRAGMENT_COLLECTIONS = {
 }
 
 
+def build_nft_transfer_payload(
+    *,
+    new_owner_address: str,
+    response_destination: str,
+    query_id: int,
+) -> str:
+    """Build the standard TON NFT transfer body (TEP-62) for wallet signing."""
+    import base64
+    from tonsdk.boc import Cell
+    from tonsdk.utils import Address
+
+    recipient = Address(new_owner_address)
+    response = Address(response_destination)
+    if int(query_id) < 0 or int(query_id) >= 2**64:
+        raise ValueError("TON NFT transfer query ID must fit uint64")
+    body = Cell()
+    body.bits.write_uint(0x5FCC3D14, 32)
+    body.bits.write_uint(int(query_id), 64)
+    body.bits.write_address(recipient)
+    body.bits.write_address(response)
+    body.bits.write_bit(0)  # custom_payload: none
+    body.bits.write_coins(1)  # forward_amount: 1 nanoton
+    body.bits.write_bit(0)  # forward_payload: empty
+    return base64.b64encode(body.to_boc(False)).decode("ascii")
+
+
 def normalise_ton_address(value: str) -> str:
     """Return a canonical raw TON address for trusted on-chain comparisons."""
     return _raw_address(value)
