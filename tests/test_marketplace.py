@@ -200,6 +200,12 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(row["username"], "updated_handle")
         self.assertEqual(row["is_premium"], 1)
 
+    def test_telegram_auth_exchange_is_rate_limited_per_verified_account(self):
+        with patch.object(api, "_enforce_user_rate_limit") as limiter:
+            response = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
+        self.assertEqual(response.status_code, 200, response.text)
+        limiter.assert_called_once_with("101", "telegram_auth_exchange", 30, 60)
+
     def test_telegram_auth_reports_server_verified_admin_role(self):
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
             admin = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
