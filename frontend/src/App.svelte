@@ -93,6 +93,7 @@
   let offerNote = $state('');
   let offersBusy = $state(false);
   let offerActionBusy = $state('');
+  let starsCheckoutBusy = $state('');
   let offerStatusFilter = $state<'all'|'pending'|'accepted'|'declined'|'withdrawn'>('all');
   let telegramUser = $state('');
   let telegramPhoto = $state('');
@@ -669,6 +670,35 @@
     finally { offersBusy = false; }
   }
 
+  async function startStarsCheckout(dealId: string) {
+    if (!dealId || starsCheckoutBusy) return;
+    if (!window.Telegram?.WebApp?.initData) {
+      notice = lang === 'ru' ? 'Открой маркетплейс через Telegram.' : 'Open the marketplace inside Telegram.';
+      return;
+    }
+    starsCheckoutBusy = dealId;
+    try {
+      const data = await request('/api/marketplace/deals/' + encodeURIComponent(dealId) + '/stars-checkout', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idempotency_key: crypto.randomUUID() }),
+      });
+      const invoiceUrl = String(data.invoice_url || '');
+      if (!invoiceUrl.startsWith('https://')) throw new Error(lang === 'ru' ? 'Telegram не вернул ссылку на оплату.' : 'Telegram did not return a payment link.');
+      const webApp = window.Telegram?.WebApp;
+      if (webApp?.openLink) webApp.openLink(invoiceUrl);
+      else window.open(invoiceUrl, '_blank', 'noopener,noreferrer');
+      notice = lang === 'ru'
+        ? 'Счёт Stars создан. После оплаты Telegram подтвердит платёж в боте.'
+        : 'Stars invoice created. Telegram will confirm payment in the bot after checkout.';
+      await loadOffersAndDeals();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      starsCheckoutBusy = '';
+    }
+  }
+
   async function cancelDealReservation(dealId: string) {
     if (!dealId || offerActionBusy) return;
     offerActionBusy = dealId;
@@ -1239,12 +1269,21 @@
                     <small>{dealStatusLabel(deal.status)}</small>
                     {#if deal.status==='payment_not_enabled'}
                       <p class="safety-note">{lang==='ru'?'Резерв удерживает объявление, но деньги не списаны, NFT не передан.':'The listing is reserved, but no funds were charged and no NFT was transferred.'}</p>
+                    {:else if deal.status==='awaiting_payment'}
+                      <p class="safety-note">{lang==='ru'?'Ожидается подтверждение оплаты. Не отправляй деньги напрямую продавцу.':'Waiting for payment confirmation. Do not send funds directly to the seller.'}</p>
+                    {:else if deal.status==='payment_pending'}
+                      <p class="safety-note">{lang==='ru'?'Telegram обрабатывает платёж. Не оплачивай повторно.':'Telegram is processing the payment. Do not pay again.'}</p>
                     {/if}
                   </div>
                   <div class="order-price">
                     <span class={'status-'+(deal.reservation_active?'matched':'cancelled')}>{deal.reservation_active?(lang==='ru'?'РЕЗЕРВ':'RESERVED'):(lang==='ru'?'ЗАКРЫТА':'CLOSED')}</span>
                     {#if deal.status==='payment_not_enabled'}
-                      <button class="cancel-button" onclick={()=>cancelDealReservation(deal.id)} disabled={offerActionBusy===deal.id}>{offerActionBusy===deal.id?'…':(lang==='ru'?'Снять резерв':'Release reservation')}</button>
+                      {#if !deal.is_seller && deal.payments_enabled && deal.currency==='XTR'}
+                        <button class="asset-offer-button" onclick={()=>startStarsCheckout(deal.id)} disabled={starsCheckoutBusy===deal.id}>{starsCheckoutBusy===deal.id?'…':(lang==='ru'?'Оплатить Stars':'Pay with Stars')}</button>
+                      {/if}
+                      <button class="cancel-button" onclick={()=>cancelDealReservation(deal.id)} disabled={offerActionBusy===deal.id || starsCheckoutBusy===deal.id}>{offerActionBusy===deal.id?'…':(lang==='ru'?'Снять резерв':'Release reservation')}</button>
+                    {:else if deal.status==='awaiting_payment' && !deal.is_seller && deal.payments_enabled && deal.currency==='XTR'}
+                      <button class="asset-offer-button" onclick={()=>startStarsCheckout(deal.id)} disabled={starsCheckoutBusy===deal.id}>{starsCheckoutBusy===deal.id?'…':(lang==='ru'?'Создать счёт Stars':'Create Stars invoice')}</button>
                     {/if}
                   </div>
                 </article>
