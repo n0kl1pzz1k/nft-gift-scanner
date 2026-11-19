@@ -339,6 +339,84 @@ class DealDisputeRequest(BaseModel):
         return cleaned
 
 
+def expire_unpaid_marketplace_deals(
+    *,
+    now: int | None = None,
+    ttl_seconds: int | None = None,
+    limit: int = 100,
+) -> dict[str, int]:
+    """Expire only unpaid reservations; confirmed payments are never auto-released."""
+    from marketplace_payments import transition_deal_status, transition_payment_intent
+
+    timestamp = int(time.time()) if now is None else int(now)
+    if ttl_seconds is None:
+        try:
+            ttl_seconds = int(os.getenv("HASSLE_DEAL_RESERVATION_TTL_SECONDS", "86400"))
+        except ValueError:
+            ttl_seconds = 86400
+    ttl = max(300, min(int(ttl_seconds), 604800))
+    batch_limit = max(1, min(int(limit), 500))
+    expired = 0
+    released = 0
+    skipped_paid = 0
+    with _db() as conn:
+        candidates = conn.execute(
+            """SELECT d.id, d.order_id
+               FROM marketplace_deals d
+               WHERE d.status IN ('payment_not_enabled', 'awaiting_payment', 'payment_pending')
+                 AND COALESCE(
+                     (SELECT MAX(pi.expires_at) FROM marketplace_payment_intents pi
+                      WHERE pi.deal_id = d.id AND pi.status IN ('created', 'pending')),
+                     d.created_at + ?
+                 ) <= ?
+               ORDER BY d.created_at ASC, d.id ASC
+               LIMIT ?""",
+            (ttl, timestamp, batch_limit),
+        ).fetchall()
+        for candidate in candidates:
+            deal_id = str(candidate["id"])
+            order_id = str(candidate["order_id"])
+            begin_write(conn, f"deal:{deal_id}", f"order:{order_id}")
+            deal = conn.execute(
+                select_for_update(conn, "SELECT * FROM marketplace_deals WHERE id = ?"),
+                (deal_id,),
+            ).fetchone()
+            if deal is None or deal["status"] not in {"payment_not_enabled", "awaiting_payment", "payment_pending"}:
+                conn.rollback()
+                continue
+            intents = conn.execute(
+                "SELECT id, status FROM marketplace_payment_intents WHERE deal_id = ?",
+                (deal_id,),
+            ).fetchall()
+            if any(row["status"] in {"confirmed", "refunded"} for row in intents):
+                skipped_paid += 1
+                conn.rollback()
+                continue
+            for intent in intents:
+                if intent["status"] in {"created", "pending"}:
+                    transition_payment_intent(conn, intent["id"], "expired", now=timestamp)
+            transition_deal_status(
+                conn,
+                deal_id=deal_id,
+                new_status="expired",
+                actor_user_id="system:reservation-timeout",
+                idempotency_key=f"{deal_id}:reservation-timeout",
+                event_type="deal_expired",
+                event_data={"reason": "unpaid_reservation_timeout", "ttl_seconds": ttl},
+                now=timestamp,
+            )
+            released_order = conn.execute(
+                """UPDATE marketplace_orders SET status='active', updated_at=?
+                   WHERE id=? AND status='matched'""",
+                (timestamp, order_id),
+            )
+            if released_order.rowcount == 1:
+                released += 1
+            conn.commit()
+            expired += 1
+    return {"expired_deals": expired, "reservations_released": released, "skipped_confirmed_payment": skipped_paid}
+
+
 def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], dict]) -> APIRouter:
     router = APIRouter(prefix="/api/marketplace", tags=["marketplace-offers"])
 
