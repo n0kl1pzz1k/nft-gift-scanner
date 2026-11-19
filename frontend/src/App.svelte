@@ -1037,7 +1037,7 @@
          <div class="verified-inventory-list">
            {#each verifiedAssets.filter(asset=>inventoryFilter==='all'||asset.source===inventoryFilter) as asset (asset.id)}
              <article class="verified-inventory-item">
-               {#if assetPreviewUrl(asset)}<img src={assetPreviewUrl(asset)} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder"><span>HASSLE</span><small>{asset.source==='telegram_gift'?(lang==='ru'?'КОЛЛЕКЦИОННЫЙ ПОДАРОК':'COLLECTIBLE GIFT'):'VERIFIED ASSET'}</small></div>{/if}
+               {#if assetPreviewUrl(asset)}<img src={assetPreviewUrl(asset)} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder"><span>HASSLE</span><small>{asset.source==='telegram_gift'?(lang==='ru'?'КОЛЛЕКЦИОННЫЙ ПОДАРОК':'COLLECTIBLE GIFT'):asset.asset_type==='username'?'TELEGRAM USERNAME':asset.asset_type==='number'?'ANONYMOUS NUMBER':'VERIFIED ASSET'}</small></div>{/if}
                <div class="verified-inventory-details">
                  <div class="verified-inventory-title-row"><strong>{asset.title}</strong><span class="verified-asset-status">{lang==='ru'?'ПОДТВЕРЖДЁН':'VERIFIED'}</span></div>
                  {#if asset.source==='telegram_gift'}
@@ -1045,7 +1045,7 @@
                    <small class="verified-gift-id">{lang==='ru'?'Уникальный ID':'Unique ID'} · {asset.external_asset_id}</small>
                    <a class="inventory-gift-link" href={'https://t.me/nft/'+encodeURIComponent(asset.external_asset_id)} target="_blank" rel="noopener noreferrer">{lang==='ru'?'Открыть оригинал в Telegram':'Open original in Telegram'} ↗</a>
                  {:else}
-                   <small>{asset.source==='ton_nft'?'TON NFT':asset.asset_type==='username'?'Username':'Anonymous Number'} · {asset.external_asset_id}</small>
+                   <small>{asset.asset_type==='username'?(lang==='ru'?'Коллекционное имя Telegram':'Telegram collectible username'):asset.asset_type==='number'?(lang==='ru'?'Анонимный номер +888':'Anonymous +888 number'):(lang==='ru'?'TON NFT':'TON NFT')} · {asset.external_asset_id}</small>
                  {/if}
                  <span>{asset.active_listing_id?(lang==='ru'?'Уже выставлен':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</span>
                  {#if asset.active_listing_id}<small class="inventory-listing-note">{lang==='ru'?'Объявление уже опубликовано':'Listing is already live'}</small>{:else if asset.source==='telegram_gift'}<small class="inventory-listing-note">{lang==='ru'?'Продажа откроется после проверки безопасной передачи подарка':'Sales unlock after secure gift transfer is verified'}</small>{:else if assetListingEnabled}<button class="inventory-list-button" type="button" onclick={()=>startAssetListing(asset)}>{lang==='ru'?'Выставить на продажу':'List for sale'} ↗</button>{:else}<small class="inventory-listing-note">{lang==='ru'?'Публикация откроется после завершения проверки':'Listing will open after final verification'}</small>{/if}
