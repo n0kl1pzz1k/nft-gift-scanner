@@ -170,9 +170,6 @@ def init_marketplace_offers_db() -> None:
             WHERE order_id=NEW.id AND status='pending';
         END;
         """)
-        from marketplace_payments import initialize_sqlite_payment_schema
-
-        initialize_sqlite_payment_schema(conn)
         # Older releases enforced one deal per order forever. Rebuild that table
         # so cancelled/expired history remains intact while a fresh reservation can be made.
         unique_order_index = False
@@ -256,6 +253,10 @@ def init_marketplace_offers_db() -> None:
             ON marketplace_deals(order_id)
             WHERE status NOT IN ('cancelled', 'expired')
         """)
+
+        from marketplace_payments import initialize_sqlite_payment_schema
+
+        initialize_sqlite_payment_schema(conn)
 
 
 def _require_user(init_data: str | None, verify: Callable[[str], dict]) -> dict:
