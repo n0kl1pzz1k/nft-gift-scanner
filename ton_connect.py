@@ -380,3 +380,25 @@ def list_verified_wallets(telegram_id: str) -> list[dict[str, Any]]:
             (str(telegram_id),),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+
+def revoke_verified_wallet(telegram_id: str, network: str, address: str, now: int | None = None) -> bool:
+    """Revoke only the caller-owned wallet binding; never disconnect another account."""
+    owner_id = str(telegram_id).strip()
+    if not owner_id.isdigit() or network not in {"-239", "-3"}:
+        raise ValueError("A valid Telegram owner and TON network are required")
+    try:
+        _, _, canonical_address = _parse_address(address)
+    except Exception as exc:
+        raise ValueError("A valid TON wallet address is required") from exc
+    current = int(time.time()) if now is None else int(now)
+    with _db() as conn:
+        begin_write(conn, f"ton-wallet-revoke:{owner_id}:{network}:{canonical_address}")
+        result = conn.execute(
+            """UPDATE verified_wallets SET revoked_at = ?
+               WHERE network = ? AND address = ? AND telegram_id = ? AND revoked_at IS NULL""",
+            (current, network, canonical_address, owner_id),
+        )
+        conn.commit()
+    return result.rowcount == 1

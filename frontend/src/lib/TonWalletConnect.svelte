@@ -13,6 +13,7 @@
   let tonConnect = $state<TonConnectUIInstance | null>(null);
   let busy = $state(false);
   let address = $state('');
+  let network = $state('');
   let status = $state<'idle' | 'connected' | 'verified' | 'error'>('idle');
   let message = $state('');
 
@@ -21,6 +22,8 @@
     loading: lang === 'ru' ? 'Загружаем TON Connect…' : 'Loading TON Connect…',
     verify: lang === 'ru' ? 'Подтвердить кошелёк' : 'Verify wallet',
     verified: lang === 'ru' ? 'Кошелёк подтверждён' : 'Wallet verified',
+    disconnect: lang === 'ru' ? 'Отключить' : 'Disconnect',
+    disconnectFailed: lang === 'ru' ? 'Не удалось отключить кошелёк. Попробуй ещё раз.' : 'Could not disconnect the wallet. Please try again.',
     waiting: lang === 'ru' ? 'Ожидаем подтверждение в кошельке…' : 'Confirm the request in your wallet…',
     signIn: lang === 'ru' ? 'Сначала подтверди Telegram-профиль' : 'Verify your Telegram profile first',
     unsupported: lang === 'ru' ? 'Этот кошелёк не поддерживает TON Proof. Попробуй Tonkeeper или другой совместимый кошелёк.' : 'This wallet does not support TON Proof. Try Tonkeeper or another compatible wallet.',
@@ -42,6 +45,7 @@
       const first = Array.isArray(data.items) ? data.items[0] : null;
       if (first?.address) {
         address = first.address;
+        network = first.network || '';
         status = 'verified';
         onVerified(first.address);
       }
@@ -71,6 +75,7 @@
             if (status !== 'verified') status = 'idle';
             return;
           }
+          network = wallet.account.chain;
           const item = wallet.connectItems?.tonProof;
           if (!item || !('proof' in item)) {
             status = 'error';
@@ -131,6 +136,38 @@
     };
   });
 
+  async function revokeWallet() {
+    if (!authToken || !address || !tonConnect || busy) return;
+    busy = true;
+    message = '';
+    try {
+      if (!network) throw new Error(copy.disconnectFailed);
+      const response = await fetch(
+        api + '/api/ton-proof/wallets/' + encodeURIComponent(network) + '/' + encodeURIComponent(address),
+        { method: 'DELETE', headers: { 'X-Telegram-Init-Data': authToken } },
+      );
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.detail || copy.disconnectFailed);
+      // The server-side revocation is authoritative. Clear all gated UI even if
+      // the wallet SDK cannot close its modal or clear its local connection.
+      address = '';
+      network = '';
+      status = 'idle';
+      onVerified('');
+      message = '';
+      try {
+        await tonConnect.disconnect();
+      } catch {
+        // A local SDK disconnect failure must not restore a revoked wallet.
+      }
+    } catch (error) {
+      status = 'error';
+      message = error instanceof Error ? error.message : copy.disconnectFailed;
+    } finally {
+      busy = false;
+    }
+  }
+
   async function connectWallet() {
     if (!authToken) {
       message = copy.signIn;
@@ -172,6 +209,7 @@
         <small>{address.slice(0, 8)}…{address.slice(-8)}</small>
       </div>
       <span class="ton-wallet-network">TON</span>
+      <button class="ton-wallet-disconnect" type="button" onclick={revokeWallet} disabled={busy}>{busy ? '…' : copy.disconnect}</button>
     </div>
   {:else}
     <button class="ton-wallet-button" type="button" onclick={connectWallet} disabled={busy || !authToken || !tonConnect}>
@@ -201,6 +239,8 @@
   .ton-wallet-address strong { color: #dffcf7; font-size: 13px; }
   .ton-wallet-address small { color: rgba(222, 239, 244, .58); font-size: 11px; overflow-wrap: anywhere; }
   .ton-wallet-network { margin-left: auto; color: #65d9c5; font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+  .ton-wallet-disconnect { border: 1px solid rgba(255, 154, 154, .28); border-radius: 10px; padding: 7px 10px; color: #ffaaaa; background: rgba(120, 35, 45, .18); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+  .ton-wallet-disconnect:disabled { opacity: .55; cursor: wait; }
   .ton-wallet-message { margin: 0; color: rgba(221, 238, 242, .68); font-size: 12px; line-height: 1.45; }
   .ton-wallet-message.ton-wallet-error { color: #ff9a9a; }
 </style>

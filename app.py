@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update, _enforce_user_rate_limit, sync_ton_nft_assets, sync_telegram_gift_assets, get_telegram_business_connection, get_telegram_business_connection_id, register_verified_asset, save_telegram_business_gift_ref, prune_telegram_business_gift_refs, get_telegram_business_gift_preview_ref
-from ton_connect import init_ton_connect_db, create_proof_challenge, verify_ton_proof, consume_challenge_and_link_wallet, list_verified_wallets
+from ton_connect import init_ton_connect_db, create_proof_challenge, verify_ton_proof, consume_challenge_and_link_wallet, list_verified_wallets, revoke_verified_wallet
 from ton_nft_inventory import fetch_wallet_nfts
 from telegram_gift_inventory import fetch_user_telegram_gifts
 from telegram_business_gift_inventory import fetch_business_account_gifts, fetch_sticker_preview
@@ -400,6 +400,25 @@ async def ton_proof_verify(
 async def ton_proof_wallets_me(x_telegram_init_data: str | None = Header(default=None)):
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
     return {"items": list_verified_wallets(str(user["id"]))}
+
+
+@app.delete("/api/ton-proof/wallets/{network}/{address}")
+async def ton_proof_wallet_revoke(
+    network: str,
+    address: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    owner_id = str(user["id"])
+    _enforce_user_rate_limit(owner_id, "revoke_ton_wallet", 10)
+    try:
+        revoked = revoke_verified_wallet(owner_id, network, address)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not revoked:
+        # Deliberately do not reveal whether the wallet belongs to another account.
+        raise HTTPException(status_code=404, detail="Verified wallet not found")
+    return {"revoked": True}
 
 
 @app.post("/api/marketplace/assets/import-ton")
