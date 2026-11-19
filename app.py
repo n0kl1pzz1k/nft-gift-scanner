@@ -37,7 +37,10 @@ app.include_router(create_marketplace_router(
     lambda value: _authenticate_telegram_credential(value),
     lambda value: _require_admin(value),
 ))
-app.include_router(create_marketplace_offers_router(lambda value: _authenticate_telegram_credential(value)))
+app.include_router(create_marketplace_offers_router(
+    lambda value: _authenticate_telegram_credential(value),
+    lambda value: _require_admin(value),
+))
 
 _telegram_bot = None
 _telegram_dispatcher = None
