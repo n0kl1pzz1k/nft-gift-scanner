@@ -51,10 +51,13 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
                     id TEXT NOT NULL UNIQUE, deal_id TEXT NOT NULL
                 )
             """)
+            pg.execute("CREATE TABLE marketplace_payment_events (id TEXT PRIMARY KEY)")
+            pg.execute("CREATE TABLE marketplace_ledger_transactions (id TEXT PRIMARY KEY)")
+            pg.execute("CREATE TABLE marketplace_ledger_entries (id TEXT PRIMARY KEY)")
 
             installed = install_postgres_offer_triggers(pg)
             assert installed["verified"] is True
-            assert installed["triggers_installed"] == 7
+            assert installed["triggers_installed"] == 13
 
             pg.execute(
                 "INSERT INTO marketplace_orders VALUES (%s,%s,%s,%s,%s,%s)",
@@ -93,6 +96,17 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
             )
             with pytest.raises(psycopg.Error):
                 pg.execute("DELETE FROM marketplace_deal_lifecycle_events WHERE id='life-1'")
+
+            for table, row_id in (
+                ("marketplace_payment_events", "pay-event-1"),
+                ("marketplace_ledger_transactions", "ledger-tx-1"),
+                ("marketplace_ledger_entries", "ledger-entry-1"),
+            ):
+                pg.execute(f"INSERT INTO {table}(id) VALUES (%s)", (row_id,))
+                with pytest.raises(psycopg.Error):
+                    pg.execute(f"UPDATE {table} SET id='changed' WHERE id=%s", (row_id,))
+                with pytest.raises(psycopg.Error):
+                    pg.execute(f"DELETE FROM {table} WHERE id=%s", (row_id,))
 
             # A successful DDL call is not proof that the final trigger set is intact.
             pg.execute("DROP TRIGGER trg_marketplace_offer_received ON marketplace_offers")
@@ -134,10 +148,10 @@ def test_postgres_offer_schema_bootstrap_is_idempotent_and_creates_all_objects()
             second = initialize_postgres_offer_schema(adapter)
             assert first["verified"] is True
             assert second["verified"] is True
-            assert first["verification"]["triggers_verified"] == 7
-            assert first["verification"]["tables_verified"] == 5
-            assert first["verification"]["columns_verified"] == 43
-            assert first["verification"]["indexes_verified"] == 8
+            assert first["verification"]["triggers_verified"] == 13
+            assert first["verification"]["tables_verified"] == 9
+            assert first["verification"]["columns_verified"] == 79
+            assert first["verification"]["indexes_verified"] == 20
 
             tables = {
                 row["table_name"]
@@ -149,7 +163,9 @@ def test_postgres_offer_schema_bootstrap_is_idempotent_and_creates_all_objects()
             assert {
                 "marketplace_orders", "marketplace_offers", "marketplace_deals",
                 "marketplace_deal_events", "marketplace_deal_lifecycle_events",
-                "marketplace_notifications",
+                "marketplace_notifications", "marketplace_payment_intents",
+                "marketplace_payment_events", "marketplace_ledger_transactions",
+                "marketplace_ledger_entries",
             } <= tables
 
             indexes = {
