@@ -1815,6 +1815,22 @@ class SharedMarketplaceTests(unittest.TestCase):
         )
         self.assertEqual(inactive.status_code, 409)
 
+    def test_buy_request_author_can_edit_requested_asset_title(self):
+        headers = {"X-Telegram-Init-Data": "user-a"}
+        created = self.client.post(
+            "/api/marketplace/orders", headers=headers,
+            json={"kind": "buy-order", "title": "Plush Pepe", "price": "50", "currency": "XTR"},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        order_id = created.json()["item"]["id"]
+        updated = self.client.patch(
+            f"/api/marketplace/orders/{order_id}", headers=headers,
+            json={"title": "Plush Pepe #123", "price": "55"},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()["item"]["title"], "Plush Pepe #123")
+        self.assertEqual(updated.json()["item"]["price"], "55")
+
     def test_order_asset_metadata_cannot_be_edited(self):
         headers = {"X-Telegram-Init-Data": "user-a"}
         created = self.client.post(
