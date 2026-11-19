@@ -1240,6 +1240,14 @@
     finally { adminRolesBusy = false; }
   }
 
+  function revokeAdminRole(role: AdminRoleItem) {
+    adminRoleUserId = role.telegram_id;
+    if (['moderator','finance','support','auditor'].includes(role.role)) {
+      adminRoleChoice = role.role as 'moderator'|'finance'|'support'|'auditor';
+      void saveAdminRole(false);
+    }
+  }
+
   async function saveAdminRole(active: boolean) {
     if (!adminPermissions.includes('roles.manage') || adminRoleActionBusy || !adminRoleUserId.trim()) return;
     adminRoleActionBusy = adminRoleUserId;
@@ -1881,7 +1889,7 @@
             </div>
             <div class="orders-list">
               {#each adminRoles as role (role.telegram_id)}
-                <article class="order-card"><div class="order-main"><h3>{role.telegram_id} · {role.role}</h3><p>{role.permissions.join(', ')}</p></div><div class="order-actions"><button class="cancel-button" onclick={()=>{adminRoleUserId=role.telegram_id;adminRoleChoice=role.role as any;void saveAdminRole(false);}} disabled={adminRoleActionBusy===role.telegram_id}>{lang==='ru'?'Отозвать':'Revoke'}</button></div></article>
+                <article class="order-card"><div class="order-main"><h3>{role.telegram_id} · {role.role}</h3><p>{role.permissions.join(', ')}</p></div><div class="order-actions"><button class="cancel-button" onclick={()=>revokeAdminRole(role)} disabled={adminRoleActionBusy===role.telegram_id}>{lang==='ru'?'Отозвать':'Revoke'}</button></div></article>
               {/each}
             </div>
           {/if}
