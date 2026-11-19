@@ -1859,8 +1859,7 @@ def create_marketplace_router(
         offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        if not _verified_asset_actions_enabled():
-            return {"items": [], "total": 0}
+        verified_actions_enabled = _verified_asset_actions_enabled()
         user_id = None
         if x_telegram_init_data:
             try:
@@ -1874,6 +1873,9 @@ def create_marketplace_router(
         if kind:
             clauses.append("kind = ?")
             values.append(kind)
+        if not verified_actions_enabled:
+            clauses.append("kind = ?")
+            values.append("buy-order")
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         with _db() as conn:
             qualified_where = where.replace("status", "o.status").replace("kind", "o.kind")
@@ -1907,13 +1909,13 @@ def create_marketplace_router(
 
     @router.get("/mine")
     async def my_orders(x_telegram_init_data: str | None = Header(default=None)):
-        if not _verified_asset_actions_enabled():
-            _user(x_telegram_init_data, verify_telegram_init_data)
-            return {"items": []}
+        verified_actions_enabled = _verified_asset_actions_enabled()
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         _enforce_user_rate_limit(str(user["id"]), "list_my_orders", 60)
         with _db() as conn:
             verified_filter = "" if _test_unverified_assets_allowed() else " AND (o.kind != 'listing' OR a.id IS NOT NULL)"
+            if not verified_actions_enabled:
+                verified_filter += " AND o.kind = 'buy-order'"
             rows = conn.execute(
                 f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url
                     FROM marketplace_orders o
@@ -1929,7 +1931,11 @@ def create_marketplace_router(
     @router.get("/stats")
     async def marketplace_stats():
         if not _verified_asset_actions_enabled():
-            return {"active_listings": 0, "active_buy_requests": 0, "matched_orders": 0, "volume_ton": 0, "volume_stars": 0, "floor_ton": None, "floor_stars": None, "total_orders": 0}
+            with _db() as conn:
+                active_buy_requests = conn.execute(
+                    "SELECT COUNT(*) FROM marketplace_orders WHERE kind='buy-order' AND status='active'"
+                ).fetchone()[0]
+            return {"active_listings": 0, "active_buy_requests": active_buy_requests, "matched_orders": 0, "volume_ton": 0, "volume_stars": 0, "floor_ton": None, "floor_stars": None, "total_orders": active_buy_requests}
         with _db() as conn:
             counts = conn.execute("""
                 SELECT
