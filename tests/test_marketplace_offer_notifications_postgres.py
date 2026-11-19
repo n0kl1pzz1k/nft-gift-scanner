@@ -48,18 +48,18 @@ def test_postgres_offer_notifications_follow_transitions_and_are_private():
             marketplace.init_marketplace_db()
             marketplace_offers.init_marketplace_offers_db()
             marketplace.upsert_telegram_user({
-                "id": "seller-101", "username": "seller", "first_name": "Seller",
+                "id": "101", "username": "seller", "first_name": "Seller",
             })
             marketplace.upsert_telegram_user({
-                "id": "buyer-202", "username": "buyer", "first_name": "Buyer",
+                "id": "202", "username": "buyer", "first_name": "Buyer",
             })
             marketplace.upsert_telegram_user({
-                "id": "outsider-303", "username": "outsider", "first_name": "Outsider",
+                "id": "303", "username": "outsider", "first_name": "Outsider",
             })
             asset = marketplace.register_verified_asset(
                 source="ton_nft",
                 external_asset_id="offer-notification-asset",
-                owner_telegram_id="seller-101",
+                owner_telegram_id="101",
                 title="Notification lifecycle gift",
                 asset_type="gift",
                 image_url="",
@@ -69,9 +69,9 @@ def test_postgres_offer_notifications_follow_transitions_and_are_private():
 
             def verify_user(value):
                 users = {
-                    "seller": ("seller-101", "Seller", "seller"),
-                    "buyer": ("buyer-202", "Buyer", "buyer"),
-                    "outsider": ("outsider-303", "Outsider", "outsider"),
+                    "seller": ("101", "Seller", "seller"),
+                    "buyer": ("202", "Buyer", "buyer"),
+                    "outsider": ("303", "Outsider", "outsider"),
                 }
                 user_id, first_name, username = users[value]
                 return {"id": user_id, "first_name": first_name, "username": username}
@@ -200,10 +200,10 @@ def test_postgres_offer_notifications_follow_transitions_and_are_private():
                 for row in counts
             }
             assert observed == {
-                ("seller-101", "offer_received", first_offer_id): 1,
-                ("buyer-202", "offer_declined", first_offer_id): 1,
-                ("seller-101", "offer_received", second_offer_id): 1,
-                ("seller-101", "offer_withdrawn", second_offer_id): 1,
+                ("101", "offer_received", first_offer_id): 1,
+                ("202", "offer_declined", first_offer_id): 1,
+                ("101", "offer_received", second_offer_id): 1,
+                ("101", "offer_withdrawn", second_offer_id): 1,
             }
 
     finally:
