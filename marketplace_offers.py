@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import json
+import logging
 import sqlite3
 import time
 import uuid
@@ -1231,7 +1232,19 @@ def create_marketplace_offers_router(
                     else:
                         raise RuntimeError("Telegram did not confirm the Stars refund")
         except Exception as exc:
-            raise HTTPException(status_code=502, detail="Telegram refund could not be confirmed; the deal remains disputed") from exc
+            try:
+                from marketplace_payments import record_manual_reconciliation_item
+                record_manual_reconciliation_item(
+                    idempotency_key=f"stars-refund-mismatch:{deal_id}:{charge_id}",
+                    kind="refund_mismatch",
+                    deal_id=deal_id,
+                    payment_intent_id=str(intent["id"]),
+                    provider_reference=charge_id,
+                    summary="Telegram Stars refund execution returned an ambiguous or failed provider response; verify provider state before retrying.",
+                )
+            except Exception:
+                logging.getLogger("hassle_nft.payments").exception("Could not persist refund reconciliation case")
+            raise HTTPException(status_code=502, detail="Telegram refund could not be confirmed; the deal remains disputed and is queued for reconciliation") from exc
         now = int(time.time())
         with _db() as conn:
             begin_write(conn, f"deal:{deal_id}", f"payment-intent:{intent['id']}")
