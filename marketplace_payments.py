@@ -594,7 +594,7 @@ def transition_deal_status(
         actor_user_id=actor,
         event_type=event_type,
         event_key=key,
-        event_data={"from": current, "to": target, **(event_data or {})},
+        event_data={**(event_data or {}), "from": current, "to": target},
         now=timestamp,
     )
     changed = conn.execute(
