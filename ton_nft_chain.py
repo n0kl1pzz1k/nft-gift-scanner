@@ -8,11 +8,25 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from typing import Any
 
 import httpx
 
 TONCENTER_BASE_URL = "https://toncenter.com"
+TONCENTER_PUBLIC_REQUEST_INTERVAL = 1.1
+_TONCENTER_RATE_LIMIT_LOCK = asyncio.Lock()
+_TONCENTER_LAST_REQUEST_AT = 0.0
+
+
+async def _wait_for_toncenter_public_rate_limit() -> None:
+    global _TONCENTER_LAST_REQUEST_AT
+    async with _TONCENTER_RATE_LIMIT_LOCK:
+        now = time.monotonic()
+        delay = TONCENTER_PUBLIC_REQUEST_INTERVAL - (now - _TONCENTER_LAST_REQUEST_AT)
+        if delay > 0:
+            await asyncio.sleep(delay)
+        _TONCENTER_LAST_REQUEST_AT = time.monotonic()
 
 
 def _raw_address(value: str) -> str:
@@ -73,8 +87,9 @@ async def _run_get_method(
     if seqno is not None:
         payload["seqno"] = seqno
     if not token:
-        # The unauthenticated TON Center API v2 tier is limited to one request per second.
-        await asyncio.sleep(1.1)
+        # Serialize all public-tier calls from this app process, not just calls
+        # within one NFT verification, to stay below TON Center's 1 req/sec cap.
+        await _wait_for_toncenter_public_rate_limit()
     response = await session.post(
         "/api/v2/runGetMethod",
         json=payload,
