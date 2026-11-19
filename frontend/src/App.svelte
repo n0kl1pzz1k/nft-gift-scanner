@@ -175,6 +175,7 @@
     (orderKindFilter === 'all' || order.kind === orderKindFilter)
   ));
   const visibleOffers = $derived(offers.filter(offer => offerStatusFilter === 'all' || offer.status === offerStatusFilter));
+  const publicBuyRequests = $derived(orders.filter(order => order.kind === 'buy-order' && order.status === 'active').sort((a,b) => b.createdAt-a.createdAt));
   const myListings = $derived(orders.filter(order => order.isMine).sort((a, b) => b.createdAt - a.createdAt));
   const invalidPriceRange = $derived(marketCurrency !== 'all' && ((marketMinPrice !== '' && (!Number.isFinite(Number(marketMinPrice)) || Number(marketMinPrice) < 0)) || (marketMaxPrice !== '' && (!Number.isFinite(Number(marketMaxPrice)) || Number(marketMaxPrice) < 0)) || (marketMinPrice !== '' && marketMaxPrice !== '' && Number(marketMinPrice) > Number(marketMaxPrice))));
   const hasMarketFilters = $derived(Boolean(marketSearch.trim() || marketCollectionSearch.trim() || marketNftIdSearch.trim() || assetTypeFilter !== 'all' || marketCurrency !== 'all' || marketMinPrice !== '' || marketMaxPrice !== ''));
@@ -1147,6 +1148,27 @@
           {#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}
         {/if}
       </section>
+       <section class="activity-history-panel">
+         <div class="section-title"><div><div class="eyebrow">COMMUNITY WANTED</div><h2>{lang==='ru'?'Заявки покупателей':'Buyer requests'}</h2></div><span>{publicBuyRequests.length}</span></div>
+         {#if publicBuyRequests.length}
+           <div class="orders-list">
+             {#each publicBuyRequests as request (request.id)}
+               <article class="order-card">
+                 <div class="order-icon">⌕</div>
+                 <div class="order-main">
+                   <div class="order-kind">{lang==='ru'?'ИЩЕТ ПОКУПАТЕЛЬ':'BUY REQUEST'}</div>
+                   <h3>{request.title}</h3>
+                   <p>{request.owner}{request.note ? ' · '+request.note : ''}</p>
+                 </div>
+                 <div class="order-price"><strong>{request.price} {request.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class="status-active">{lang==='ru'?'БЮДЖЕТ':'BUDGET'}</span></div>
+               </article>
+             {/each}
+           </div>
+         {:else}
+           <div class="state-panel">{lang==='ru'?'Пока никто не опубликовал заявку на покупку.':'No community buy requests yet.'}</div>
+         {/if}
+         <small class="sell-modal-hint">{lang==='ru'?'Заявки показывают интерес и бюджет покупателей. Встречные предложения и автоматическое исполнение заявок ещё не включены.':'Requests show buyer interest and budget. Seller counteroffers and automatic order matching are not enabled yet.'}</small>
+       </section>
      {:else if view==='offers'}
        <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.offersTitle}</h1></section>
       <section class="market-section account-offers">
