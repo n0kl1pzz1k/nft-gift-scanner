@@ -720,12 +720,50 @@
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
     finally { offerActionBusy = ''; }
   }
-  function toggleFavoriteOrder(order: MarketplaceOrder) {
+  async function loadFavorites() {
+    if (!signedIn || !authToken) return;
+    try {
+      const data = await request('/api/marketplace/favorites');
+      const ids = Array.isArray(data.items)
+        ? data.items.map((item: {id?: unknown}) => typeof item?.id === 'string' ? item.id : '').filter(Boolean)
+        : [];
+      favoriteOrderIds = [...new Set(ids)].slice(0, 300);
+      try { localStorage.setItem('hassle-nft-favorite-orders-v1', JSON.stringify(favoriteOrderIds)); } catch {}
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function toggleFavoriteOrder(order: MarketplaceOrder) {
     haptic('light');
-    favoriteOrderIds = favoriteOrderIds.includes(order.id)
+    const wasSaved = favoriteOrderIds.includes(order.id);
+    const previous = favoriteOrderIds;
+    favoriteOrderIds = wasSaved
       ? favoriteOrderIds.filter(id => id !== order.id)
       : [...favoriteOrderIds, order.id];
     try { localStorage.setItem('hassle-nft-favorite-orders-v1', JSON.stringify(favoriteOrderIds)); } catch {}
+    if (!signedIn || !authToken) return;
+    try {
+      if (wasSaved) {
+        await request('/api/marketplace/favorites/' + encodeURIComponent(order.id), undefined, { method: 'DELETE' });
+      } else {
+        await request('/api/marketplace/favorites/' + encodeURIComponent(order.id), undefined, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gift: {
+            id: order.id, title: order.title, price: order.price, currency: order.currency,
+            kind: order.kind, status: order.status, createdAt: order.createdAt,
+            owner: order.owner, note: order.note || '', image_url: order.image_url || '',
+            asset_type: order.asset_type || null,
+          } }),
+        });
+      }
+    } catch (e) {
+      favoriteOrderIds = previous;
+      try { localStorage.setItem('hassle-nft-favorite-orders-v1', JSON.stringify(favoriteOrderIds)); } catch {}
+      notice = e instanceof Error ? e.message : String(e);
+      haptic('error');
+    }
   }
 
   function startEditOrder(order: MarketplaceOrder) {
@@ -841,6 +879,7 @@
       isAdmin = data.is_admin === true;
       signedIn = true;
       await loadMarketplace();
+      await loadFavorites();
       await loadOffersAndDeals();
       await loadSellerProfile();
       await loadVerifiedInventory();
@@ -885,6 +924,7 @@
       signedIn = true;
       if (isAdmin) await loadAdminOverview();
       await loadMarketplace();
+      await loadFavorites();
       await loadOffersAndDeals();
       await loadSellerProfile();
       await loadVerifiedInventory();
