@@ -350,10 +350,13 @@ async def telegram_auth(payload: TelegramAuthRequest):
         raise HTTPException(status_code=409, detail="This Telegram initData was already exchanged; reopen the Mini App")
     profile = upsert_telegram_user(user)
     session_token = create_telegram_session(str(user["id"]))
-    is_admin = get_admin_access(user["id"]) is not None
+    admin_access = get_admin_access(user["id"])
+    is_admin = admin_access is not None
     return {
         "authenticated": True,
         "is_admin": is_admin,
+        "admin_role": admin_access["role"] if admin_access else None,
+        "admin_permissions": admin_access["permissions"] if admin_access else [],
         "session_token": session_token,
         "expires_in": 43200,
         "user": profile,
@@ -362,9 +365,12 @@ async def telegram_auth(payload: TelegramAuthRequest):
 @app.get("/api/auth/me")
 async def telegram_me(x_telegram_init_data: str | None = Header(default=None)):
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    admin_access = get_admin_access(user["id"])
     return {
         "authenticated": True,
-        "is_admin": get_admin_access(user["id"]) is not None,
+        "is_admin": admin_access is not None,
+        "admin_role": admin_access["role"] if admin_access else None,
+        "admin_permissions": admin_access["permissions"] if admin_access else [],
         "user": {
             "id": str(user["id"]),
             "first_name": user.get("first_name") or "Telegram user",
