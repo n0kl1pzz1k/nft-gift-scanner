@@ -2149,6 +2149,42 @@ class SharedMarketplaceTests(unittest.TestCase):
         unrelated = self.client.get("/api/marketplace/activity?limit=10", headers=headers_c)
         self.assertEqual(unrelated.json()["items"], [])
 
+    def test_escrow_events_are_included_in_private_deal_timeline(self):
+        seller_headers = {"X-Telegram-Init-Data": "user-a"}
+        buyer_headers = {"X-Telegram-Init-Data": "user-b"}
+        listing = self.client.post(
+            "/api/marketplace/orders", headers=seller_headers,
+            json={"kind": "listing", "title": "Escrow timeline gift", "price": "10", "currency": "TON"},
+        )
+        self.assertEqual(listing.status_code, 201, listing.text)
+        offer = self.client.post(
+            "/api/marketplace/offers", headers=buyer_headers,
+            json={"order_id": listing.json()["item"]["id"], "amount": "9", "note": "timeline"},
+        )
+        self.assertEqual(offer.status_code, 201, offer.text)
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer.json()['item']['id']}", headers=seller_headers,
+            json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        deal_id = accepted.json()["deal_id"]
+        with marketplace_offers._db() as conn:
+            from marketplace_payments import append_escrow_event
+            append_escrow_event(
+                conn, deal_id=deal_id, actor_user_id="101",
+                event_type="payment_pending", event_key=f"{deal_id}:payment-pending",
+                event_data={"provider": "ton"}, now=1700000001,
+            )
+            conn.commit()
+        timeline = self.client.get(f"/api/marketplace/deals/{deal_id}/events", headers=buyer_headers)
+        self.assertEqual(timeline.status_code, 200, timeline.text)
+        self.assertTrue(any(item["type"] == "payment_pending" for item in timeline.json()["items"]))
+        unrelated = self.client.get(
+            f"/api/marketplace/deals/{deal_id}/events",
+            headers={"X-Telegram-Init-Data": "user-c"},
+        )
+        self.assertEqual(unrelated.status_code, 404)
+
     def test_deal_reservation_events_are_included_in_private_account_activity(self):
         seller_headers = {"X-Telegram-Init-Data": "user-a"}
         buyer_headers = {"X-Telegram-Init-Data": "user-b"}
