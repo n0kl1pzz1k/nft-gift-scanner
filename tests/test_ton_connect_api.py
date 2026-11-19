@@ -205,7 +205,11 @@ class TonConnectApiTests(unittest.TestCase):
         ]
         self.assertEqual(len(matching), 1)
         self.assertEqual(matching[0]["id"], asset["id"])
-        self.assertEqual(matching[0]["status"], "verified")
+        with marketplace._db() as conn:
+            row = conn.execute(
+                "SELECT status FROM verified_assets WHERE id = ?", (asset["id"],)
+            ).fetchone()
+        self.assertEqual(row["status"], "verified")
 
     def test_wallet_revocation_requires_authenticated_session(self):
         response = self.client.delete(
