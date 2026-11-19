@@ -1480,6 +1480,24 @@ class SharedMarketplaceTests(unittest.TestCase):
             self.assertEqual(removed.status_code, 200)
             self.assertTrue(removed.json()["order_removed"])
 
+            outsider_audit = self.client.get(
+                "/api/marketplace/admin/security-audit",
+                headers=reporter_headers,
+            )
+            self.assertEqual(outsider_audit.status_code, 403)
+            audit = self.client.get(
+                "/api/marketplace/admin/security-audit",
+                headers={"X-Telegram-Init-Data": "admin-session"},
+            )
+            self.assertEqual(audit.status_code, 200, audit.text)
+            self.assertEqual(audit.json()["total"], 1)
+            event = audit.json()["items"][0]
+            self.assertEqual(event["action"], "admin_order_removed")
+            self.assertEqual(event["actor_telegram_id"], "999")
+            self.assertEqual(event["target_type"], "order")
+            self.assertEqual(event["metadata"], {"report_id": report_id})
+            self.assertEqual(len(event["target_hash"]), 64)
+
         mine = self.client.get("/api/marketplace/mine", headers=owner_headers)
         self.assertEqual(mine.json()["items"][0]["status"], "cancelled")
         with marketplace._db() as conn:
