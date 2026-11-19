@@ -43,6 +43,7 @@ SQLITE_FALLBACK_FUNCTIONS = {
     ("marketplace.py", "init_marketplace_db"),
     ("marketplace.py", "_migrate_security_audit_events_schema"),
     ("marketplace_offers.py", "init_marketplace_offers_db"),
+    ("marketplace_payments.py", "initialize_sqlite_payment_schema"),
     ("ton_connect.py", "verify_ton_connect_schema"),
 }
 
