@@ -96,7 +96,7 @@ def initialize_sqlite_payment_schema(conn: Any) -> None:
             'deal_payment_requested', 'payment_intent_created', 'payment_pending',
             'payment_confirmed', 'escrow_funded', 'asset_transfer_requested',
             'asset_transfer_submitted', 'asset_transfer_confirmed', 'deal_completed',
-            'deal_disputed', 'refund_requested', 'refund_confirmed', 'payout_released',
+            'deal_disputed', 'refund_requested', 'refund_confirmed', 'payout_released', 'seller_credit_recorded',
             'deal_cancelled', 'deal_expired', 'dispute_resolution_approved',
             'dispute_resolution_ready'
         )),
@@ -482,7 +482,7 @@ ESCROW_EVENT_TYPES = {
     "deal_payment_requested", "payment_intent_created", "payment_pending",
     "payment_confirmed", "escrow_funded", "asset_transfer_requested",
     "asset_transfer_submitted", "asset_transfer_confirmed", "deal_completed",
-    "deal_disputed", "refund_requested", "refund_confirmed", "payout_released",
+    "deal_disputed", "refund_requested", "refund_confirmed", "payout_released", "seller_credit_recorded",
     "deal_cancelled", "deal_expired", "dispute_resolution_approved",
     "dispute_resolution_ready",
 }
