@@ -321,9 +321,21 @@ def init_marketplace_db() -> None:
         gift_ref_columns = {row["name"] for row in conn.execute("PRAGMA table_info(telegram_business_gift_refs)").fetchall()}
         if "model_sticker_file_id" not in gift_ref_columns:
             conn.execute("ALTER TABLE telegram_business_gift_refs ADD COLUMN model_sticker_file_id TEXT NOT NULL DEFAULT ''")
-        # Ownership may change only after the old owner snapshot was revoked and a
-        # trusted verifier confirms the new owner. Preserve a permanent audit trail.
+        # A verified ownership transfer must carry a one-use, server-created
+        # authorization row. A plain SQL UPDATE must never be enough to reassign
+        # an asset, even when the source and external ID remain unchanged.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS asset_owner_transfer_authorizations (
+                asset_id TEXT PRIMARY KEY,
+                previous_owner_id TEXT NOT NULL,
+                new_owner_id TEXT NOT NULL,
+                verification_reference_hash TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY(asset_id) REFERENCES verified_assets(id)
+            )
+        """)
         conn.execute("DROP TRIGGER IF EXISTS verified_assets_metadata_immutable")
+        conn.execute("DROP TRIGGER IF EXISTS verified_assets_consume_transfer_authorization")
         conn.execute("""
             CREATE TRIGGER verified_assets_metadata_immutable
             BEFORE UPDATE OF source, external_asset_id, owner_telegram_id, title, asset_type,
@@ -334,9 +346,27 @@ def init_marketplace_db() -> None:
                 AND NEW.owner_telegram_id != OLD.owner_telegram_id
                 AND NEW.source = OLD.source
                 AND NEW.external_asset_id = OLD.external_asset_id
+                AND EXISTS (
+                    SELECT 1 FROM asset_owner_transfer_authorizations auth
+                    WHERE auth.asset_id = OLD.id
+                      AND auth.previous_owner_id = OLD.owner_telegram_id
+                      AND auth.new_owner_id = NEW.owner_telegram_id
+                      AND auth.verification_reference_hash = NEW.verification_reference_hash
+                )
             )
             BEGIN
                 SELECT RAISE(ABORT, 'verified asset metadata is immutable');
+            END;
+        """)
+        conn.execute("""
+            CREATE TRIGGER verified_assets_consume_transfer_authorization
+            AFTER UPDATE OF owner_telegram_id ON verified_assets
+            WHEN NEW.owner_telegram_id != OLD.owner_telegram_id
+            BEGIN
+                DELETE FROM asset_owner_transfer_authorizations
+                WHERE asset_id = NEW.id
+                  AND previous_owner_id = OLD.owner_telegram_id
+                  AND new_owner_id = NEW.owner_telegram_id;
             END;
         """)
         conn.execute("""
@@ -853,6 +883,15 @@ def register_verified_asset(*, source: str, external_asset_id: str, owner_telegr
                     conn.rollback()
                     raise ValueError("This asset is already registered to another owner")
                 previous_owner_id = existing["owner_telegram_id"]
+                # The DB trigger accepts this update only when this exact
+                # asset/old-owner/new-owner/hash tuple was authorized in the
+                # current transaction. The AFTER trigger consumes the row.
+                conn.execute(
+                    """INSERT INTO asset_owner_transfer_authorizations
+                       (asset_id, previous_owner_id, new_owner_id, verification_reference_hash, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (existing["id"], previous_owner_id, owner_telegram_id, reference_hash, now),
+                )
                 changed = conn.execute(
                     """UPDATE verified_assets
                        SET owner_telegram_id = ?, title = ?, asset_type = ?, image_url = ?,
