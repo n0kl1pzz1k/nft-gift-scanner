@@ -2151,7 +2151,7 @@ def create_marketplace_router(
             if row["currency"] == "XTR" and "price" in changes and changes["price"] != changes["price"].to_integral_value():
                 conn.rollback()
                 raise HTTPException(status_code=422, detail="Star listing prices must be whole numbers")
-            if "title" in changes:
+            if "title" in changes and row["kind"] == "listing":
                 conn.rollback()
                 raise HTTPException(status_code=422, detail="Asset metadata is immutable and comes from the verified Telegram gift")
             conn.execute(
