@@ -403,7 +403,6 @@ def verify_postgres_offer_schema(connection: Any) -> dict[str, Any]:
         "idx_marketplace_ledger_entries_unique_account_direction",
         "idx_marketplace_escrow_events_deal_created",
         "idx_marketplace_escrow_events_event_key",
-    }        "idx_marketplace_ledger_entries_unique_account_direction",
     }
     table_rows = connection.execute(
         "SELECT table_name AS name FROM information_schema.tables "
