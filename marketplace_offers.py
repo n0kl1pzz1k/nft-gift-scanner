@@ -765,7 +765,8 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             "deal_status": deal["status"],
             "agreed_amount": deal["agreed_amount"],
             "currency": deal["currency"],
-            "payments_enabled": deal["status"] != "payment_not_enabled",
+            "payments_enabled": False,
+            "checkout_available": False,
             "intents": [dict(row) for row in rows],
         }
 
