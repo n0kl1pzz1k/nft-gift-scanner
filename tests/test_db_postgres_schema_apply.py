@@ -176,6 +176,13 @@ def test_schema_apply_preserves_all_marketplace_trigger_behaviors(tmp_path):
           AND NEW.source=OLD.source AND NEW.external_asset_id=OLD.external_asset_id
         )
         BEGIN SELECT RAISE(ABORT, 'verified asset metadata is immutable'); END;
+        CREATE TRIGGER verified_assets_consume_transfer_authorization
+        AFTER UPDATE OF owner_telegram_id ON verified_assets
+        BEGIN
+          DELETE FROM asset_owner_transfer_authorizations
+          WHERE asset_id=NEW.id AND previous_owner_id=OLD.owner_telegram_id
+            AND new_owner_id=NEW.owner_telegram_id;
+        END;
         """
     )
     source.commit()
