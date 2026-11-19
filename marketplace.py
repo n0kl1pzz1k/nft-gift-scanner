@@ -1951,7 +1951,7 @@ def create_marketplace_router(
         x_telegram_init_data: str | None = Header(default=None),
     ):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
-        if not _verified_asset_actions_enabled():
+        if payload.kind == "listing" and not _verified_asset_actions_enabled():
             raise HTTPException(
                 status_code=409,
                 detail="Listing is unavailable until TON Connect ownership verification and real asset import are enabled",
