@@ -38,8 +38,11 @@ _SECURITY_AUDIT_ACTIONS = {
     "admin_role_revoked",
     "admin_reconciliation_resolved",
     "admin_asset_revoked",
+    "admin_support_ticket_assigned",
+    "admin_support_ticket_resolved",
+    "admin_support_ticket_closed",
 }
-_SECURITY_AUDIT_TARGET_TYPES = {"session", "account", "wallet", "order_report", "order", "user", "admin_role", "reconciliation", "asset"}
+_SECURITY_AUDIT_TARGET_TYPES = {"session", "account", "wallet", "order_report", "order", "user", "admin_role", "reconciliation", "asset", "support_ticket"}
 _SECURITY_AUDIT_METADATA_KEYS = {"network", "report_id", "order_id", "revoked_count", "reason", "role", "status", "resolution_action", "reason_hash"}
 
 
@@ -214,7 +217,7 @@ def _migrate_security_audit_events_schema(conn: sqlite3.Connection) -> None:
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='security_audit_events'"
     ).fetchone()
-    if row is None or ("admin_asset_revoked" in str(row["sql"] or "") and "'asset'" in str(row["sql"] or "")):
+    if row is None or ("admin_support_ticket_resolved" in str(row["sql"] or "") and "'support_ticket'" in str(row["sql"] or "")):
         return
     conn.execute("DROP TRIGGER IF EXISTS security_audit_events_no_update")
     conn.execute("DROP TRIGGER IF EXISTS security_audit_events_no_delete")
@@ -231,11 +234,13 @@ def _migrate_security_audit_events_schema(conn: sqlite3.Connection) -> None:
                 'admin_report_dismissed', 'admin_order_removed',
                 'admin_user_suspended', 'admin_user_reactivated',
                 'admin_role_assigned', 'admin_role_revoked',
-                'admin_reconciliation_resolved', 'admin_asset_revoked'
+                'admin_reconciliation_resolved', 'admin_asset_revoked',
+                'admin_support_ticket_assigned', 'admin_support_ticket_resolved',
+                'admin_support_ticket_closed'
             )),
             target_type TEXT NOT NULL CHECK(target_type IN (
                 'session', 'account', 'wallet', 'order_report', 'order',
-                'user', 'admin_role', 'reconciliation', 'asset'
+                'user', 'admin_role', 'reconciliation', 'asset', 'support_ticket'
             )),
             target_hash TEXT NOT NULL CHECK(length(target_hash) = 64),
             outcome TEXT NOT NULL CHECK(outcome IN ('success', 'denied')),
@@ -430,11 +435,13 @@ def init_marketplace_db() -> None:
                 'admin_report_dismissed', 'admin_order_removed',
                 'admin_user_suspended', 'admin_user_reactivated',
                 'admin_role_assigned', 'admin_role_revoked',
-                'admin_reconciliation_resolved', 'admin_asset_revoked'
+                'admin_reconciliation_resolved', 'admin_asset_revoked',
+                'admin_support_ticket_assigned', 'admin_support_ticket_resolved',
+                'admin_support_ticket_closed'
             )),
             target_type TEXT NOT NULL CHECK(target_type IN (
                 'session', 'account', 'wallet', 'order_report', 'order',
-                'user', 'admin_role', 'reconciliation', 'asset'
+                'user', 'admin_role', 'reconciliation', 'asset', 'support_ticket'
             )),
             target_hash TEXT NOT NULL CHECK(length(target_hash) = 64),
             outcome TEXT NOT NULL CHECK(outcome IN ('success', 'denied')),
@@ -491,6 +498,24 @@ def init_marketplace_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_marketplace_reconciliation_status_created
             ON marketplace_manual_reconciliation_items(status, created_at ASC);
+        CREATE TABLE IF NOT EXISTS marketplace_support_tickets (
+            id TEXT PRIMARY KEY,
+            telegram_id TEXT NOT NULL,
+            username TEXT NOT NULL DEFAULT '',
+            ticket_type TEXT NOT NULL CHECK(ticket_type IN ('payment', 'account', 'asset', 'other')),
+            subject TEXT NOT NULL,
+            message TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'in_progress', 'resolved', 'closed')),
+            assigned_to TEXT,
+            resolution_note TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            resolved_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_marketplace_support_tickets_status_created
+            ON marketplace_support_tickets(status, created_at ASC);
+        CREATE INDEX IF NOT EXISTS idx_marketplace_support_tickets_user_created
+            ON marketplace_support_tickets(telegram_id, created_at DESC);
         CREATE TABLE IF NOT EXISTS app_settings (
             setting_key TEXT PRIMARY KEY,
             setting_value TEXT NOT NULL,
