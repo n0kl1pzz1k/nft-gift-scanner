@@ -2031,6 +2031,52 @@ class SharedMarketplaceTests(unittest.TestCase):
             own = next(item for item in offers.json()["items"] if item["order_id"] == order_id)
             self.assertEqual(own["status"], expected)
 
+    def test_offer_acceptance_rolls_back_if_deal_timeline_insert_fails(self):
+        seller_headers = {"X-Telegram-Init-Data": "user-a"}
+        buyer_headers = {"X-Telegram-Init-Data": "user-b"}
+        created = self.client.post(
+            "/api/marketplace/orders", headers=seller_headers,
+            json={"kind": "listing", "title": "Atomic reservation asset", "price": "2", "currency": "TON"},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        order_id = created.json()["item"]["id"]
+        offered = self.client.post(
+            "/api/marketplace/offers", headers=buyer_headers,
+            json={"order_id": order_id, "amount": "1.8"},
+        )
+        self.assertEqual(offered.status_code, 201, offered.text)
+        offer_id = offered.json()["item"]["id"]
+        with marketplace._db() as conn:
+            conn.execute("""
+                CREATE TRIGGER fail_deal_event_insert
+                BEFORE INSERT ON marketplace_deal_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'injected deal event failure');
+                END
+            """)
+        guarded_client = TestClient(api.app, raise_server_exceptions=False)
+        try:
+            failed = guarded_client.patch(
+                f"/api/marketplace/offers/{offer_id}", headers=seller_headers,
+                json={"action": "accept"},
+            )
+        finally:
+            guarded_client.close()
+        self.assertEqual(failed.status_code, 500)
+        with marketplace._db() as conn:
+            order = conn.execute(
+                "SELECT status FROM marketplace_orders WHERE id = ?", (order_id,)
+            ).fetchone()
+            offer = conn.execute(
+                "SELECT status FROM marketplace_offers WHERE id = ?", (offer_id,)
+            ).fetchone()
+            deals = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_deals WHERE order_id = ?", (order_id,)
+            ).fetchone()[0]
+        self.assertEqual(order["status"], "active")
+        self.assertEqual(offer["status"], "pending")
+        self.assertEqual(deals, 0)
+
     def test_participants_can_cancel_unpaid_reservation_and_reopen_listing(self):
         seller_headers = {"X-Telegram-Init-Data": "user-a"}
         buyer_headers = {"X-Telegram-Init-Data": "user-b"}
