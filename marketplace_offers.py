@@ -927,10 +927,10 @@ def create_marketplace_offers_router(
         admin = _admin_user(x_telegram_init_data, "disputes.resolve")
         admin_id = str(admin["id"])
         _enforce_user_rate_limit(admin_id, "dispute_resolution_approval", 10)
-        raw_ids = os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", ""))
-        configured_admins = {part.strip() for part in raw_ids.split(",") if part.strip().isdigit()}
+        from marketplace_admin import get_admin_ids_with_permission
+        configured_admins = get_admin_ids_with_permission("disputes.resolve")
         if len(configured_admins) < 2:
-            raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
+            raise HTTPException(status_code=503, detail="Two distinct dispute-capable administrators must be configured")
         with _db() as conn:
             begin_write(conn, f"deal:{deal_id}")
             deal = conn.execute(
@@ -1134,13 +1134,10 @@ def create_marketplace_offers_router(
         admin = _admin_user(x_telegram_init_data, "payments.refund")
         admin_id = str(admin["id"])
         _enforce_user_rate_limit(admin_id, "stars_refund_execution", 5)
-        configured_admins = {
-            part.strip()
-            for part in os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", "")).split(",")
-            if part.strip().isdigit()
-        }
+        from marketplace_admin import get_admin_ids_with_permission
+        configured_admins = get_admin_ids_with_permission("payments.refund")
         if len(configured_admins) < 2:
-            raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
+            raise HTTPException(status_code=503, detail="Two distinct refund-capable administrators must be configured")
         bot_token = os.getenv("BOT_TOKEN", "").strip()
         if not bot_token:
             raise HTTPException(status_code=503, detail="Telegram payment bot is not configured")
