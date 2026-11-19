@@ -332,7 +332,7 @@ def test_generated_production_trigger_ddl_executes_and_enforces_in_postgres():
         CREATE TABLE marketplace_offers(id TEXT, order_id TEXT, sender_user_id TEXT, sender_name TEXT, status TEXT, created_at TEXT, updated_at TEXT);
         CREATE TABLE marketplace_orders(id TEXT, user_id TEXT, title TEXT, owner_name TEXT, status TEXT, updated_at TEXT);
         CREATE TABLE marketplace_notifications(id TEXT, user_id TEXT, event_type TEXT, offer_id TEXT, order_id TEXT, order_title TEXT, actor_name TEXT, created_at TEXT);
-        CREATE TABLE verified_assets(id TEXT, source TEXT, external_asset_id TEXT, owner_telegram_id TEXT, title TEXT, asset_type TEXT, image_url TEXT, verification_method TEXT, verification_reference_hash TEXT, verified_at TEXT, status TEXT);
+        CREATE TABLE verified_assets(id TEXT PRIMARY KEY, source TEXT, external_asset_id TEXT, owner_telegram_id TEXT, title TEXT, asset_type TEXT, image_url TEXT, verification_method TEXT, verification_reference_hash TEXT, verified_at TEXT, status TEXT);
         CREATE TABLE asset_owner_transfer_authorizations(
             asset_id TEXT PRIMARY KEY REFERENCES verified_assets(id),
             previous_owner_id TEXT NOT NULL, new_owner_id TEXT NOT NULL,
