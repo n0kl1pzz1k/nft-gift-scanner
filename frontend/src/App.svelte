@@ -70,6 +70,10 @@
   let offersTotal = $state(0);
   let deals = $state<MarketplaceDeal[]>([]);
   let offersLoadingMore = $state(false);
+  let editingOfferId = $state('');
+  let editOfferAmount = $state('');
+  let editOfferNote = $state('');
+  let offerEditBusy = $state(false);
   let notifications = $state<AccountNotification[]>([]);
   let notificationTotal = $state(0);
   let notificationsLoadingMore = $state(false);
@@ -715,6 +719,39 @@
     } catch (e) { notice = e instanceof Error ? e.message : String(e); haptic('error'); return false; }
   }
 
+  function startEditOffer(offer: MarketplaceOffer) {
+    editingOfferId = offer.id;
+    editOfferAmount = String(offer.amount);
+    editOfferNote = offer.note || '';
+  }
+
+  async function saveOfferEdit() {
+    const offer = offers.find(item => item.id === editingOfferId);
+    const amount = Number(editOfferAmount);
+    if (!offer || !Number.isFinite(amount) || amount <= 0 || (offer.currency === 'XTR' && !Number.isInteger(amount))) {
+      notice = lang === 'ru'
+        ? (offer?.currency === 'XTR' ? 'Сумма оффера в Stars должна быть целым числом.' : 'Укажи корректную положительную сумму.')
+        : (offer?.currency === 'XTR' ? 'Star offers must be a whole number.' : 'Enter a valid positive amount.');
+      return;
+    }
+    if (offerEditBusy) return;
+    offerEditBusy = true;
+    try {
+      await request('/api/marketplace/offers/' + encodeURIComponent(editingOfferId), undefined, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'edit', amount, note: editOfferNote.trim() }),
+      });
+      editingOfferId = '';
+      notice = lang === 'ru' ? 'Оффер обновлён.' : 'Offer updated.';
+      await loadOffersAndDeals();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      offerEditBusy = false;
+    }
+  }
+
   async function respondToOffer(offerId: string, action: 'accept'|'decline'|'withdraw') {
     if (offerActionBusy) return;
     offerActionBusy = offerId;
@@ -1075,7 +1112,7 @@
         {#if offersBusy}<div class="state-panel">{t.loading}</div>{:else if offers.length===0}<div class="state-panel">{t.noOffers}</div>{:else if visibleOffers.length===0}<div class="state-panel">{lang==='ru'?'Нет офферов с таким статусом.':'No offers with this status.'}</div>{:else}
           <div class="orders-list">{#each visibleOffers as offer (offer.id)}
             <article class="order-card"><div class="order-icon">↗</div><div class="order-main"><div class="order-kind">{offer.is_mine?t.outgoing:t.incoming} · {offer.order_title}</div><h3>{offer.amount} {offer.currency==='XTR'?'⭐ Stars':'TON'}</h3><p>{offer.note || offer.sender_name} · {new Date(offer.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p></div><div class="order-price"><span class={'status-'+(offer.status==='pending'?'active':offer.status==='accepted'?'matched':'cancelled')}>{offerStatusLabel(offer.status)}</span></div>
-            {#if offer.status==='pending' && offer.is_mine}<div class="order-actions"><button class="cancel-button" onclick={()=>respondToOffer(offer.id,'withdraw')} disabled={offerActionBusy===offer.id}>{offerActionBusy===offer.id?'…':t.withdrawOffer}</button></div>{:else if offer.status==='pending' && !offer.is_mine}<div class="order-actions"><button class="asset-offer-button" onclick={()=>respondToOffer(offer.id,'accept')} disabled={offerActionBusy===offer.id}>{offerActionBusy===offer.id?'…':(lang==='ru'?'Принять и зарезервировать':'Accept & reserve')}</button><button class="cancel-button" onclick={()=>respondToOffer(offer.id,'decline')} disabled={offerActionBusy===offer.id}>{t.declineOffer}</button></div><p class="safety-note">{lang==='ru'?'Принятие создаёт резерв объявления. Оплата и передача NFT пока не выполняются, поэтому сделка не считается завершённой.':'Accepting creates a listing reservation. Payment and NFT delivery are not active, so the trade is not completed.'}</p>{/if}</article>
+            {#if offer.status==='pending' && offer.is_mine}<div class="order-actions"><button class="asset-offer-button" onclick={()=>startEditOffer(offer)} disabled={offerEditBusy}>{lang==='ru'?'Изменить':'Edit offer'}</button><button class="cancel-button" onclick={()=>respondToOffer(offer.id,'withdraw')} disabled={offerActionBusy===offer.id || offerEditBusy}>{offerActionBusy===offer.id?'…':t.withdrawOffer}</button></div>{:else if offer.status==='pending' && !offer.is_mine}<div class="order-actions"><button class="asset-offer-button" onclick={()=>respondToOffer(offer.id,'accept')} disabled={offerActionBusy===offer.id}>{offerActionBusy===offer.id?'…':(lang==='ru'?'Принять и зарезервировать':'Accept & reserve')}</button><button class="cancel-button" onclick={()=>respondToOffer(offer.id,'decline')} disabled={offerActionBusy===offer.id}>{t.declineOffer}</button></div><p class="safety-note">{lang==='ru'?'Принятие создаёт резерв объявления. Оплата и передача NFT пока не выполняются, поэтому сделка не считается завершённой.':'Accepting creates a listing reservation. Payment and NFT delivery are not active, so the trade is not completed.'}</p>{/if}</article>
           {/each}</div>{/if}
         {#if offers.length < offersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOffers} disabled={offersLoadingMore}>{offersLoadingMore?'…':t.loadMore}</button></div>{/if}
 
@@ -1346,6 +1383,19 @@
             </label>
             <label>{t.reportDetails}<textarea class="form-input note-input" bind:value={reportDetails} maxlength="1000" placeholder={lang==='ru'?'Опиши проблему (необязательно)':'Describe the issue (optional)'}></textarea></label>
             <div class="report-actions"><button class="refresh-button" onclick={()=>reportingOrderId=''} disabled={reportBusy}>{t.cancelReport}</button><button class="ton-primary" onclick={()=>submitOrderReport(reportingOrderId)} disabled={reportBusy}>{reportBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendReport}</button></div>
+          </div>
+        </div>
+      {/if}
+      {#if editingOfferId}
+        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !offerEditBusy)editingOfferId='';}}>
+          <div class="sell-modal offer-modal" role="dialog" aria-modal="true" aria-labelledby="edit-offer-title">
+            <button class="modal-close" onclick={()=>editingOfferId=''} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={offerEditBusy}>×</button>
+            <div class="eyebrow">HASSLE NFT · OFFER</div>
+            <h2 id="edit-offer-title">{lang==='ru'?'Изменить оффер':'Edit offer'}</h2>
+            <label>{lang==='ru'?'Новая сумма':'New amount'}<input class="form-input" type="number" min="0.01" step={offers.find(item=>item.id===editingOfferId)?.currency==='XTR'?'1':'0.01'} bind:value={editOfferAmount}/></label>
+            <label>{lang==='ru'?'Сообщение продавцу':'Message to seller'}<textarea class="form-input note-input" bind:value={editOfferNote} maxlength="300"></textarea></label>
+            <button class="ton-primary offer-submit" onclick={saveOfferEdit} disabled={offerEditBusy}>{offerEditBusy?(lang==='ru'?'Сохраняем…':'Saving…'):(lang==='ru'?'Сохранить оффер':'Save offer')}</button>
+            <small class="sell-modal-hint">{lang==='ru'?'Изменить можно только свой ожидающий оффер. После ответа продавца редактирование закрывается.':'Only your pending offer can be edited. Editing closes once the seller responds.'}</small>
           </div>
         </div>
       {/if}
