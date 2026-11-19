@@ -25,6 +25,68 @@ def _db():
     # Preserve the legacy path override while centralizing connection lifetime.
     return _database_db(DB_PATH)
 
+_SECURITY_AUDIT_ACTIONS = {
+    "telegram_session_revoked",
+    "telegram_sessions_revoked_all",
+    "ton_wallet_linked",
+    "ton_wallet_revoked",
+    "admin_report_dismissed",
+    "admin_order_removed",
+}
+_SECURITY_AUDIT_TARGET_TYPES = {"session", "account", "wallet", "order_report", "order"}
+_SECURITY_AUDIT_METADATA_KEYS = {"network", "report_id", "order_id", "revoked_count", "reason"}
+
+
+def insert_security_audit_event(
+    conn: Any,
+    *,
+    actor_telegram_id: str,
+    action: str,
+    target_type: str,
+    target_id: str,
+    outcome: str = "success",
+    metadata: dict[str, Any] | None = None,
+    now: int | None = None,
+) -> str:
+    """Insert an append-only audit record without storing bearer credentials or raw targets."""
+    actor = str(actor_telegram_id).strip()
+    target = str(target_id or "").strip()
+    if not actor.isdigit() or not target or len(target) > 512:
+        raise ValueError("A valid audit actor and target are required")
+    if action not in _SECURITY_AUDIT_ACTIONS or target_type not in _SECURITY_AUDIT_TARGET_TYPES:
+        raise ValueError("Unsupported security audit action or target type")
+    if outcome not in {"success", "denied"}:
+        raise ValueError("Unsupported security audit outcome")
+
+    safe_metadata: dict[str, str | int | bool] = {}
+    for key, value in (metadata or {}).items():
+        if key not in _SECURITY_AUDIT_METADATA_KEYS:
+            continue
+        if isinstance(value, bool) or isinstance(value, int):
+            safe_metadata[key] = value
+        elif isinstance(value, str) and len(value) <= 128:
+            safe_metadata[key] = value
+    target_hash = hashlib.sha256(f"{target_type}:{target}".encode("utf-8")).hexdigest()
+    event_id = "sa_" + uuid.uuid4().hex[:24]
+    timestamp = int(time.time()) if now is None else int(now)
+    conn.execute(
+        """INSERT INTO security_audit_events
+           (id, actor_telegram_id, action, target_type, target_hash, outcome, metadata_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (event_id, actor, action, target_type, target_hash, outcome,
+         json.dumps(safe_metadata, sort_keys=True, separators=(",", ":")), timestamp),
+    )
+    return event_id
+
+
+def record_security_audit_event(**kwargs: Any) -> str:
+    """Write a security audit event in its own transaction."""
+    with _db() as conn:
+        begin_write(conn, f"security-audit:{kwargs.get('actor_telegram_id', '')}:{kwargs.get('action', '')}")
+        event_id = insert_security_audit_event(conn, **kwargs)
+        conn.commit()
+    return event_id
+
 
 _LEGACY_MARKETPLACE_TABLE_RENAMES = (
     ("demo_orders", "marketplace_orders"),
