@@ -53,14 +53,14 @@ class TonNftChainVerificationTests(unittest.IsolatedAsyncioTestCase):
                 if payload["method"] == "get_nft_data":
                     return httpx.Response(200, json={
                         "ok": True,
-                        "result": {"exit_code": 0, "stack": [
+                        "result": {"exit_code": 0, "block_id": {"seqno": 12345}, "stack": [
                             ["num", "1"], ["num", "42"], ["slice", "item-collection"],
                             ["slice", "item-owner"], ["cell", "ignored"],
                         ]},
                     })
                 return httpx.Response(200, json={
                     "ok": True,
-                    "result": {"exit_code": 0, "stack": [["slice", "derived-item"]]},
+                    "result": {"exit_code": 0, "block_id": {"seqno": 12345}, "stack": [["slice", "derived-item"]]},
                 })
             return httpx.Response(404)
 
@@ -72,15 +72,18 @@ class TonNftChainVerificationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(result["verified"])
         self.assertEqual(result["index"], 42)
-        self.assertEqual([__import__("json").loads(c.content)["method"] for c in calls], [
+        self.assertEqual(result["block_seqno"], 12345)
+        requests = [__import__("json").loads(call.content) for call in calls]
+        self.assertEqual([request["method"] for request in requests], [
             "get_nft_data", "get_nft_address_by_index"
         ])
+        self.assertEqual(requests[1]["seqno"], 12345)
 
     async def test_rejects_item_when_live_owner_does_not_match(self):
         client = httpx.AsyncClient(
             transport=httpx.MockTransport(lambda request: httpx.Response(200, json={
                 "ok": True,
-                "result": {"exit_code": 0, "stack": [
+                "result": {"exit_code": 0, "block_id": {"seqno": 12345}, "stack": [
                     ["num", "1"], ["num", "42"], ["slice", "collection"],
                     ["slice", "wrong-owner"], ["cell", "ignored"],
                 ]},
