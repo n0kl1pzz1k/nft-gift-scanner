@@ -1074,6 +1074,7 @@ def create_marketplace_offers_router(
                 )
             else:
                 intent = dict(intent)
+            invoice_payload = str(intent["invoice_payload"])
             append_escrow_event(
                 conn,
                 deal_id=deal_id,
