@@ -12,7 +12,7 @@
       sellerWallet: string;
       transaction: { validUntil: number; network: string; messages: Array<{ address: string; amount: string; payload?: string }> };
     } | null;
-    onDeliverySent?: (dealId: string, boc: string) => void;
+    onDeliverySent?: (dealId: string, boc: string) => Promise<void> | void;
   };
 
   let { api, authToken, lang, onVerified, deliveryRequest = null, onDeliverySent = () => {} }: Props = $props();
@@ -187,7 +187,7 @@
     message = '';
     try {
       const result = await tonConnect.sendTransaction(deliveryRequest.transaction);
-      onDeliverySent(deliveryRequest.dealId, result.boc);
+      await onDeliverySent(deliveryRequest.dealId, result.boc);
       message = lang === 'ru'
         ? 'Транзакция отправлена. Покупатель сможет подтвердить передачу после обновления TON.'
         : 'Transaction submitted. The buyer can verify delivery once TON updates.';
