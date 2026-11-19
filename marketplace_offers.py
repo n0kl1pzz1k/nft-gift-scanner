@@ -445,10 +445,13 @@ def expire_unpaid_marketplace_deals(
 def create_marketplace_offers_router(
     verify_telegram_init_data: Callable[[str], dict],
     require_admin: Callable[[str | None], dict] | None = None,
+    require_admin_permission: Callable[[str | None, str], dict] | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/marketplace", tags=["marketplace-offers"])
 
-    def _admin_user(credential: str | None) -> dict:
+    def _admin_user(credential: str | None, permission: str) -> dict:
+        if require_admin_permission is not None:
+            return require_admin_permission(credential, permission)
         if require_admin is not None:
             return require_admin(credential)
         user = _require_user(credential, verify_telegram_init_data)
@@ -920,7 +923,7 @@ def create_marketplace_offers_router(
         payload: DisputeResolutionApprovalRequest,
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        admin = _admin_user(x_telegram_init_data)
+        admin = _admin_user(x_telegram_init_data, "disputes.resolve")
         admin_id = str(admin["id"])
         _enforce_user_rate_limit(admin_id, "dispute_resolution_approval", 10)
         raw_ids = os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", ""))
@@ -1127,7 +1130,7 @@ def create_marketplace_offers_router(
     ):
         """Execute a two-admin-approved Telegram Stars refund and reverse the escrow journal."""
         import httpx
-        admin = _admin_user(x_telegram_init_data)
+        admin = _admin_user(x_telegram_init_data, "payments.refund")
         admin_id = str(admin["id"])
         _enforce_user_rate_limit(admin_id, "stars_refund_execution", 5)
         configured_admins = {
