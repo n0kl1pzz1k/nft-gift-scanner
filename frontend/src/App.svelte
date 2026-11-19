@@ -856,6 +856,7 @@
 
   function startEditOrder(order: MarketplaceOrder) {
     editingOrderId = order.id;
+    editTitle = order.title;
     editPrice = String(order.price);
     editNote = order.note || '';
   }
@@ -875,7 +876,11 @@
       await request('/api/marketplace/orders/' + encodeURIComponent(id), undefined, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ price, note: editNote.trim() }),
+        body: JSON.stringify({
+          ...(order?.kind === 'buy-order' ? { title: editTitle.trim() } : {}),
+          price,
+          note: editNote.trim(),
+        }),
       });
       editingOrderId = '';
       notice = t.orderUpdated;
@@ -1195,7 +1200,7 @@
                   </div>
                   <div class="order-price">
                     <span class={'status-'+(listing.status==='active'?'active':listing.status==='matched'?'matched':'cancelled')}>{listing.status==='active'?(lang==='ru'?'АКТИВНО':'ACTIVE'):listing.status==='matched'?(lang==='ru'?'ЗАРЕЗЕРВИРОВАНО':'RESERVED'):(lang==='ru'?'СНЯТО':'CANCELLED')}</span>
-                    {#if listing.status==='active' && listing.kind==='listing'}
+                    {#if listing.status==='active'}
                       <button class="cancel-button" onclick={()=>startEditOrder(listing)}>{lang==='ru'?'Управлять':'Manage'}</button>
                     {/if}
                   </div>
@@ -1484,8 +1489,9 @@
           <div class="sell-modal offer-modal" role="dialog" aria-modal="true" aria-labelledby="edit-listing-title">
             <button class="modal-close" onclick={()=>editingOrderId=''} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={orderEditBusy}>×</button>
             <div class="eyebrow">HASSLE NFT · LISTING</div>
-            <h2 id="edit-listing-title">{lang==='ru'?'Управление объявлением':'Manage listing'}</h2>
-            <label>{lang==='ru'?'Цена':'Price'}<input class="form-input" type="number" min="0.01" step={orders.find(item=>item.id===editingOrderId)?.currency==='XTR'?'1':'0.01'} bind:value={editPrice} /></label>
+            <h2 id="edit-listing-title">{orders.find(item=>item.id===editingOrderId)?.kind==='buy-order'?(lang==='ru'?'Изменить заявку на покупку':'Edit buy request'):(lang==='ru'?'Управление объявлением':'Manage listing')}</h2>
+            {#if orders.find(item=>item.id===editingOrderId)?.kind==='buy-order'}<label>{lang==='ru'?'Название искомого актива':'Wanted asset'}<input class="form-input" bind:value={editTitle} maxlength="120" /></label>{/if}
+            <label>{lang==='ru'?'Цена / бюджет':'Price / budget'}<input class="form-input" type="number" min="0.01" step={orders.find(item=>item.id===editingOrderId)?.currency==='XTR'?'1':'0.01'} bind:value={editPrice} /></label>
             <label>{lang==='ru'?'Комментарий':'Description'}<textarea class="form-input note-input" bind:value={editNote} maxlength="300"></textarea></label>
             <button class="ton-primary offer-submit" onclick={()=>saveOrderEdit(editingOrderId)} disabled={orderEditBusy}>{orderEditBusy?(lang==='ru'?'Сохраняем…':'Saving…'):(lang==='ru'?'Сохранить изменения':'Save changes')}</button>
             <button class="report-asset-button" onclick={()=>cancelOrder(editingOrderId)} disabled={orderEditBusy}>{lang==='ru'?'Снять объявление с продажи':'Remove listing from sale'}</button>
