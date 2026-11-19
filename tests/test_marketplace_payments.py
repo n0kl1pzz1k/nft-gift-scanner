@@ -20,6 +20,7 @@ def _connection():
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("CREATE TABLE marketplace_deals (id TEXT PRIMARY KEY, status TEXT NOT NULL)")
     initialize_sqlite_payment_schema(conn)
+    initialize_sqlite_payment_schema(conn)
     conn.execute("INSERT INTO marketplace_deals (id, status) VALUES ('deal-1', 'awaiting_payment')")
     conn.commit()
     return conn
@@ -49,6 +50,8 @@ def test_payment_intent_creation_is_idempotent_and_bound_to_ready_deal():
 
     with pytest.raises(PaymentConflict):
         _create_stars_intent(conn, amount="11")
+    with pytest.raises(sqlite3.IntegrityError):
+        _create_stars_intent(conn, key="stars-order-duplicate")
 
     conn.execute("UPDATE marketplace_deals SET status='payment_not_enabled' WHERE id='deal-1'")
     with pytest.raises(PaymentStateError, match="awaiting payment"):
