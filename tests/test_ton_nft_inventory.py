@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import httpx
 
-from ton_nft_inventory import fetch_wallet_nfts, fetch_nft_owner, _normalise_nft
+from ton_nft_inventory import fetch_wallet_nfts, fetch_nft_owner, _normalise_nft, fragment_asset_type
 
 
 WALLET = "0:" + "a" * 64
@@ -102,6 +102,33 @@ class TonNftInventoryProviderTests(unittest.IsolatedAsyncioTestCase):
         result = _normalise_nft(item, WALLET)
         self.assertEqual(result["image_url"], "")
 
+
+    async def test_fragment_collection_addresses_are_normalised_and_classified(self):
+        username_collection = "EQCA14o1-VWhS2efqoh_9M1b_A9DtKTuoqfmkn83AbJzwnPi"
+        number_collection = "EQAOQdwdw8kGftJCSFgOErM1mBjYPe4DBPq8-AhF6vr9si5N"
+        self.assertEqual(fragment_asset_type(username_collection), "username")
+        self.assertEqual(fragment_asset_type(number_collection), "number")
+        self.assertEqual(
+            fragment_asset_type("0:80d78a35f955a14b679faa887ff4cd5bfc0f43b4a4eea2a7e6927f3701b273c2"),
+            "username",
+        )
+        self.assertIsNone(fragment_asset_type("0:" + "f" * 64))
+
+    async def test_nft_normalisation_preserves_canonical_collection_address(self):
+        item = {
+            "address": NFT,
+            "owner": {"address": WALLET, "is_scam": False},
+            "metadata": {"name": "@canonical"},
+            "collection": {
+                "address": "EQCA14o1-VWhS2efqoh_9M1b_A9DtKTuoqfmkn83AbJzwnPi",
+            },
+            "trust": "whitelist",
+        }
+        result = _normalise_nft(item, WALLET)
+        self.assertEqual(
+            result["collection_address"],
+            "0:80d78a35f955a14b679faa887ff4cd5bfc0f43b4a4eea2a7e6927f3701b273c2",
+        )
 
 if __name__ == "__main__":
     unittest.main()
