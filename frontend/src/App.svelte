@@ -694,8 +694,8 @@
   }
 
   async function createOffer(orderId: string): Promise<boolean> {
-    if (!walletConnected) {
-      notice = lang === 'ru' ? 'Офферы откроются после подключения TON-кошелька и подтверждения актива в инвентаре.' : 'Offers unlock after TON Connect and verified asset ownership in your inventory.';
+    if (!signedIn || !authToken) {
+      notice = lang === 'ru' ? 'Войди через Telegram, чтобы отправить оффер.' : 'Sign in with Telegram to send an offer.';
       return false;
     }
     const amount = Number(offerAmount);
@@ -1049,7 +1049,7 @@
         {:else}
           <div class="asset-grid">
             {#each marketAssets as order (order.id)}
-              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} backgroundColor={nftBackground} {lang} sellerProfileId={order.seller_profile_id || null} onSeller={()=>openSellerProfile(order.seller_profile_id || '')} onFavorite={()=>toggleFavoriteOrder(order)} canOffer={walletConnected} onOffer={()=>{notice=lang==='ru'?'Офферы откроются после подключения TON-кошелька и подтверждения актива в инвентаре.':'Offers unlock after TON Connect and verified inventory ownership.';haptic('error');}} onOpen={()=>{selectedAsset=order;showAssetDetails=true;haptic();}} />
+              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} backgroundColor={nftBackground} {lang} sellerProfileId={order.seller_profile_id || null} onSeller={()=>openSellerProfile(order.seller_profile_id || '')} onFavorite={()=>toggleFavoriteOrder(order)} canOffer={signedIn} onOffer={()=>{selectedOfferOrder=order;offerAmount=String(order.price);offerNote='';showOfferModal=true;haptic();}} onOpen={()=>{selectedAsset=order;showAssetDetails=true;haptic();}} />
             {/each}
           </div>
           {#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}
