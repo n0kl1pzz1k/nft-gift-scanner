@@ -206,6 +206,61 @@ def _migrate_legacy_order_event_types(conn: sqlite3.Connection) -> None:
         raise
 
 
+def _migrate_security_audit_events_schema(conn: sqlite3.Connection) -> None:
+    """Expand audit event vocabulary without dropping existing immutable history."""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='security_audit_events'"
+    ).fetchone()
+    if row is None or "admin_user_suspended" in str(row["sql"] or ""):
+        return
+    conn.execute("DROP TRIGGER IF EXISTS security_audit_events_no_update")
+    conn.execute("DROP TRIGGER IF EXISTS security_audit_events_no_delete")
+    conn.execute("DROP INDEX IF EXISTS idx_security_audit_actor_created")
+    conn.execute("DROP INDEX IF EXISTS idx_security_audit_action_created")
+    conn.execute("ALTER TABLE security_audit_events RENAME TO security_audit_events_legacy_v1")
+    conn.execute("""
+        CREATE TABLE security_audit_events (
+            id TEXT PRIMARY KEY,
+            actor_telegram_id TEXT NOT NULL,
+            action TEXT NOT NULL CHECK(action IN (
+                'telegram_session_revoked', 'telegram_sessions_revoked_all',
+                'ton_wallet_linked', 'ton_wallet_revoked',
+                'admin_report_dismissed', 'admin_order_removed',
+                'admin_user_suspended', 'admin_user_reactivated',
+                'admin_role_assigned', 'admin_role_revoked',
+                'admin_reconciliation_resolved'
+            )),
+            target_type TEXT NOT NULL CHECK(target_type IN (
+                'session', 'account', 'wallet', 'order_report', 'order',
+                'user', 'admin_role', 'reconciliation'
+            )),
+            target_hash TEXT NOT NULL CHECK(length(target_hash) = 64),
+            outcome TEXT NOT NULL CHECK(outcome IN ('success', 'denied')),
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL
+        )
+    """)
+    conn.execute("""
+        INSERT INTO security_audit_events
+        (id, actor_telegram_id, action, target_type, target_hash, outcome, metadata_json, created_at)
+        SELECT id, actor_telegram_id, action, target_type, target_hash, outcome, metadata_json, created_at
+        FROM security_audit_events_legacy_v1
+    """)
+    conn.execute("DROP TABLE security_audit_events_legacy_v1")
+    conn.execute("CREATE INDEX idx_security_audit_actor_created ON security_audit_events(actor_telegram_id, created_at DESC)")
+    conn.execute("CREATE INDEX idx_security_audit_action_created ON security_audit_events(action, created_at DESC)")
+    conn.execute("""
+        CREATE TRIGGER security_audit_events_no_update
+        BEFORE UPDATE ON security_audit_events
+        BEGIN SELECT RAISE(ABORT, 'security audit events are immutable'); END
+    """)
+    conn.execute("""
+        CREATE TRIGGER security_audit_events_no_delete
+        BEFORE DELETE ON security_audit_events
+        BEGIN SELECT RAISE(ABORT, 'security audit events are immutable'); END
+    """)
+
+
 def init_marketplace_db() -> None:
     with _db() as conn:
         if bool(getattr(conn, "supports_for_update", False)):
@@ -466,6 +521,7 @@ def init_marketplace_db() -> None:
 
 
         """)
+        _migrate_security_audit_events_schema(conn)
         gift_ref_columns = {row["name"] for row in conn.execute("PRAGMA table_info(telegram_business_gift_refs)").fetchall()}
         if "model_sticker_file_id" not in gift_ref_columns:
             conn.execute("ALTER TABLE telegram_business_gift_refs ADD COLUMN model_sticker_file_id TEXT NOT NULL DEFAULT ''")
