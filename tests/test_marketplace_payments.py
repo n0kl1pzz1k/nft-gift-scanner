@@ -226,6 +226,34 @@ def test_double_entry_ledger_posts_balanced_pair_once_and_is_immutable():
     conn.close()
 
 
+def test_escrow_events_are_idempotent_private_audit_records_and_immutable():
+    conn = _connection()
+    event = {
+        "deal_id": "deal-1",
+        "actor_user_id": "101",
+        "event_type": "payment_pending",
+        "event_key": "deal-1:payment-pending:pi-1",
+        "event_data": {"provider": "telegram_stars", "intent_id": "pi-1"},
+        "now": 1200,
+    }
+    from marketplace_payments import append_escrow_event, list_escrow_events
+    first = append_escrow_event(conn, **event)
+    replay = append_escrow_event(conn, **event)
+    assert first["id"] == replay["id"]
+    assert first["idempotent_replay"] is False
+    assert replay["idempotent_replay"] is True
+    items = list_escrow_events(conn, "deal-1")
+    assert len(items) == 1
+    assert items[0]["event_data"]["intent_id"] == "pi-1"
+    with pytest.raises(PaymentConflict):
+        append_escrow_event(conn, **{**event, "event_data": {"intent_id": "other"}})
+    with pytest.raises(sqlite3.IntegrityError, match="escrow events are immutable"):
+        conn.execute("UPDATE marketplace_escrow_events SET event_type='deal_completed' WHERE id=?", (first["id"],))
+    with pytest.raises(sqlite3.IntegrityError, match="escrow events are immutable"):
+        conn.execute("DELETE FROM marketplace_escrow_events WHERE id=?", (first["id"],))
+    conn.close()
+
+
 def test_ledger_posting_rolls_back_both_entries_if_second_insert_fails():
     conn = _connection()
     conn.execute("""
