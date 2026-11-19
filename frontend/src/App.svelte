@@ -42,6 +42,7 @@
   let marketMinPrice = $state('');
   let marketMaxPrice = $state('');
   let showSellModal = $state(false);
+  let showBuyRequestModal = $state(false);
   let createOrderBusy = $state(false);
   let showOfferModal = $state(false);
   let selectedOfferOrder = $state<MarketplaceOrder | null>(null);
@@ -482,6 +483,48 @@
       notice = lang === 'ru' ? 'NFT выставлен на маркетплейсе.' : 'NFT listing published.';
       haptic('success');
       await Promise.all([loadVerifiedInventory(), loadMarketplace()]);
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+      haptic('error');
+    } finally {
+      createOrderBusy = false;
+    }
+  }
+
+  function startBuyRequest() {
+    if (!signedIn) {
+      notice = lang === 'ru' ? 'Войди через Telegram, чтобы создать заявку на покупку.' : 'Sign in with Telegram to create a buy request.';
+      return;
+    }
+    createTitle = '';
+    createPrice = '';
+    createCurrency = 'TON';
+    createNote = '';
+    showBuyRequestModal = true;
+  }
+
+  async function submitBuyRequest() {
+    const title = createTitle.trim();
+    const price = Number(createPrice);
+    if (!signedIn || !title || !Number.isFinite(price) || price <= 0 || (createCurrency === 'XTR' && !Number.isInteger(price)) || createOrderBusy) {
+      notice = lang === 'ru'
+        ? (createCurrency === 'XTR' ? 'Укажи название и целую сумму в Stars.' : 'Укажи название актива и корректную цену.')
+        : (createCurrency === 'XTR' ? 'Enter an asset name and a whole-number Stars amount.' : 'Enter an asset name and a valid price.');
+      return;
+    }
+    createOrderBusy = true;
+    try {
+      await request('/api/marketplace/orders', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'buy-order', title, price, currency: createCurrency, note: createNote.trim() }),
+      });
+      showBuyRequestModal = false;
+      notice = lang === 'ru'
+        ? 'Заявка на покупку опубликована. Это запрос, а не оплаченный заказ.'
+        : 'Buy request published. This is a request, not a paid order.';
+      haptic('success');
+      await Promise.all([loadMarketplace(), loadMyListings()]);
     } catch (e) {
       notice = e instanceof Error ? e.message : String(e);
       haptic('error');
@@ -1075,7 +1118,7 @@
       {:else}<div class="state-panel">{lang==='ru'?'Профиль не найден.':'Seller profile not found.'}</div>{/if}
     {:else if view==='orders'}
       <section class="market-overview catalog-first" id="asset-feed">
-        <div class="market-heading-row catalog-heading"><div><div class="eyebrow">HASSLE NFT MARKET</div><h2>{lang==='ru'?'Каталог NFT-подарков':'NFT Gift Catalogue'}</h2></div></div>
+        <div class="market-heading-row catalog-heading"><div><div class="eyebrow">HASSLE NFT MARKET</div><h2>{lang==='ru'?'Каталог NFT-подарков':'NFT Gift Catalogue'}</h2></div><button class="refresh-button" type="button" onclick={startBuyRequest}>{lang==='ru'?'＋ Хочу купить':'＋ Post buy request'}</button></div>
         <div class="market-toolbar">
           <label class="market-search"><span>⌕</span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label={lang==='ru'?'Поиск активов':'Search assets'}/></label>
           <label class="market-search"><span>▤</span><input bind:value={marketCollectionSearch} placeholder={lang==='ru'?'Коллекция':'Collection'} aria-label={lang==='ru'?'Фильтр по коллекции':'Filter by collection or collection name'}/></label>
@@ -1344,6 +1387,21 @@
               <button class="report-asset-button" onclick={()=>{const asset=selectedAsset;if(!asset)return;if(!signedIn){notice=t.authHint;haptic('error');return;}startOrderReport(asset.id);}}>{t.reportOrder}</button>
               <button class="asset-buy-disabled" disabled title={lang==='ru'?'Покупка включится после запуска защищённой оплаты и escrow':'Buying will be enabled after secure payments and escrow are live'}>{lang==='ru'?'Покупка скоро':'Buy · Coming soon'}</button>
             {/if}
+          </div>
+        </div>
+      {/if}
+      {#if showBuyRequestModal}
+        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !createOrderBusy)showBuyRequestModal=false;}}>
+          <div class="sell-modal offer-modal" role="dialog" aria-modal="true" aria-labelledby="buy-request-title">
+            <button class="modal-close" onclick={()=>showBuyRequestModal=false} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={createOrderBusy}>×</button>
+            <div class="eyebrow">HASSLE NFT · BUY REQUEST</div>
+            <h2 id="buy-request-title">{lang==='ru'?'Создать заявку на покупку':'Create a buy request'}</h2>
+            <label>{lang==='ru'?'Какой актив ищешь?':'What asset are you looking for?'}<input class="form-input" bind:value={createTitle} maxlength="120" placeholder={lang==='ru'?'Например, Plush Pepe #123':'For example, Plush Pepe #123'} /></label>
+            <label>{lang==='ru'?'Бюджет':'Budget'}<input class="form-input" type="number" min="0.01" step={createCurrency==='XTR'?'1':'0.01'} bind:value={createPrice} inputmode="decimal" /></label>
+            <label>{lang==='ru'?'Валюта':'Currency'}<select class="form-input" bind:value={createCurrency}><option value="TON">TON</option><option value="XTR">⭐ Telegram Stars</option></select></label>
+            <label>{lang==='ru'?'Условия (необязательно)':'Details (optional)'}<textarea class="form-input note-input" bind:value={createNote} maxlength="300" placeholder={lang==='ru'?'Опиши нужную коллекцию или состояние':'Describe the collection or condition you want'}></textarea></label>
+            <button class="ton-primary offer-submit" onclick={submitBuyRequest} disabled={createOrderBusy}>{createOrderBusy?(lang==='ru'?'Публикуем…':'Publishing…'):(lang==='ru'?'Опубликовать заявку →':'Publish buy request →')}</button>
+            <small class="sell-modal-hint">{lang==='ru'?'Заявка показывает продавцам твой запрос и бюджет. Деньги не резервируются и покупка не происходит автоматически.':'The request shows sellers what you want and your budget. No funds are reserved and no purchase happens automatically.'}</small>
           </div>
         </div>
       {/if}
