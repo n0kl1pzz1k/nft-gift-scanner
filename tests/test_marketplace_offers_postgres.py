@@ -67,7 +67,7 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
 
             installed = install_postgres_offer_triggers(pg)
             assert installed["verified"] is True
-            assert installed["triggers_installed"] == 15
+            assert installed["triggers_installed"] == 20
 
             pg.execute(
                 "INSERT INTO marketplace_orders VALUES (%s,%s,%s,%s,%s,%s)",
@@ -101,17 +101,23 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
             pg.execute("INSERT INTO marketplace_deal_events VALUES ('event-1','deal-1')")
             with pytest.raises(psycopg.Error):
                 pg.execute("UPDATE marketplace_deal_events SET deal_id='changed' WHERE id='event-1'")
+            with pytest.raises(psycopg.Error, match="immutable"):
+                pg.execute("TRUNCATE TABLE marketplace_deal_events")
             pg.execute(
                 "INSERT INTO marketplace_deal_lifecycle_events(id,deal_id) VALUES ('life-1','deal-1')"
             )
             with pytest.raises(psycopg.Error):
                 pg.execute("DELETE FROM marketplace_deal_lifecycle_events WHERE id='life-1'")
+            with pytest.raises(psycopg.Error, match="immutable"):
+                pg.execute("TRUNCATE TABLE marketplace_deal_lifecycle_events")
 
             pg.execute("INSERT INTO marketplace_payment_events(id) VALUES (%s)", ("pay-event-1",))
             with pytest.raises(psycopg.Error):
                 pg.execute("UPDATE marketplace_payment_events SET id='changed' WHERE id='pay-event-1'")
             with pytest.raises(psycopg.Error):
                 pg.execute("DELETE FROM marketplace_payment_events WHERE id='pay-event-1'")
+            with pytest.raises(psycopg.Error, match="immutable"):
+                pg.execute("TRUNCATE TABLE marketplace_payment_events")
 
             with pg.transaction():
                 pg.execute(
@@ -131,6 +137,10 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
                 pg.execute("UPDATE marketplace_ledger_transactions SET amount='99' WHERE id='ledger-tx-1'")
             with pytest.raises(psycopg.Error):
                 pg.execute("DELETE FROM marketplace_ledger_entries WHERE id='ledger-debit-1'")
+            with pytest.raises(psycopg.Error, match="immutable"):
+                pg.execute("TRUNCATE TABLE marketplace_ledger_entries")
+            with pytest.raises(psycopg.Error, match="immutable"):
+                pg.execute("TRUNCATE TABLE marketplace_ledger_transactions")
 
             with pytest.raises(psycopg.Error, match="ledger transaction must contain exactly one balanced debit and credit matching its amount"):
                 with pg.transaction():
@@ -183,7 +193,7 @@ def test_postgres_offer_schema_bootstrap_is_idempotent_and_creates_all_objects()
             second = initialize_postgres_offer_schema(adapter)
             assert first["verified"] is True
             assert second["verified"] is True
-            assert first["verification"]["triggers_verified"] == 15
+            assert first["verification"]["triggers_verified"] == 20
             assert first["verification"]["tables_verified"] == 9
             assert first["verification"]["columns_verified"] == 79
             assert first["verification"]["indexes_verified"] == 20
