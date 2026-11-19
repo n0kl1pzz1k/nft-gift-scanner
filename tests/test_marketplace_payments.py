@@ -254,6 +254,33 @@ def test_escrow_events_are_idempotent_private_audit_records_and_immutable():
     conn.close()
 
 
+def test_deal_state_machine_is_idempotent_and_rejects_invalid_transitions():
+    conn = _connection()
+    from marketplace_payments import transition_deal_status
+    first = transition_deal_status(
+        conn, deal_id="deal-1", new_status="awaiting_payment", actor_user_id="101",
+        idempotency_key="deal-1:checkout-start", event_type="deal_payment_requested",
+        event_data={"currency": "TON"}, now=1100,
+    )
+    assert first["status"] == "awaiting_payment"
+    assert first["idempotent_replay"] is False
+    replay = transition_deal_status(
+        conn, deal_id="deal-1", new_status="awaiting_payment", actor_user_id="101",
+        idempotency_key="deal-1:checkout-start", event_type="deal_payment_requested",
+        event_data={"currency": "TON"}, now=1200,
+    )
+    assert replay["idempotent_replay"] is True
+    with pytest.raises(PaymentStateError, match="Invalid deal transition"):
+        transition_deal_status(
+            conn, deal_id="deal-1", new_status="completed", actor_user_id="101",
+            idempotency_key="deal-1:skip-payment", event_type="deal_completed", now=1300,
+        )
+    conn.rollback()
+    status = conn.execute("SELECT status FROM marketplace_deals WHERE id='deal-1'").fetchone()["status"]
+    assert status == "awaiting_payment"
+    conn.close()
+
+
 def test_ledger_posting_rolls_back_both_entries_if_second_insert_fails():
     conn = _connection()
     conn.execute("""
