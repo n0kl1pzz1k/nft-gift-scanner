@@ -18,6 +18,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from marketplace import _enforce_user_rate_limit, _verified_asset_actions_enabled, _test_unverified_assets_allowed, _migrate_legacy_marketplace_table_names
 from database import begin_write, select_for_update, require_sqlite_connection, db as _database_db
 from pydantic import BaseModel, Field, field_validator
+from marketplace_payments import list_escrow_events
 
 DB_PATH = os.getenv("HASSLE_NFT_DB_PATH", os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3")))
 
@@ -723,6 +724,16 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                 "data": event_data,
                 "created_at": row["created_at"],
             })
+        with _db() as conn:
+            escrow_rows = list_escrow_events(conn, deal_id)
+        items.extend({
+            "id": row["id"],
+            "actor_user_id": row["actor_user_id"],
+            "type": row["event_type"],
+            "data": row["event_data"],
+            "created_at": row["created_at"],
+        } for row in escrow_rows)
+        items.sort(key=lambda item: (item["created_at"], item["id"]))
         return {"deal_id": deal_id, "items": items, "total": len(items)}
 
     @router.get("/deals")
