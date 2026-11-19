@@ -371,11 +371,18 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                 conn.rollback()
                 raise HTTPException(status_code=422, detail="Star offers must be whole numbers")
             if not _test_unverified_assets_allowed():
-                verified_asset = conn.execute(
-                    """SELECT 1 FROM verified_assets
-                       WHERE id = ? AND owner_telegram_id = ? AND status = 'verified'""",
-                    (order["asset_id"], order["user_id"]),
-                ).fetchone()
+                if order["kind"] == "buy-order":
+                    verified_asset = conn.execute(
+                        """SELECT 1 FROM verified_assets
+                           WHERE id = ? AND owner_telegram_id = ? AND status = 'verified'""",
+                        (seller_listing["id"], actor_id),
+                    ).fetchone()
+                else:
+                    verified_asset = conn.execute(
+                        """SELECT 1 FROM verified_assets
+                           WHERE id = ? AND owner_telegram_id = ? AND status = 'verified'""",
+                        (order["asset_id"], order["user_id"]),
+                    ).fetchone()
                 if verified_asset is None:
                     conn.rollback()
                     raise HTTPException(status_code=409, detail="Offers require a currently verified asset listing")
