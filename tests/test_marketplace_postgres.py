@@ -280,12 +280,11 @@ def test_postgres_ownership_transfer_rolls_back_then_cancels_stale_listing():
 
             api = FastAPI()
             def verify_user(value):
-                user_id = {"seller": "101", "buyer": "202"}[value]
-                return {
-                    "id": user_id,
-                    "first_name": "Seller" if user_id == "101" else "Buyer",
-                    "username": "seller" if user_id == "101" else "buyer",
-                }
+                user_id = {"seller": "101", "buyer": "202", "outsider": "303"}[value]
+                names = {"101": ("Seller", "seller"), "202": ("Buyer", "buyer"),
+                         "303": ("Outsider", "outsider")}
+                first_name, username = names[user_id]
+                return {"id": user_id, "first_name": first_name, "username": username}
             api.include_router(create_marketplace_router(verify_user))
             api.include_router(create_marketplace_offers_router(verify_user))
 
@@ -462,6 +461,9 @@ def test_postgres_concurrent_duplicate_offers_are_serialized_per_listing():
             })
             marketplace.upsert_telegram_user({
                 "id": "202", "username": "buyer", "first_name": "Buyer",
+            })
+            marketplace.upsert_telegram_user({
+                "id": "303", "username": "outsider", "first_name": "Outsider",
             })
             asset = marketplace.register_verified_asset(
                 source="ton_nft",
@@ -836,6 +838,9 @@ def test_postgres_concurrent_duplicate_deal_cancellations_release_reservation_on
             marketplace.upsert_telegram_user({
                 "id": "202", "username": "buyer", "first_name": "Buyer",
             })
+            marketplace.upsert_telegram_user({
+                "id": "303", "username": "outsider", "first_name": "Outsider",
+            })
             asset = marketplace.register_verified_asset(
                 source="ton_nft",
                 external_asset_id="ton-nft-deal-cancel-idempotency",
@@ -849,12 +854,11 @@ def test_postgres_concurrent_duplicate_deal_cancellations_release_reservation_on
 
             api = FastAPI()
             def verify_user(value):
-                user_id = {"seller": "101", "buyer": "202"}[value]
-                return {
-                    "id": user_id,
-                    "first_name": "Seller" if user_id == "101" else "Buyer",
-                    "username": "seller" if user_id == "101" else "buyer",
-                }
+                user_id = {"seller": "101", "buyer": "202", "outsider": "303"}[value]
+                names = {"101": ("Seller", "seller"), "202": ("Buyer", "buyer"),
+                         "303": ("Outsider", "outsider")}
+                first_name, username = names[user_id]
+                return {"id": user_id, "first_name": first_name, "username": username}
             api.include_router(create_marketplace_router(verify_user))
             api.include_router(create_marketplace_offers_router(verify_user))
 
@@ -917,6 +921,28 @@ def test_postgres_concurrent_duplicate_deal_cancellations_release_reservation_on
                         executor.submit(cancel_as, "buyer"),
                     ]
                     responses = [future.result(timeout=20) for future in futures]
+
+                seller_events = client.get(
+                    f"/api/marketplace/deals/{deal_id}/events",
+                    headers={"X-Telegram-Init-Data": "seller"},
+                )
+                buyer_events = client.get(
+                    f"/api/marketplace/deals/{deal_id}/events",
+                    headers={"X-Telegram-Init-Data": "buyer"},
+                )
+                outsider_events = client.get(
+                    f"/api/marketplace/deals/{deal_id}/events",
+                    headers={"X-Telegram-Init-Data": "outsider"},
+                )
+
+            assert seller_events.status_code == 200, seller_events.text
+            assert buyer_events.status_code == 200, buyer_events.text
+            assert outsider_events.status_code == 404
+            assert seller_events.json() == buyer_events.json()
+            event_items = seller_events.json()["items"]
+            assert [item["type"] for item in event_items] == ["deal_cancelled"]
+            assert event_items[0]["data"]["reservation_released"] is True
+            assert seller_events.json()["total"] == 1
 
             assert [response.status_code for response in responses] == [200, 200], [
                 response.text for response in responses
