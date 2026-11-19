@@ -595,7 +595,7 @@ def initialize_postgres_offer_schema(connection: Any) -> dict[str, Any]:
         "tables": ["marketplace_offers", "marketplace_deals", "marketplace_deal_events",
                    "marketplace_deal_lifecycle_events", "marketplace_notifications", "marketplace_payment_intents",
                     "marketplace_payment_events", "marketplace_ledger_transactions", "marketplace_ledger_entries",
-                    "marketplace_escrow_events"],"marketplace_payment_events", "marketplace_ledger_transactions", "marketplace_ledger_entries"],
+                    "marketplace_escrow_events"],
         "indexes_created_or_verified": verification["indexes_verified"],
         "verification": verification,
         "verified": verification["verified"],
