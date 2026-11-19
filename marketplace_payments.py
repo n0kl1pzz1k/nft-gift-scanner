@@ -483,7 +483,8 @@ ESCROW_EVENT_TYPES = {
     "payment_confirmed", "escrow_funded", "asset_transfer_requested",
     "asset_transfer_submitted", "asset_transfer_confirmed", "deal_completed",
     "deal_disputed", "refund_requested", "refund_confirmed", "payout_released",
-    "deal_cancelled", "deal_expired",
+    "deal_cancelled", "deal_expired", "dispute_resolution_approved",
+    "dispute_resolution_ready",
 }
 
 
@@ -591,6 +592,12 @@ def record_dispute_resolution_approval(
     ).fetchone()
     if existing_decision is not None and existing_decision["decision"] != choice:
         raise PaymentConflict("Dispute resolution approvals must agree on one outcome")
+    existing_count = int(conn.execute(
+        "SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals WHERE deal_id = ?",
+        (deal,),
+    ).fetchone()[0])
+    if existing_count >= 2:
+        raise PaymentConflict("The two-administrator approval threshold has already been reached")
     timestamp = int(now if now is not None else __import__("time").time())
     approval_id = "dra-" + uuid.uuid4().hex[:24]
     conn.execute(
