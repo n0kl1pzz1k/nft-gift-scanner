@@ -1,0 +1,39 @@
+# Local credentials and environment files
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local databases, WAL files, backups and runtime data
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+/data/
+/backups/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node / frontend build output
+node_modules/
+frontend/dist/
+frontend/.svelte-kit/
+frontend/.wrangler/
+
+# Local logs and editor files
+*.log
+.DS_Store
+.vscode/
+.idea/
