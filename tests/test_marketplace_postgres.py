@@ -23,17 +23,30 @@ def test_postgres_core_marketplace_schema_bootstrap_is_idempotent_and_verified()
         second = initialize_postgres_marketplace_schema(adapter)
         assert first["verified"] is True
         assert second["verified"] is True
-        assert first["tables_verified"] == 17
+        assert first["tables_verified"] == 18
         assert first["columns_verified"] > 0
         assert second["columns_verified"] == first["columns_verified"]
-        assert first["indexes_verified"] == 16
-        assert first["triggers_verified"] == 1
+        assert first["indexes_verified"] == 18
+        assert first["triggers_verified"] == 3
 
         adapter.execute(
             "INSERT INTO telegram_users "
             "(telegram_id,created_at,updated_at) VALUES (?,1,1)",
             ("owner-1",),
         )
+        adapter.execute(
+            """INSERT INTO security_audit_events
+               (id, actor_telegram_id, action, target_type, target_hash, outcome, metadata_json, created_at)
+               VALUES (?, ?, 'ton_wallet_linked', 'wallet', ?, 'success', '{}', 1)""",
+            ("audit-1", "101", "a" * 64),
+        )
+        with pytest.raises(Exception, match="security audit events are immutable"):
+            adapter.execute(
+                "UPDATE security_audit_events SET outcome='denied' WHERE id=?",
+                ("audit-1",),
+            )
+        with pytest.raises(Exception, match="security audit events are immutable"):
+            adapter.execute("DELETE FROM security_audit_events WHERE id=?", ("audit-1",))
         adapter.execute(
             "INSERT INTO verified_assets "
             "(id,source,external_asset_id,owner_telegram_id,title,asset_type,"
