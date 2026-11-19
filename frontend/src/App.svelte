@@ -136,8 +136,6 @@
   let adminReports = $state<OrderReport[]>([]);
   let adminReportsBusy = $state(false);
   let adminReportActionBusy = $state('');
-  let adminRole = $state('');
-  let adminPermissions = $state<string[]>([]);
   let adminTab = $state<'overview'|'reports'|'users'|'disputes'|'reconciliation'|'audit'|'roles'>('overview');
   let adminOverview = $state<Record<string,number>>({});
   let adminUsers = $state<AdminUser[]>([]);
