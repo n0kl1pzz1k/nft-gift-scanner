@@ -13,6 +13,7 @@
   let tonConnect = $state<TonConnectUIInstance | null>(null);
   let busy = $state(false);
   let address = $state('');
+  let network = $state('');
   let status = $state<'idle' | 'connected' | 'verified' | 'error'>('idle');
   let message = $state('');
 
@@ -44,6 +45,7 @@
       const first = Array.isArray(data.items) ? data.items[0] : null;
       if (first?.address) {
         address = first.address;
+        network = first.network || '';
         status = 'verified';
         onVerified(first.address);
       }
@@ -73,6 +75,7 @@
             if (status !== 'verified') status = 'idle';
             return;
           }
+          network = wallet.account.chain;
           const item = wallet.connectItems?.tonProof;
           if (!item || !('proof' in item)) {
             status = 'error';
@@ -138,8 +141,6 @@
     busy = true;
     message = '';
     try {
-      const wallet = tonConnect.wallet;
-      const network = wallet?.account.chain;
       if (!network) throw new Error(copy.disconnectFailed);
       const response = await fetch(
         api + '/api/ton-proof/wallets/' + encodeURIComponent(network) + '/' + encodeURIComponent(address),
@@ -149,6 +150,7 @@
       if (!response.ok) throw new Error(result.detail || copy.disconnectFailed);
       await tonConnect.disconnect();
       address = '';
+      network = '';
       status = 'idle';
       onVerified('');
       message = '';
