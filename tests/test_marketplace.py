@@ -1442,6 +1442,16 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         limiter.assert_called_once_with("909", "list_order_reports", 60)
 
+    def test_admin_security_audit_view_is_rate_limited(self):
+        with patch.object(api, "_require_admin", return_value={"id": "909"}), \
+             patch.object(marketplace, "_enforce_user_rate_limit") as limiter:
+            response = self.client.get(
+                "/api/marketplace/admin/security-audit",
+                headers={"X-Telegram-Init-Data": "admin-session"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        limiter.assert_called_once_with("909", "list_security_audit", 30)
+
     def test_admin_can_dismiss_or_remove_reported_orders(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         reporter_headers = {"X-Telegram-Init-Data": "user-b"}
