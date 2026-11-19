@@ -148,6 +148,19 @@ END;"""
             f"ON {qtable} FOR EACH ROW EXECUTE FUNCTION {function}()"
         )
         return [prefix + body + suffix, trigger]
+    if name == "verified_assets_consume_transfer_authorization" and table == "verified_assets":
+        body = """BEGIN
+  DELETE FROM asset_owner_transfer_authorizations
+   WHERE asset_id = OLD.id
+     AND previous_owner_id = OLD.owner_telegram_id
+     AND new_owner_id = NEW.owner_telegram_id;
+  RETURN NEW;
+END;"""
+        trigger = (
+            f"CREATE TRIGGER {qtrigger} AFTER UPDATE OF owner_telegram_id "
+            f"ON {qtable} FOR EACH ROW EXECUTE FUNCTION {function}()"
+        )
+        return [prefix + body + suffix, trigger]
     return None
 
 def build_postgres_ddl_plan(manifest: dict[str, Any], data_preflight: dict[str, Any] | None = None) -> dict[str, Any]:
