@@ -1480,6 +1480,24 @@ class SharedMarketplaceTests(unittest.TestCase):
             self.assertEqual(removed.status_code, 200)
             self.assertTrue(removed.json()["order_removed"])
 
+            second_listing = self.client.post(
+                "/api/marketplace/orders",
+                headers=owner_headers,
+                json={"kind": "listing", "title": "Dismissed listing", "price": "2", "currency": "TON"},
+            )
+            second_report = self.client.post(
+                f"/api/marketplace/orders/{second_listing.json()['item']['id']}/reports",
+                headers=reporter_headers,
+                json={"reason": "misleading"},
+            )
+            dismissed = self.client.patch(
+                f"/api/marketplace/admin/reports/{second_report.json()['report']['id']}",
+                headers={"X-Telegram-Init-Data": "admin-session"},
+                json={"action": "dismiss"},
+            )
+            self.assertEqual(dismissed.status_code, 200, dismissed.text)
+            self.assertEqual(dismissed.json()["status"], "dismissed")
+
             outsider_audit = self.client.get(
                 "/api/marketplace/admin/security-audit",
                 headers=reporter_headers,
@@ -1490,13 +1508,18 @@ class SharedMarketplaceTests(unittest.TestCase):
                 headers={"X-Telegram-Init-Data": "admin-session"},
             )
             self.assertEqual(audit.status_code, 200, audit.text)
-            self.assertEqual(audit.json()["total"], 1)
-            event = audit.json()["items"][0]
-            self.assertEqual(event["action"], "admin_order_removed")
-            self.assertEqual(event["actor_telegram_id"], "999")
-            self.assertEqual(event["target_type"], "order")
-            self.assertEqual(event["metadata"], {"report_id": report_id})
-            self.assertEqual(len(event["target_hash"]), 64)
+            self.assertEqual(audit.json()["total"], 2)
+            actions = {event["action"] for event in audit.json()["items"]}
+            self.assertEqual(actions, {"admin_order_removed", "admin_report_dismissed"})
+            removed_event = next(event for event in audit.json()["items"] if event["action"] == "admin_order_removed")
+            dismissed_event = next(event for event in audit.json()["items"] if event["action"] == "admin_report_dismissed")
+            self.assertEqual(removed_event["actor_telegram_id"], "999")
+            self.assertEqual(removed_event["target_type"], "order")
+            self.assertEqual(removed_event["metadata"], {"report_id": report_id})
+            self.assertEqual(dismissed_event["actor_telegram_id"], "999")
+            self.assertEqual(dismissed_event["target_type"], "order_report")
+            self.assertEqual(len(removed_event["target_hash"]), 64)
+            self.assertEqual(len(dismissed_event["target_hash"]), 64)
 
         mine = self.client.get("/api/marketplace/mine", headers=owner_headers)
         self.assertEqual(mine.json()["items"][0]["status"], "cancelled")
