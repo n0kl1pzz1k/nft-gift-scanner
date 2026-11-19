@@ -374,6 +374,10 @@ def test_postgres_ownership_transfer_rolls_back_then_cancels_stale_listing():
                         "SELECT COUNT(*) FROM asset_ownership_history WHERE asset_id=?",
                         (asset["id"],),
                     ).fetchone()[0]
+                    authorization_count = conn.execute(
+                        "SELECT COUNT(*) FROM asset_owner_transfer_authorizations WHERE asset_id=?",
+                        (asset["id"],),
+                    ).fetchone()[0]
 
                 assert stored_asset["owner_telegram_id"] == "101"
                 assert stored_asset["title"] == "Original verified gift"
@@ -381,6 +385,7 @@ def test_postgres_ownership_transfer_rolls_back_then_cancels_stale_listing():
                 assert stored_listing["status"] == "active"
                 assert stored_offer["status"] == "pending"
                 assert history_count == 0
+                assert authorization_count == 0
 
                 with database.db() as conn:
                     conn.execute("DROP TRIGGER test_fail_ownership_history ON asset_ownership_history")
@@ -414,11 +419,16 @@ def test_postgres_ownership_transfer_rolls_back_then_cancels_stale_listing():
                         "SELECT COUNT(*) FROM asset_ownership_history WHERE asset_id=?",
                         (asset["id"],),
                     ).fetchone()[0]
+                    final_authorization_count = conn.execute(
+                        "SELECT COUNT(*) FROM asset_owner_transfer_authorizations WHERE asset_id=?",
+                        (asset["id"],),
+                    ).fetchone()[0]
 
                 assert final_asset["owner_telegram_id"] == "202"
                 assert final_listing["status"] == "cancelled"
                 assert final_offer["status"] == "declined"
                 assert final_history_count == 1
+                assert final_authorization_count == 0
 
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
