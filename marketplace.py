@@ -62,9 +62,14 @@ def insert_security_audit_event(
     for key, value in (metadata or {}).items():
         if key not in _SECURITY_AUDIT_METADATA_KEYS:
             continue
-        if isinstance(value, bool) or isinstance(value, int):
+        if key == "network" and isinstance(value, str) and value in {"-239", "-3"}:
             safe_metadata[key] = value
-        elif isinstance(value, str) and len(value) <= 128:
+        elif key in {"report_id", "order_id"} and isinstance(value, str) and 1 <= len(value) <= 128:
+            if all(character.isalnum() or character in "_-" for character in value):
+                safe_metadata[key] = value
+        elif key == "revoked_count" and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 1000:
+            safe_metadata[key] = value
+        elif key == "reason" and value == "self_logout":
             safe_metadata[key] = value
     target_hash = hashlib.sha256(f"{target_type}:{target}".encode("utf-8")).hexdigest()
     event_id = "sa_" + uuid.uuid4().hex[:24]
