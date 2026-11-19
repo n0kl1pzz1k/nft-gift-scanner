@@ -105,7 +105,7 @@ def _expected_table_columns() -> dict[str, set[str]]:
 
 def verify_postgres_marketplace_schema(connection: Any) -> dict[str, Any]:
     tables = {str(r["table_name"]) for r in connection.execute("SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE'").fetchall()}
-    expected_tables = {name for name in ("telegram_users","user_profiles","telegram_sessions","telegram_initdata_uses","telegram_update_inbox","user_favorites","marketplace_orders","verified_assets","marketplace_order_events","marketplace_order_revisions","marketplace_order_reports","api_rate_limits","app_settings","telegram_business_connections","telegram_business_gift_refs","asset_ownership_history","asset_owner_transfer_authorizations","security_audit_events")}
+    expected_tables = {name for name in ("telegram_users","user_profiles","telegram_sessions","telegram_initdata_uses","telegram_update_inbox","user_favorites","marketplace_orders","verified_assets","marketplace_order_events","marketplace_order_revisions","marketplace_order_reports","api_rate_limits","app_settings","telegram_business_connections","telegram_business_gift_refs","asset_ownership_history","asset_owner_transfer_authorizations","security_audit_events","marketplace_admin_roles","marketplace_user_controls","marketplace_manual_reconciliation_items")}
     column_rows = connection.execute(
         "SELECT table_name,column_name FROM information_schema.columns WHERE table_schema=current_schema()"
     ).fetchall()
