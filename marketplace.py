@@ -1514,8 +1514,16 @@ class ModerateOrderReport(BaseModel):
 def create_marketplace_router(
     verify_telegram_init_data: Callable[[str], dict],
     verify_admin: Callable[[str | None], dict] | None = None,
+    verify_admin_permission: Callable[[str | None, str], dict] | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/marketplace", tags=["marketplace"])
+
+    def _admin(credential: str | None, permission: str) -> dict:
+        if verify_admin_permission is not None:
+            return verify_admin_permission(credential, permission)
+        if verify_admin is None:
+            raise HTTPException(status_code=503, detail="Admin access is not configured")
+        return verify_admin(credential)
 
     @router.get("/assets/me")
     async def list_my_verified_assets(
@@ -1701,9 +1709,7 @@ def create_marketplace_router(
         offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        if verify_admin is None:
-            raise HTTPException(status_code=503, detail="Admin moderation is not configured")
-        admin = verify_admin(x_telegram_init_data)
+        admin = _admin(x_telegram_init_data, "reports.read")
         _enforce_user_rate_limit(str(admin["id"]), "list_order_reports", 60)
         where = ""
         values: list[object] = []
@@ -1730,9 +1736,7 @@ def create_marketplace_router(
         offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        if verify_admin is None:
-            raise HTTPException(status_code=503, detail="Admin audit is not configured")
-        admin = verify_admin(x_telegram_init_data)
+        admin = _admin(x_telegram_init_data, "audit.read")
         _enforce_user_rate_limit(str(admin["id"]), "list_security_audit", 30)
         with _db() as conn:
             rows = conn.execute(
@@ -1759,9 +1763,7 @@ def create_marketplace_router(
         payload: ModerateOrderReport,
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        if verify_admin is None:
-            raise HTTPException(status_code=503, detail="Admin moderation is not configured")
-        admin = verify_admin(x_telegram_init_data)
+        admin = _admin(x_telegram_init_data, "reports.resolve")
         admin_id = str(admin["id"])
         _enforce_user_rate_limit(admin_id, "moderate_order_report", 30)
         now = int(time.time())
