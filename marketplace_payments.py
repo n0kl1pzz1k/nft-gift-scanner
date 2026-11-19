@@ -526,6 +526,77 @@ def list_escrow_events(conn: Any, deal_id: str) -> list[dict[str, Any]]:
     return items
 
 
+DEAL_STATUS_TRANSITIONS = {
+    "payment_not_enabled": {"awaiting_payment", "cancelled", "expired"},
+    "awaiting_payment": {"payment_pending", "cancelled", "expired"},
+    "payment_pending": {"paid", "awaiting_payment", "expired"},
+    "paid": {"delivery_pending", "disputed"},
+    "delivery_pending": {"completed", "disputed"},
+    "disputed": {"delivery_pending", "completed", "cancelled"},
+    "completed": set(),
+    "cancelled": set(),
+    "expired": set(),
+}
+
+
+def transition_deal_status(
+    conn: Any,
+    *,
+    deal_id: str,
+    new_status: str,
+    actor_user_id: str,
+    idempotency_key: str,
+    event_type: str,
+    event_data: dict[str, Any] | None = None,
+    now: int | None = None,
+) -> dict[str, Any]:
+    deal = str(deal_id or "").strip()
+    target = str(new_status or "").strip()
+    actor = str(actor_user_id or "").strip()
+    key = str(idempotency_key or "").strip()
+    if not deal or not actor or not key:
+        raise ValueError("Deal, actor and idempotency key are required")
+    row = conn.execute(
+        "SELECT status FROM marketplace_deals WHERE id = ?",
+        (deal,),
+    ).fetchone()
+    if row is None:
+        raise PaymentStateError("Deal not found")
+    current = str(row["status"])
+    if target == current:
+        replay = conn.execute(
+            "SELECT id FROM marketplace_escrow_events WHERE event_key = ?",
+            (key,),
+        ).fetchone()
+        if replay is not None:
+            return {"deal_id": deal, "status": current, "idempotent_replay": True}
+        raise PaymentConflict("Deal is already in the requested state under a different operation")
+    if target not in DEAL_STATUS_TRANSITIONS.get(current, set()):
+        raise PaymentStateError(f"Invalid deal transition: {current} -> {target}")
+    timestamp = int(now if now is not None else __import__("time").time())
+    event = append_escrow_event(
+        conn,
+        deal_id=deal,
+        actor_user_id=actor,
+        event_type=event_type,
+        event_key=key,
+        event_data={"from": current, "to": target, **(event_data or {})},
+        now=timestamp,
+    )
+    changed = conn.execute(
+        "UPDATE marketplace_deals SET status = ? WHERE id = ? AND status = ?",
+        (target, deal, current),
+    )
+    if changed.rowcount != 1:
+        raise PaymentConflict("Deal state changed concurrently")
+    return {
+        "deal_id": deal,
+        "status": target,
+        "idempotent_replay": event["idempotent_replay"],
+        "event_id": event["id"],
+    }
+
+
 def verify_ledger_transaction(conn: Any, transaction_id: str) -> dict[str, Any]:
     transaction = conn.execute(
         "SELECT * FROM marketplace_ledger_transactions WHERE id = ?",
