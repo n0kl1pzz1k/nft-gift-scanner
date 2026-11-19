@@ -406,6 +406,12 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(history["previous_owner_id"], "101")
         self.assertEqual(history["new_owner_id"], "202")
         self.assertEqual(pending_authorizations, 0)
+        with marketplace._db() as conn:
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute(
+                    "UPDATE verified_assets SET owner_telegram_id = ?, verification_reference_hash = ? WHERE id = ?",
+                    ("101", "old-owner-one-time-verification-reference", old_asset["id"]),
+                )
 
     def test_asset_owner_transfer_rolls_back_all_marketplace_changes_on_history_failure(self):
         external_id = "0:" + "d" * 64
