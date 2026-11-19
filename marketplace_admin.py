@@ -80,6 +80,10 @@ def user_is_suspended(telegram_id: str | int) -> bool:
     return bool(row and row["status"] == "suspended")
 
 
+class AssetModerationRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class UserControlRequest(BaseModel):
     status: Literal["active", "suspended"]
     reason: str = Field(min_length=1, max_length=500)
@@ -121,6 +125,93 @@ def create_marketplace_admin_router(verify_credential: Callable[[str], dict]) ->
                 "open_reconciliation": int(conn.execute("SELECT COUNT(*) FROM marketplace_manual_reconciliation_items WHERE status='open'").fetchone()[0]),
             }
         return {"counts": counts}
+
+    @router.get("/assets")
+    async def admin_list_assets(
+        q: str = Query(default="", max_length=128),
+        status: Literal["verified", "revoked", "all"] = "verified",
+        limit: int = Query(default=50, ge=1, le=100),
+        offset: int = Query(default=0, ge=0, le=100000),
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        require_permission(x_telegram_init_data, "assets.moderate")
+        needle = f"%{q.strip()}%"
+        where = "" if status == "all" else " AND a.status = ?"
+        values: list[Any] = [needle, needle, needle]
+        if status != "all":
+            values.append(status)
+        values.extend([limit, offset])
+        with _db() as conn:
+            rows = conn.execute(
+                f"""SELECT a.id, a.source, a.external_asset_id, a.owner_telegram_id,
+                           a.title, a.asset_type, a.status, a.verified_at, a.revoked_at,
+                           u.username AS owner_username
+                    FROM verified_assets a
+                    LEFT JOIN telegram_users u ON u.telegram_id=a.owner_telegram_id
+                    WHERE (a.id LIKE ? OR a.external_asset_id LIKE ? OR a.title LIKE ?){where}
+                    ORDER BY a.verified_at DESC LIMIT ? OFFSET ?""",
+                values,
+            ).fetchall()
+            total = int(conn.execute(
+                f"""SELECT COUNT(*) FROM verified_assets a
+                    WHERE (a.id LIKE ? OR a.external_asset_id LIKE ? OR a.title LIKE ?){where}""",
+                values[:-2],
+            ).fetchone()[0])
+        return {"items": [dict(row) for row in rows], "total": total, "limit": limit, "offset": offset}
+
+    @router.post("/assets/{asset_id}/revoke")
+    async def admin_revoke_asset(
+        asset_id: str,
+        payload: AssetModerationRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        admin = require_permission(x_telegram_init_data, "assets.moderate")
+        actor = str(admin["id"])
+        reason = payload.reason.strip()
+        if not reason:
+            raise HTTPException(status_code=422, detail="A moderation reason is required")
+        now = int(time.time())
+        with _db() as conn:
+            begin_write(conn, f"asset-moderation:{asset_id}")
+            asset = conn.execute(
+                select_for_update(conn, "SELECT * FROM verified_assets WHERE id=?"),
+                (asset_id,),
+            ).fetchone()
+            if asset is None:
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Asset not found")
+            if asset["status"] != "verified":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Only currently verified assets can be revoked")
+            open_deal = conn.execute(
+                """SELECT d.id FROM marketplace_deals d
+                   JOIN marketplace_orders o ON o.id=d.order_id
+                   WHERE o.asset_id=? AND d.status IN ('payment_pending','paid','delivery_pending','disputed')
+                   LIMIT 1""",
+                (asset_id,),
+            ).fetchone()
+            if open_deal is not None:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Asset is attached to a paid or disputed deal; resolve the deal first")
+            conn.execute(
+                "UPDATE verified_assets SET status='revoked', revoked_at=? WHERE id=? AND status='verified'",
+                (now, asset_id),
+            )
+            conn.execute(
+                """UPDATE marketplace_orders SET status='cancelled', updated_at=?
+                   WHERE asset_id=? AND kind='listing' AND status='active'""",
+                (now, asset_id),
+            )
+            insert_security_audit_event(
+                conn,
+                actor_telegram_id=actor,
+                action="admin_asset_revoked",
+                target_type="asset",
+                target_id=asset_id,
+                now=now,
+            )
+            conn.commit()
+        return {"asset_id": asset_id, "status": "revoked", "revoked_at": now}
 
     @router.get("/users")
     async def admin_list_users(
