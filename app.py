@@ -30,8 +30,8 @@ from ton_nft_chain import verify_nft_collection_membership, verify_nft_owner_onc
 from telegram_gift_inventory import fetch_user_telegram_gifts
 from telegram_business_gift_inventory import fetch_business_account_gifts, fetch_sticker_preview
 import httpx
-from marketplace_offers import create_marketplace_offers_router
-from marketplace_admin import create_marketplace_admin_router, get_admin_access, user_is_suspended, init_marketplace_offers_db, expire_unpaid_marketplace_deals
+from marketplace_offers import create_marketplace_offers_router, init_marketplace_offers_db, expire_unpaid_marketplace_deals
+from marketplace_admin import create_marketplace_admin_router, get_admin_access, user_is_suspended
 
 app = FastAPI(title="HASSLE NFT Market API", version="1.0.0")
 app.include_router(create_marketplace_router(
