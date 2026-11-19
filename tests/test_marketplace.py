@@ -846,6 +846,36 @@ class SharedMarketplaceTests(unittest.TestCase):
             self.assertEqual(self.client.get("/api/marketplace/activity", headers=owner).json()["items"], [])
             self.assertEqual(self.client.get("/api/marketplace/notifications", headers=owner).json()["items"], [])
 
+    def test_marketplace_favorites_are_persisted_and_account_scoped(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        other_headers = {"X-Telegram-Init-Data": "user-b"}
+        created = self.client.post(
+            "/api/marketplace/orders",
+            headers=owner_headers,
+            json={"kind": "listing", "title": "Favorite persistence asset", "price": "5", "currency": "TON"},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        order_id = created.json()["item"]["id"]
+        saved = self.client.put(
+            f"/api/marketplace/favorites/{order_id}",
+            headers=owner_headers,
+            json={"gift": {"id": order_id, "title": "Favorite persistence asset", "currency": "TON"}},
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
+        owner_favorites = self.client.get("/api/marketplace/favorites", headers=owner_headers)
+        self.assertEqual(owner_favorites.status_code, 200)
+        self.assertEqual(owner_favorites.json()["items"][0]["id"], order_id)
+        self.assertEqual(self.client.get("/api/marketplace/favorites", headers=other_headers).json()["items"], [])
+        mismatch = self.client.put(
+            f"/api/marketplace/favorites/{order_id}",
+            headers=owner_headers,
+            json={"gift": {"id": "different-id", "title": "Forged favorite"}},
+        )
+        self.assertEqual(mismatch.status_code, 422)
+        removed = self.client.delete(f"/api/marketplace/favorites/{order_id}", headers=owner_headers)
+        self.assertEqual(removed.status_code, 200)
+        self.assertEqual(self.client.get("/api/marketplace/favorites", headers=owner_headers).json()["items"], [])
+
     def test_orders_are_shared_and_stats_are_server_calculated(self):
         created = self.client.post(
             "/api/marketplace/orders",
