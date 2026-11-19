@@ -171,6 +171,40 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertTrue(marketplace.consume_telegram_init_data(first, "101"))
         self.assertFalse(marketplace.consume_telegram_init_data(reordered, "101"))
 
+    def test_security_audit_records_hashed_targets_and_only_allowlisted_metadata(self):
+        wallet_address = "0:" + "a" * 64
+        event_id = marketplace.record_security_audit_event(
+            actor_telegram_id="101",
+            action="ton_wallet_linked",
+            target_type="wallet",
+            target_id=wallet_address,
+            metadata={
+                "network": "-239",
+                "reason": "TON Proof",
+                "signature": "must-not-be-stored",
+                "session_token": "must-not-be-stored",
+            },
+            now=1234,
+        )
+        with marketplace._db() as conn:
+            row = conn.execute(
+                "SELECT actor_telegram_id, action, target_type, target_hash, metadata_json, created_at "
+                "FROM security_audit_events WHERE id=?",
+                (event_id,),
+            ).fetchone()
+        self.assertEqual(row["actor_telegram_id"], "101")
+        self.assertEqual(row["action"], "ton_wallet_linked")
+        self.assertEqual(row["target_type"], "wallet")
+        self.assertEqual(len(row["target_hash"]), 64)
+        self.assertNotEqual(row["target_hash"], wallet_address)
+        self.assertEqual(json.loads(row["metadata_json"]), {"network": "-239", "reason": "TON Proof"})
+        self.assertEqual(row["created_at"], 1234)
+        with marketplace._db() as conn:
+            with self.assertRaises(sqlite3.IntegrityError, msg="security audit events are immutable"):
+                conn.execute("UPDATE security_audit_events SET outcome='denied' WHERE id=?", (event_id,))
+            with self.assertRaises(sqlite3.IntegrityError, msg="security audit events are immutable"):
+                conn.execute("DELETE FROM security_audit_events WHERE id=?", (event_id,))
+
     def test_telegram_auth_persists_and_updates_user_profile(self):
         first = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
         self.assertEqual(first.status_code, 200)
