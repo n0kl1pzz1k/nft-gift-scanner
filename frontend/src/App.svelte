@@ -524,7 +524,7 @@
         ? 'Заявка на покупку опубликована. Это запрос, а не оплаченный заказ.'
         : 'Buy request published. This is a request, not a paid order.';
       haptic('success');
-      await Promise.all([loadMarketplace(), loadMyListings()]);
+      await loadMarketplace();
     } catch (e) {
       notice = e instanceof Error ? e.message : String(e);
       haptic('error');
