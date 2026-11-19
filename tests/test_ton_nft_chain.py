@@ -191,6 +191,55 @@ class TonNftChainVerificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(sleeps), 1)
         self.assertGreaterEqual(sleeps[0], 1.0)
 
+
+    async def test_rejects_fragment_item_when_collection_derives_different_address(self):
+        calls = []
+
+        def handler(request):
+            calls.append(request)
+            payload = __import__("json").loads(request.content)
+            if payload["method"] == "get_nft_data":
+                return httpx.Response(200, json={
+                    "ok": True,
+                    "result": {"exit_code": 0, "block_id": {"seqno": 12345}, "stack": [
+                        ["num", "1"], ["num", "42"], ["slice", "item-collection"],
+                        ["slice", "item-owner"], ["cell", "ignored"],
+                    ]},
+                })
+            return httpx.Response(200, json={
+                "ok": True,
+                "result": {"exit_code": 0, "block_id": {"seqno": 12345}, "stack": [["slice", "different-item"]]},
+            })
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://toncenter.com")
+        with patch.dict("os.environ", {"TONCENTER_API_KEY": "test-token"}):
+            with patch("ton_nft_chain._stack_address", side_effect=[COLLECTION, OWNER, "0:" + "d" * 64]):
+                result = await verify_nft_collection_membership(ITEM, COLLECTION, OWNER, client=client)
+        await client.aclose()
+
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["derived_item_address"], "0:" + "d" * 64)
+        requests = [__import__("json").loads(call.content) for call in calls]
+        self.assertEqual(requests[1]["method"], "get_nft_address_by_index")
+        self.assertEqual(requests[1]["seqno"], 12345)
+
+    async def test_rejects_uninitialized_fragment_item(self):
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json={
+                "ok": True,
+                "result": {"exit_code": 0, "block_id": {"seqno": 12345}, "stack": [
+                    ["num", "0"], ["num", "42"], ["slice", "collection"],
+                    ["slice", "owner"], ["cell", "ignored"],
+                ]},
+            })),
+            base_url="https://toncenter.com/api/v2",
+        )
+        with patch.dict("os.environ", {"TONCENTER_API_KEY": "test-token"}):
+            with patch("ton_nft_chain._stack_address", side_effect=[COLLECTION, OWNER]):
+                result = await verify_nft_collection_membership(ITEM, COLLECTION, OWNER, client=client)
+        await client.aclose()
+        self.assertFalse(result["verified"])
+
     async def test_fails_closed_when_contract_getter_fails(self):
         client = httpx.AsyncClient(
             transport=httpx.MockTransport(lambda request: httpx.Response(503)),
