@@ -1164,7 +1164,7 @@
   }
 
   async function loadAdminReconciliation() {
-    if (!adminPermissions.includes('payments.reconcile') || adminReconciliationBusy) return;
+    if (!(adminPermissions.includes('payments.reconcile.read') || adminPermissions.includes('payments.reconcile')) || adminReconciliationBusy) return;
     adminReconciliationBusy = true;
     try {
       const data = await request('/api/marketplace/admin/reconciliation?status=open&limit=100');
@@ -1750,7 +1750,7 @@
             {#if adminPermissions.includes('reports.read')}<button class:active={adminTab==='reports'} class="language" onclick={()=>selectAdminTab('reports')}>{lang==='ru'?'Жалобы':'Reports'}</button>{/if}
             {#if adminPermissions.includes('users.read')}<button class:active={adminTab==='users'} class="language" onclick={()=>selectAdminTab('users')}>{lang==='ru'?'Пользователи':'Users'}</button>{/if}
             {#if adminPermissions.includes('disputes.read')}<button class:active={adminTab==='disputes'} class="language" onclick={()=>selectAdminTab('disputes')}>{lang==='ru'?'Споры':'Disputes'}</button>{/if}
-            {#if adminPermissions.includes('payments.reconcile')}<button class:active={adminTab==='reconciliation'} class="language" onclick={()=>selectAdminTab('reconciliation')}>{lang==='ru'?'Сверка':'Reconciliation'}</button>{/if}
+            {#if adminPermissions.includes('payments.reconcile.read') || adminPermissions.includes('payments.reconcile')}<button class:active={adminTab==='reconciliation'} class="language" onclick={()=>selectAdminTab('reconciliation')}>{lang==='ru'?'Сверка':'Reconciliation'}</button>{/if}
             {#if adminPermissions.includes('audit.read')}<button class:active={adminTab==='audit'} class="language" onclick={()=>selectAdminTab('audit')}>{lang==='ru'?'Аудит':'Audit'}</button>{/if}
             {#if adminPermissions.includes('roles.manage')}<button class:active={adminTab==='roles'} class="language" onclick={()=>selectAdminTab('roles')}>{lang==='ru'?'Роли':'Roles'}</button>{/if}
           </div>
