@@ -20,7 +20,12 @@ from fastapi.responses import JSONResponse
 
 from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update, _enforce_user_rate_limit, sync_ton_nft_assets, sync_telegram_gift_assets, get_telegram_business_connection, get_telegram_business_connection_id, register_verified_asset, save_telegram_business_gift_ref, prune_telegram_business_gift_refs, get_telegram_business_gift_preview_ref
 from ton_connect import init_ton_connect_db, create_proof_challenge, verify_ton_proof, consume_challenge_and_link_wallet, list_verified_wallets, revoke_verified_wallet
-from ton_nft_inventory import fetch_wallet_nfts, fragment_asset_type
+from ton_nft_inventory import (
+    fetch_wallet_nfts,
+    fragment_asset_type,
+    fragment_collection_address,
+    normalise_ton_address,
+)
 from ton_nft_chain import verify_nft_collection_membership, verify_nft_owner_onchain
 from telegram_gift_inventory import fetch_user_telegram_gifts
 from telegram_business_gift_inventory import fetch_business_account_gifts, fetch_sticker_preview
@@ -527,40 +532,66 @@ async def import_ton_wallet_assets(x_telegram_init_data: str | None = Header(def
                     detail="TON NFT could not be bound to one of the verified wallets; no ownership records were changed",
                 )
 
-            asset_type = fragment_asset_type(str(item.get("collection_address") or ""))
+            # The live item contract, not the indexer's collection label, decides
+            # whether this is a Fragment username or anonymous number.
+            live_proof = await verify_nft_owner_onchain(external_id, evidence_wallet)
+            if live_proof.get("verified") is not True:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Live TON NFT owner did not match the verified wallet; no ownership records were changed",
+                )
+            live_collection = str(live_proof.get("collection_address") or "").strip()
+            indexed_collection = str(item.get("collection_address") or "").strip()
+            if indexed_collection:
+                try:
+                    collections_match = (
+                        bool(live_collection)
+                        and normalise_ton_address(indexed_collection)
+                        == normalise_ton_address(live_collection)
+                    )
+                except Exception:
+                    collections_match = False
+                if not collections_match:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="TON NFT indexer collection did not match the live contract; no ownership records were changed",
+                    )
+
+            asset_type = fragment_asset_type(live_collection) if live_collection else None
             if asset_type:
-                proof = await verify_nft_collection_membership(
+                trusted_collection = fragment_collection_address(asset_type)
+                if not trusted_collection:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Fragment collection is not in the verified collection allowlist",
+                    )
+                collection_proof = await verify_nft_collection_membership(
                     external_id,
-                    str(item["collection_address"]),
+                    trusted_collection,
                     evidence_wallet,
                 )
-                if proof.get("verified") is not True:
+                block_seqno = collection_proof.get("block_seqno")
+                if (
+                    collection_proof.get("verified") is not True
+                    or isinstance(block_seqno, bool)
+                    or not isinstance(block_seqno, int)
+                    or block_seqno < 0
+                ):
                     raise HTTPException(
                         status_code=409,
                         detail="Fragment collection membership or current owner did not match; no ownership records were changed",
                     )
                 item["asset_type"] = asset_type
+                item["collection_address"] = trusted_collection
                 item["verification_reference"] = (
-                    f"ton-contract-v1:{asset_type}:{proof['block_seqno']}:"
-                    f"{item['collection_address']}:{external_id}:{evidence_wallet}"
+                    f"ton-contract-v1:{asset_type}:{block_seqno}:"
+                    f"{trusted_collection}:{external_id}:{evidence_wallet}"
                 )
             else:
-                proof = await verify_nft_owner_onchain(external_id, evidence_wallet)
-                indexed_collection = str(item.get("collection_address") or "")
-                if (
-                    proof.get("verified") is not True
-                    or (
-                        indexed_collection
-                        and proof.get("collection_address") != indexed_collection
-                    )
-                ):
-                    raise HTTPException(
-                        status_code=409,
-                        detail="Live TON NFT owner or collection did not match the wallet snapshot; no ownership records were changed",
-                    )
+                item["collection_address"] = live_collection
                 item["verification_reference"] = (
-                    f"ton-contract-owner-v1:{proof['provider']}:"
-                    f"{proof['owner_address']}:{proof.get('collection_address') or 'none'}:{proof.get('index')}"
+                    f"ton-contract-owner-v1:{live_proof['provider']}:"
+                    f"{live_proof['owner_address']}:{live_collection or 'none'}:{live_proof.get('index')}"
                 )
     except (httpx.HTTPError, ValueError, KeyError) as exc:
         raise HTTPException(

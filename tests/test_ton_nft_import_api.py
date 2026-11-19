@@ -491,6 +491,10 @@ class TonNftImportApiTests(unittest.TestCase):
             ],
         }
         with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(return_value=snapshot)), \
+             patch.object(app, "verify_nft_owner_onchain", new=AsyncMock(side_effect=[
+                 {"verified": True, "owner_address": wallet, "collection_address": "0:80d78a35f955a14b679faa887ff4cd5bfc0f43b4a4eea2a7e6927f3701b273c2", "index": 1, "provider": "tonapi_get_method"},
+                 {"verified": True, "owner_address": wallet, "collection_address": "0:0e41dc1dc3c9067ed24248580e12b3359818d83dee0304fabcf80845eafafdb2", "index": 2, "provider": "tonapi_get_method"},
+             ])), \
              patch.object(app, "verify_nft_collection_membership", new=AsyncMock(side_effect=[
                  {"verified": True, "block_seqno": 12345},
                  {"verified": True, "block_seqno": 12346},
@@ -515,6 +519,44 @@ class TonNftImportApiTests(unittest.TestCase):
             wallet,
         ))
 
+    def test_fragment_classification_uses_live_collection_when_indexer_omits_it(self):
+        wallet = "0:" + "a" * 64
+        address = "0:" + "d" * 64
+        snapshot = {
+            "wallet_address": wallet,
+            "complete": True,
+            "items": [{
+                "address": address,
+                "wallet_address": wallet,
+                "title": "@livecontract",
+                "image_url": "",
+                "collection_address": "",
+            }],
+        }
+        with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(return_value=snapshot)), \
+             patch.object(app, "verify_nft_owner_onchain", new=AsyncMock(return_value={
+                 "verified": True,
+                 "owner_address": wallet,
+                 "collection_address": "0:80d78a35f955a14b679faa887ff4cd5bfc0f43b4a4eea2a7e6927f3701b273c2",
+                 "index": 99,
+                 "provider": "tonapi_get_method",
+             })), \
+             patch.object(app, "verify_nft_collection_membership", new=AsyncMock(return_value={
+                 "verified": True, "block_seqno": 12399
+             })) as membership:
+            response = self.client.post(
+                "/api/marketplace/assets/import-ton",
+                headers={"X-Telegram-Init-Data": "verified-session"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        inventory = self.client.get(
+            "/api/marketplace/assets/me",
+            headers={"X-Telegram-Init-Data": "verified-session"},
+        )
+        self.assertEqual(inventory.status_code, 200)
+        self.assertEqual(inventory.json()["items"][0]["asset_type"], "username")
+        membership.assert_awaited_once_with(address, "0:80d78a35f955a14b679faa887ff4cd5bfc0f43b4a4eea2a7e6927f3701b273c2", wallet)
+
     def test_fragment_spoofed_collection_is_rejected_without_registry_mutation(self):
         wallet = "0:" + "a" * 64
         address = "0:" + "d" * 64
@@ -530,14 +572,22 @@ class TonNftImportApiTests(unittest.TestCase):
             }],
         }
         with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(return_value=snapshot)), \
+             patch.object(app, "verify_nft_owner_onchain", new=AsyncMock(return_value={
+                 "verified": True,
+                 "owner_address": wallet,
+                 "collection_address": "0:" + "c" * 64,
+                 "index": 42,
+                 "provider": "tonapi_get_method",
+             })), \
              patch.object(app, "verify_nft_collection_membership", new=AsyncMock(return_value={
                  "verified": False, "block_seqno": 12345
-             })):
+             })) as membership:
             response = self.client.post(
                 "/api/marketplace/assets/import-ton",
                 headers={"X-Telegram-Init-Data": "verified-session"},
             )
         self.assertEqual(response.status_code, 409)
+        membership.assert_not_awaited()
         inventory = self.client.get(
             "/api/marketplace/assets/me",
             headers={"X-Telegram-Init-Data": "verified-session"},
@@ -570,6 +620,13 @@ class TonNftImportApiTests(unittest.TestCase):
                 ("0:" + "e" * 64, "f" * 64),
             )
         with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(return_value=snapshot)), \
+             patch.object(app, "verify_nft_owner_onchain", new=AsyncMock(return_value={
+                 "verified": True,
+                 "owner_address": wallet,
+                 "collection_address": "0:80d78a35f955a14b679faa887ff4cd5bfc0f43b4a4eea2a7e6927f3701b273c2",
+                 "index": 42,
+                 "provider": "tonapi_get_method",
+             })), \
              patch.object(app, "verify_nft_collection_membership", new=AsyncMock(
                  side_effect=httpx.ConnectError("TON Center unavailable")
              )):

@@ -25,6 +25,11 @@ FRAGMENT_COLLECTIONS = {
 }
 
 
+def normalise_ton_address(value: str) -> str:
+    """Return a canonical raw TON address for trusted on-chain comparisons."""
+    return _raw_address(value)
+
+
 def fragment_asset_type(collection_address: str) -> str | None:
     try:
         return FRAGMENT_COLLECTIONS.get(_raw_address(collection_address))
