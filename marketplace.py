@@ -1455,7 +1455,8 @@ def create_marketplace_router(
     ):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         owner_id = str(user["id"])
-        with _db() as conn:
+        _enforce_user_rate_limit(owner_id, "list_verified_assets", 60)
+        with _db() as conn
             rows = conn.execute(
                 """SELECT a.id, a.source, a.external_asset_id, a.title, a.asset_type,
                           a.image_url, a.verified_at,
@@ -1479,13 +1480,15 @@ def create_marketplace_router(
     ):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         telegram_id = str(user["id"])
+        _enforce_user_rate_limit(telegram_id, "get_seller_profile", 30)
         now = int(time.time())
         fallback_name = (user.get("first_name") or user.get("username") or "Telegram user")[:48]
         with _db() as conn:
             conn.execute(
                 """INSERT INTO user_profiles
                    (profile_id, telegram_id, display_name, bio, created_at, updated_at)
-                   VALUES (?, ?, ?, '', ?, ?)""",
+                   VALUES (?, ?, ?, '', ?, ?)
+                   ON CONFLICT(telegram_id) DO NOTHING""",
                 ("usr_" + secrets.token_urlsafe(12), telegram_id, fallback_name, now, now),
             )
             row = conn.execute(
@@ -1752,6 +1755,7 @@ def create_marketplace_router(
     @router.get("/favorites")
     async def list_favorites(x_telegram_init_data: str | None = Header(default=None)):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
+        _enforce_user_rate_limit(str(user["id"]), "list_favorites", 60)
         with _db() as conn:
             rows = conn.execute(
                 "SELECT gift_json FROM user_favorites WHERE telegram_id = ? ORDER BY updated_at DESC LIMIT 300",
@@ -1892,6 +1896,7 @@ def create_marketplace_router(
             _user(x_telegram_init_data, verify_telegram_init_data)
             return {"items": []}
         user = _user(x_telegram_init_data, verify_telegram_init_data)
+        _enforce_user_rate_limit(str(user["id"]), "list_my_orders", 60)
         with _db() as conn:
             verified_filter = "" if _test_unverified_assets_allowed() else " AND (o.kind != 'listing' OR a.id IS NOT NULL)"
             rows = conn.execute(
@@ -2172,6 +2177,7 @@ def create_marketplace_router(
     async def history(x_telegram_init_data: str | None = Header(default=None)):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         user_id = str(user["id"])
+        _enforce_user_rate_limit(user_id, "list_order_history", 30)
         with _db() as conn:
             rows = conn.execute(
                 "SELECT * FROM marketplace_orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 200",
