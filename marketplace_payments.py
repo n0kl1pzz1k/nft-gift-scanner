@@ -248,9 +248,9 @@ def create_payment_intent(
     conn.execute(
         """INSERT INTO marketplace_payment_intents
            (id, deal_id, provider, currency, amount, status, idempotency_key,
-            expires_at, created_at, updated_at, metadata_json)
-           VALUES (?, ?, ?, ?, ?, 'created', ?, ?, ?, ?, ?)""",
-        (intent_id, deal_id, provider, currency, amount_value, key, expiry,
+            invoice_payload, expires_at, created_at, updated_at, metadata_json)
+           VALUES (?, ?, ?, ?, ?, 'created', ?, ?, ?, ?, ?, ?)""",
+        (intent_id, deal_id, provider, currency, amount_value, key, payload_value, expiry,
          timestamp, timestamp, metadata_json),
     )
     row = conn.execute(
