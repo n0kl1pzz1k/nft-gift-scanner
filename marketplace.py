@@ -212,7 +212,7 @@ def _migrate_security_audit_events_schema(conn: sqlite3.Connection) -> None:
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='security_audit_events'"
     ).fetchone()
-    if row is None or "admin_user_suspended" in str(row["sql"] or ""):
+    if row is None or ("admin_asset_revoked" in str(row["sql"] or "") and "'asset'" in str(row["sql"] or "")):
         return
     conn.execute("DROP TRIGGER IF EXISTS security_audit_events_no_update")
     conn.execute("DROP TRIGGER IF EXISTS security_audit_events_no_delete")
