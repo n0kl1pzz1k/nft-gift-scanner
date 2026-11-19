@@ -407,3 +407,131 @@ def test_postgres_ownership_transfer_rolls_back_then_cancels_stale_listing():
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
             admin.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+
+
+
+def test_postgres_concurrent_duplicate_offers_are_serialized_per_listing():
+    """Two simultaneous offers from one buyer must not create duplicate pending rows."""
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+    from threading import Barrier
+    from unittest.mock import patch
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    import psycopg
+    import database
+    import marketplace
+    import marketplace_offers
+    from marketplace import create_marketplace_router
+    from marketplace_offers import create_marketplace_offers_router
+
+    schema = "offer_race_" + uuid.uuid4().hex[:10]
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(f'CREATE SCHEMA "{schema}"')
+
+    @contextmanager
+    def scoped_connection():
+        connection = database.connect()
+        try:
+            yield connection
+        finally:
+            connection.close()
+
+    try:
+        with patch.dict(os.environ, {
+            "HASSLE_NFT_DB_BACKEND": "postgres",
+            "DATABASE_URL": dsn,
+            "HASSLE_POSTGRES_SCHEMA": schema,
+            "HASSLE_VERIFIED_ASSETS_ENABLED": "true",
+        }, clear=False), patch.object(
+            marketplace, "_db", side_effect=scoped_connection
+        ), patch.object(
+            marketplace_offers, "_db", side_effect=scoped_connection
+        ):
+            marketplace.init_marketplace_db()
+            marketplace_offers.init_marketplace_offers_db()
+            marketplace.upsert_telegram_user({
+                "id": "101", "username": "seller", "first_name": "Seller",
+            })
+            marketplace.upsert_telegram_user({
+                "id": "202", "username": "buyer", "first_name": "Buyer",
+            })
+            asset = marketplace.register_verified_asset(
+                source="ton_nft",
+                external_asset_id="ton-nft-concurrent-offer",
+                owner_telegram_id="101",
+                title="Verified concurrency gift",
+                asset_type="gift",
+                image_url="",
+                verification_method="ton_connect_proof",
+                verification_reference="concurrency-owner-verification-reference",
+            )
+
+            api = FastAPI()
+            def verify_user(value):
+                user_id = {"seller": "101", "buyer": "202"}[value]
+                return {
+                    "id": user_id,
+                    "first_name": "Seller" if user_id == "101" else "Buyer",
+                    "username": "seller" if user_id == "101" else "buyer",
+                }
+            api.include_router(create_marketplace_router(verify_user))
+            api.include_router(create_marketplace_offers_router(verify_user))
+
+            with patch.object(
+                marketplace, "_verified_asset_actions_enabled", return_value=True
+            ), patch.object(
+                marketplace, "_test_ton_owner_recheck_skipped", return_value=True
+            ), TestClient(api) as client:
+                listing_response = client.post(
+                    "/api/marketplace/orders",
+                    headers={"X-Telegram-Init-Data": "seller"},
+                    json={
+                        "kind": "listing",
+                        "asset_id": asset["id"],
+                        "title": "Verified concurrency gift",
+                        "price": "5",
+                        "currency": "TON",
+                    },
+                )
+                assert listing_response.status_code == 201, listing_response.text
+                order_id = listing_response.json()["item"]["id"]
+
+                barrier = Barrier(2)
+                def submit_offer():
+                    barrier.wait(timeout=10)
+                    return client.post(
+                        "/api/marketplace/offers",
+                        headers={"X-Telegram-Init-Data": "buyer"},
+                        json={"order_id": order_id, "amount": "4"},
+                    )
+
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    responses = list(executor.map(lambda _index: submit_offer(), range(2)))
+
+            assert sorted(response.status_code for response in responses) == [201, 409]
+            with database.db() as conn:
+                offer_rows = conn.execute(
+                    "SELECT status, COUNT(*) AS total FROM marketplace_offers "
+                    "WHERE order_id=? AND sender_user_id=? GROUP BY status",
+                    (order_id, "202"),
+                ).fetchall()
+                total_offers = conn.execute(
+                    "SELECT COUNT(*) FROM marketplace_offers WHERE order_id=? AND sender_user_id=?",
+                    (order_id, "202"),
+                ).fetchone()[0]
+
+            assert total_offers == 1
+            assert len(offer_rows) == 1
+            assert offer_rows[0]["status"] == "pending"
+            assert offer_rows[0]["total"] == 1
+
+    finally:
+        with psycopg.connect(dsn, autocommit=True) as admin:
+            admin.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
