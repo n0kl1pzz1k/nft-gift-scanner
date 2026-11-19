@@ -169,6 +169,7 @@ def create_payment_intent(
     idempotency_key: str,
     expires_at: int,
     metadata: dict[str, Any] | None = None,
+    invoice_payload: str | None = None,
     now: int | None = None,
 ) -> dict[str, Any]:
     if provider not in PAYMENT_PROVIDERS:
@@ -190,16 +191,19 @@ def create_payment_intent(
     if expiry <= timestamp:
         raise ValueError("Payment intent expiry must be in the future")
     metadata_json = json.dumps(metadata or {}, sort_keys=True, separators=(",", ":"))
+    payload_value = str(invoice_payload or "").strip() or None
+    if payload_value is not None and len(payload_value.encode("utf-8")) > 128:
+        raise ValueError("Invoice payload must contain 1-128 UTF-8 bytes")
     existing = conn.execute(
         "SELECT * FROM marketplace_payment_intents WHERE idempotency_key = ?",
         (key,),
     ).fetchone()
     if existing is not None:
         row = _intent_dict(existing)
-        expected = (deal_id, provider, currency, amount_value, expiry, metadata_json)
+        expected = (deal_id, provider, currency, amount_value, expiry, metadata_json, payload_value)
         actual = (
             row["deal_id"], row["provider"], row["currency"], row["amount"],
-            row["expires_at"], row["metadata_json"],
+            row["expires_at"], row["metadata_json"], row["invoice_payload"],
         )
         if actual != expected:
             raise PaymentConflict("Payment idempotency key was reused with different parameters")
@@ -222,6 +226,25 @@ def create_payment_intent(
     )
     row = conn.execute(
         "SELECT * FROM marketplace_payment_intents WHERE id = ?", (intent_id,)
+    ).fetchone()
+    return _intent_dict(row)
+
+
+def get_payment_intent(conn: Any, intent_id: str) -> dict[str, Any]:
+    row = conn.execute(
+        "SELECT * FROM marketplace_payment_intents WHERE id = ?",
+        (str(intent_id or "").strip(),),
+    ).fetchone()
+    return _intent_dict(row)
+
+
+def get_payment_intent_by_invoice_payload(conn: Any, invoice_payload: str) -> dict[str, Any]:
+    payload = str(invoice_payload or "").strip()
+    if not payload:
+        raise PaymentStateError("Invoice payload is required")
+    row = conn.execute(
+        "SELECT * FROM marketplace_payment_intents WHERE invoice_payload = ?",
+        (payload,),
     ).fetchone()
     return _intent_dict(row)
 
