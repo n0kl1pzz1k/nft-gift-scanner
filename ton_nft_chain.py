@@ -72,6 +72,9 @@ async def _run_get_method(
     payload = {"address": _raw_address(address), "method": method, "stack": stack}
     if seqno is not None:
         payload["seqno"] = seqno
+    if not token:
+        # The unauthenticated TON Center API v2 tier is limited to one request per second.
+        await asyncio.sleep(1.1)
     response = await session.post(
         "/api/v2/runGetMethod",
         json=payload,
@@ -136,9 +139,6 @@ async def verify_nft_collection_membership(
                 "index": index,
             }
 
-        if not os.getenv("TONCENTER_API_KEY", "").strip():
-            # Public TON Center API v2 is limited to one request per second.
-            await asyncio.sleep(1.1)
         collection_stack, _ = await _run_get_method(
             session,
             expected_collection,
