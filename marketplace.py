@@ -976,6 +976,22 @@ def register_verified_asset(*, source: str, external_asset_id: str, owner_telegr
             "image_url": image_url, "status": "verified", "verified_at": now}
 
 
+def get_verified_asset_owner(source: str, external_asset_id: str) -> str | None:
+    """Return the current registry owner for one exact upstream asset identity."""
+    safe_source = str(source or "").strip()
+    safe_external_id = str(external_asset_id or "").strip()
+    if safe_source not in {"ton_nft", "telegram_gift", "telegram_username", "anonymous_number"}:
+        raise ValueError("Unsupported verified asset source")
+    if not safe_external_id or len(safe_external_id) > 200:
+        raise ValueError("A valid external asset ID is required")
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT owner_telegram_id FROM verified_assets WHERE source = ? AND external_asset_id = ?",
+            (safe_source, safe_external_id),
+        ).fetchone()
+    return str(row["owner_telegram_id"]) if row else None
+
+
 def sync_ton_nft_assets(*, owner_telegram_id: str, wallets: list[dict[str, Any]],
                           nft_items: list[dict[str, str]], complete: bool) -> list[dict[str, Any]]:
     """Persist provider-derived NFT snapshots and revoke stale ownership only on complete scans."""
