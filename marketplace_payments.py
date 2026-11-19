@@ -372,21 +372,31 @@ def post_ledger_transaction(
 
     timestamp = int(now if now is not None else __import__("time").time())
     transaction_id = "lt-" + uuid.uuid4().hex[:24]
-    conn.execute(
-        """INSERT INTO marketplace_ledger_transactions
-           (id, idempotency_key, reference_type, reference_id, currency, amount, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (transaction_id, key, reference_type, reference, currency, debit_value, timestamp),
-    )
-    conn.executemany(
-        """INSERT INTO marketplace_ledger_entries
-           (id, transaction_id, account_type, account_id, direction, currency, amount, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        [
+    conn.execute("SAVEPOINT hassle_ledger_post")
+    try:
+        conn.execute(
+            """INSERT INTO marketplace_ledger_transactions
+               (id, idempotency_key, reference_type, reference_id, currency, amount, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (transaction_id, key, reference_type, reference, currency, debit_value, timestamp),
+        )
+        conn.execute(
+            """INSERT INTO marketplace_ledger_entries
+               (id, transaction_id, account_type, account_id, direction, currency, amount, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             ("le-" + uuid.uuid4().hex[:24], transaction_id, debit_type, debit_id, "debit", currency, debit_value, timestamp),
+        )
+        conn.execute(
+            """INSERT INTO marketplace_ledger_entries
+               (id, transaction_id, account_type, account_id, direction, currency, amount, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             ("le-" + uuid.uuid4().hex[:24], transaction_id, credit_type, credit_id, "credit", currency, credit_value, timestamp),
-        ],
-    )
+        )
+    except Exception:
+        conn.execute("ROLLBACK TO SAVEPOINT hassle_ledger_post")
+        conn.execute("RELEASE SAVEPOINT hassle_ledger_post")
+        raise
+    conn.execute("RELEASE SAVEPOINT hassle_ledger_post")
     return {"id": transaction_id, "idempotent_replay": False, "entries": 2}
 
 
