@@ -1533,7 +1533,7 @@ def create_marketplace_offers_router(
                        VALUES (?, ?, ?, ?, ?)""",
                     (deal["asset_id"], str(locked["listing_owner_id"]), buyer_id, reference, now),
                 )
-                from marketplace_payments import PaymentConflict, PaymentStateError, transition_deal_status
+                from marketplace_payments import PaymentConflict, PaymentStateError, append_escrow_event, post_ledger_transaction, transition_deal_status
                 transition_deal_status(
                     conn,
                     deal_id=deal_id,
@@ -1548,6 +1548,33 @@ def create_marketplace_offers_router(
                         "new_owner_telegram_id": buyer_id,
                         "network": "ton-mainnet",
                         "verification": "tonapi_current_owner",
+                    },
+                    now=now,
+                )
+                seller_credit = post_ledger_transaction(
+                    conn,
+                    idempotency_key=f"{deal_id}:seller-payable:{deal['currency']}",
+                    reference_type="deal",
+                    reference_id=deal_id,
+                    currency=str(deal["currency"]),
+                    debit_account=("escrow", deal_id),
+                    credit_account=("seller_payable", str(locked["listing_owner_id"])),
+                    debit_amount=deal["agreed_amount"],
+                    credit_amount=deal["agreed_amount"],
+                    now=now,
+                )
+                append_escrow_event(
+                    conn,
+                    deal_id=deal_id,
+                    actor_user_id=buyer_id,
+                    event_type="seller_credit_recorded",
+                    event_key=f"{deal_id}:seller-credit-recorded",
+                    event_data={
+                        "ledger_transaction_id": seller_credit["id"],
+                        "seller_telegram_id": str(locked["listing_owner_id"]),
+                        "currency": str(deal["currency"]),
+                        "amount": str(deal["agreed_amount"]),
+                        "settlement_status": "pending_manual_payout",
                     },
                     now=now,
                 )
