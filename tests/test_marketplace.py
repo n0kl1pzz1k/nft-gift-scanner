@@ -240,6 +240,26 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         limiter.assert_called_once_with("101", "telegram_auth_exchange", 30, 60)
 
+    def test_logout_writes_audit_event_without_storing_session_token(self):
+        authenticated = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
+        self.assertEqual(authenticated.status_code, 200)
+        session_token = authenticated.json()["session_token"]
+        response = self.client.post(
+            "/api/auth/logout",
+            headers={"X-Telegram-Init-Data": session_token},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["revoked"])
+        with marketplace._db() as conn:
+            event = conn.execute(
+                "SELECT actor_telegram_id, action, target_type, target_hash FROM security_audit_events "
+                "WHERE action='telegram_session_revoked' ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        self.assertEqual(event["actor_telegram_id"], "101")
+        self.assertEqual(event["target_type"], "session")
+        self.assertEqual(len(event["target_hash"]), 64)
+        self.assertNotIn(session_token, event["target_hash"])
+
     def test_telegram_auth_reports_server_verified_admin_role(self):
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
             admin = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
