@@ -2103,6 +2103,34 @@ class SharedMarketplaceTests(unittest.TestCase):
         )
         self.assertEqual(duplicate.status_code, 409)
 
+    def test_asset_moderation_cannot_revoke_an_asset_with_an_active_listing(self):
+        asset = marketplace.register_verified_asset(
+            source="ton_nft",
+            external_asset_id="0:" + "55" * 32,
+            owner_telegram_id="101",
+            title="Listed moderation asset",
+            asset_type="gift",
+            image_url="",
+            verification_method="ton_connect_proof",
+            verification_reference="active-listing-proof-001",
+        )
+        listing = self.client.post(
+            "/api/marketplace/orders",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"kind": "listing", "title": "Listed moderation asset", "price": "10", "currency": "TON", "asset_id": asset["id"]},
+        )
+        self.assertEqual(listing.status_code, 201, listing.text)
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
+            response = self.client.post(
+                f"/api/marketplace/admin/assets/{asset['id']}/revoke",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"reason": "Review pending"},
+            )
+        self.assertEqual(response.status_code, 409)
+        with marketplace._db() as conn:
+            row = conn.execute("SELECT status FROM verified_assets WHERE id=?", (asset["id"],)).fetchone()
+        self.assertEqual(row["status"], "verified")
+
     def test_security_audit_schema_migration_preserves_old_events_and_allows_new_admin_actions(self):
         legacy_path = os.path.join(self.temp_dir.name, "legacy-audit.sqlite3")
         conn = sqlite3.connect(legacy_path)
