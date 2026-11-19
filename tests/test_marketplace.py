@@ -2223,7 +2223,7 @@ class SharedMarketplaceTests(unittest.TestCase):
                    BEGIN SELECT RAISE(ABORT, 'injected admin cancellation event failure'); END"""
             )
 
-        with patch.object(api, "_require_admin", side_effect=admin_check):
+        with patch.object(api, "_require_admin_permission", side_effect=lambda value, permission: admin_check(value)):
             with self.assertRaises(sqlite3.IntegrityError):
                 self.client.patch(
                     f"/api/marketplace/admin/reports/{report_id}",
@@ -2248,7 +2248,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(cancellation_events, 0)
 
     def test_admin_report_listing_is_rate_limited(self):
-        with patch.object(api, "_require_admin", return_value={"id": "909"}), \
+        with patch.object(api, "_require_admin_permission", return_value={"id": "909"}), \
              patch.object(marketplace, "_enforce_user_rate_limit") as limiter:
             response = self.client.get(
                 "/api/marketplace/admin/reports",
@@ -2258,7 +2258,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         limiter.assert_called_once_with("909", "list_order_reports", 60)
 
     def test_admin_security_audit_view_is_rate_limited(self):
-        with patch.object(api, "_require_admin", return_value={"id": "909"}), \
+        with patch.object(api, "_require_admin_permission", return_value={"id": "909"}), \
              patch.object(marketplace, "_enforce_user_rate_limit") as limiter:
             response = self.client.get(
                 "/api/marketplace/admin/security-audit",
@@ -2286,7 +2286,7 @@ class SharedMarketplaceTests(unittest.TestCase):
                 raise api.HTTPException(status_code=403, detail="Administrator access only")
             return {"id": "999"}
 
-        with patch.object(api, "_require_admin", side_effect=admin_check):
+        with patch.object(api, "_require_admin_permission", side_effect=lambda value, permission: admin_check(value)):
             forbidden = self.client.get("/api/marketplace/admin/reports", headers=reporter_headers)
             self.assertEqual(forbidden.status_code, 403)
             queue = self.client.get(
