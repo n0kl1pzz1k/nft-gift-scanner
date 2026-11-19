@@ -1897,11 +1897,11 @@ class SharedMarketplaceTests(unittest.TestCase):
             f"/api/marketplace/offers/{offered.json()['item']['id']}", headers=headers_a,
             json={"action": "accept"},
         )
-        self.assertEqual(accepted.status_code, 409)
-        self.assertEqual(
-            self.client.get("/api/marketplace/deals", headers=headers_b).json()["items"],
-            [],
-        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        buyer_deals = self.client.get("/api/marketplace/deals", headers=headers_b)
+        self.assertEqual(len(buyer_deals.json()["items"]), 1)
+        self.assertEqual(buyer_deals.json()["items"][0]["status"], "payment_not_enabled")
+        self.assertFalse(buyer_deals.json()["payments_enabled"])
         sender_stats = self.client.get("/api/marketplace/account/stats", headers=headers_b)
         self.assertEqual(sender_stats.status_code, 200)
         self.assertEqual(sender_stats.json()["deals"], 0)
