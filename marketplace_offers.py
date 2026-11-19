@@ -254,6 +254,10 @@ def init_marketplace_offers_db() -> None:
             WHERE status NOT IN ('cancelled', 'expired')
         """)
 
+        from marketplace_payments import initialize_sqlite_payment_schema
+
+        initialize_sqlite_payment_schema(conn)
+
 
 def _require_user(init_data: str | None, verify: Callable[[str], dict]) -> dict:
     if not init_data:
