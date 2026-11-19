@@ -249,9 +249,15 @@
     </button>
   {/if}
   {#if deliveryRequest && status === 'verified' && address === deliveryRequest.sellerWallet}
-    <button class="ton-wallet-button inventory-import-button" type="button" onclick={sendNftDelivery} disabled={busy}>
-      {busy ? '…' : (lang === 'ru' ? 'Передать NFT покупателю' : 'Transfer NFT to buyer')}
-    </button>
+    {#if tonConnect?.wallet}
+      <button class="ton-wallet-button inventory-import-button" type="button" onclick={sendNftDelivery} disabled={busy}>
+        {busy ? '…' : (lang === 'ru' ? 'Передать NFT покупателю' : 'Transfer NFT to buyer')}
+      </button>
+    {:else}
+      <button class="ton-wallet-button inventory-import-button" type="button" onclick={connectWallet} disabled={busy}>
+        {lang === 'ru' ? 'Подключить кошелёк для подписи' : 'Reconnect wallet to sign transfer'}
+      </button>
+    {/if}
     <p class="ton-wallet-message">{lang === 'ru' ? 'Подтверди перевод NFT в своём TON-кошельке. HASSLE NFT не получает доступ к ключам.' : 'Approve the NFT transfer in your TON wallet. HASSLE NFT never receives your keys.'}</p>
   {/if}
   {#if message}
