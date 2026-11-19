@@ -112,6 +112,7 @@ def verify_postgres_marketplace_schema(connection: Any) -> dict[str, Any]:
     trigger = next((r for r in triggers if r["tgname"]=="verified_assets_metadata_immutable"),None)
     audit_update = next((r for r in triggers if r["tgname"]=="security_audit_events_no_update"),None)
     audit_delete = next((r for r in triggers if r["tgname"]=="security_audit_events_no_delete"),None)
+    audit_truncate = next((r for r in triggers if r["tgname"]=="security_audit_events_no_truncate"),None)
     problems=[]
     if expected_tables-tables: problems.append("missing tables: "+", ".join(sorted(expected_tables-tables)))
     for table_name, expected in expected_columns.items():
@@ -129,8 +130,10 @@ def verify_postgres_marketplace_schema(connection: Any) -> dict[str, Any]:
         problems.append("missing or disabled security audit update guard")
     if audit_delete is None or (audit_delete["relname"],audit_delete["proname"],audit_delete["tgenabled"])!=("security_audit_events","hassle_nft_security_audit_immutable","O"):
         problems.append("missing or disabled security audit delete guard")
+    if audit_truncate is None or (audit_truncate["relname"],audit_truncate["proname"],audit_truncate["tgenabled"])!=("security_audit_events","hassle_nft_security_audit_immutable","O"):
+        problems.append("missing or disabled security audit truncate guard")
     if problems: raise RuntimeError("PostgreSQL marketplace schema verification failed: "+"; ".join(problems))
-    return {"verified":True,"tables_verified":len(expected_tables),"columns_verified":sum(len(columns) for columns in expected_columns.values()),"indexes_verified":len(expected_indexes),"triggers_verified":3}
+    return {"verified":True,"tables_verified":len(expected_tables),"columns_verified":sum(len(columns) for columns in expected_columns.values()),"indexes_verified":len(expected_indexes),"triggers_verified":4}
 
 def initialize_postgres_marketplace_schema(connection: Any) -> dict[str, Any]:
     if not callable(getattr(connection,"execute",None)) or not bool(getattr(connection,"supports_for_update",False)):
@@ -143,6 +146,8 @@ def initialize_postgres_marketplace_schema(connection: Any) -> dict[str, Any]:
     connection.execute("CREATE TRIGGER verified_assets_metadata_immutable BEFORE UPDATE OF source,external_asset_id,owner_telegram_id,title,asset_type,image_url,verification_method,verification_reference_hash,verified_at ON verified_assets FOR EACH ROW EXECUTE FUNCTION hassle_nft_verified_asset_metadata_immutable()")
     connection.execute("DROP TRIGGER IF EXISTS security_audit_events_no_update ON security_audit_events")
     connection.execute("DROP TRIGGER IF EXISTS security_audit_events_no_delete ON security_audit_events")
+    connection.execute("DROP TRIGGER IF EXISTS security_audit_events_no_truncate ON security_audit_events")
     connection.execute("CREATE TRIGGER security_audit_events_no_update BEFORE UPDATE ON security_audit_events FOR EACH ROW EXECUTE FUNCTION hassle_nft_security_audit_immutable()")
     connection.execute("CREATE TRIGGER security_audit_events_no_delete BEFORE DELETE ON security_audit_events FOR EACH ROW EXECUTE FUNCTION hassle_nft_security_audit_immutable()")
+    connection.execute("CREATE TRIGGER security_audit_events_no_truncate BEFORE TRUNCATE ON security_audit_events FOR EACH STATEMENT EXECUTE FUNCTION hassle_nft_security_audit_immutable()")
     return {**verify_postgres_marketplace_schema(connection),"tables_created_or_verified":len(_TABLES)}
