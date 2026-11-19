@@ -20,6 +20,7 @@ class TonConnectProofTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_patch = patch.object(marketplace, "DB_PATH", os.path.join(self.temp_dir.name, "ton.sqlite3"))
         self.db_patch.start()
+        marketplace.init_marketplace_db()
         ton_connect.init_ton_connect_db()
         self.session = "grs_test-session-token"
         self.user_id = "101"
@@ -216,6 +217,7 @@ class TonConnectProofTests(unittest.TestCase):
             self.skipTest("HASSLE_TEST_POSTGRES_DSN is not configured")
 
         from database import connect_postgres_database, list_database_tables
+        from marketplace_postgres import initialize_postgres_marketplace_schema
 
         connection = connect_postgres_database(dsn)
         schema = "ton_connect_test_" + uuid.uuid4().hex
@@ -224,6 +226,7 @@ class TonConnectProofTests(unittest.TestCase):
             connection.execute(f'CREATE SCHEMA "{schema}"')
             schema_created = True
             connection.execute(f'SET search_path TO "{schema}"')
+            initialize_postgres_marketplace_schema(connection)
             schema_report = ton_connect.ensure_ton_connect_schema(connection)
             self.assertTrue(schema_report["verified"])
             self.assertEqual(schema_report["tables_verified"], 2)
