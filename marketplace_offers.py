@@ -326,6 +326,10 @@ class DealAction(BaseModel):
     action: Literal["cancel"]
 
 
+class StarsCheckoutRequest(BaseModel):
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+
 class DisputeResolutionApprovalRequest(BaseModel):
     decision: Literal["refund_buyer", "release_to_seller"]
     idempotency_key: str = Field(min_length=1, max_length=128)
@@ -944,6 +948,145 @@ def create_marketplace_offers_router(
             "ready_for_execution": result["ready_for_execution"],
             "execution_enabled": False,
             "idempotent_replay": result["idempotent_replay"],
+        }
+
+
+    @router.post("/deals/{deal_id}/stars-checkout")
+    async def create_stars_checkout(
+        deal_id: str,
+        payload: StarsCheckoutRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Create a Telegram Stars invoice only when the operator explicitly enables custody."""
+        import hashlib
+        import httpx
+        from marketplace_payments import append_escrow_event, create_payment_intent, transition_deal_status, transition_payment_intent
+
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        buyer_id = str(user["id"])
+        _enforce_user_rate_limit(buyer_id, "stars_checkout", 5)
+        if os.getenv("HASSLE_STARS_CHECKOUT_ENABLED", "0") != "1":
+            raise HTTPException(status_code=503, detail="Telegram Stars checkout is not enabled")
+        if os.getenv("HASSLE_STARS_CUSTODY_ACKNOWLEDGED", "0") != "1":
+            raise HTTPException(status_code=503, detail="Stars custody policy has not been acknowledged")
+        if os.getenv("HASSLE_STARS_PAYOUT_MODE", "") != "internal_xtr_credit":
+            raise HTTPException(status_code=503, detail="Stars seller-credit policy is not configured")
+        bot_token = os.getenv("BOT_TOKEN", "").strip()
+        support_contact = os.getenv("PAYMENT_SUPPORT_CONTACT", "").strip()
+        if not bot_token or not support_contact:
+            raise HTTPException(status_code=503, detail="Payment bot token or payment support contact is not configured")
+        now = int(time.time())
+        try:
+            ttl = int(os.getenv("HASSLE_STARS_INVOICE_TTL_SECONDS", "900"))
+        except ValueError:
+            ttl = 900
+        ttl = max(300, min(ttl, 3600))
+        invoice_payload = "hassle:stars:" + hashlib.sha256(
+            f"{deal_id}:{payload.idempotency_key}".encode("utf-8")
+        ).hexdigest()[:40]
+        with _db() as conn:
+            begin_write(conn, f"deal:{deal_id}")
+            deal = conn.execute(
+                select_for_update(conn, """SELECT d.*, o.status AS listing_status, o.currency AS listing_currency,
+                    o.asset_id AS listing_asset_id
+                    FROM marketplace_deals d
+                    JOIN marketplace_orders o ON o.id = d.order_id
+                    WHERE d.id = ?"""),
+                (deal_id,),
+            ).fetchone()
+            if deal is None or buyer_id != str(deal["offer_sender_id"]):
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Deal not found")
+            if (
+                deal["currency"] != "XTR"
+                or deal["listing_currency"] != "XTR"
+                or deal["listing_status"] != "matched"
+                or deal["status"] not in {"payment_not_enabled", "awaiting_payment"}
+            ):
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Deal is not eligible for Telegram Stars checkout")
+            amount = int(Decimal(str(deal["agreed_amount"])))
+            if amount <= 0 or Decimal(str(deal["agreed_amount"])) != Decimal(amount):
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Telegram Stars amount must be a positive whole number")
+            if not _test_unverified_assets_allowed():
+                verified = conn.execute(
+                    """SELECT 1 FROM verified_assets
+                       WHERE id = ? AND owner_telegram_id = ? AND status = 'verified'""",
+                    (deal["listing_asset_id"], deal["listing_owner_id"]),
+                ).fetchone()
+                if verified is None:
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="The seller asset is not currently verified")
+            if deal["status"] == "payment_not_enabled":
+                transition_deal_status(
+                    conn,
+                    deal_id=deal_id,
+                    new_status="awaiting_payment",
+                    actor_user_id=buyer_id,
+                    idempotency_key=f"{deal_id}:stars-checkout-request:{payload.idempotency_key}",
+                    event_type="deal_payment_requested",
+                    event_data={"provider": "telegram_stars", "currency": "XTR"},
+                    now=now,
+                )
+            intent = create_payment_intent(
+                conn,
+                deal_id=deal_id,
+                provider="telegram_stars",
+                currency="XTR",
+                amount=amount,
+                idempotency_key=f"stars:{deal_id}:{payload.idempotency_key}",
+                expires_at=now + ttl,
+                invoice_payload=invoice_payload,
+                metadata={
+                    "buyer_telegram_id": buyer_id,
+                    "seller_telegram_id": str(deal["listing_owner_id"]),
+                    "deal_id": deal_id,
+                    "payout_mode": "internal_xtr_credit",
+                },
+                now=now,
+            )
+            append_escrow_event(
+                conn,
+                deal_id=deal_id,
+                actor_user_id=buyer_id,
+                event_type="payment_intent_created",
+                event_key=f"{deal_id}:stars-intent:{intent['id']}",
+                event_data={"provider": "telegram_stars", "payment_intent_id": intent["id"], "amount": str(amount), "currency": "XTR"},
+                now=now,
+            )
+            conn.commit()
+        invoice_request = {
+            "title": "HASSLE NFT marketplace purchase",
+            "description": f"Payment for HASSLE NFT deal {deal_id}",
+            "payload": invoice_payload,
+            "currency": "XTR",
+            "prices": [{"label": "HASSLE NFT purchase", "amount": amount}],
+        }
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                response = await client.post(
+                    f"https://api.telegram.org/bot{bot_token}/createInvoiceLink",
+                    json=invoice_request,
+                )
+                response.raise_for_status()
+                provider_result = response.json()
+            if not provider_result.get("ok") or not isinstance(provider_result.get("result"), str):
+                raise RuntimeError("Telegram did not return an invoice link")
+        except Exception:
+            with _db() as conn:
+                begin_write(conn, f"payment-intent:{intent['id']}")
+                transition_payment_intent(conn, intent["id"], "failed", now=int(time.time()))
+                conn.commit()
+            raise HTTPException(status_code=502, detail="Telegram could not create the Stars invoice")
+        return {
+            "deal_id": deal_id,
+            "payment_intent_id": intent["id"],
+            "provider": "telegram_stars",
+            "currency": "XTR",
+            "amount": str(amount),
+            "invoice_url": provider_result["result"],
+            "expires_at": intent["expires_at"],
         }
 
 
