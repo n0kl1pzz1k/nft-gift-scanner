@@ -18,9 +18,9 @@ from fastapi import FastAPI, HTTPException, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update, _enforce_user_rate_limit, sync_ton_nft_assets, sync_telegram_gift_assets, get_telegram_business_connection, get_telegram_business_connection_id, register_verified_asset, save_telegram_business_gift_ref, prune_telegram_business_gift_refs, get_telegram_business_gift_preview_ref
+from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update, _enforce_user_rate_limit, sync_ton_nft_assets, sync_telegram_gift_assets, get_telegram_business_connection, get_telegram_business_connection_id, register_verified_asset, save_telegram_business_gift_ref, prune_telegram_business_gift_refs, get_telegram_business_gift_preview_ref, get_verified_asset_owner
 from ton_connect import init_ton_connect_db, create_proof_challenge, verify_ton_proof, consume_challenge_and_link_wallet, list_verified_wallets, revoke_verified_wallet
-from ton_nft_inventory import fetch_wallet_nfts
+from ton_nft_inventory import fetch_wallet_nfts, fetch_nft_owner
 from telegram_gift_inventory import fetch_user_telegram_gifts
 from telegram_business_gift_inventory import fetch_business_account_gifts, fetch_sticker_preview
 import httpx
@@ -450,6 +450,33 @@ async def import_ton_wallet_assets(x_telegram_init_data: str | None = Header(def
 
     all_items = [item for snapshot in snapshots for item in snapshot["items"]]
     complete = all(snapshot["complete"] for snapshot in snapshots)
+
+    # An indexer wallet listing is sufficient for a first import, but not for
+    # transferring an already-registered asset between Telegram owners. Re-read
+    # the live NFT owner for every such transfer before any registry mutation.
+    try:
+        for item in all_items:
+            external_id = str(item.get("address") or "").strip()
+            evidence_wallet = str(item.get("wallet_address") or "").strip()
+            if not external_id or evidence_wallet not in {str(w.get("address") or "") for w in wallets}:
+                continue
+            current_owner = get_verified_asset_owner("ton_nft", external_id)
+            if current_owner and current_owner != telegram_id:
+                live = await fetch_nft_owner(external_id)
+                if (live.get("owner_address") != evidence_wallet
+                        or live.get("is_scam") is True
+                        or live.get("trust") == "blacklist"):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="TON NFT ownership changed or could not be verified; no ownership records were changed",
+                    )
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="TON NFT live ownership verification is temporarily unavailable; no ownership records were changed",
+            headers={"Retry-After": "30"},
+        ) from exc
+
     try:
         registered = sync_ton_nft_assets(
             owner_telegram_id=telegram_id,
