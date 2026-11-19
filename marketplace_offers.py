@@ -522,8 +522,47 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
         deal_id: str,
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        _require_user(x_telegram_init_data, verify_telegram_init_data)
-        raise HTTPException(status_code=404, detail="Deal not found")
+        """Return the immutable deal timeline to its seller and buyer only."""
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        actor_id = str(user["id"])
+        _enforce_user_rate_limit(actor_id, "deal_events", 60)
+        with _db() as conn:
+            deal = conn.execute(
+                """SELECT listing_owner_id, offer_sender_id
+                   FROM marketplace_deals WHERE id = ?""",
+                (deal_id,),
+            ).fetchone()
+            # Hide both missing deals and deals belonging to somebody else.
+            if deal is None or actor_id not in (
+                deal["listing_owner_id"], deal["offer_sender_id"]
+            ):
+                raise HTTPException(status_code=404, detail="Deal not found")
+            rows = conn.execute(
+                """SELECT id, actor_user_id, event_type, event_data, created_at
+                   FROM marketplace_deal_events WHERE deal_id = ?
+                   UNION ALL
+                   SELECT id, actor_user_id, event_type, event_data, created_at
+                   FROM marketplace_deal_lifecycle_events WHERE deal_id = ?
+                   ORDER BY created_at ASC, id ASC""",
+                (deal_id, deal_id),
+            ).fetchall()
+
+        items = []
+        for row in rows:
+            try:
+                event_data = json.loads(row["event_data"] or "{}")
+            except (TypeError, ValueError):
+                event_data = {}
+            if not isinstance(event_data, dict):
+                event_data = {}
+            items.append({
+                "id": row["id"],
+                "actor_user_id": row["actor_user_id"],
+                "type": row["event_type"],
+                "data": event_data,
+                "created_at": row["created_at"],
+            })
+        return {"deal_id": deal_id, "items": items, "total": len(items)}
 
     @router.get("/deals")
     async def list_deals(
