@@ -1303,9 +1303,8 @@
       isAdmin = data.is_admin === true;
       adminPermissions = Array.isArray(data.admin_permissions) ? data.admin_permissions as string[] : [];
       adminRole = String(data.admin_role || '');
-      adminPermissions = Array.isArray(data.admin_permissions) ? data.admin_permissions as string[] : [];
-      adminRole = String(data.admin_role || '');
       signedIn = true;
+      if (isAdmin) await loadAdminOverview();
       await loadMarketplace();
       await loadFavorites();
       await loadOffersAndDeals();
@@ -1319,8 +1318,6 @@
       isAdmin = false;
       adminPermissions = [];
       adminRole = '';
-      adminPermissions = [];
-      adminRole = '';
       try { sessionStorage.removeItem('hassle-nft-session-v1'); } catch {}
       return false;
     }
@@ -1331,6 +1328,8 @@
     const initData = window.Telegram?.WebApp?.initData || '';
     if (!initData) {
       isAdmin = false;
+      adminPermissions = [];
+      adminRole = '';
       signedIn = false;
       if (showNotice) notice = t.authHint;
       return;
@@ -1338,6 +1337,8 @@
     // Keep the successful session visible; never exchange the same initData twice from this view.
     authBusy = true;
     isAdmin = false;
+    adminPermissions = [];
+    adminRole = '';
     try {
       const response = await fetch(API + '/api/auth/telegram', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1353,6 +1354,8 @@
       telegramUsername = data.user?.username ? '@' + data.user.username : '';
       telegramPremium = data.user?.is_premium === true;
       isAdmin = data.is_admin === true;
+      adminPermissions = Array.isArray(data.admin_permissions) ? data.admin_permissions as string[] : [];
+      adminRole = String(data.admin_role || '');
       signedIn = true;
       if (isAdmin) await loadAdminOverview();
       await loadMarketplace();
@@ -1363,6 +1366,8 @@
       if (showNotice) notice = t.signed;
     } catch (e) {
       isAdmin = false;
+      adminPermissions = [];
+      adminRole = '';
       signedIn = false;
       authToken = '';
       try { sessionStorage.removeItem('hassle-nft-session-v1'); } catch {}
