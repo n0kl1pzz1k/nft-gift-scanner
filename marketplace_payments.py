@@ -565,11 +565,25 @@ def transition_deal_status(
     current = str(row["status"])
     if target == current:
         replay = conn.execute(
-            "SELECT id FROM marketplace_escrow_events WHERE event_key = ?",
+            "SELECT * FROM marketplace_escrow_events WHERE event_key = ?",
             (key,),
         ).fetchone()
         if replay is not None:
-            return {"deal_id": deal, "status": current, "idempotent_replay": True}
+            try:
+                recorded_data = json.loads(replay["event_data"] or "{}")
+            except (TypeError, ValueError):
+                recorded_data = {}
+            expected_data = dict(event_data or {})
+            recorded_extra = {name: value for name, value in recorded_data.items() if name not in {"from", "to"}}
+            if (
+                replay["deal_id"] == deal
+                and replay["actor_user_id"] == actor
+                and replay["event_type"] == event_type
+                and recorded_data.get("to") == target
+                and recorded_extra == expected_data
+            ):
+                return {"deal_id": deal, "status": current, "idempotent_replay": True, "event_id": replay["id"]}
+            raise PaymentConflict("Deal transition idempotency key was reused with different data")
         raise PaymentConflict("Deal is already in the requested state under a different operation")
     if target not in DEAL_STATUS_TRANSITIONS.get(current, set()):
         raise PaymentStateError(f"Invalid deal transition: {current} -> {target}")
