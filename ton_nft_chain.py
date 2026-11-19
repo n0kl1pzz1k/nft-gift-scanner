@@ -62,14 +62,19 @@ async def _run_get_method(
     address: str,
     method: str,
     stack: list[list[str]],
-) -> list[Any]:
+    *,
+    seqno: int | None = None,
+) -> tuple[list[Any], int | None]:
     token = os.getenv("TONCENTER_API_KEY", "").strip()
     headers = {"Accept": "application/json"}
     if token:
         headers["X-API-Key"] = token
+    payload = {"address": _raw_address(address), "method": method, "stack": stack}
+    if seqno is not None:
+        payload["seqno"] = seqno
     response = await session.post(
         "/api/v2/runGetMethod",
-        json={"address": _raw_address(address), "method": method, "stack": stack},
+        json=payload,
         headers=headers,
     )
     response.raise_for_status()
@@ -82,7 +87,11 @@ async def _run_get_method(
     values = result.get("stack")
     if not isinstance(values, list):
         raise ValueError("TON Center returned an invalid getter stack")
-    return values
+    block = result.get("block_id") if isinstance(result.get("block_id"), dict) else {}
+    block_seqno = block.get("seqno")
+    if block_seqno is not None and (not isinstance(block_seqno, int) or block_seqno < 0):
+        raise ValueError("TON Center returned an invalid block sequence number")
+    return values, block_seqno
 
 
 async def verify_nft_collection_membership(
@@ -108,7 +117,9 @@ async def verify_nft_collection_membership(
         follow_redirects=False,
     )
     try:
-        item_stack = await _run_get_method(session, item, "get_nft_data", [])
+        item_stack, block_seqno = await _run_get_method(session, item, "get_nft_data", [])
+        if block_seqno is None:
+            raise ValueError("TON Center did not return a block height for consistent verification")
         if len(item_stack) < 4:
             raise ValueError("TON NFT item getter returned an incomplete stack")
         initialized = _stack_number(item_stack[0]) != 0
@@ -128,11 +139,12 @@ async def verify_nft_collection_membership(
         if not os.getenv("TONCENTER_API_KEY", "").strip():
             # Public TON Center API v2 is limited to one request per second.
             await asyncio.sleep(1.1)
-        collection_stack = await _run_get_method(
+        collection_stack, _ = await _run_get_method(
             session,
             expected_collection,
             "get_nft_address_by_index",
             [["num", str(index)]],
+            seqno=block_seqno,
         )
         if not collection_stack:
             raise ValueError("TON collection getter returned an empty stack")
@@ -143,6 +155,7 @@ async def verify_nft_collection_membership(
             "collection_address": actual_collection,
             "owner_address": actual_owner,
             "index": index,
+            "block_seqno": block_seqno,
             "derived_item_address": derived_item,
         }
     finally:
