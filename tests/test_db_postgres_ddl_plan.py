@@ -107,7 +107,7 @@ def test_ddl_plan_translates_all_known_production_trigger_categories():
         CREATE TABLE marketplace_offers(id TEXT, order_id TEXT, sender_user_id TEXT, sender_name TEXT, status TEXT, created_at TEXT, updated_at TEXT);
         CREATE TABLE marketplace_orders(id TEXT, user_id TEXT, title TEXT, owner_name TEXT, status TEXT, updated_at TEXT);
         CREATE TABLE marketplace_notifications(id TEXT, user_id TEXT, event_type TEXT, offer_id TEXT, order_id TEXT, order_title TEXT, actor_name TEXT, created_at TEXT);
-        CREATE TABLE verified_assets(id TEXT, source TEXT, external_asset_id TEXT, owner_telegram_id TEXT, title TEXT, asset_type TEXT, image_url TEXT, verification_method TEXT, verification_reference_hash TEXT, verified_at TEXT, status TEXT);
+        CREATE TABLE verified_assets(id TEXT PRIMARY KEY, source TEXT, external_asset_id TEXT, owner_telegram_id TEXT, title TEXT, asset_type TEXT, image_url TEXT, verification_method TEXT, verification_reference_hash TEXT, verified_at TEXT, status TEXT);
         CREATE TABLE asset_owner_transfer_authorizations(asset_id TEXT, previous_owner_id TEXT, new_owner_id TEXT, verification_reference_hash TEXT, created_at INTEGER);
         CREATE TRIGGER trg_marketplace_deal_events_no_delete BEFORE DELETE ON marketplace_deal_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
         CREATE TRIGGER trg_marketplace_deal_events_no_update BEFORE UPDATE ON marketplace_deal_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
