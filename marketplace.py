@@ -37,8 +37,9 @@ _SECURITY_AUDIT_ACTIONS = {
     "admin_role_assigned",
     "admin_role_revoked",
     "admin_reconciliation_resolved",
+    "admin_asset_revoked",
 }
-_SECURITY_AUDIT_TARGET_TYPES = {"session", "account", "wallet", "order_report", "order", "user", "admin_role", "reconciliation"}
+_SECURITY_AUDIT_TARGET_TYPES = {"session", "account", "wallet", "order_report", "order", "user", "admin_role", "reconciliation", "asset"}
 _SECURITY_AUDIT_METADATA_KEYS = {"network", "report_id", "order_id", "revoked_count", "reason", "role", "status", "resolution_action"}
 
 
@@ -228,11 +229,11 @@ def _migrate_security_audit_events_schema(conn: sqlite3.Connection) -> None:
                 'admin_report_dismissed', 'admin_order_removed',
                 'admin_user_suspended', 'admin_user_reactivated',
                 'admin_role_assigned', 'admin_role_revoked',
-                'admin_reconciliation_resolved'
+                'admin_reconciliation_resolved', 'admin_asset_revoked'
             )),
             target_type TEXT NOT NULL CHECK(target_type IN (
                 'session', 'account', 'wallet', 'order_report', 'order',
-                'user', 'admin_role', 'reconciliation'
+                'user', 'admin_role', 'reconciliation', 'asset'
             )),
             target_hash TEXT NOT NULL CHECK(length(target_hash) = 64),
             outcome TEXT NOT NULL CHECK(outcome IN ('success', 'denied')),
@@ -427,11 +428,11 @@ def init_marketplace_db() -> None:
                 'admin_report_dismissed', 'admin_order_removed',
                 'admin_user_suspended', 'admin_user_reactivated',
                 'admin_role_assigned', 'admin_role_revoked',
-                'admin_reconciliation_resolved'
+                'admin_reconciliation_resolved', 'admin_asset_revoked'
             )),
             target_type TEXT NOT NULL CHECK(target_type IN (
                 'session', 'account', 'wallet', 'order_report', 'order',
-                'user', 'admin_role', 'reconciliation'
+                'user', 'admin_role', 'reconciliation', 'asset'
             )),
             target_hash TEXT NOT NULL CHECK(length(target_hash) = 64),
             outcome TEXT NOT NULL CHECK(outcome IN ('success', 'denied')),
