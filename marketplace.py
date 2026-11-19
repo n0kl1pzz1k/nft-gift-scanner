@@ -790,11 +790,31 @@ def revoke_telegram_session(token: str) -> bool:
     if not isinstance(token, str) or not token.startswith("grs_") or len(token) > 128:
         return False
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    now = int(time.time())
     with _db() as conn:
+        begin_write(conn, f"session-revoke:{token_hash}")
+        session = conn.execute(
+            "SELECT telegram_id FROM telegram_sessions WHERE token_hash = ? AND revoked_at IS NULL",
+            (token_hash,),
+        ).fetchone()
+        if session is None:
+            conn.rollback()
+            return False
         cursor = conn.execute(
             "UPDATE telegram_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL",
-            (int(time.time()), token_hash),
+            (now, token_hash),
         )
+        if cursor.rowcount == 1:
+            insert_security_audit_event(
+                conn,
+                actor_telegram_id=str(session["telegram_id"]),
+                action="telegram_session_revoked",
+                target_type="session",
+                target_id=token_hash,
+                metadata={"reason": "self_logout"},
+                now=now,
+            )
+        conn.commit()
     return cursor.rowcount == 1
 
 
@@ -828,11 +848,23 @@ def revoke_all_telegram_sessions(telegram_id: str, except_token: str | None = No
         exclusion = " AND token_hash != ?"
         params.append(token_hash)
     with _db() as conn:
+        begin_write(conn, f"session-revoke-all:{telegram_id}")
         cursor = conn.execute(
             f"""UPDATE telegram_sessions SET revoked_at = ?
                 WHERE telegram_id = ? AND revoked_at IS NULL AND expires_at > ?{exclusion}""",
             tuple(params),
         )
+        if cursor.rowcount:
+            insert_security_audit_event(
+                conn,
+                actor_telegram_id=str(telegram_id),
+                action="telegram_sessions_revoked_all",
+                target_type="account",
+                target_id=str(telegram_id),
+                metadata={"revoked_count": int(cursor.rowcount)},
+                now=now,
+            )
+        conn.commit()
     return cursor.rowcount
 
 
