@@ -129,6 +129,10 @@ def _validate_cors_origins(raw_origins: str, *, app_env: str | None = None) -> l
         if not origin:
             continue
         parsed = urlsplit(origin)
+        try:
+            parsed.port
+        except ValueError as exc:
+            raise RuntimeError("CORS_ALLOWED_ORIGINS contains an invalid port") from exc
         local_http = (
             allow_local_http
             and parsed.scheme == "http"
