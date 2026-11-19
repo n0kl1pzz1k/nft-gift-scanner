@@ -89,6 +89,32 @@ def test_payment_intents_allow_only_stars_and_ton_with_provider_matched_currency
     conn.close()
 
 
+def test_payment_invoice_payload_is_unique_and_retrievable():
+    conn = _connection()
+    from marketplace_payments import get_payment_intent_by_invoice_payload
+    intent = create_payment_intent(
+        conn, deal_id="deal-1", provider="telegram_stars", currency="XTR",
+        amount="12", idempotency_key="stars-payload-1",
+        invoice_payload="hassle:pi:one-time-payload", expires_at=2000, now=1000,
+    )
+    found = get_payment_intent_by_invoice_payload(conn, "hassle:pi:one-time-payload")
+    assert found["id"] == intent["id"]
+    assert found["invoice_payload"] == "hassle:pi:one-time-payload"
+    with pytest.raises(sqlite3.IntegrityError):
+        create_payment_intent(
+            conn, deal_id="deal-1", provider="telegram_stars", currency="XTR",
+            amount="12", idempotency_key="stars-payload-duplicate",
+            invoice_payload="hassle:pi:one-time-payload", expires_at=2000, now=1000,
+        )
+    with pytest.raises(ValueError, match="1-128 UTF-8 bytes"):
+        create_payment_intent(
+            conn, deal_id="deal-1", provider="telegram_stars", currency="XTR",
+            amount="12", idempotency_key="stars-payload-long",
+            invoice_payload="x" * 129, expires_at=2000, now=1000,
+        )
+    conn.close()
+
+
 def test_payment_intent_state_machine_requires_provider_reference_to_confirm():
     conn = _connection()
     intent = _create_stars_intent(conn)
