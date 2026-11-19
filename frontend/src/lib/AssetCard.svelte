@@ -21,9 +21,11 @@
     onOffer: () => void;
     onOpen: () => void;
     canOffer: boolean;
+    isMine: boolean;
+    onManage: () => void;
     backgroundColor: 'midnight'|'violet'|'blue'|'emerald'|'rose'|'gold';
   };
-  let { order, favorite, lang, sellerProfileId, onSeller, onFavorite, onOffer, onOpen, canOffer, backgroundColor }: Props = $props();
+  let { order, favorite, lang, sellerProfileId, onSeller, onFavorite, onOffer, onOpen, canOffer, isMine, onManage, backgroundColor }: Props = $props();
 
   function assetType(order: AssetOrder): 'gift' | 'username' | 'number' | 'unknown' {
     return order.asset_type === 'gift' || order.asset_type === 'username' || order.asset_type === 'number'
@@ -57,7 +59,11 @@
     <p class="asset-owner">{#if sellerProfileId}<button class="asset-seller-link" onclick={onSeller}>{order.owner}</button>{:else}{order.owner}{/if}{order.note ? ' · ' + order.note : ''}</p>
     <div class="asset-card-footer">
       <div><small>{lang === 'ru' ? 'Цена' : 'Price'}</small><strong>{order.price} <span>{order.currency === 'XTR' ? '⭐' : 'TON'}</span></strong></div>
-      <button class="asset-offer-button" onclick={onOffer} disabled={!canOffer} title={!canOffer ? (lang === 'ru' ? 'Войди через Telegram, чтобы отправить оффер' : 'Sign in with Telegram to make an offer') : undefined}>{canOffer ? (lang === 'ru' ? 'Сделать оффер' : 'Make offer') : (lang === 'ru' ? 'Войти для оффера' : 'Sign in to offer')}</button>
+      {#if isMine}
+        <button class="asset-offer-button" onclick={onManage}>{lang === 'ru' ? 'Управлять' : 'Manage listing'}</button>
+      {:else}
+        <button class="asset-offer-button" onclick={onOffer} disabled={!canOffer} title={!canOffer ? (lang === 'ru' ? 'Войди через Telegram, чтобы отправить оффер' : 'Sign in with Telegram to make an offer') : undefined}>{canOffer ? (lang === 'ru' ? 'Сделать оффер' : 'Make offer') : (lang === 'ru' ? 'Войти для оффера' : 'Sign in to offer')}</button>
+      {/if}
     </div>
   </div>
 </article>
