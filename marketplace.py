@@ -1456,7 +1456,7 @@ def create_marketplace_router(
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         owner_id = str(user["id"])
         _enforce_user_rate_limit(owner_id, "list_verified_assets", 60)
-        with _db() as conn
+        with _db() as conn:
             rows = conn.execute(
                 """SELECT a.id, a.source, a.external_asset_id, a.title, a.asset_type,
                           a.image_url, a.verified_at,
