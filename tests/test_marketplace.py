@@ -2149,6 +2149,48 @@ class SharedMarketplaceTests(unittest.TestCase):
         unrelated = self.client.get("/api/marketplace/activity?limit=10", headers=headers_c)
         self.assertEqual(unrelated.json()["items"], [])
 
+    def test_payment_status_endpoint_is_participant_only_and_hides_provider_secrets(self):
+        seller_headers = {"X-Telegram-Init-Data": "user-a"}
+        buyer_headers = {"X-Telegram-Init-Data": "user-b"}
+        listing = self.client.post(
+            "/api/marketplace/orders", headers=seller_headers,
+            json={"kind": "listing", "title": "Payment status gift", "price": "10", "currency": "TON"},
+        )
+        self.assertEqual(listing.status_code, 201, listing.text)
+        offer = self.client.post(
+            "/api/marketplace/offers", headers=buyer_headers,
+            json={"order_id": listing.json()["item"]["id"], "amount": "9", "note": "payment status"},
+        )
+        self.assertEqual(offer.status_code, 201, offer.text)
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer.json()['item']['id']}", headers=seller_headers,
+            json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        deal_id = accepted.json()["deal_id"]
+        with marketplace_offers._db() as conn:
+            from marketplace_payments import create_payment_intent
+            conn.execute("UPDATE marketplace_deals SET status='awaiting_payment' WHERE id=?", (deal_id,))
+            create_payment_intent(
+                conn, deal_id=deal_id, provider="ton", currency="TON", amount="9",
+                idempotency_key=f"{deal_id}:ton-checkout", expires_at=1900000000,
+                invoice_payload=f"pay:{deal_id}:one", now=1700000000,
+            )
+            conn.commit()
+        response = self.client.get(
+            f"/api/marketplace/deals/{deal_id}/payment-status", headers=buyer_headers,
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["intents"][0]["provider"], "ton")
+        self.assertEqual(response.json()["intents"][0]["status"], "created")
+        self.assertNotIn("invoice_payload", response.json()["intents"][0])
+        self.assertNotIn("provider_reference", response.json()["intents"][0])
+        unrelated = self.client.get(
+            f"/api/marketplace/deals/{deal_id}/payment-status",
+            headers={"X-Telegram-Init-Data": "user-c"},
+        )
+        self.assertEqual(unrelated.status_code, 404)
+
     def test_escrow_events_are_included_in_private_deal_timeline(self):
         seller_headers = {"X-Telegram-Init-Data": "user-a"}
         buyer_headers = {"X-Telegram-Init-Data": "user-b"}
