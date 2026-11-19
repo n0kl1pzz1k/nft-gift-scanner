@@ -326,6 +326,14 @@ class DealAction(BaseModel):
     action: Literal["cancel"]
 
 
+class TonNftDeliveryPrepareRequest(BaseModel):
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+
+class TonNftDeliveryConfirmRequest(BaseModel):
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+
 class StarsCheckoutRequest(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=128)
 
@@ -1100,6 +1108,249 @@ def create_marketplace_offers_router(
             "invoice_url": provider_result["result"],
             "expires_at": intent["expires_at"],
         }
+
+
+    @router.post("/deals/{deal_id}/ton-nft-delivery/prepare")
+    async def prepare_ton_nft_delivery(
+        deal_id: str,
+        payload: TonNftDeliveryPrepareRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Prepare a seller-signed TEP-62 transfer; the platform never holds wallet keys."""
+        import hashlib
+        from marketplace import _raw_address
+        from ton_nft_inventory import build_nft_transfer_payload, fetch_nft_owner
+
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        seller_id = str(user["id"])
+        _enforce_user_rate_limit(seller_id, "ton_nft_delivery_prepare", 5)
+        with _db() as conn:
+            deal = conn.execute(
+                """SELECT d.*, o.asset_id, o.title AS asset_title,
+                          a.source, a.external_asset_id, a.owner_telegram_id,
+                          a.asset_type, a.image_url, a.status AS asset_status
+                   FROM marketplace_deals d
+                   JOIN marketplace_orders o ON o.id = d.order_id
+                   JOIN verified_assets a ON a.id = o.asset_id
+                   WHERE d.id = ?""",
+                (deal_id,),
+            ).fetchone()
+            if deal is None or str(deal["listing_owner_id"]) != seller_id:
+                raise HTTPException(status_code=404, detail="Deal not found")
+            if deal["status"] not in {"paid", "delivery_pending"}:
+                raise HTTPException(status_code=409, detail="The deal must be paid before NFT delivery")
+            if deal["source"] != "ton_nft" or deal["asset_status"] != "verified" or str(deal["owner_telegram_id"]) != seller_id:
+                raise HTTPException(status_code=409, detail="This deal does not contain a currently verified TON NFT owned by the seller")
+            seller_wallet = conn.execute(
+                """SELECT address FROM verified_wallets
+                   WHERE telegram_id = ? AND network = '-239' AND revoked_at IS NULL
+                   ORDER BY last_verified_at DESC LIMIT 1""",
+                (seller_id,),
+            ).fetchone()
+            buyer_wallet = conn.execute(
+                """SELECT address FROM verified_wallets
+                   WHERE telegram_id = ? AND network = '-239' AND revoked_at IS NULL
+                   ORDER BY last_verified_at DESC LIMIT 1""",
+                (str(deal["offer_sender_id"]),),
+            ).fetchone()
+        if seller_wallet is None or buyer_wallet is None:
+            raise HTTPException(status_code=409, detail="Both buyer and seller must link a TON mainnet wallet with TON Proof")
+        seller_address = seller_wallet["address"]
+        buyer_address = buyer_wallet["address"]
+        try:
+            current_owner = await fetch_nft_owner(str(deal["external_asset_id"]))
+            seller_raw = _raw_address(seller_address)
+            buyer_raw = _raw_address(buyer_address)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="TON ownership verification is temporarily unavailable") from exc
+        if current_owner.get("is_scam") or current_owner.get("owner_address") != seller_raw:
+            raise HTTPException(status_code=409, detail="The seller no longer owns this NFT on-chain")
+        query_id = int(hashlib.sha256(
+            f"{deal_id}:{payload.idempotency_key}".encode("utf-8")
+        ).hexdigest()[:16], 16)
+        try:
+            transfer_payload = build_nft_transfer_payload(
+                new_owner_address=buyer_address,
+                response_destination=seller_address,
+                query_id=query_id,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="Could not construct the TON NFT transfer request") from exc
+        now = int(time.time())
+        with _db() as conn:
+            begin_write(conn, f"deal:{deal_id}", f"asset:{deal['asset_id']}")
+            locked = conn.execute(
+                select_for_update(conn, "SELECT status FROM marketplace_deals WHERE id = ?"),
+                (deal_id,),
+            ).fetchone()
+            if locked is None or locked["status"] not in {"paid", "delivery_pending"}:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Deal state changed before delivery preparation")
+            from marketplace_payments import PaymentConflict, PaymentStateError, transition_deal_status
+            try:
+                if locked["status"] == "paid":
+                    result = transition_deal_status(
+                        conn,
+                        deal_id=deal_id,
+                        new_status="delivery_pending",
+                        actor_user_id=seller_id,
+                        idempotency_key=f"{deal_id}:ton-nft-delivery:{payload.idempotency_key}",
+                        event_type="asset_transfer_requested",
+                        event_data={
+                            "asset_id": str(deal["asset_id"]),
+                            "asset_address": str(deal["external_asset_id"]),
+                            "seller_wallet": seller_raw,
+                            "buyer_wallet": buyer_raw,
+                            "network": "ton-mainnet",
+                        },
+                        now=now,
+                    )
+                else:
+                    existing = conn.execute(
+                        "SELECT 1 FROM marketplace_escrow_events WHERE event_key = ?",
+                        (f"{deal_id}:ton-nft-delivery:{payload.idempotency_key}",),
+                    ).fetchone()
+                    if existing is None:
+                        conn.rollback()
+                        raise HTTPException(status_code=409, detail="An NFT delivery request is already active")
+                    result = {"idempotent_replay": True}
+            except (PaymentConflict, PaymentStateError) as exc:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            conn.commit()
+        return {
+            "deal_id": deal_id,
+            "status": "delivery_pending",
+            "idempotent_replay": bool(result.get("idempotent_replay")),
+            "transaction": {
+                "validUntil": now + 600,
+                "network": "-239",
+                "messages": [{
+                    "address": str(deal["external_asset_id"]),
+                    "amount": "50000000",
+                    "payload": transfer_payload,
+                }],
+            },
+            "seller_wallet": seller_address,
+            "buyer_wallet": buyer_address,
+            "asset_title": str(deal["asset_title"]),
+        }
+
+
+    @router.post("/deals/{deal_id}/ton-nft-delivery/confirm")
+    async def confirm_ton_nft_delivery(
+        deal_id: str,
+        payload: TonNftDeliveryConfirmRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Complete delivery only after TonAPI independently reports the buyer as owner."""
+        import hashlib
+        from marketplace import _raw_address
+        from ton_nft_inventory import fetch_nft_owner
+
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        buyer_id = str(user["id"])
+        _enforce_user_rate_limit(buyer_id, "ton_nft_delivery_confirm", 8)
+        with _db() as conn:
+            deal = conn.execute(
+                """SELECT d.*, o.asset_id, a.source, a.external_asset_id, a.owner_telegram_id,
+                          a.title, a.asset_type, a.image_url, a.status AS asset_status,
+                          a.verification_reference_hash
+                   FROM marketplace_deals d
+                   JOIN marketplace_orders o ON o.id = d.order_id
+                   JOIN verified_assets a ON a.id = o.asset_id
+                   WHERE d.id = ?""",
+                (deal_id,),
+            ).fetchone()
+            if deal is None or str(deal["offer_sender_id"]) != buyer_id:
+                raise HTTPException(status_code=404, detail="Deal not found")
+            if deal["status"] != "delivery_pending" or deal["source"] != "ton_nft":
+                raise HTTPException(status_code=409, detail="This deal is not awaiting TON NFT delivery")
+            if deal["asset_status"] != "verified" or str(deal["owner_telegram_id"]) != str(deal["listing_owner_id"]):
+                raise HTTPException(status_code=409, detail="Seller asset ownership record is not valid")
+            buyer_wallet = conn.execute(
+                """SELECT address FROM verified_wallets
+                   WHERE telegram_id = ? AND network = '-239' AND revoked_at IS NULL
+                   ORDER BY last_verified_at DESC LIMIT 1""",
+                (buyer_id,),
+            ).fetchone()
+        if buyer_wallet is None:
+            raise HTTPException(status_code=409, detail="Link and verify your TON mainnet wallet first")
+        try:
+            current_owner = await fetch_nft_owner(str(deal["external_asset_id"]))
+            buyer_raw = _raw_address(buyer_wallet["address"])
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="TON ownership verification is temporarily unavailable") from exc
+        if current_owner.get("is_scam") or current_owner.get("owner_address") != buyer_raw:
+            raise HTTPException(status_code=409, detail="TON has not yet confirmed the buyer as the NFT owner")
+        reference = hashlib.sha256(
+            f"hassle-ton-delivery:{deal_id}:{deal['asset_id']}:{buyer_id}:{buyer_raw}".encode("utf-8")
+        ).hexdigest()
+        now = int(time.time())
+        with _db() as conn:
+            begin_write(conn, f"deal:{deal_id}", f"asset:{deal['asset_id']}")
+            locked = conn.execute(
+                select_for_update(conn, "SELECT * FROM marketplace_deals WHERE id = ?"),
+                (deal_id,),
+            ).fetchone()
+            asset = conn.execute(
+                select_for_update(conn, "SELECT * FROM verified_assets WHERE id = ?"),
+                (deal["asset_id"],),
+            ).fetchone()
+            if locked is None or locked["status"] != "delivery_pending" or asset is None:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Deal or asset state changed during delivery confirmation")
+            if str(asset["owner_telegram_id"]) != str(locked["listing_owner_id"]):
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Asset ownership has already changed")
+            try:
+                conn.execute(
+                    """INSERT INTO asset_owner_transfer_authorizations
+                       (asset_id, previous_owner_id, new_owner_id, verification_reference_hash, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (deal["asset_id"], str(locked["listing_owner_id"]), buyer_id, reference, now),
+                )
+                changed = conn.execute(
+                    """UPDATE verified_assets
+                       SET owner_telegram_id = ?, verification_method = 'ton_connect_proof',
+                           verification_reference_hash = ?, verified_at = ?, status = 'verified', revoked_at = NULL
+                       WHERE id = ? AND owner_telegram_id = ? AND status = 'verified'""",
+                    (buyer_id, reference, now, deal["asset_id"], str(locked["listing_owner_id"])),
+                )
+                if changed.rowcount != 1:
+                    raise RuntimeError("Asset ownership update did not match")
+                conn.execute(
+                    """INSERT INTO asset_ownership_history
+                       (asset_id, previous_owner_id, new_owner_id, verification_reference_hash, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (deal["asset_id"], str(locked["listing_owner_id"]), buyer_id, reference, now),
+                )
+                from marketplace_payments import PaymentConflict, PaymentStateError, transition_deal_status
+                transition_deal_status(
+                    conn,
+                    deal_id=deal_id,
+                    new_status="completed",
+                    actor_user_id=buyer_id,
+                    idempotency_key=f"{deal_id}:ton-nft-delivery-confirmed:{payload.idempotency_key}",
+                    event_type="asset_transfer_confirmed",
+                    event_data={
+                        "asset_id": str(deal["asset_id"]),
+                        "asset_address": str(deal["external_asset_id"]),
+                        "new_owner_wallet": buyer_raw,
+                        "new_owner_telegram_id": buyer_id,
+                        "network": "ton-mainnet",
+                        "verification": "tonapi_current_owner",
+                    },
+                    now=now,
+                )
+            except (PaymentConflict, PaymentStateError) as exc:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except Exception as exc:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Could not safely record verified NFT ownership transfer") from exc
+            conn.commit()
+        return {"deal_id": deal_id, "status": "completed", "asset_id": str(deal["asset_id"]), "owner_telegram_id": buyer_id}
 
 
     @router.get("/deals/{deal_id}/payment-status")
