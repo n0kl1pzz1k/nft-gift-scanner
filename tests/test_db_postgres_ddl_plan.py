@@ -405,6 +405,8 @@ def test_generated_production_trigger_ddl_executes_and_enforces_in_postgres():
             ).fetchone()[0]
             assert declined == 1
         finally:
+            # Finish queued row-trigger events before dropping tables in this schema.
+            pg.commit()
             pg.execute("SET search_path TO public")
             pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
 
