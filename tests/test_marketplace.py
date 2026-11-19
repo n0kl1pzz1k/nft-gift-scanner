@@ -15,6 +15,8 @@ from fastapi.testclient import TestClient
 import app as api
 import marketplace
 import marketplace_offers
+from marketplace_payments import create_payment_intent, transition_deal_status
+from marketplace_stars import confirm_stars_payment, validate_stars_pre_checkout
 
 
 class SharedMarketplaceTests(unittest.TestCase):
@@ -59,6 +61,116 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.offers_db_patch.stop()
         self.db_patch.stop()
         self.temp_dir.cleanup()
+
+    def _create_stars_deal_with_intent(self):
+        seller_headers = {"X-Telegram-Init-Data": "user-a"}
+        buyer_headers = {"X-Telegram-Init-Data": "user-b"}
+        listing = self.client.post(
+            "/api/marketplace/orders", headers=seller_headers,
+            json={"kind": "listing", "title": "Stars checkout gift", "price": "10", "currency": "XTR"},
+        )
+        self.assertEqual(listing.status_code, 201, listing.text)
+        offer = self.client.post(
+            "/api/marketplace/offers", headers=buyer_headers,
+            json={"order_id": listing.json()["item"]["id"], "amount": "9", "note": "Stars checkout"},
+        )
+        self.assertEqual(offer.status_code, 201, offer.text)
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer.json()['item']['id']}",
+            headers=seller_headers,
+            json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        deal_id = accepted.json()["deal_id"]
+        invoice_payload = f"hassle:stars:{deal_id}:test"
+        with marketplace_offers._db() as conn:
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="awaiting_payment",
+                actor_user_id="202", idempotency_key=f"{deal_id}:checkout-request",
+                event_type="deal_payment_requested", event_data={"provider": "telegram_stars"},
+                now=1700000000,
+            )
+            intent = create_payment_intent(
+                conn, deal_id=deal_id, provider="telegram_stars", currency="XTR",
+                amount="9", idempotency_key=f"{deal_id}:stars-intent",
+                invoice_payload=invoice_payload, expires_at=1700000900,
+                metadata={"buyer_telegram_id": "202", "deal_id": deal_id},
+                now=1700000000,
+            )
+            conn.commit()
+        return deal_id, invoice_payload, intent["id"]
+
+    def test_stars_precheckout_binds_user_amount_and_deal_and_is_one_time(self):
+        deal_id, invoice_payload, intent_id = self._create_stars_deal_with_intent()
+        ok, reason = validate_stars_pre_checkout(
+            invoice_payload=invoice_payload, telegram_user_id="202",
+            currency="XTR", total_amount=9, now=1700000010,
+        )
+        self.assertTrue(ok)
+        self.assertEqual(reason, "")
+        with marketplace_offers._db() as conn:
+            intent = conn.execute(
+                "SELECT status FROM marketplace_payment_intents WHERE id=?", (intent_id,)
+            ).fetchone()
+            deal = conn.execute(
+                "SELECT status FROM marketplace_deals WHERE id=?", (deal_id,)
+            ).fetchone()
+        self.assertEqual(intent["status"], "pending")
+        self.assertEqual(deal["status"], "payment_pending")
+        rejected, _ = validate_stars_pre_checkout(
+            invoice_payload=invoice_payload, telegram_user_id="202",
+            currency="XTR", total_amount=9, now=1700000011,
+        )
+        self.assertFalse(rejected)
+
+    def test_stars_successful_payment_confirms_once_and_posts_balanced_escrow_ledger(self):
+        deal_id, invoice_payload, intent_id = self._create_stars_deal_with_intent()
+        ok, _ = validate_stars_pre_checkout(
+            invoice_payload=invoice_payload, telegram_user_id="202",
+            currency="XTR", total_amount=9, now=1700000010,
+        )
+        self.assertTrue(ok)
+        kwargs = {
+            "invoice_payload": invoice_payload,
+            "telegram_user_id": "202",
+            "currency": "XTR",
+            "total_amount": 9,
+            "telegram_payment_charge_id": "tg-charge-001",
+            "provider_payment_charge_id": "",
+            "now": 1700000020,
+        }
+        confirmed = confirm_stars_payment(**kwargs)
+        self.assertEqual(confirmed["deal_id"], deal_id)
+        self.assertEqual(confirmed["status"], "paid")
+        replay = confirm_stars_payment(**kwargs)
+        self.assertEqual(replay["status"], "paid")
+        with marketplace_offers._db() as conn:
+            intent = conn.execute(
+                "SELECT status, provider_reference FROM marketplace_payment_intents WHERE id=?",
+                (intent_id,),
+            ).fetchone()
+            deal = conn.execute(
+                "SELECT status FROM marketplace_deals WHERE id=?", (deal_id,)
+            ).fetchone()
+            tx_count = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_ledger_transactions WHERE reference_id=?",
+                (deal_id,),
+            ).fetchone()[0]
+            entries = conn.execute(
+                "SELECT direction, amount FROM marketplace_ledger_entries WHERE transaction_id IN "
+                "(SELECT id FROM marketplace_ledger_transactions WHERE reference_id=?)",
+                (deal_id,),
+            ).fetchall()
+            funded = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_escrow_events WHERE deal_id=? AND event_type='escrow_funded'",
+                (deal_id,),
+            ).fetchone()[0]
+        self.assertEqual(intent["status"], "confirmed")
+        self.assertEqual(intent["provider_reference"], "tg-charge-001")
+        self.assertEqual(deal["status"], "paid")
+        self.assertEqual(tx_count, 1)
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(funded, 1)
 
     def test_webhook_secret_is_stable_when_derived_from_bot_token(self):
         with patch.dict(os.environ, {}, clear=True):
