@@ -103,6 +103,110 @@ class TonConnectApiTests(unittest.TestCase):
         )
         self.assertEqual(repeated.status_code, 404)
 
+    def test_wallet_revocation_and_relink_preserve_and_restore_same_inventory_asset(self):
+        headers = {"X-Telegram-Init-Data": self.session}
+        wallet_address = "0:" + "a" * 64
+        nft_address = "0:" + "d" * 64
+        with marketplace._db() as conn:
+            conn.execute(
+                """INSERT INTO verified_wallets
+                   (network, address, telegram_id, public_key, state_init_hash,
+                    created_at, last_verified_at, revoked_at)
+                   VALUES ('-239', ?, '101', ?, ?, 1, 1, NULL)""",
+                (wallet_address, "b" * 64, "c" * 64),
+            )
+        asset = marketplace.register_verified_asset(
+            source="ton_nft",
+            external_asset_id=nft_address,
+            owner_telegram_id="101",
+            title="Persistent TON NFT",
+            asset_type="gift",
+            image_url="",
+            verification_method="ton_connect_proof",
+            verification_reference="ton-contract-owner-v1:test:owner:collection:1",
+        )
+
+        revoked = self.client.delete(
+            f"/api/ton-proof/wallets/-239/{wallet_address}",
+            headers=headers,
+        )
+        self.assertEqual(revoked.status_code, 200, revoked.text)
+        self.assertEqual(ton_connect.list_verified_wallets("101"), [])
+
+        inventory_after_revoke = self.client.get("/api/marketplace/assets/me", headers=headers)
+        self.assertEqual(inventory_after_revoke.status_code, 200)
+        self.assertEqual(
+            [item["id"] for item in inventory_after_revoke.json()["items"]],
+            [asset["id"]],
+        )
+
+        snapshot = {
+            "wallet_address": wallet_address,
+            "complete": True,
+            "items": [{
+                "address": nft_address,
+                "wallet_address": wallet_address,
+                "title": "Persistent TON NFT",
+                "image_url": "",
+                "collection_address": "",
+            }],
+        }
+        with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(return_value=snapshot)) as fetch:
+            unavailable = self.client.post("/api/marketplace/assets/import-ton", headers=headers)
+        self.assertEqual(unavailable.status_code, 400)
+        fetch.assert_not_called()
+
+        issued = self.client.post("/api/ton-proof/payload", headers=headers)
+        self.assertEqual(issued.status_code, 200, issued.text)
+        challenge = issued.json()["payload"]
+        verified = {
+            "address": wallet_address,
+            "network": "-239",
+            "public_key": "b" * 64,
+            "state_init_hash": "c" * 64,
+            "payload": challenge,
+        }
+        request = {
+            "address": wallet_address,
+            "network": "-239",
+            "public_key": "b" * 64,
+            "state_init": "c3RhdGU=",
+            "proof": {
+                "timestamp": 1800000000,
+                "domain": {"lengthBytes": 40, "value": "hassle-nft-market.fj7kmzkhn9.workers.dev"},
+                "signature": "c2ln",
+                "payload": challenge,
+            },
+        }
+        with patch.dict(os.environ, {"TON_CONNECT_DOMAIN": "hassle-nft-market.fj7kmzkhn9.workers.dev"}), patch.object(
+            app, "verify_ton_proof", return_value=verified
+        ):
+            linked = self.client.post("/api/ton-proof/verify", headers=headers, json=request)
+        self.assertEqual(linked.status_code, 200, linked.text)
+        self.assertEqual(len(ton_connect.list_verified_wallets("101")), 1)
+
+        with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(return_value=snapshot)), patch.object(
+            app, "verify_nft_owner_onchain", new=AsyncMock(return_value={
+                "verified": True,
+                "owner_address": wallet_address,
+                "collection_address": None,
+                "index": 42,
+                "provider": "test",
+            })
+        ):
+            restored = self.client.post("/api/marketplace/assets/import-ton", headers=headers)
+        self.assertEqual(restored.status_code, 200, restored.text)
+
+        inventory_after_relink = self.client.get("/api/marketplace/assets/me", headers=headers)
+        self.assertEqual(inventory_after_relink.status_code, 200)
+        matching = [
+            item for item in inventory_after_relink.json()["items"]
+            if item["external_asset_id"] == nft_address
+        ]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["id"], asset["id"])
+        self.assertEqual(matching[0]["status"], "verified")
+
     def test_wallet_revocation_requires_authenticated_session(self):
         response = self.client.delete(
             "/api/ton-proof/wallets/-239/0:" + "a" * 64,
