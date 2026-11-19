@@ -257,6 +257,8 @@ def test_escrow_events_are_idempotent_private_audit_records_and_immutable():
 def test_deal_state_machine_is_idempotent_and_rejects_invalid_transitions():
     conn = _connection()
     from marketplace_payments import transition_deal_status
+    conn.execute("UPDATE marketplace_deals SET status='payment_not_enabled' WHERE id='deal-1'")
+    conn.commit()
     first = transition_deal_status(
         conn, deal_id="deal-1", new_status="awaiting_payment", actor_user_id="101",
         idempotency_key="deal-1:checkout-start", event_type="deal_payment_requested",
