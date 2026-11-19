@@ -60,6 +60,12 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
                 )
             """)
             pg.execute("""
+                CREATE TABLE marketplace_dispute_resolution_approvals (
+                    id TEXT PRIMARY KEY, deal_id TEXT NOT NULL, admin_user_id TEXT NOT NULL,
+                    decision TEXT NOT NULL, idempotency_key TEXT NOT NULL, created_at BIGINT NOT NULL
+                )
+            """)
+            pg.execute("""
                 CREATE TABLE marketplace_ledger_transactions (
                     id TEXT PRIMARY KEY, amount TEXT NOT NULL, currency TEXT NOT NULL
                 )
@@ -74,7 +80,7 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
 
             installed = install_postgres_offer_triggers(pg)
             assert installed["verified"] is True
-            assert installed["triggers_installed"] == 23
+            assert installed["triggers_installed"] == 26
 
             pg.execute(
                 "INSERT INTO marketplace_orders VALUES (%s,%s,%s,%s,%s,%s)",
@@ -128,6 +134,16 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
                 pg.execute("DELETE FROM marketplace_escrow_events WHERE id='escrow-event-1'")
             with pytest.raises(psycopg.Error, match="immutable"):
                 pg.execute("TRUNCATE TABLE marketplace_escrow_events")
+            pg.execute(
+                "INSERT INTO marketplace_dispute_resolution_approvals VALUES (%s,%s,%s,%s,%s,%s)",
+                ("approval-1", "deal-1", "admin-1", "refund_buyer", "approval-key-1", 111),
+            )
+            with pytest.raises(psycopg.Error):
+                pg.execute("UPDATE marketplace_dispute_resolution_approvals SET decision='release_to_seller' WHERE id='approval-1'")
+            with pytest.raises(psycopg.Error):
+                pg.execute("DELETE FROM marketplace_dispute_resolution_approvals WHERE id='approval-1'")
+            with pytest.raises(psycopg.Error, match="immutable"):
+                pg.execute("TRUNCATE TABLE marketplace_dispute_resolution_approvals")
 
             pg.execute("INSERT INTO marketplace_payment_events(id) VALUES (%s)", ("pay-event-1",))
             with pytest.raises(psycopg.Error):
@@ -211,10 +227,10 @@ def test_postgres_offer_schema_bootstrap_is_idempotent_and_creates_all_objects()
             second = initialize_postgres_offer_schema(adapter)
             assert first["verified"] is True
             assert second["verified"] is True
-            assert first["verification"]["triggers_verified"] == 23
-            assert first["verification"]["tables_verified"] == 10
-            assert first["verification"]["columns_verified"] == 86
-            assert first["verification"]["indexes_verified"] == 22
+            assert first["verification"]["triggers_verified"] == 26
+            assert first["verification"]["tables_verified"] == 11
+            assert first["verification"]["columns_verified"] == 92
+            assert first["verification"]["indexes_verified"] == 25
 
             tables = {
                 row["table_name"]
@@ -228,7 +244,7 @@ def test_postgres_offer_schema_bootstrap_is_idempotent_and_creates_all_objects()
                 "marketplace_deal_events", "marketplace_deal_lifecycle_events",
                 "marketplace_notifications", "marketplace_payment_intents",
                 "marketplace_payment_events", "marketplace_ledger_transactions",
-                "marketplace_ledger_entries", "marketplace_escrow_events",
+                "marketplace_ledger_entries", "marketplace_escrow_events", "marketplace_dispute_resolution_approvals",
             } <= tables
 
             indexes = {
