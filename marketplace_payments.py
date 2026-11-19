@@ -97,7 +97,8 @@ def initialize_sqlite_payment_schema(conn: Any) -> None:
             'payment_confirmed', 'escrow_funded', 'asset_transfer_requested',
             'asset_transfer_submitted', 'asset_transfer_confirmed', 'deal_completed',
             'deal_disputed', 'refund_requested', 'refund_confirmed', 'payout_released',
-            'deal_cancelled', 'deal_expired'
+            'deal_cancelled', 'deal_expired', 'dispute_resolution_approved',
+            'dispute_resolution_ready'
         )),
         event_key TEXT NOT NULL UNIQUE,
         event_data TEXT NOT NULL DEFAULT '{}',
@@ -115,6 +116,29 @@ def initialize_sqlite_payment_schema(conn: Any) -> None:
     BEFORE DELETE ON marketplace_escrow_events
     BEGIN
         SELECT RAISE(ABORT, 'escrow events are immutable');
+    END;
+
+    CREATE TABLE IF NOT EXISTS marketplace_dispute_resolution_approvals (
+        id TEXT PRIMARY KEY,
+        deal_id TEXT NOT NULL,
+        admin_user_id TEXT NOT NULL,
+        decision TEXT NOT NULL CHECK(decision IN ('refund_buyer', 'release_to_seller')),
+        idempotency_key TEXT NOT NULL UNIQUE,
+        created_at INTEGER NOT NULL,
+        UNIQUE(deal_id, admin_user_id),
+        FOREIGN KEY(deal_id) REFERENCES marketplace_deals(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_marketplace_dispute_approvals_deal
+        ON marketplace_dispute_resolution_approvals(deal_id, created_at ASC);
+    CREATE TRIGGER IF NOT EXISTS trg_marketplace_dispute_approvals_no_update
+    BEFORE UPDATE ON marketplace_dispute_resolution_approvals
+    BEGIN
+        SELECT RAISE(ABORT, 'dispute approvals are immutable');
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_marketplace_dispute_approvals_no_delete
+    BEFORE DELETE ON marketplace_dispute_resolution_approvals
+    BEGIN
+        SELECT RAISE(ABORT, 'dispute approvals are immutable');
     END;
 
     CREATE TABLE IF NOT EXISTS marketplace_ledger_entries (
@@ -506,6 +530,95 @@ def append_escrow_event(
         (event_id, deal, actor, kind, key, payload, timestamp),
     )
     return {"id": event_id, "idempotent_replay": False}
+
+
+def record_dispute_resolution_approval(
+    conn: Any,
+    *,
+    deal_id: str,
+    admin_user_id: str,
+    decision: str,
+    idempotency_key: str,
+    now: int | None = None,
+) -> dict[str, Any]:
+    deal = str(deal_id or "").strip()
+    admin = str(admin_user_id or "").strip()
+    choice = str(decision or "").strip()
+    key = str(idempotency_key or "").strip()
+    if not deal or not admin or not key or len(key) > 128:
+        raise ValueError("Deal, administrator and 1-128 character idempotency key are required")
+    if choice not in {"refund_buyer", "release_to_seller"}:
+        raise ValueError("Unsupported dispute resolution decision")
+    deal_row = conn.execute(
+        "SELECT status FROM marketplace_deals WHERE id = ?",
+        (deal,),
+    ).fetchone()
+    if deal_row is None:
+        raise PaymentStateError("Deal not found")
+    if deal_row["status"] != "disputed":
+        raise PaymentStateError("Dispute resolution approvals require a disputed deal")
+    prior_key = conn.execute(
+        "SELECT * FROM marketplace_dispute_resolution_approvals WHERE idempotency_key = ?",
+        (key,),
+    ).fetchone()
+    if prior_key is not None:
+        if (
+            prior_key["deal_id"] != deal
+            or prior_key["admin_user_id"] != admin
+            or prior_key["decision"] != choice
+        ):
+            raise PaymentConflict("Dispute approval idempotency key was reused with different data")
+        count = conn.execute(
+            "SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals WHERE deal_id = ? AND decision = ?",
+            (deal, choice),
+        ).fetchone()[0]
+        return {"approval_id": prior_key["id"], "approvals": int(count), "required": 2, "ready_for_execution": int(count) >= 2, "execution_enabled": False, "idempotent_replay": True}
+    existing_admin = conn.execute(
+        "SELECT * FROM marketplace_dispute_resolution_approvals WHERE deal_id = ? AND admin_user_id = ?",
+        (deal, admin),
+    ).fetchone()
+    if existing_admin is not None:
+        if existing_admin["decision"] == choice:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals WHERE deal_id = ? AND decision = ?",
+                (deal, choice),
+            ).fetchone()[0]
+            return {"approval_id": existing_admin["id"], "approvals": int(count), "required": 2, "ready_for_execution": int(count) >= 2, "execution_enabled": False, "idempotent_replay": True}
+        raise PaymentConflict("An administrator cannot approve conflicting dispute outcomes")
+    existing_decision = conn.execute(
+        "SELECT decision FROM marketplace_dispute_resolution_approvals WHERE deal_id = ? LIMIT 1",
+        (deal,),
+    ).fetchone()
+    if existing_decision is not None and existing_decision["decision"] != choice:
+        raise PaymentConflict("Dispute resolution approvals must agree on one outcome")
+    timestamp = int(now if now is not None else __import__("time").time())
+    approval_id = "dra-" + uuid.uuid4().hex[:24]
+    conn.execute(
+        """INSERT INTO marketplace_dispute_resolution_approvals
+           (id, deal_id, admin_user_id, decision, idempotency_key, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (approval_id, deal, admin, choice, key, timestamp),
+    )
+    count = int(conn.execute(
+        "SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals WHERE deal_id = ? AND decision = ?",
+        (deal, choice),
+    ).fetchone()[0])
+    append_escrow_event(
+        conn, deal_id=deal, actor_user_id=admin,
+        event_type="dispute_resolution_approved", event_key=key,
+        event_data={"decision": choice, "approval_count": count, "approvals_required": 2},
+        now=timestamp,
+    )
+    ready = count >= 2
+    if ready:
+        append_escrow_event(
+            conn, deal_id=deal, actor_user_id=admin,
+            event_type="dispute_resolution_ready",
+            event_key=f"{deal}:dispute-resolution-ready:{choice}",
+            event_data={"decision": choice, "approval_count": count, "execution_enabled": False},
+            now=timestamp,
+        )
+    return {"approval_id": approval_id, "approvals": count, "required": 2, "ready_for_execution": ready, "execution_enabled": False, "idempotent_replay": False}
 
 
 def list_escrow_events(conn: Any, deal_id: str) -> list[dict[str, Any]]:
