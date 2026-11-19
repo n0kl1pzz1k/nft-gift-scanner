@@ -756,6 +756,7 @@ _READINESS_TABLES = (
     "marketplace_notifications",
     # Application controls and Telegram Business ownership links.
     "api_rate_limits",
+    "security_audit_events",
     "app_settings",
     "telegram_business_connections",
     "telegram_business_gift_refs",
@@ -781,6 +782,7 @@ _READINESS_COLUMNS = {
     "telegram_business_gift_refs": {"asset_id", "owner_telegram_id", "owned_gift_id"},
     "ton_proof_challenges": {"payload_hash", "telegram_id", "session_hash", "expires_at"},
     "verified_wallets": {"network", "address", "telegram_id", "state_init_hash", "revoked_at"},
+    "security_audit_events": {"id", "actor_telegram_id", "action", "target_type", "target_hash", "outcome", "created_at"},
 }
 
 

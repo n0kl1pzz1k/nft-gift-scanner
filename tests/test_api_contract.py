@@ -21,6 +21,22 @@ class ApiContractTests(unittest.TestCase):
         self.assertNotIn("/api/reference/gift-changes", paths)
         self.assertNotIn("/api/reference/daily-floors", paths)
 
+    def test_administrator_api_surface_is_limited_to_moderation_and_audit(self):
+        admin_paths = {
+            path for path in app.openapi()["paths"]
+            if "/admin/" in path
+        }
+        self.assertEqual(
+            admin_paths,
+            {
+                "/api/marketplace/admin/reports",
+                "/api/marketplace/admin/reports/{report_id}",
+                "/api/marketplace/admin/security-audit",
+            },
+        )
+        self.assertFalse(any("balance" in path or "withdraw" in path for path in admin_paths))
+        self.assertFalse(any("wallet" in path for path in admin_paths))
+
     def test_maintenance_mode_rejects_writes_but_keeps_health_available(self):
         client = TestClient(app)
         with patch.dict("os.environ", {"HASSLE_MAINTENANCE_MODE": "1"}, clear=False):

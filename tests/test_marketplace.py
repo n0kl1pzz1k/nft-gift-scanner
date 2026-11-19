@@ -171,6 +171,40 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertTrue(marketplace.consume_telegram_init_data(first, "101"))
         self.assertFalse(marketplace.consume_telegram_init_data(reordered, "101"))
 
+    def test_security_audit_records_hashed_targets_and_only_allowlisted_metadata(self):
+        wallet_address = "0:" + "a" * 64
+        event_id = marketplace.record_security_audit_event(
+            actor_telegram_id="101",
+            action="ton_wallet_linked",
+            target_type="wallet",
+            target_id=wallet_address,
+            metadata={
+                "network": "-239",
+                "reason": "self_logout",
+                "signature": "must-not-be-stored",
+                "session_token": "must-not-be-stored",
+            },
+            now=1234,
+        )
+        with marketplace._db() as conn:
+            row = conn.execute(
+                "SELECT actor_telegram_id, action, target_type, target_hash, metadata_json, created_at "
+                "FROM security_audit_events WHERE id=?",
+                (event_id,),
+            ).fetchone()
+        self.assertEqual(row["actor_telegram_id"], "101")
+        self.assertEqual(row["action"], "ton_wallet_linked")
+        self.assertEqual(row["target_type"], "wallet")
+        self.assertEqual(len(row["target_hash"]), 64)
+        self.assertNotEqual(row["target_hash"], wallet_address)
+        self.assertEqual(json.loads(row["metadata_json"]), {"network": "-239", "reason": "self_logout"})
+        self.assertEqual(row["created_at"], 1234)
+        with marketplace._db() as conn:
+            with self.assertRaises(sqlite3.IntegrityError, msg="security audit events are immutable"):
+                conn.execute("UPDATE security_audit_events SET outcome='denied' WHERE id=?", (event_id,))
+            with self.assertRaises(sqlite3.IntegrityError, msg="security audit events are immutable"):
+                conn.execute("DELETE FROM security_audit_events WHERE id=?", (event_id,))
+
     def test_telegram_auth_persists_and_updates_user_profile(self):
         first = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
         self.assertEqual(first.status_code, 200)
@@ -205,6 +239,39 @@ class SharedMarketplaceTests(unittest.TestCase):
             response = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
         self.assertEqual(response.status_code, 200, response.text)
         limiter.assert_called_once_with("101", "telegram_auth_exchange", 30, 60)
+
+    def test_logout_writes_audit_event_without_storing_session_token(self):
+        authenticated = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
+        self.assertEqual(authenticated.status_code, 200)
+        session_token = authenticated.json()["session_token"]
+        response = self.client.post(
+            "/api/auth/logout",
+            headers={"X-Telegram-Init-Data": session_token},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["revoked"])
+        with marketplace._db() as conn:
+            event = conn.execute(
+                "SELECT actor_telegram_id, action, target_type, target_hash FROM security_audit_events "
+                "WHERE action='telegram_session_revoked' ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        self.assertEqual(event["actor_telegram_id"], "101")
+        self.assertEqual(event["target_type"], "session")
+        self.assertEqual(len(event["target_hash"]), 64)
+        self.assertNotIn(session_token, event["target_hash"])
+
+    def test_session_revocation_rolls_back_if_audit_write_fails(self):
+        authenticated = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
+        token = authenticated.json()["session_token"]
+        with marketplace._db() as conn:
+            conn.execute(
+                """CREATE TRIGGER fail_security_audit_insert
+                   BEFORE INSERT ON security_audit_events
+                   BEGIN SELECT RAISE(ABORT, 'audit store unavailable'); END"""
+            )
+        with self.assertRaises(sqlite3.IntegrityError):
+            marketplace.revoke_telegram_session(token)
+        self.assertIsNotNone(marketplace.get_telegram_session_user(token))
 
     def test_telegram_auth_reports_server_verified_admin_role(self):
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
@@ -1388,6 +1455,16 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         limiter.assert_called_once_with("909", "list_order_reports", 60)
 
+    def test_admin_security_audit_view_is_rate_limited(self):
+        with patch.object(api, "_require_admin", return_value={"id": "909"}), \
+             patch.object(marketplace, "_enforce_user_rate_limit") as limiter:
+            response = self.client.get(
+                "/api/marketplace/admin/security-audit",
+                headers={"X-Telegram-Init-Data": "admin-session"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        limiter.assert_called_once_with("909", "list_security_audit", 30)
+
     def test_admin_can_dismiss_or_remove_reported_orders(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         reporter_headers = {"X-Telegram-Init-Data": "user-b"}
@@ -1425,6 +1502,47 @@ class SharedMarketplaceTests(unittest.TestCase):
             )
             self.assertEqual(removed.status_code, 200)
             self.assertTrue(removed.json()["order_removed"])
+
+            second_listing = self.client.post(
+                "/api/marketplace/orders",
+                headers=owner_headers,
+                json={"kind": "listing", "title": "Dismissed listing", "price": "2", "currency": "TON"},
+            )
+            second_report = self.client.post(
+                f"/api/marketplace/orders/{second_listing.json()['item']['id']}/reports",
+                headers=reporter_headers,
+                json={"reason": "misleading"},
+            )
+            dismissed = self.client.patch(
+                f"/api/marketplace/admin/reports/{second_report.json()['report']['id']}",
+                headers={"X-Telegram-Init-Data": "admin-session"},
+                json={"action": "dismiss"},
+            )
+            self.assertEqual(dismissed.status_code, 200, dismissed.text)
+            self.assertEqual(dismissed.json()["status"], "dismissed")
+
+            outsider_audit = self.client.get(
+                "/api/marketplace/admin/security-audit",
+                headers=reporter_headers,
+            )
+            self.assertEqual(outsider_audit.status_code, 403)
+            audit = self.client.get(
+                "/api/marketplace/admin/security-audit",
+                headers={"X-Telegram-Init-Data": "admin-session"},
+            )
+            self.assertEqual(audit.status_code, 200, audit.text)
+            self.assertEqual(audit.json()["total"], 2)
+            actions = {event["action"] for event in audit.json()["items"]}
+            self.assertEqual(actions, {"admin_order_removed", "admin_report_dismissed"})
+            removed_event = next(event for event in audit.json()["items"] if event["action"] == "admin_order_removed")
+            dismissed_event = next(event for event in audit.json()["items"] if event["action"] == "admin_report_dismissed")
+            self.assertEqual(removed_event["actor_telegram_id"], "999")
+            self.assertEqual(removed_event["target_type"], "order")
+            self.assertEqual(removed_event["metadata"], {"report_id": report_id})
+            self.assertEqual(dismissed_event["actor_telegram_id"], "999")
+            self.assertEqual(dismissed_event["target_type"], "order_report")
+            self.assertEqual(len(removed_event["target_hash"]), 64)
+            self.assertEqual(len(dismissed_event["target_hash"]), 64)
 
         mine = self.client.get("/api/marketplace/mine", headers=owner_headers)
         self.assertEqual(mine.json()["items"][0]["status"], "cancelled")

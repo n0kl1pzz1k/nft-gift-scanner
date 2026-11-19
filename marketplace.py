@@ -25,6 +25,73 @@ def _db():
     # Preserve the legacy path override while centralizing connection lifetime.
     return _database_db(DB_PATH)
 
+_SECURITY_AUDIT_ACTIONS = {
+    "telegram_session_revoked",
+    "telegram_sessions_revoked_all",
+    "ton_wallet_linked",
+    "ton_wallet_revoked",
+    "admin_report_dismissed",
+    "admin_order_removed",
+}
+_SECURITY_AUDIT_TARGET_TYPES = {"session", "account", "wallet", "order_report", "order"}
+_SECURITY_AUDIT_METADATA_KEYS = {"network", "report_id", "order_id", "revoked_count", "reason"}
+
+
+def insert_security_audit_event(
+    conn: Any,
+    *,
+    actor_telegram_id: str,
+    action: str,
+    target_type: str,
+    target_id: str,
+    outcome: str = "success",
+    metadata: dict[str, Any] | None = None,
+    now: int | None = None,
+) -> str:
+    """Insert an append-only audit record without storing bearer credentials or raw targets."""
+    actor = str(actor_telegram_id).strip()
+    target = str(target_id or "").strip()
+    if not actor.isdigit() or not target or len(target) > 512:
+        raise ValueError("A valid audit actor and target are required")
+    if action not in _SECURITY_AUDIT_ACTIONS or target_type not in _SECURITY_AUDIT_TARGET_TYPES:
+        raise ValueError("Unsupported security audit action or target type")
+    if outcome not in {"success", "denied"}:
+        raise ValueError("Unsupported security audit outcome")
+
+    safe_metadata: dict[str, str | int | bool] = {}
+    for key, value in (metadata or {}).items():
+        if key not in _SECURITY_AUDIT_METADATA_KEYS:
+            continue
+        if key == "network" and isinstance(value, str) and value in {"-239", "-3"}:
+            safe_metadata[key] = value
+        elif key in {"report_id", "order_id"} and isinstance(value, str) and 1 <= len(value) <= 128:
+            if all(character.isalnum() or character in "_-" for character in value):
+                safe_metadata[key] = value
+        elif key == "revoked_count" and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 1000:
+            safe_metadata[key] = value
+        elif key == "reason" and value == "self_logout":
+            safe_metadata[key] = value
+    target_hash = hashlib.sha256(f"{target_type}:{target}".encode("utf-8")).hexdigest()
+    event_id = "sa_" + uuid.uuid4().hex[:24]
+    timestamp = int(time.time()) if now is None else int(now)
+    conn.execute(
+        """INSERT INTO security_audit_events
+           (id, actor_telegram_id, action, target_type, target_hash, outcome, metadata_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (event_id, actor, action, target_type, target_hash, outcome,
+         json.dumps(safe_metadata, sort_keys=True, separators=(",", ":")), timestamp),
+    )
+    return event_id
+
+
+def record_security_audit_event(**kwargs: Any) -> str:
+    """Write a security audit event in its own transaction."""
+    with _db() as conn:
+        begin_write(conn, f"security-audit:{kwargs.get('actor_telegram_id', '')}:{kwargs.get('action', '')}")
+        event_id = insert_security_audit_event(conn, **kwargs)
+        conn.commit()
+    return event_id
+
 
 _LEGACY_MARKETPLACE_TABLE_RENAMES = (
     ("demo_orders", "marketplace_orders"),
@@ -285,6 +352,34 @@ def init_marketplace_db() -> None:
             request_count INTEGER NOT NULL,
             PRIMARY KEY(user_id, action)
         );
+        CREATE TABLE IF NOT EXISTS security_audit_events (
+            id TEXT PRIMARY KEY,
+            actor_telegram_id TEXT NOT NULL,
+            action TEXT NOT NULL CHECK(action IN (
+                'telegram_session_revoked', 'telegram_sessions_revoked_all',
+                'ton_wallet_linked', 'ton_wallet_revoked',
+                'admin_report_dismissed', 'admin_order_removed'
+            )),
+            target_type TEXT NOT NULL CHECK(target_type IN ('session', 'account', 'wallet', 'order_report', 'order')),
+            target_hash TEXT NOT NULL CHECK(length(target_hash) = 64),
+            outcome TEXT NOT NULL CHECK(outcome IN ('success', 'denied')),
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_security_audit_actor_created
+            ON security_audit_events(actor_telegram_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_security_audit_action_created
+            ON security_audit_events(action, created_at DESC);
+        CREATE TRIGGER IF NOT EXISTS security_audit_events_no_update
+        BEFORE UPDATE ON security_audit_events
+        BEGIN
+            SELECT RAISE(ABORT, 'security audit events are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS security_audit_events_no_delete
+        BEFORE DELETE ON security_audit_events
+        BEGIN
+            SELECT RAISE(ABORT, 'security audit events are immutable');
+        END;
         CREATE TABLE IF NOT EXISTS app_settings (
             setting_key TEXT PRIMARY KEY,
             setting_value TEXT NOT NULL,
@@ -700,11 +795,31 @@ def revoke_telegram_session(token: str) -> bool:
     if not isinstance(token, str) or not token.startswith("grs_") or len(token) > 128:
         return False
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    now = int(time.time())
     with _db() as conn:
+        begin_write(conn, f"session-revoke:{token_hash}")
+        session = conn.execute(
+            "SELECT telegram_id FROM telegram_sessions WHERE token_hash = ? AND revoked_at IS NULL",
+            (token_hash,),
+        ).fetchone()
+        if session is None:
+            conn.rollback()
+            return False
         cursor = conn.execute(
             "UPDATE telegram_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL",
-            (int(time.time()), token_hash),
+            (now, token_hash),
         )
+        if cursor.rowcount == 1:
+            insert_security_audit_event(
+                conn,
+                actor_telegram_id=str(session["telegram_id"]),
+                action="telegram_session_revoked",
+                target_type="session",
+                target_id=token_hash,
+                metadata={"reason": "self_logout"},
+                now=now,
+            )
+        conn.commit()
     return cursor.rowcount == 1
 
 
@@ -738,11 +853,23 @@ def revoke_all_telegram_sessions(telegram_id: str, except_token: str | None = No
         exclusion = " AND token_hash != ?"
         params.append(token_hash)
     with _db() as conn:
+        begin_write(conn, f"session-revoke-all:{telegram_id}")
         cursor = conn.execute(
             f"""UPDATE telegram_sessions SET revoked_at = ?
                 WHERE telegram_id = ? AND revoked_at IS NULL AND expires_at > ?{exclusion}""",
             tuple(params),
         )
+        if cursor.rowcount:
+            insert_security_audit_event(
+                conn,
+                actor_telegram_id=str(telegram_id),
+                action="telegram_sessions_revoked_all",
+                target_type="account",
+                target_id=str(telegram_id),
+                metadata={"revoked_count": int(cursor.rowcount)},
+                now=now,
+            )
+        conn.commit()
     return cursor.rowcount
 
 
@@ -1526,6 +1653,35 @@ def create_marketplace_router(
             ).fetchall()
         return {"items": [dict(row) for row in rows], "total": total, "limit": limit, "offset": offset}
 
+    @router.get("/admin/security-audit")
+    async def list_security_audit_events(
+        limit: int = Query(default=50, ge=1, le=100),
+        offset: int = Query(default=0, ge=0, le=10000),
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        if verify_admin is None:
+            raise HTTPException(status_code=503, detail="Admin audit is not configured")
+        admin = verify_admin(x_telegram_init_data)
+        _enforce_user_rate_limit(str(admin["id"]), "list_security_audit", 30)
+        with _db() as conn:
+            rows = conn.execute(
+                """SELECT id, actor_telegram_id, action, target_type, target_hash,
+                          outcome, metadata_json, created_at
+                   FROM security_audit_events
+                   ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?""",
+                (limit, offset),
+            ).fetchall()
+            total = conn.execute("SELECT COUNT(*) FROM security_audit_events").fetchone()[0]
+        items = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["metadata"] = json.loads(item.pop("metadata_json"))
+            except (TypeError, ValueError):
+                item["metadata"] = {}
+            items.append(item)
+        return {"items": items, "total": total, "limit": limit, "offset": offset}
+
     @router.patch("/admin/reports/{report_id}")
     async def moderate_order_report(
         report_id: str,
@@ -1570,6 +1726,26 @@ def create_marketplace_router(
                 "UPDATE marketplace_order_reports SET status=?, resolved_at=?, resolved_by=? WHERE id=? AND status='open'",
                 (new_status, now, admin_id, report_id),
             )
+            if payload.action == "remove_order":
+                insert_security_audit_event(
+                    conn,
+                    actor_telegram_id=admin_id,
+                    action="admin_order_removed",
+                    target_type="order",
+                    target_id=str(report["order_id"]),
+                    metadata={"report_id": report_id},
+                    now=now,
+                )
+            else:
+                insert_security_audit_event(
+                    conn,
+                    actor_telegram_id=admin_id,
+                    action="admin_report_dismissed",
+                    target_type="order_report",
+                    target_id=report_id,
+                    metadata={"order_id": str(report["order_id"])},
+                    now=now,
+                )
             conn.commit()
         return {"report_id": report_id, "status": new_status, "order_removed": payload.action == "remove_order"}
 

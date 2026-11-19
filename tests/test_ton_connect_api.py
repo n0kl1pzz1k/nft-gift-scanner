@@ -66,6 +66,16 @@ class TonConnectApiTests(unittest.TestCase):
         self.assertEqual(len(wallets.json()["items"]), 1)
         self.assertEqual(wallets.json()["items"][0]["address"], verified["address"])
 
+        with marketplace._db() as conn:
+            audit = conn.execute(
+                "SELECT action, actor_telegram_id, target_type, metadata_json FROM security_audit_events "
+                "WHERE action='ton_wallet_linked' ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        self.assertEqual(audit["action"], "ton_wallet_linked")
+        self.assertEqual(audit["actor_telegram_id"], "101")
+        self.assertEqual(audit["target_type"], "wallet")
+        self.assertEqual(__import__("json").loads(audit["metadata_json"]), {"network": "-239"})
+
     def test_ton_proof_challenge_is_rate_limited_per_account(self):
         with patch.object(app, "_enforce_user_rate_limit") as limiter:
             response = self.client.post(
@@ -140,6 +150,15 @@ class TonConnectApiTests(unittest.TestCase):
         self.assertEqual(owner.status_code, 200, owner.text)
         self.assertEqual(owner.json(), {"revoked": True})
         self.assertEqual(ton_connect.list_verified_wallets("101"), [])
+        with marketplace._db() as conn:
+            audit = conn.execute(
+                "SELECT action, actor_telegram_id, target_type, metadata_json FROM security_audit_events "
+                "WHERE action='ton_wallet_revoked' ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        self.assertEqual(audit["action"], "ton_wallet_revoked")
+        self.assertEqual(audit["actor_telegram_id"], "101")
+        self.assertEqual(audit["target_type"], "wallet")
+        self.assertEqual(__import__("json").loads(audit["metadata_json"]), {"network": "-239"})
 
         repeated = self.client.delete(
             f"/api/ton-proof/wallets/-239/{address}",
@@ -254,6 +273,25 @@ class TonConnectApiTests(unittest.TestCase):
                 "SELECT status FROM verified_assets WHERE id = ?", (asset["id"],)
             ).fetchone()
         self.assertEqual(row["status"], "verified")
+
+    def test_wallet_revocation_rolls_back_if_audit_write_fails(self):
+        address = "0:" + "a" * 64
+        with marketplace._db() as conn:
+            conn.execute(
+                """INSERT INTO verified_wallets
+                   (network, address, telegram_id, public_key, state_init_hash,
+                    created_at, last_verified_at, revoked_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, NULL)""",
+                ("-239", address, "101", "b" * 64, "c" * 64, 1, 1),
+            )
+            conn.execute(
+                """CREATE TRIGGER fail_security_audit_insert
+                   BEFORE INSERT ON security_audit_events
+                   BEGIN SELECT RAISE(ABORT, 'audit store unavailable'); END"""
+            )
+        with self.assertRaises(Exception, msg="audit failure must abort wallet revocation"):
+            ton_connect.revoke_verified_wallet("101", "-239", address)
+        self.assertEqual(len(ton_connect.list_verified_wallets("101")), 1)
 
     def test_wallet_revocation_requires_authenticated_session(self):
         response = self.client.delete(

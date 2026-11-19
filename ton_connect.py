@@ -367,6 +367,17 @@ def consume_challenge_and_link_wallet(
             (verified["network"], verified["address"], str(telegram_id), verified["public_key"],
              verified["state_init_hash"], current, current),
         )
+        from marketplace import insert_security_audit_event
+
+        insert_security_audit_event(
+            conn,
+            actor_telegram_id=str(telegram_id),
+            action="ton_wallet_linked",
+            target_type="wallet",
+            target_id=verified["address"],
+            metadata={"network": verified["network"]},
+            now=current,
+        )
         conn.commit()
     return True
 
@@ -400,5 +411,17 @@ def revoke_verified_wallet(telegram_id: str, network: str, address: str, now: in
                WHERE network = ? AND address = ? AND telegram_id = ? AND revoked_at IS NULL""",
             (current, network, canonical_address, owner_id),
         )
+        if result.rowcount == 1:
+            from marketplace import insert_security_audit_event
+
+            insert_security_audit_event(
+                conn,
+                actor_telegram_id=owner_id,
+                action="ton_wallet_revoked",
+                target_type="wallet",
+                target_id=canonical_address,
+                metadata={"network": network},
+                now=current,
+            )
         conn.commit()
     return result.rowcount == 1

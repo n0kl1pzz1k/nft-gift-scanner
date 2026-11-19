@@ -78,6 +78,8 @@ def _trigger_ddl(item: dict[str, Any]) -> list[str] | None:
         "trg_marketplace_ledger_transactions_no_delete": ("marketplace_ledger_transactions", "DELETE", "ledger transactions are immutable"),
         "trg_marketplace_ledger_entries_no_update": ("marketplace_ledger_entries", "UPDATE", "ledger entries are immutable"),
         "trg_marketplace_ledger_entries_no_delete": ("marketplace_ledger_entries", "DELETE", "ledger entries are immutable"),
+        "security_audit_events_no_update": ("security_audit_events", "UPDATE", "security audit events are immutable"),
+        "security_audit_events_no_delete": ("security_audit_events", "DELETE", "security audit events are immutable"),
     }
     if name in immutable_tables:
         expected_table, action, message = immutable_tables[name]
