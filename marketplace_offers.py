@@ -326,6 +326,19 @@ class DealAction(BaseModel):
     action: Literal["cancel"]
 
 
+class DealDisputeRequest(BaseModel):
+    reason: str = Field(min_length=10, max_length=500)
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+    @field_validator("reason")
+    @classmethod
+    def clean_reason(cls, value: str) -> str:
+        cleaned = value.strip()
+        if len(cleaned) < 10:
+            raise ValueError("A dispute reason of at least 10 characters is required")
+        return cleaned
+
+
 def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], dict]) -> APIRouter:
     router = APIRouter(prefix="/api/marketplace", tags=["marketplace-offers"])
 
@@ -678,6 +691,53 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             conn.commit()
         return {"deal_id": deal_id, "status": "cancelled", "reservation_released": True,
                 "payments_enabled": False}
+
+    @router.post("/deals/{deal_id}/disputes")
+    async def open_deal_dispute(
+        deal_id: str,
+        payload: DealDisputeRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Open a participant dispute only after confirmed payment and before completion."""
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        actor_id = str(user["id"])
+        _enforce_user_rate_limit(actor_id, "deal_dispute", 5)
+        with _db() as conn:
+            initial = conn.execute(
+                "SELECT order_id FROM marketplace_deals WHERE id = ?",
+                (deal_id,),
+            ).fetchone()
+            if initial is None:
+                raise HTTPException(status_code=404, detail="Deal not found")
+            begin_write(conn, f"order:{initial['order_id']}", f"deal:{deal_id}")
+            deal = conn.execute(
+                select_for_update(conn, "SELECT * FROM marketplace_deals WHERE id = ?"),
+                (deal_id,),
+            ).fetchone()
+            if deal is None or actor_id not in (deal["listing_owner_id"], deal["offer_sender_id"]):
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Deal not found")
+            if deal["status"] not in {"paid", "delivery_pending"}:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="A dispute can only be opened after payment confirmation and before completion")
+            from marketplace_payments import transition_deal_status
+            try:
+                result = transition_deal_status(
+                    conn,
+                    deal_id=deal_id,
+                    new_status="disputed",
+                    actor_user_id=actor_id,
+                    idempotency_key=payload.idempotency_key,
+                    event_type="deal_disputed",
+                    event_data={"reason": payload.reason},
+                    now=int(time.time()),
+                )
+            except Exception:
+                conn.rollback()
+                raise
+            conn.commit()
+        return {"deal_id": deal_id, "status": "disputed", "idempotent_replay": result["idempotent_replay"]}
+
 
     @router.get("/deals/{deal_id}/events")
     async def list_deal_events(
