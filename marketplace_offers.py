@@ -278,6 +278,7 @@ def _offer_dict(row: sqlite3.Row, user_id: str) -> dict:
         "updated_at": row["updated_at"],
         "is_mine": row["sender_user_id"] == user_id,
         "order_title": row["order_title"],
+        "order_kind": row["order_kind"],
         "order_owner_id": row["order_owner_id"],
         "order_owner_name": row["order_owner_name"],
         "order_status": row["order_status"],
@@ -344,9 +345,28 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             if order is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Marketplace listing not found")
-            if order["kind"] != "listing":
+            if order["kind"] not in {"listing", "buy-order"}:
                 conn.rollback()
-                raise HTTPException(status_code=409, detail="Offers can only be made on seller listings")
+                raise HTTPException(status_code=409, detail="Unsupported marketplace order type")
+            if order["kind"] == "buy-order":
+                if not payload.note:
+                    conn.rollback()
+                    raise HTTPException(status_code=422, detail="A seller response must describe the offered asset")
+                if order["user_id"] == actor_id:
+                    conn.rollback()
+                    raise HTTPException(status_code=403, detail="You cannot respond to your own buy request")
+                seller_listing = conn.execute(
+                    """SELECT id FROM marketplace_orders
+                       WHERE user_id = ? AND kind = 'listing' AND status = 'active' AND currency = ?
+                       ORDER BY created_at DESC LIMIT 1""",
+                    (actor_id, order["currency"]),
+                ).fetchone()
+                if seller_listing is None:
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="A seller response requires an active listing in the same currency")
+            elif order["user_id"] == actor_id:
+                conn.rollback()
+                raise HTTPException(status_code=403, detail="You cannot make an offer on your own order")
             if order["currency"] == "XTR" and payload.amount != payload.amount.to_integral_value():
                 conn.rollback()
                 raise HTTPException(status_code=422, detail="Star offers must be whole numbers")
@@ -386,7 +406,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                   order["currency"], payload.note, now, now))
             conn.commit()
             row = conn.execute("""
-                SELECT f.*, o.title AS order_title, o.user_id AS order_owner_id,
+                SELECT f.*, o.title AS order_title, o.kind AS order_kind, o.user_id AS order_owner_id,
                        o.owner_name AS order_owner_name, o.status AS order_status
                 FROM marketplace_offers f JOIN marketplace_orders o ON o.id = f.order_id WHERE f.id = ?
             """, (offer_id,)).fetchone()
@@ -488,6 +508,9 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                 raise HTTPException(status_code=403, detail="Only the offer author can withdraw it")
             deal_id = None
             if action == "accept":
+                if row["order_kind"] == "buy-order":
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Seller responses to buy requests can be accepted after protected deal execution is enabled")
                 if row["order_kind"] != "listing" or row["order_status"] != "active":
                     conn.rollback()
                     raise HTTPException(status_code=409, detail="Only an active seller listing can be reserved")
