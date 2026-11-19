@@ -1961,6 +1961,40 @@ class SharedMarketplaceTests(unittest.TestCase):
         unrelated = self.client.get("/api/marketplace/activity?limit=10", headers=headers_c)
         self.assertEqual(unrelated.json()["items"], [])
 
+    def test_deal_reservation_events_are_included_in_private_account_activity(self):
+        seller_headers = {"X-Telegram-Init-Data": "user-a"}
+        buyer_headers = {"X-Telegram-Init-Data": "user-b"}
+        created = self.client.post(
+            "/api/marketplace/orders", headers=seller_headers,
+            json={"kind": "listing", "title": "Activity timeline reservation", "price": "3", "currency": "TON"},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        offered = self.client.post(
+            "/api/marketplace/offers", headers=buyer_headers,
+            json={"order_id": created.json()["item"]["id"], "amount": "2.8"},
+        )
+        self.assertEqual(offered.status_code, 201, offered.text)
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offered.json()['item']['id']}",
+            headers=seller_headers, json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+
+        expected = {"deal_created", "listing_reserved", "payment_not_enabled"}
+        for headers in (seller_headers, buyer_headers):
+            activity = self.client.get("/api/marketplace/activity?limit=100", headers=headers)
+            self.assertEqual(activity.status_code, 200, activity.text)
+            types = {item["type"] for item in activity.json()["items"]}
+            self.assertTrue(expected.issubset(types))
+            self.assertEqual(activity.json()["total"], len(activity.json()["items"]))
+        outsider = self.client.get(
+            "/api/marketplace/activity?limit=100",
+            headers={"X-Telegram-Init-Data": "user-c"},
+        )
+        self.assertEqual(outsider.status_code, 200)
+        self.assertEqual(outsider.json()["items"], [])
+        self.assertEqual(outsider.json()["total"], 0)
+
     def test_account_activity_requires_verified_telegram_session(self):
         response = self.client.get("/api/marketplace/activity")
         self.assertEqual(response.status_code, 401)
