@@ -410,5 +410,126 @@ class TonNftImportApiTests(unittest.TestCase):
         self.assertEqual(rows[0]["status"], "verified")
 
 
+    def test_fragment_username_and_number_import_require_contract_verification(self):
+        wallet = "0:" + "a" * 64
+        username_address = "0:" + "d" * 64
+        number_address = "0:" + "e" * 64
+        snapshot = {
+            "wallet_address": wallet,
+            "complete": True,
+            "items": [
+                {
+                    "address": username_address,
+                    "wallet_address": wallet,
+                    "title": "@example",
+                    "image_url": "",
+                    "collection_address": "0:80d78a35f955a14b679faa887ff4cd5bfc0f43b4a4eea2a7e6927f3701b273c2",
+                },
+                {
+                    "address": number_address,
+                    "wallet_address": wallet,
+                    "title": "+888 1234 5678",
+                    "image_url": "",
+                    "collection_address": "0:0e41dc1dc3c9067ed24248580e12b3359818d83dee0304fabcf80845eafafdb2",
+                },
+            ],
+        }
+        with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(return_value=snapshot)), \
+             patch.object(app, "verify_nft_collection_membership", new=AsyncMock(side_effect=[
+                 {"verified": True, "block_seqno": 12345},
+                 {"verified": True, "block_seqno": 12346},
+             ])) as verify:
+            response = self.client.post(
+                "/api/marketplace/assets/import-ton",
+                headers={"X-Telegram-Init-Data": "verified-session"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        inventory = self.client.get(
+            "/api/marketplace/assets/me",
+            headers={"X-Telegram-Init-Data": "verified-session"},
+        )
+        self.assertEqual(inventory.status_code, 200)
+        types = {item["external_asset_id"]: item["asset_type"] for item in inventory.json()["items"]}
+        self.assertEqual(types[username_address], "username")
+        self.assertEqual(types[number_address], "number")
+        self.assertEqual(verify.await_count, 2)
+        self.assertEqual(verify.await_args_list[0].args, (
+            username_address,
+            snapshot["items"][0]["collection_address"],
+            wallet,
+        ))
+
+    def test_fragment_spoofed_collection_is_rejected_without_registry_mutation(self):
+        wallet = "0:" + "a" * 64
+        address = "0:" + "d" * 64
+        snapshot = {
+            "wallet_address": wallet,
+            "complete": True,
+            "items": [{
+                "address": address,
+                "wallet_address": wallet,
+                "title": "@spoofed",
+                "image_url": "",
+                "collection_address": "0:80d78a35f955a14b679faa887ff4cd5bfc0f43b4a4eea2a7e6927f3701b273c2",
+            }],
+        }
+        with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(return_value=snapshot)), \
+             patch.object(app, "verify_nft_collection_membership", new=AsyncMock(return_value={
+                 "verified": False, "block_seqno": 12345
+             })):
+            response = self.client.post(
+                "/api/marketplace/assets/import-ton",
+                headers={"X-Telegram-Init-Data": "verified-session"},
+            )
+        self.assertEqual(response.status_code, 409)
+        inventory = self.client.get(
+            "/api/marketplace/assets/me",
+            headers={"X-Telegram-Init-Data": "verified-session"},
+        )
+        self.assertEqual(inventory.status_code, 200)
+        self.assertEqual(inventory.json()["items"], [])
+
+    def test_fragment_contract_provider_failure_does_not_import_or_revoke(self):
+        wallet = "0:" + "a" * 64
+        address = "0:" + "d" * 64
+        snapshot = {
+            "wallet_address": wallet,
+            "complete": True,
+            "items": [{
+                "address": address,
+                "wallet_address": wallet,
+                "title": "@offline",
+                "image_url": "",
+                "collection_address": "0:80d78a35f955a14b679faa887ff4cd5bfc0f43b4a4eea2a7e6927f3701b273c2",
+            }],
+        }
+        with marketplace._db() as conn:
+            conn.execute(
+                """INSERT INTO verified_assets
+                   (id, source, external_asset_id, owner_telegram_id, title, asset_type,
+                    image_url, verification_method, verification_reference_hash,
+                    status, created_at, verified_at)
+                   VALUES ('asset_existing', 'ton_nft', ?, '101', 'Existing NFT', 'gift', '',
+                           'ton_connect_proof', ?, 'verified', 1, 1)""",
+                ("0:" + "e" * 64, "f" * 64),
+            )
+        with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(return_value=snapshot)), \
+             patch.object(app, "verify_nft_collection_membership", new=AsyncMock(
+                 side_effect=httpx.ConnectError("TON Center unavailable")
+             )):
+            response = self.client.post(
+                "/api/marketplace/assets/import-ton",
+                headers={"X-Telegram-Init-Data": "verified-session"},
+            )
+        self.assertEqual(response.status_code, 503)
+        with marketplace._db() as conn:
+            rows = conn.execute(
+                "SELECT external_asset_id, status FROM verified_assets WHERE owner_telegram_id='101'"
+            ).fetchall()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["external_asset_id"], "0:" + "e" * 64)
+        self.assertEqual(rows[0]["status"], "verified")
+
+
 if __name__ == "__main__":
     unittest.main()
