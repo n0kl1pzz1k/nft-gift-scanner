@@ -40,10 +40,19 @@ def _stack_address(entry: Any) -> str | None:
     try:
         boc = base64.b64decode(str(entry[1]), validate=True)
         cell = Cell.one_from_boc(boc)
-        address = cell.begin_parse().load_address()
-        if address is None:
+        address_slice = cell.begin_parse()
+        tag = address_slice.read_uint(2)
+        if tag == 0:
             return None
-        return _raw_address(address.to_string(is_user_friendly=False))
+        if tag != 2:
+            raise ValueError("Only standard internal TON addresses are accepted")
+        if address_slice.read_bit():
+            raise ValueError("Anycast TON addresses are not accepted")
+        workchain = address_slice.read_int(8)
+        account_hash = address_slice.read_bytes(32)
+        if len(account_hash) != 32:
+            raise ValueError("Invalid TON account hash")
+        return f"{workchain}:{account_hash.hex()}"
     except Exception as exc:
         raise ValueError("TON Center returned an invalid address cell") from exc
 
