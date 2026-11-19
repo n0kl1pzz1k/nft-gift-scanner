@@ -88,6 +88,40 @@ def initialize_sqlite_payment_schema(conn: Any) -> None:
     CREATE INDEX IF NOT EXISTS idx_marketplace_ledger_transactions_reference
         ON marketplace_ledger_transactions(reference_type, reference_id, created_at ASC);
 
+    CREATE TABLE IF NOT EXISTS marketplace_escrow_events (
+        id TEXT PRIMARY KEY,
+        deal_id TEXT NOT NULL,
+        actor_user_id TEXT NOT NULL,
+        event_type TEXT NOT NULL CHECK(event_type IN (
+            'deal_payment_requested', 'payment_intent_created', 'payment_pending',
+            'payment_confirmed', 'escrow_funded', 'asset_transfer_requested',
+            'asset_transfer_submitted', 'asset_transfer_confirmed', 'deal_completed',
+            'deal_disputed', 'refund_requested', 'refund_confirmed', 'payout_released',
+            'deal_cancelled', 'deal_expired'
+        )),
+        event_key TEXT NOT NULL UNIQUE,
+        event_data TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY(deal_id) REFERENCES marketplace_deals(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_marketplace_escrow_events_deal_created
+        ON marketplace_escrow_events(deal_id, created_at ASC, id ASC);
+    CREATE TRIGGER IF NOT EXISTS trg_marketplace_escrow_events_no_update
+    BEFORE UPDATE ON marketplace_escrow_events
+    BEGIN
+        SELECT RAISE(ABORT, 'escrow events are immutable');
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_marketplace_escrow_events_no_delete
+    BEFORE DELETE ON marketplace_escrow_events
+    BEGIN
+        SELECT RAISE(ABORT, 'escrow events are immutable');
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_marketplace_escrow_events_no_truncate
+    BEFORE TRUNCATE ON marketplace_escrow_events
+    BEGIN
+        SELECT RAISE(ABORT, 'escrow events are immutable');
+    END;
+
     CREATE TABLE IF NOT EXISTS marketplace_ledger_entries (
         id TEXT PRIMARY KEY,
         transaction_id TEXT NOT NULL,
@@ -423,6 +457,78 @@ def post_ledger_transaction(
         raise
     conn.execute("RELEASE SAVEPOINT hassle_ledger_post")
     return {"id": transaction_id, "idempotent_replay": False, "entries": 2}
+
+
+ESCROW_EVENT_TYPES = {
+    "deal_payment_requested", "payment_intent_created", "payment_pending",
+    "payment_confirmed", "escrow_funded", "asset_transfer_requested",
+    "asset_transfer_submitted", "asset_transfer_confirmed", "deal_completed",
+    "deal_disputed", "refund_requested", "refund_confirmed", "payout_released",
+    "deal_cancelled", "deal_expired",
+}
+
+
+def append_escrow_event(
+    conn: Any,
+    *,
+    deal_id: str,
+    actor_user_id: str,
+    event_type: str,
+    event_key: str,
+    event_data: dict[str, Any] | None = None,
+    now: int | None = None,
+) -> dict[str, Any]:
+    deal = str(deal_id or "").strip()
+    actor = str(actor_user_id or "").strip()
+    kind = str(event_type or "").strip()
+    key = str(event_key or "").strip()
+    if not deal or not actor or not key or len(key) > 128:
+        raise ValueError("Deal, actor and 1-128 character event key are required")
+    if kind not in ESCROW_EVENT_TYPES:
+        raise ValueError("Unsupported escrow event type")
+    payload = json.dumps(event_data or {}, sort_keys=True, separators=(",", ":"))
+    existing = conn.execute(
+        "SELECT * FROM marketplace_escrow_events WHERE event_key = ?",
+        (key,),
+    ).fetchone()
+    if existing is not None:
+        actual = (
+            existing["deal_id"], existing["actor_user_id"],
+            existing["event_type"], existing["event_data"],
+        )
+        expected = (deal, actor, kind, payload)
+        if actual != expected:
+            raise PaymentConflict("Escrow event key was reused with different data")
+        return {"id": existing["id"], "idempotent_replay": True}
+    if conn.execute("SELECT 1 FROM marketplace_deals WHERE id = ?", (deal,)).fetchone() is None:
+        raise PaymentStateError("Deal not found")
+    timestamp = int(now if now is not None else __import__("time").time())
+    event_id = "ee-" + uuid.uuid4().hex[:24]
+    conn.execute(
+        """INSERT INTO marketplace_escrow_events
+           (id, deal_id, actor_user_id, event_type, event_key, event_data, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (event_id, deal, actor, kind, key, payload, timestamp),
+    )
+    return {"id": event_id, "idempotent_replay": False}
+
+
+def list_escrow_events(conn: Any, deal_id: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """SELECT id, deal_id, actor_user_id, event_type, event_key, event_data, created_at
+           FROM marketplace_escrow_events
+           WHERE deal_id = ? ORDER BY created_at ASC, id ASC""",
+        (str(deal_id or "").strip(),),
+    ).fetchall()
+    items = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["event_data"] = json.loads(item["event_data"] or "{}")
+        except (TypeError, ValueError):
+            item["event_data"] = {}
+        items.append(item)
+    return items
 
 
 def verify_ledger_transaction(conn: Any, transaction_id: str) -> dict[str, Any]:
