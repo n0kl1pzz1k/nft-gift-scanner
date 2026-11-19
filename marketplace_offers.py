@@ -1029,23 +1029,35 @@ def create_marketplace_offers_router(
                     event_data={"provider": "telegram_stars", "currency": "XTR"},
                     now=now,
                 )
-            intent = create_payment_intent(
-                conn,
-                deal_id=deal_id,
-                provider="telegram_stars",
-                currency="XTR",
-                amount=amount,
-                idempotency_key=f"stars:{deal_id}:{payload.idempotency_key}",
-                expires_at=now + ttl,
-                invoice_payload=invoice_payload,
-                metadata={
-                    "buyer_telegram_id": buyer_id,
-                    "seller_telegram_id": str(deal["listing_owner_id"]),
-                    "deal_id": deal_id,
-                    "payout_mode": "internal_xtr_credit",
-                },
-                now=now,
-            )
+            intent = conn.execute(
+                """SELECT * FROM marketplace_payment_intents
+                   WHERE deal_id = ? AND status IN ('created', 'pending')
+                   ORDER BY created_at DESC LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            if intent is not None and int(intent["expires_at"]) <= now:
+                transition_payment_intent(conn, intent["id"], "expired", now=now)
+                intent = None
+            if intent is None:
+                intent = create_payment_intent(
+                    conn,
+                    deal_id=deal_id,
+                    provider="telegram_stars",
+                    currency="XTR",
+                    amount=amount,
+                    idempotency_key=f"stars:{deal_id}:{payload.idempotency_key}",
+                    expires_at=now + ttl,
+                    invoice_payload=invoice_payload,
+                    metadata={
+                        "buyer_telegram_id": buyer_id,
+                        "seller_telegram_id": str(deal["listing_owner_id"]),
+                        "deal_id": deal_id,
+                        "payout_mode": "internal_xtr_credit",
+                    },
+                    now=now,
+                )
+            else:
+                intent = dict(intent)
             append_escrow_event(
                 conn,
                 deal_id=deal_id,
