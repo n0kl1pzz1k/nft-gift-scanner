@@ -333,6 +333,18 @@ class SharedMarketplaceTests(unittest.TestCase):
         with marketplace._db() as conn:
             with self.assertRaises(sqlite3.IntegrityError):
                 conn.execute("UPDATE verified_assets SET title = ? WHERE id = ?", ("Spoofed title", asset["id"]))
+            # A direct owner reassignment must be rejected too. Only the
+            # trusted registration path can create the one-use authorization.
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute(
+                    "UPDATE verified_assets SET owner_telegram_id = ?, title = ?, verification_reference_hash = ? WHERE id = ?",
+                    ("202", "Claimed by B", "forged-reference-hash", asset["id"]),
+                )
+            pending_authorizations = conn.execute(
+                "SELECT COUNT(*) FROM asset_owner_transfer_authorizations WHERE asset_id = ?",
+                (asset["id"],),
+            ).fetchone()[0]
+            self.assertEqual(pending_authorizations, 0)
         with self.assertRaises(ValueError):
             marketplace.register_verified_asset(
                 source="ton_nft", external_asset_id="EQB_immutable_asset",
