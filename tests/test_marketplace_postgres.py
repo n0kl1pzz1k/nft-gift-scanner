@@ -56,10 +56,26 @@ def test_postgres_core_marketplace_schema_bootstrap_is_idempotent_and_verified()
 
         # A verified ownership transfer is the one permitted metadata-column
         # update, provided source and external asset identity remain unchanged.
+        with pytest.raises(Exception, match="verified asset metadata is immutable"):
+            adapter.execute(
+                "UPDATE verified_assets SET owner_telegram_id=?, status='verified' WHERE id=?",
+                ("owner-2", "asset-1"),
+            )
         adapter.execute(
-            "UPDATE verified_assets SET owner_telegram_id=?, status='verified' WHERE id=?",
-            ("owner-2", "asset-1"),
+            """INSERT INTO asset_owner_transfer_authorizations
+               (asset_id, previous_owner_id, new_owner_id, verification_reference_hash, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            ("asset-1", "owner-1", "owner-2", "hash-2", 2),
         )
+        adapter.execute(
+            "UPDATE verified_assets SET owner_telegram_id=?, verification_reference_hash=?, status='verified' WHERE id=?",
+            ("owner-2", "hash-2", "asset-1"),
+        )
+        remaining = adapter.execute(
+            "SELECT COUNT(*) AS n FROM asset_owner_transfer_authorizations WHERE asset_id=?",
+            ("asset-1",),
+        ).fetchone()
+        assert remaining["n"] == 0
         owner = adapter.execute(
             "SELECT owner_telegram_id FROM verified_assets WHERE id=?",
             ("asset-1",),
