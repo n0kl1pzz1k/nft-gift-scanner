@@ -114,15 +114,19 @@ class TonNftImportApiTests(unittest.TestCase):
             }],
         }
         with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(return_value=snapshot)), \
-             patch.object(app, "fetch_nft_owner", new=AsyncMock(return_value={
-                 "owner_address": "0:" + "a" * 64, "is_scam": False, "trust": "whitelist"
+             patch.object(app, "verify_nft_owner_onchain", new=AsyncMock(return_value={
+                 "verified": True,
+                 "owner_address": "0:" + "a" * 64,
+                 "collection_address": None,
+                 "index": 42,
+                 "provider": "tonapi_get_method",
              })) as live_owner:
             response = self.client.post(
                 "/api/marketplace/assets/import-ton",
                 headers={"X-Telegram-Init-Data": "verified-session"},
             )
         self.assertEqual(response.status_code, 200, response.text)
-        live_owner.assert_awaited_once_with(address)
+        live_owner.assert_awaited_once_with(address, "0:" + "a" * 64)
         with marketplace._db() as conn:
             row = conn.execute(
                 "SELECT owner_telegram_id FROM verified_assets WHERE id='asset_old'"
@@ -156,15 +160,19 @@ class TonNftImportApiTests(unittest.TestCase):
             }],
         }
         with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(return_value=snapshot)), \
-             patch.object(app, "fetch_nft_owner", new=AsyncMock(return_value={
-                 "owner_address": "0:" + "c" * 64, "is_scam": False, "trust": "whitelist"
+             patch.object(app, "verify_nft_owner_onchain", new=AsyncMock(return_value={
+                 "verified": False,
+                 "owner_address": "0:" + "c" * 64,
+                 "collection_address": None,
+                 "index": 42,
+                 "provider": "tonapi_get_method",
              })) as live_owner:
             response = self.client.post(
                 "/api/marketplace/assets/import-ton",
                 headers={"X-Telegram-Init-Data": "verified-session"},
             )
         self.assertEqual(response.status_code, 409)
-        live_owner.assert_awaited_once_with(address)
+        live_owner.assert_awaited_once_with(address, "0:" + "a" * 64)
         with marketplace._db() as conn:
             row = conn.execute(
                 "SELECT owner_telegram_id, status FROM verified_assets WHERE id='asset_old'"
@@ -195,7 +203,7 @@ class TonNftImportApiTests(unittest.TestCase):
             }],
         }
         with patch.object(app, "fetch_wallet_nfts", new=AsyncMock(return_value=snapshot)), \
-             patch.object(app, "fetch_nft_owner", new=AsyncMock(side_effect=httpx.ConnectError("provider unavailable"))):
+             patch.object(app, "verify_nft_owner_onchain", new=AsyncMock(side_effect=httpx.ConnectError("provider unavailable"))):
             response = self.client.post(
                 "/api/marketplace/assets/import-ton",
                 headers={"X-Telegram-Init-Data": "verified-session"},
