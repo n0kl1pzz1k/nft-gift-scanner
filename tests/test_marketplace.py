@@ -1129,6 +1129,11 @@ class SharedMarketplaceTests(unittest.TestCase):
             json={"kind": "listing", "title": "Stars offer asset", "price": "100", "currency": "XTR"},
         )
         self.assertEqual(stars_listing.status_code, 201, stars_listing.text)
+        invalid_stars_create = self.client.post(
+            "/api/marketplace/offers", headers=buyer_headers,
+            json={"order_id": stars_listing.json()["item"]["id"], "amount": "90.5"},
+        )
+        self.assertEqual(invalid_stars_create.status_code, 422)
         stars_offer = self.client.post(
             "/api/marketplace/offers", headers=buyer_headers,
             json={"order_id": stars_listing.json()["item"]["id"], "amount": "90"},
