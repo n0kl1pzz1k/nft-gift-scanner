@@ -895,12 +895,15 @@
 
   async function cancelOrder(id: string) {
     if (orderEditBusy) return;
+    const order = orders.find(item => item.id === id);
     orderEditBusy = true;
     try {
       await request('/api/marketplace/orders/' + encodeURIComponent(id), undefined, {method:'DELETE'});
       editingOrderId = '';
       if (selectedAsset?.id === id) showAssetDetails = false;
-      notice = lang === 'ru' ? 'Объявление снято с продажи.' : 'Listing removed from sale.';
+      notice = order?.kind === 'buy-order'
+        ? (lang === 'ru' ? 'Заявка на покупку отменена.' : 'Buy request cancelled.')
+        : (lang === 'ru' ? 'Объявление снято с продажи.' : 'Listing removed from sale.');
       await Promise.all([loadMarketplace(), loadOffersAndDeals(), loadVerifiedInventory()]);
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
     finally { orderEditBusy = false; }
@@ -1494,8 +1497,8 @@
             <label>{lang==='ru'?'Цена / бюджет':'Price / budget'}<input class="form-input" type="number" min="0.01" step={orders.find(item=>item.id===editingOrderId)?.currency==='XTR'?'1':'0.01'} bind:value={editPrice} /></label>
             <label>{lang==='ru'?'Комментарий':'Description'}<textarea class="form-input note-input" bind:value={editNote} maxlength="300"></textarea></label>
             <button class="ton-primary offer-submit" onclick={()=>saveOrderEdit(editingOrderId)} disabled={orderEditBusy}>{orderEditBusy?(lang==='ru'?'Сохраняем…':'Saving…'):(lang==='ru'?'Сохранить изменения':'Save changes')}</button>
-            <button class="report-asset-button" onclick={()=>cancelOrder(editingOrderId)} disabled={orderEditBusy}>{lang==='ru'?'Снять объявление с продажи':'Remove listing from sale'}</button>
-            <small class="sell-modal-hint">{lang==='ru'?'Название и данные NFT защищены проверкой владения. Можно изменить цену и комментарий. Снятие объявления не передаёт актив и не списывает средства.':'NFT name and metadata are locked to verified ownership. You can change the price and note. Removing a listing does not transfer the asset or charge funds.'}</small>
+            <button class="report-asset-button" onclick={()=>cancelOrder(editingOrderId)} disabled={orderEditBusy}>{orders.find(item=>item.id===editingOrderId)?.kind==='buy-order'?(lang==='ru'?'Отменить заявку':'Cancel buy request'):(lang==='ru'?'Снять объявление с продажи':'Remove listing from sale')}</button>
+            <small class="sell-modal-hint">{orders.find(item=>item.id===editingOrderId)?.kind==='buy-order'?(lang==='ru'?'Заявка показывает твой интерес и бюджет. Отмена не списывает деньги.':'A buy request shows your interest and budget. Cancelling it does not charge funds.'):(lang==='ru'?'Название и данные NFT защищены проверкой владения. Можно изменить цену и комментарий. Снятие объявления не передаёт актив и не списывает средства.':'NFT name and metadata are locked to verified ownership. You can change the price and note. Removing a listing does not transfer the asset or charge funds.')}</small>
           </div>
         </div>
       {/if}
