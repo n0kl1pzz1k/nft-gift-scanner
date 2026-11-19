@@ -176,6 +176,21 @@ _TRIGGER_DDL = (
     ("trg_marketplace_ledger_entries_no_delete",
      "CREATE TRIGGER trg_marketplace_ledger_entries_no_delete BEFORE DELETE ON marketplace_ledger_entries "
      "FOR EACH ROW EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
+    ("trg_marketplace_deal_events_no_truncate",
+     "CREATE TRIGGER trg_marketplace_deal_events_no_truncate BEFORE TRUNCATE ON marketplace_deal_events "
+     "FOR EACH STATEMENT EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
+    ("trg_marketplace_deal_lifecycle_events_no_truncate",
+     "CREATE TRIGGER trg_marketplace_deal_lifecycle_events_no_truncate BEFORE TRUNCATE ON marketplace_deal_lifecycle_events "
+     "FOR EACH STATEMENT EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
+    ("trg_marketplace_payment_events_no_truncate",
+     "CREATE TRIGGER trg_marketplace_payment_events_no_truncate BEFORE TRUNCATE ON marketplace_payment_events "
+     "FOR EACH STATEMENT EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
+    ("trg_marketplace_ledger_transactions_no_truncate",
+     "CREATE TRIGGER trg_marketplace_ledger_transactions_no_truncate BEFORE TRUNCATE ON marketplace_ledger_transactions "
+     "FOR EACH STATEMENT EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
+    ("trg_marketplace_ledger_entries_no_truncate",
+     "CREATE TRIGGER trg_marketplace_ledger_entries_no_truncate BEFORE TRUNCATE ON marketplace_ledger_entries "
+     "FOR EACH STATEMENT EXECUTE FUNCTION hassle_nft_reject_immutable_event_mutation()"),
     ("trg_marketplace_ledger_transaction_balanced",
      "CREATE CONSTRAINT TRIGGER trg_marketplace_ledger_transaction_balanced AFTER INSERT ON marketplace_ledger_transactions "
      "DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION hassle_nft_assert_ledger_transaction_balanced()"),
@@ -198,6 +213,11 @@ _TRIGGER_TABLES = {
     "trg_marketplace_ledger_transactions_no_delete": "marketplace_ledger_transactions",
     "trg_marketplace_ledger_entries_no_update": "marketplace_ledger_entries",
     "trg_marketplace_ledger_entries_no_delete": "marketplace_ledger_entries",
+    "trg_marketplace_deal_events_no_truncate": "marketplace_deal_events",
+    "trg_marketplace_deal_lifecycle_events_no_truncate": "marketplace_deal_lifecycle_events",
+    "trg_marketplace_payment_events_no_truncate": "marketplace_payment_events",
+    "trg_marketplace_ledger_transactions_no_truncate": "marketplace_ledger_transactions",
+    "trg_marketplace_ledger_entries_no_truncate": "marketplace_ledger_entries",
     "trg_marketplace_ledger_transaction_balanced": "marketplace_ledger_transactions",
     "trg_marketplace_ledger_entries_balanced": "marketplace_ledger_entries",
 }
