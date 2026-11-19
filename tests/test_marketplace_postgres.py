@@ -1,6 +1,8 @@
 import os
 import time
 import uuid
+from contextlib import contextmanager
+from unittest.mock import patch
 
 import pytest
 
@@ -1021,3 +1023,55 @@ def test_postgres_concurrent_duplicate_deal_cancellations_release_reservation_on
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
             admin.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+
+
+def test_redis_outage_falls_back_to_shared_postgres_rate_limit():
+    import os
+
+    import psycopg
+    from fastapi import HTTPException
+    from redis.exceptions import ConnectionError as RedisConnectionError
+
+    import marketplace
+    from db_postgres_compat import PostgresConnectionAdapter
+    from marketplace_postgres import initialize_postgres_marketplace_schema
+
+    dsn = os.getenv("HASSLE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL service is not configured")
+
+    schema = "rate_limit_" + uuid.uuid4().hex[:10]
+    raw = psycopg.connect(dsn, autocommit=True)
+    adapter = PostgresConnectionAdapter(raw)
+    try:
+        adapter.execute(f'CREATE SCHEMA "{schema}"')
+        adapter.execute(f'SET search_path TO "{schema}"')
+        initialize_postgres_marketplace_schema(adapter)
+
+        @contextmanager
+        def postgres_connection():
+            yield adapter
+
+        class BrokenRedis:
+            def eval(self, *_args, **_kwargs):
+                raise RedisConnectionError("simulated Redis outage")
+
+        with patch.object(marketplace, "_db", side_effect=postgres_connection), \
+             patch.object(marketplace, "_get_redis_rate_limit_client", return_value=BrokenRedis()):
+            marketplace._enforce_user_rate_limit("101", "shared_postgres_fallback", 1, 60)
+            with pytest.raises(HTTPException) as raised:
+                marketplace._enforce_user_rate_limit("101", "shared_postgres_fallback", 1, 60)
+
+        assert raised.value.status_code == 429
+        row = adapter.execute(
+            "SELECT request_count FROM api_rate_limits WHERE user_id=? AND action=?",
+            ("101", "shared_postgres_fallback"),
+        ).fetchone()
+        assert row["request_count"] == 1
+    finally:
+        try:
+            adapter.execute("SET search_path TO public")
+            adapter.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+        finally:
+            adapter.close()
+
