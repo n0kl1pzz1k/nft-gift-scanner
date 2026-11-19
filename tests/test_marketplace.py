@@ -180,7 +180,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             target_id=wallet_address,
             metadata={
                 "network": "-239",
-                "reason": "TON Proof",
+                "reason": "self_logout",
                 "signature": "must-not-be-stored",
                 "session_token": "must-not-be-stored",
             },
@@ -197,7 +197,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(row["target_type"], "wallet")
         self.assertEqual(len(row["target_hash"]), 64)
         self.assertNotEqual(row["target_hash"], wallet_address)
-        self.assertEqual(json.loads(row["metadata_json"]), {"network": "-239", "reason": "TON Proof"})
+        self.assertEqual(json.loads(row["metadata_json"]), {"network": "-239", "reason": "self_logout"})
         self.assertEqual(row["created_at"], 1234)
         with marketplace._db() as conn:
             with self.assertRaises(sqlite3.IntegrityError, msg="security audit events are immutable"):
