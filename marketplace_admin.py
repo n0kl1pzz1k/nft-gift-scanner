@@ -193,13 +193,15 @@ def create_marketplace_admin_router(verify_credential: Callable[[str], dict]) ->
             if open_deal is not None:
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Asset is attached to a paid or disputed deal; resolve the deal first")
+            active_listing = conn.execute(
+                "SELECT id FROM marketplace_orders WHERE asset_id=? AND status IN ('active','matched') LIMIT 1",
+                (asset_id,),
+            ).fetchone()
+            if active_listing is not None:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Remove the asset listing and resolve any reservation before revocation")
             conn.execute(
                 "UPDATE verified_assets SET status='revoked', revoked_at=? WHERE id=? AND status='verified'",
-                (now, asset_id),
-            )
-            conn.execute(
-                """UPDATE marketplace_orders SET status='cancelled', updated_at=?
-                   WHERE asset_id=? AND kind='listing' AND status='active'""",
                 (now, asset_id),
             )
             insert_security_audit_event(
