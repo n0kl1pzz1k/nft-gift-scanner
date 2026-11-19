@@ -2169,7 +2169,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             conn.execute("UPDATE marketplace_deals SET status='disputed' WHERE id=?", (deal_id,))
             conn.commit()
         endpoint = f"/api/marketplace/admin/deals/{deal_id}/dispute-approvals"
-        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101,102"}):
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101,202"}):
             first = self.client.post(
                 endpoint, headers=seller_headers,
                 json={"decision": "refund_buyer", "idempotency_key": f"{deal_id}:admin-101"},
