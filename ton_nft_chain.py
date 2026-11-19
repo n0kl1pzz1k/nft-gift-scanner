@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 
 TONCENTER_BASE_URL = "https://toncenter.com"
+TONAPI_BASE_URL = "https://tonapi.io"
 TONCENTER_PUBLIC_REQUEST_INTERVAL = 1.1
 _TONCENTER_RATE_LIMIT_LOCK = asyncio.Lock()
 _TONCENTER_LAST_REQUEST_AT = 0.0
@@ -110,6 +111,108 @@ async def _run_get_method(
     if block_seqno is not None and (not isinstance(block_seqno, int) or block_seqno < 0):
         raise ValueError("TON Center returned an invalid block sequence number")
     return values, block_seqno
+
+
+async def verify_nft_owner_onchain(
+    item_address: str,
+    expected_owner_addresses: str | list[str] | tuple[str, ...] | set[str],
+    *,
+    client: httpx.AsyncClient | None = None,
+) -> dict[str, Any]:
+    """Read the NFT item's live get_nft_data() state and verify its owner.
+
+    TonAPI's authenticated blockchain get-method endpoint is preferred because
+    it executes the contract getter against current chain state. If no TonAPI
+    token is configured, the public TON Center get-method endpoint is used.
+    """
+    item = _raw_address(item_address)
+    if isinstance(expected_owner_addresses, str):
+        candidates = [expected_owner_addresses]
+    else:
+        candidates = list(expected_owner_addresses)
+    expected_owners = {_raw_address(value) for value in candidates if str(value).strip()}
+    if not expected_owners:
+        raise ValueError("At least one verified TON owner address is required")
+
+    token = os.getenv("TONAPI_TOKEN", "").strip()
+    if token:
+        owns_client = client is None
+        session = client or httpx.AsyncClient(
+            base_url=TONAPI_BASE_URL,
+            timeout=httpx.Timeout(12.0, connect=5.0),
+            follow_redirects=False,
+        )
+        try:
+            response = await session.get(
+                f"/v2/blockchain/accounts/{item}/methods/get_nft_data",
+                headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
+            )
+            response.raise_for_status()
+            body = response.json()
+            if (
+                not isinstance(body, dict)
+                or body.get("success") is not True
+                or body.get("exit_code") != 0
+                or not isinstance(body.get("decoded"), dict)
+            ):
+                raise ValueError("TonAPI could not decode the live NFT contract state")
+            decoded = body["decoded"]
+            if decoded.get("init") is not True:
+                return {
+                    "verified": False,
+                    "item_address": item,
+                    "owner_address": None,
+                    "collection_address": None,
+                    "index": None,
+                    "provider": "tonapi_get_method",
+                }
+            actual_owner = _raw_address(str(decoded.get("owner_address") or ""))
+            collection_value = decoded.get("collection_address")
+            actual_collection = (
+                _raw_address(str(collection_value))
+                if isinstance(collection_value, str) and collection_value.strip()
+                else None
+            )
+            index_value = decoded.get("index")
+            index = int(str(index_value), 0) if index_value is not None else None
+            return {
+                "verified": actual_owner in expected_owners,
+                "item_address": item,
+                "owner_address": actual_owner,
+                "collection_address": actual_collection,
+                "index": index,
+                "provider": "tonapi_get_method",
+            }
+        finally:
+            if owns_client:
+                await session.aclose()
+
+    owns_client = client is None
+    session = client or httpx.AsyncClient(
+        base_url=TONCENTER_BASE_URL,
+        timeout=httpx.Timeout(12.0, connect=5.0),
+        follow_redirects=False,
+    )
+    try:
+        stack, block_seqno = await _run_get_method(session, item, "get_nft_data", [])
+        if len(stack) < 4:
+            raise ValueError("TON NFT item getter returned an incomplete stack")
+        initialized = _stack_number(stack[0]) != 0
+        index = _stack_number(stack[1])
+        actual_collection = _stack_address(stack[2])
+        actual_owner = _stack_address(stack[3])
+        return {
+            "verified": initialized and actual_owner in expected_owners,
+            "item_address": item,
+            "owner_address": actual_owner,
+            "collection_address": actual_collection,
+            "index": index,
+            "block_seqno": block_seqno,
+            "provider": "toncenter_get_method",
+        }
+    finally:
+        if owns_client:
+            await session.aclose()
 
 
 async def verify_nft_collection_membership(

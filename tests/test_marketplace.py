@@ -285,8 +285,11 @@ class SharedMarketplaceTests(unittest.TestCase):
             "ton_connect.list_verified_wallets",
             return_value=[{"network": "-239", "address": wallet_address}],
         ), patch(
+            "ton_nft_chain.verify_nft_owner_onchain",
+            new=AsyncMock(return_value={"verified": True, "owner_address": wallet_address}),
+        ), patch(
             "ton_nft_inventory.fetch_nft_owner",
-            new=AsyncMock(return_value={"owner_address": wallet_address, "is_scam": False, "trust": "whitelist"}),
+            new=AsyncMock(return_value={"owner_address": "0:" + "c" * 64, "is_scam": False, "trust": "whitelist"}),
         ):
             response = self.client.post(
                 "/api/marketplace/orders",
@@ -313,7 +316,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             new=AsyncMock(return_value={"verified": True, "block_seqno": 12346}),
         ) as verify, patch(
             "ton_nft_inventory.fetch_nft_owner",
-            new=AsyncMock(side_effect=AssertionError("Fragment listing must use contract verification")),
+            new=AsyncMock(return_value={"owner_address": wallet_address, "is_scam": False, "trust": "whitelist"}),
         ):
             response = self.client.post(
                 "/api/marketplace/orders",
@@ -394,8 +397,11 @@ class SharedMarketplaceTests(unittest.TestCase):
             "ton_connect.list_verified_wallets",
             return_value=[{"network": "-239", "address": wallet_address}],
         ), patch(
+            "ton_nft_chain.verify_nft_owner_onchain",
+            new=AsyncMock(return_value={"verified": False, "owner_address": "0:" + "c" * 64}),
+        ), patch(
             "ton_nft_inventory.fetch_nft_owner",
-            new=AsyncMock(return_value={"owner_address": "0:" + "c" * 64, "is_scam": False, "trust": "whitelist"}),
+            new=AsyncMock(return_value={"owner_address": wallet_address, "is_scam": False, "trust": "whitelist"}),
         ):
             response = self.client.post(
                 "/api/marketplace/orders",
