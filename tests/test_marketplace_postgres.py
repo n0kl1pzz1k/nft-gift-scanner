@@ -838,6 +838,9 @@ def test_postgres_concurrent_duplicate_deal_cancellations_release_reservation_on
             marketplace.upsert_telegram_user({
                 "id": "202", "username": "buyer", "first_name": "Buyer",
             })
+            marketplace.upsert_telegram_user({
+                "id": "303", "username": "outsider", "first_name": "Outsider",
+            })
             asset = marketplace.register_verified_asset(
                 source="ton_nft",
                 external_asset_id="ton-nft-deal-cancel-idempotency",
@@ -851,12 +854,11 @@ def test_postgres_concurrent_duplicate_deal_cancellations_release_reservation_on
 
             api = FastAPI()
             def verify_user(value):
-                user_id = {"seller": "101", "buyer": "202"}[value]
-                return {
-                    "id": user_id,
-                    "first_name": "Seller" if user_id == "101" else "Buyer",
-                    "username": "seller" if user_id == "101" else "buyer",
-                }
+                user_id = {"seller": "101", "buyer": "202", "outsider": "303"}[value]
+                names = {"101": ("Seller", "seller"), "202": ("Buyer", "buyer"),
+                         "303": ("Outsider", "outsider")}
+                first_name, username = names[user_id]
+                return {"id": user_id, "first_name": first_name, "username": username}
             api.include_router(create_marketplace_router(verify_user))
             api.include_router(create_marketplace_offers_router(verify_user))
 
