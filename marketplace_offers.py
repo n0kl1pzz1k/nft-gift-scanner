@@ -1130,6 +1130,13 @@ def create_marketplace_offers_router(
         admin = _admin_user(x_telegram_init_data)
         admin_id = str(admin["id"])
         _enforce_user_rate_limit(admin_id, "stars_refund_execution", 5)
+        configured_admins = {
+            part.strip()
+            for part in os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", "")).split(",")
+            if part.strip().isdigit()
+        }
+        if len(configured_admins) < 2:
+            raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
         bot_token = os.getenv("BOT_TOKEN", "").strip()
         if not bot_token:
             raise HTTPException(status_code=503, detail="Telegram payment bot is not configured")
@@ -1152,16 +1159,23 @@ def create_marketplace_offers_router(
                 raise HTTPException(status_code=409, detail="Deal was cancelled without a recorded refund")
             if deal["status"] != "disputed":
                 raise HTTPException(status_code=409, detail="Only a disputed deal can execute a resolution")
-            approvals = int(conn.execute(
-                "SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals WHERE deal_id = ? AND decision = 'refund_buyer'",
+            approval_rows = conn.execute(
+                """SELECT admin_user_id FROM marketplace_dispute_resolution_approvals
+                   WHERE deal_id = ? AND decision = 'refund_buyer'""",
                 (deal_id,),
-            ).fetchone()[0])
+            ).fetchall()
             all_approvals = int(conn.execute(
                 "SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals WHERE deal_id = ?",
                 (deal_id,),
             ).fetchone()[0])
-            if approvals != 2 or all_approvals != 2:
-                raise HTTPException(status_code=409, detail="Two matching administrator refund approvals are required")
+            approval_admins = {str(row["admin_user_id"]) for row in approval_rows}
+            if (
+                len(approval_rows) != 2
+                or all_approvals != 2
+                or len(approval_admins) != 2
+                or not approval_admins.issubset(configured_admins)
+            ):
+                raise HTTPException(status_code=409, detail="Two matching approvals from currently configured administrators are required")
             intent = conn.execute(
                 """SELECT * FROM marketplace_payment_intents
                    WHERE deal_id = ? AND provider = 'telegram_stars'
