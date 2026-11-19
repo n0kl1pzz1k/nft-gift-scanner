@@ -225,7 +225,7 @@ def _verify_postgres_offer_triggers(connection: Any) -> dict[str, Any]:
             return row[index]
 
     rows = connection.execute("""
-        SELECT t.tgname, c.relname, p.proname, t.tgenabled
+        SELECT t.tgname, c.relname, p.proname, t.tgenabled, t.tgdeferrable, t.tginitdeferred
         FROM pg_catalog.pg_trigger AS t
         JOIN pg_catalog.pg_class AS c ON c.oid = t.tgrelid
         JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
@@ -237,6 +237,8 @@ def _verify_postgres_offer_triggers(connection: Any) -> dict[str, Any]:
             str(value(row, "relname", 1)),
             str(value(row, "proname", 2)),
             str(value(row, "tgenabled", 3)),
+            bool(value(row, "tgdeferrable", 4)),
+            bool(value(row, "tginitdeferred", 5)),
         )
         for row in rows
         if str(value(row, "tgname", 0)) in _TRIGGER_TABLES
@@ -247,10 +249,14 @@ def _verify_postgres_offer_triggers(connection: Any) -> dict[str, Any]:
         expected_function = _TRIGGER_FUNCTIONS[name]
         if observed is None:
             problems.append(f"missing trigger {name}")
-        elif observed != (expected_table, expected_function, "O"):
-            problems.append(
-                f"trigger {name} expected {(expected_table, expected_function, 'O')}, got {observed}"
-            )
+        else:
+            deferred = name in {
+                "trg_marketplace_ledger_transaction_balanced",
+                "trg_marketplace_ledger_entries_balanced",
+            }
+            expected = (expected_table, expected_function, "O", deferred, deferred)
+            if observed != expected:
+                problems.append(f"trigger {name} expected {expected}, got {observed}")
 
     function_rows = connection.execute("""
         SELECT p.proname
