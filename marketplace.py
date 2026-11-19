@@ -32,9 +32,14 @@ _SECURITY_AUDIT_ACTIONS = {
     "ton_wallet_revoked",
     "admin_report_dismissed",
     "admin_order_removed",
+    "admin_user_suspended",
+    "admin_user_reactivated",
+    "admin_role_assigned",
+    "admin_role_revoked",
+    "admin_reconciliation_resolved",
 }
-_SECURITY_AUDIT_TARGET_TYPES = {"session", "account", "wallet", "order_report", "order"}
-_SECURITY_AUDIT_METADATA_KEYS = {"network", "report_id", "order_id", "revoked_count", "reason"}
+_SECURITY_AUDIT_TARGET_TYPES = {"session", "account", "wallet", "order_report", "order", "user", "admin_role", "reconciliation"}
+_SECURITY_AUDIT_METADATA_KEYS = {"network", "report_id", "order_id", "revoked_count", "reason", "role", "status", "resolution_action"}
 
 
 def insert_security_audit_event(
@@ -70,6 +75,12 @@ def insert_security_audit_event(
         elif key == "revoked_count" and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 1000:
             safe_metadata[key] = value
         elif key == "reason" and value == "self_logout":
+            safe_metadata[key] = value
+        elif key == "role" and value in {"moderator", "finance", "support", "auditor"}:
+            safe_metadata[key] = value
+        elif key == "status" and value in {"active", "suspended"}:
+            safe_metadata[key] = value
+        elif key == "resolution_action" and value in {"resolve", "ignore"}:
             safe_metadata[key] = value
     target_hash = hashlib.sha256(f"{target_type}:{target}".encode("utf-8")).hexdigest()
     event_id = "sa_" + uuid.uuid4().hex[:24]
@@ -358,9 +369,15 @@ def init_marketplace_db() -> None:
             action TEXT NOT NULL CHECK(action IN (
                 'telegram_session_revoked', 'telegram_sessions_revoked_all',
                 'ton_wallet_linked', 'ton_wallet_revoked',
-                'admin_report_dismissed', 'admin_order_removed'
+                'admin_report_dismissed', 'admin_order_removed',
+                'admin_user_suspended', 'admin_user_reactivated',
+                'admin_role_assigned', 'admin_role_revoked',
+                'admin_reconciliation_resolved'
             )),
-            target_type TEXT NOT NULL CHECK(target_type IN ('session', 'account', 'wallet', 'order_report', 'order')),
+            target_type TEXT NOT NULL CHECK(target_type IN (
+                'session', 'account', 'wallet', 'order_report', 'order',
+                'user', 'admin_role', 'reconciliation'
+            )),
             target_hash TEXT NOT NULL CHECK(length(target_hash) = 64),
             outcome TEXT NOT NULL CHECK(outcome IN ('success', 'denied')),
             metadata_json TEXT NOT NULL DEFAULT '{}',
@@ -380,6 +397,42 @@ def init_marketplace_db() -> None:
         BEGIN
             SELECT RAISE(ABORT, 'security audit events are immutable');
         END;
+        CREATE TABLE IF NOT EXISTS marketplace_admin_roles (
+            telegram_id TEXT PRIMARY KEY,
+            role TEXT NOT NULL CHECK(role IN ('moderator', 'finance', 'support', 'auditor')),
+            permissions_json TEXT NOT NULL,
+            assigned_by TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            revoked_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_marketplace_admin_roles_active
+            ON marketplace_admin_roles(revoked_at, role);
+        CREATE TABLE IF NOT EXISTS marketplace_user_controls (
+            telegram_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL CHECK(status IN ('active', 'suspended')),
+            reason TEXT NOT NULL DEFAULT '',
+            changed_by TEXT NOT NULL,
+            changed_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_marketplace_user_controls_status
+            ON marketplace_user_controls(status, changed_at DESC);
+        CREATE TABLE IF NOT EXISTS marketplace_manual_reconciliation_items (
+            id TEXT PRIMARY KEY,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            kind TEXT NOT NULL CHECK(kind IN ('stars_callback_error', 'ton_payment_mismatch', 'asset_delivery_mismatch', 'refund_mismatch', 'manual_review')),
+            deal_id TEXT,
+            payment_intent_id TEXT,
+            provider_reference TEXT,
+            summary TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'resolved', 'ignored')),
+            resolution_note TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL,
+            resolved_by TEXT,
+            resolved_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_marketplace_reconciliation_status_created
+            ON marketplace_manual_reconciliation_items(status, created_at ASC);
         CREATE TABLE IF NOT EXISTS app_settings (
             setting_key TEXT PRIMARY KEY,
             setting_value TEXT NOT NULL,
