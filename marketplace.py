@@ -285,6 +285,34 @@ def init_marketplace_db() -> None:
             request_count INTEGER NOT NULL,
             PRIMARY KEY(user_id, action)
         );
+        CREATE TABLE IF NOT EXISTS security_audit_events (
+            id TEXT PRIMARY KEY,
+            actor_telegram_id TEXT NOT NULL,
+            action TEXT NOT NULL CHECK(action IN (
+                'telegram_session_revoked', 'telegram_sessions_revoked_all',
+                'ton_wallet_linked', 'ton_wallet_revoked',
+                'admin_report_dismissed', 'admin_order_removed'
+            )),
+            target_type TEXT NOT NULL CHECK(target_type IN ('session', 'account', 'wallet', 'order_report', 'order')),
+            target_hash TEXT NOT NULL CHECK(length(target_hash) = 64),
+            outcome TEXT NOT NULL CHECK(outcome IN ('success', 'denied')),
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_security_audit_actor_created
+            ON security_audit_events(actor_telegram_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_security_audit_action_created
+            ON security_audit_events(action, created_at DESC);
+        CREATE TRIGGER IF NOT EXISTS security_audit_events_no_update
+        BEFORE UPDATE ON security_audit_events
+        BEGIN
+            SELECT RAISE(ABORT, 'security audit events are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS security_audit_events_no_delete
+        BEFORE DELETE ON security_audit_events
+        BEGIN
+            SELECT RAISE(ABORT, 'security audit events are immutable');
+        END;
         CREATE TABLE IF NOT EXISTS app_settings (
             setting_key TEXT PRIMARY KEY,
             setting_value TEXT NOT NULL,
