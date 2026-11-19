@@ -2149,6 +2149,55 @@ class SharedMarketplaceTests(unittest.TestCase):
         unrelated = self.client.get("/api/marketplace/activity?limit=10", headers=headers_c)
         self.assertEqual(unrelated.json()["items"], [])
 
+    def test_dispute_resolution_requires_two_distinct_admins_and_never_executes(self):
+        seller_headers = {"X-Telegram-Init-Data": "user-a"}
+        buyer_headers = {"X-Telegram-Init-Data": "user-b"}
+        listing = self.client.post(
+            "/api/marketplace/orders", headers=seller_headers,
+            json={"kind": "listing", "title": "Admin dispute gift", "price": "10", "currency": "TON"},
+        )
+        offer = self.client.post(
+            "/api/marketplace/offers", headers=buyer_headers,
+            json={"order_id": listing.json()["item"]["id"], "amount": "9", "note": "admin dispute"},
+        )
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer.json()['item']['id']}", headers=seller_headers,
+            json={"action": "accept"},
+        )
+        deal_id = accepted.json()["deal_id"]
+        with marketplace_offers._db() as conn:
+            conn.execute("UPDATE marketplace_deals SET status='disputed' WHERE id=?", (deal_id,))
+            conn.commit()
+        endpoint = f"/api/marketplace/admin/deals/{deal_id}/dispute-approvals"
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101,102"}):
+            first = self.client.post(
+                endpoint, headers=seller_headers,
+                json={"decision": "refund_buyer", "idempotency_key": f"{deal_id}:admin-101"},
+            )
+            self.assertEqual(first.status_code, 200, first.text)
+            self.assertEqual(first.json()["approvals"], 1)
+            self.assertFalse(first.json()["ready_for_execution"])
+            self.assertFalse(first.json()["execution_enabled"])
+            conflict = self.client.post(
+                endpoint, headers=buyer_headers,
+                json={"decision": "release_to_seller", "idempotency_key": f"{deal_id}:admin-102-conflict"},
+            )
+            self.assertEqual(conflict.status_code, 409)
+            second = self.client.post(
+                endpoint, headers=buyer_headers,
+                json={"decision": "refund_buyer", "idempotency_key": f"{deal_id}:admin-102"},
+            )
+            self.assertEqual(second.status_code, 200, second.text)
+            self.assertEqual(second.json()["approvals"], 2)
+            self.assertTrue(second.json()["ready_for_execution"])
+            self.assertFalse(second.json()["execution_enabled"])
+            non_admin = self.client.post(
+                endpoint,
+                headers={"X-Telegram-Init-Data": "user-c"},
+                json={"decision": "refund_buyer", "idempotency_key": f"{deal_id}:admin-103"},
+            )
+            self.assertEqual(non_admin.status_code, 403)
+
     def test_unpaid_reservation_timeout_expires_deal_and_releases_listing(self):
         seller_headers = {"X-Telegram-Init-Data": "user-a"}
         buyer_headers = {"X-Telegram-Init-Data": "user-b"}
