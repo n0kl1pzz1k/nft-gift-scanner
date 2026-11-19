@@ -124,8 +124,8 @@ def test_ddl_plan_translates_all_known_production_trigger_categories():
     connection.close()
 
     trigger_statements = [sql for sql in result["statements"] if "TRIGGER" in sql.upper() or "FUNCTION" in sql.upper()]
-    assert len(trigger_statements) == 16
-    assert result["trigger_translation_count"] == 8
+    assert len(trigger_statements) == 18
+    assert result["trigger_translation_count"] == 9
     assert not any(item["feature"].startswith("trigger ") for item in result["blockers"])
     rendered = "\n".join(trigger_statements)
     assert "gen_random_uuid()" in rendered
@@ -184,6 +184,13 @@ def test_generated_production_trigger_ddl_executes_and_preserves_behavior():
         );
         CREATE TABLE marketplace_deal_events (id TEXT PRIMARY KEY);
         CREATE TABLE marketplace_deal_lifecycle_events (id TEXT PRIMARY KEY);
+        CREATE TABLE asset_owner_transfer_authorizations (
+            asset_id TEXT PRIMARY KEY,
+            previous_owner_id TEXT NOT NULL,
+            new_owner_id TEXT NOT NULL,
+            verification_reference_hash TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
         CREATE TABLE verified_assets (
             id TEXT PRIMARY KEY,
             source TEXT NOT NULL,
@@ -213,6 +220,8 @@ def test_generated_production_trigger_ddl_executes_and_preserves_behavior():
         CREATE TRIGGER trg_marketplace_order_cancel_declines_offers
         AFTER UPDATE OF status ON marketplace_orders BEGIN SELECT 1; END;
         CREATE TRIGGER verified_assets_metadata_immutable
+        CREATE TRIGGER verified_assets_consume_transfer_authorization
+        AFTER UPDATE OF owner_telegram_id ON verified_assets BEGIN SELECT 1; END;
         BEFORE UPDATE ON verified_assets BEGIN SELECT 1; END;
         """
     )
@@ -278,7 +287,17 @@ def test_generated_production_trigger_ddl_executes_and_preserves_behavior():
                         'ton_connect_proof', 'hash1', 20)
                 """
             )
-            pg.execute("UPDATE verified_assets SET owner_telegram_id='owner2' WHERE id='asset1'")
+            pg.execute(
+                """INSERT INTO asset_owner_transfer_authorizations
+                   (asset_id, previous_owner_id, new_owner_id, verification_reference_hash, created_at)
+                   VALUES ('asset1', 'owner1', 'owner2', 'hash2', 21)"""
+            )
+            pg.execute(
+                "UPDATE verified_assets SET owner_telegram_id='owner2', verification_reference_hash='hash2' WHERE id='asset1'"
+            )
+            assert pg.execute(
+                "SELECT COUNT(*) FROM asset_owner_transfer_authorizations WHERE asset_id='asset1'"
+            ).fetchone()[0] == 0
             with pytest.raises(psycopg.Error):
                 with pg.transaction():
                     pg.execute("UPDATE verified_assets SET title='Changed' WHERE id='asset1'")
