@@ -70,6 +70,44 @@ class TonConnectApiTests(unittest.TestCase):
         response = self.client.post("/api/ton-proof/payload")
         self.assertEqual(response.status_code, 401)
 
+    def test_wallet_can_only_be_revoked_by_its_linked_telegram_account(self):
+        address = "0:" + "a" * 64
+        with marketplace._db() as conn:
+            conn.execute(
+                """INSERT INTO verified_wallets
+                   (network, address, telegram_id, public_key, state_init_hash,
+                    created_at, last_verified_at, revoked_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, NULL)""",
+                ("-239", address, "101", "b" * 64, "c" * 64, 1, 1),
+            )
+        other_session = marketplace.create_telegram_session("202")
+        other = self.client.delete(
+            f"/api/ton-proof/wallets/-239/{address}",
+            headers={"X-Telegram-Init-Data": other_session},
+        )
+        self.assertEqual(other.status_code, 404)
+        self.assertEqual(len(ton_connect.list_verified_wallets("101")), 1)
+
+        owner = self.client.delete(
+            f"/api/ton-proof/wallets/-239/{address}",
+            headers={"X-Telegram-Init-Data": self.session},
+        )
+        self.assertEqual(owner.status_code, 200, owner.text)
+        self.assertEqual(owner.json(), {"revoked": True})
+        self.assertEqual(ton_connect.list_verified_wallets("101"), [])
+
+        repeated = self.client.delete(
+            f"/api/ton-proof/wallets/-239/{address}",
+            headers={"X-Telegram-Init-Data": self.session},
+        )
+        self.assertEqual(repeated.status_code, 404)
+
+    def test_wallet_revocation_requires_authenticated_session(self):
+        response = self.client.delete(
+            "/api/ton-proof/wallets/-239/0:" + "a" * 64,
+        )
+        self.assertEqual(response.status_code, 401)
+
 
 if __name__ == "__main__":
     unittest.main()
