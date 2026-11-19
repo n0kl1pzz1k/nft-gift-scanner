@@ -717,7 +717,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             if deal is None or actor_id not in (deal["listing_owner_id"], deal["offer_sender_id"]):
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Deal not found")
-            if deal["status"] not in {"paid", "delivery_pending"}:
+            if deal["status"] not in {"paid", "delivery_pending", "disputed"}:
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="A dispute can only be opened after payment confirmation and before completion")
             from marketplace_payments import transition_deal_status
