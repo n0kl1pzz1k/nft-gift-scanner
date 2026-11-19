@@ -80,6 +80,7 @@ class TonConnectApiTests(unittest.TestCase):
                    VALUES (?, ?, ?, ?, ?, ?, ?, NULL)""",
                 ("-239", address, "101", "b" * 64, "c" * 64, 1, 1),
             )
+        marketplace.upsert_telegram_user({"id": "202", "first_name": "Other account"})
         other_session = marketplace.create_telegram_session("202")
         other = self.client.delete(
             f"/api/ton-proof/wallets/-239/{address}",
