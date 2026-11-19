@@ -1648,6 +1648,35 @@ def create_marketplace_router(
             ).fetchall()
         return {"items": [dict(row) for row in rows], "total": total, "limit": limit, "offset": offset}
 
+    @router.get("/admin/security-audit")
+    async def list_security_audit_events(
+        limit: int = Query(default=50, ge=1, le=100),
+        offset: int = Query(default=0, ge=0, le=10000),
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        if verify_admin is None:
+            raise HTTPException(status_code=503, detail="Admin audit is not configured")
+        admin = verify_admin(x_telegram_init_data)
+        _enforce_user_rate_limit(str(admin["id"]), "list_security_audit", 30)
+        with _db() as conn:
+            rows = conn.execute(
+                """SELECT id, actor_telegram_id, action, target_type, target_hash,
+                          outcome, metadata_json, created_at
+                   FROM security_audit_events
+                   ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?""",
+                (limit, offset),
+            ).fetchall()
+            total = conn.execute("SELECT COUNT(*) FROM security_audit_events").fetchone()[0]
+        items = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["metadata"] = json.loads(item.pop("metadata_json"))
+            except (TypeError, ValueError):
+                item["metadata"] = {}
+            items.append(item)
+        return {"items": items, "total": total, "limit": limit, "offset": offset}
+
     @router.patch("/admin/reports/{report_id}")
     async def moderate_order_report(
         report_id: str,
@@ -1692,6 +1721,26 @@ def create_marketplace_router(
                 "UPDATE marketplace_order_reports SET status=?, resolved_at=?, resolved_by=? WHERE id=? AND status='open'",
                 (new_status, now, admin_id, report_id),
             )
+            if payload.action == "remove_order":
+                insert_security_audit_event(
+                    conn,
+                    actor_telegram_id=admin_id,
+                    action="admin_order_removed",
+                    target_type="order",
+                    target_id=str(report["order_id"]),
+                    metadata={"report_id": report_id},
+                    now=now,
+                )
+            else:
+                insert_security_audit_event(
+                    conn,
+                    actor_telegram_id=admin_id,
+                    action="admin_report_dismissed",
+                    target_type="order_report",
+                    target_id=report_id,
+                    metadata={"order_id": str(report["order_id"])},
+                    now=now,
+                )
             conn.commit()
         return {"report_id": report_id, "status": new_status, "order_removed": payload.action == "remove_order"}
 
