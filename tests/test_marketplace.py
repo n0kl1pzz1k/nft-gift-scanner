@@ -2103,6 +2103,34 @@ class SharedMarketplaceTests(unittest.TestCase):
         )
         self.assertEqual(duplicate.status_code, 409)
 
+    def test_moderator_can_list_and_revoke_verified_asset_only_when_not_listed(self):
+        asset = marketplace.register_verified_asset(
+            source="ton_nft",
+            external_asset_id="0:" + "44" * 32,
+            owner_telegram_id="202",
+            title="Moderation candidate",
+            asset_type="gift",
+            image_url="",
+            verification_method="ton_connect_proof",
+            verification_reference="moderator-proof-reference-001",
+        )
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
+            listed = self.client.get(
+                "/api/marketplace/admin/assets?status=verified",
+                headers={"X-Telegram-Init-Data": "user-a"},
+            )
+            self.assertEqual(listed.status_code, 200, listed.text)
+            self.assertTrue(any(item["id"] == asset["id"] for item in listed.json()["items"]))
+            revoked = self.client.post(
+                f"/api/marketplace/admin/assets/{asset['id']}/revoke",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"reason": "Ownership verification failed on review"},
+            )
+            self.assertEqual(revoked.status_code, 200, revoked.text)
+        with marketplace._db() as conn:
+            row = conn.execute("SELECT status FROM verified_assets WHERE id=?", (asset["id"],)).fetchone()
+        self.assertEqual(row["status"], "revoked")
+
     def test_role_based_admin_permissions_allow_moderator_dashboard_but_not_role_management(self):
         marketplace.upsert_telegram_user({"id": "202", "first_name": "Moderator", "username": "mod"})
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
