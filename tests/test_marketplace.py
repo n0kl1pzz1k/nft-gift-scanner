@@ -1293,6 +1293,37 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(order_count, 0)
         self.assertEqual(event_count, 0)
 
+    def test_telegram_stars_listing_and_edit_prices_must_be_whole_numbers(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        fractional = self.client.post(
+            "/api/marketplace/orders", headers=owner_headers,
+            json={"kind": "listing", "title": "Fractional Stars", "price": "12.5", "currency": "XTR"},
+        )
+        self.assertEqual(fractional.status_code, 422)
+
+        created = self.client.post(
+            "/api/marketplace/orders", headers=owner_headers,
+            json={"kind": "listing", "title": "Whole Stars", "price": "12", "currency": "XTR"},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        order_id = created.json()["item"]["id"]
+
+        fractional_edit = self.client.patch(
+            f"/api/marketplace/orders/{order_id}", headers=owner_headers,
+            json={"price": "13.25"},
+        )
+        self.assertEqual(fractional_edit.status_code, 422)
+        unchanged = self.client.get("/api/marketplace/mine", headers=owner_headers)
+        saved = next(item for item in unchanged.json()["items"] if item["id"] == order_id)
+        self.assertEqual(saved["price"], "12")
+
+        whole_edit = self.client.patch(
+            f"/api/marketplace/orders/{order_id}", headers=owner_headers,
+            json={"price": "15"},
+        )
+        self.assertEqual(whole_edit.status_code, 200, whole_edit.text)
+        self.assertEqual(whole_edit.json()["item"]["price"], "15")
+
     def test_order_owner_can_edit_active_order_fields(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         created = self.client.post(
