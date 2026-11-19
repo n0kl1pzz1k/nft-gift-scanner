@@ -30,7 +30,7 @@ from ton_nft_chain import verify_nft_collection_membership, verify_nft_owner_onc
 from telegram_gift_inventory import fetch_user_telegram_gifts
 from telegram_business_gift_inventory import fetch_business_account_gifts, fetch_sticker_preview
 import httpx
-from marketplace_offers import create_marketplace_offers_router, init_marketplace_offers_db
+from marketplace_offers import create_marketplace_offers_router, init_marketplace_offers_db, expire_unpaid_marketplace_deals
 
 app = FastAPI(title="HASSLE NFT Market API", version="1.0.0")
 app.include_router(create_marketplace_router(
@@ -43,6 +43,7 @@ _telegram_bot = None
 _telegram_dispatcher = None
 _telegram_webhook_secret = None
 _shadow_migration_task = None
+_deal_expiry_task = None
 
 
 
@@ -857,12 +858,30 @@ async def readiness():
     }
 
 
+async def _run_marketplace_expiry_sweeper():
+    """Expire stale unpaid reservations; every mutation is serialized in the database."""
+    while True:
+        try:
+            result = await asyncio.to_thread(expire_unpaid_marketplace_deals)
+            if result.get("expired_deals"):
+                logging.getLogger("hassle_nft.escrow").info(
+                    "reservation_timeout_sweep=%s",
+                    json.dumps(result, sort_keys=True),
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logging.getLogger("hassle_nft.escrow").exception("Reservation timeout sweep failed")
+        await asyncio.sleep(60)
+
+
 @app.on_event("startup")
 async def start_services():
-    global _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret
+    global _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret, _deal_expiry_task
     init_marketplace_db()
     init_marketplace_offers_db()
     init_ton_connect_db()
+    _deal_expiry_task = asyncio.create_task(_run_marketplace_expiry_sweeper())
     # Emit a privacy-safe inventory of the actual mounted SQLite database.
     # This records schema metadata and row counts only, never row contents.
     with marketplace._db() as connection:
@@ -907,7 +926,14 @@ async def start_services():
 
 @app.on_event("shutdown")
 async def stop_services():
-    global _telegram_bot
+    global _telegram_bot, _deal_expiry_task
+    if _deal_expiry_task is not None:
+        _deal_expiry_task.cancel()
+        try:
+            await _deal_expiry_task
+        except asyncio.CancelledError:
+            pass
+        _deal_expiry_task = None
     if _telegram_bot is not None:
         await _telegram_bot.session.close()
         _telegram_bot = None
