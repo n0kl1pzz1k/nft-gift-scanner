@@ -919,7 +919,7 @@ def create_marketplace_offers_router(
             if deal["status"] != "disputed":
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Only disputed deals can receive resolution approvals")
-            from marketplace_payments import record_dispute_resolution_approval
+            from marketplace_payments import PaymentConflict, PaymentStateError, record_dispute_resolution_approval
             try:
                 result = record_dispute_resolution_approval(
                     conn,
@@ -929,6 +929,9 @@ def create_marketplace_offers_router(
                     idempotency_key=payload.idempotency_key,
                     now=int(time.time()),
                 )
+            except (PaymentConflict, PaymentStateError) as exc:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail=str(exc))
             except Exception:
                 conn.rollback()
                 raise
