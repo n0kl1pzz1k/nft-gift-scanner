@@ -41,7 +41,7 @@ class TonNftChainVerificationTests(unittest.IsolatedAsyncioTestCase):
                 })
             return httpx.Response(404)
 
-        client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://toncenter.com/api/v2")
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://toncenter.com")
         with patch("ton_nft_chain._stack_address", side_effect=[COLLECTION, OWNER, ITEM]):
             result = await verify_nft_collection_membership(ITEM, COLLECTION, OWNER, client=client)
         await client.aclose()
