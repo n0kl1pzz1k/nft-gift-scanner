@@ -107,7 +107,8 @@ def test_ddl_plan_translates_all_known_production_trigger_categories():
         CREATE TABLE marketplace_offers(id TEXT, order_id TEXT, sender_user_id TEXT, sender_name TEXT, status TEXT, created_at TEXT, updated_at TEXT);
         CREATE TABLE marketplace_orders(id TEXT, user_id TEXT, title TEXT, owner_name TEXT, status TEXT, updated_at TEXT);
         CREATE TABLE marketplace_notifications(id TEXT, user_id TEXT, event_type TEXT, offer_id TEXT, order_id TEXT, order_title TEXT, actor_name TEXT, created_at TEXT);
-        CREATE TABLE verified_assets(id TEXT, source TEXT, external_asset_id TEXT, owner_telegram_id TEXT, title TEXT, asset_type TEXT, image_url TEXT, verification_method TEXT, verification_reference_hash TEXT, verified_at TEXT, status TEXT);
+        CREATE TABLE verified_assets(id TEXT PRIMARY KEY, source TEXT, external_asset_id TEXT, owner_telegram_id TEXT, title TEXT, asset_type TEXT, image_url TEXT, verification_method TEXT, verification_reference_hash TEXT, verified_at TEXT, status TEXT);
+        CREATE TABLE asset_owner_transfer_authorizations(asset_id TEXT, previous_owner_id TEXT, new_owner_id TEXT, verification_reference_hash TEXT, created_at INTEGER);
         CREATE TRIGGER trg_marketplace_deal_events_no_delete BEFORE DELETE ON marketplace_deal_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
         CREATE TRIGGER trg_marketplace_deal_events_no_update BEFORE UPDATE ON marketplace_deal_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
         CREATE TRIGGER trg_marketplace_deal_lifecycle_events_no_delete BEFORE DELETE ON marketplace_deal_lifecycle_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
@@ -116,14 +117,15 @@ def test_ddl_plan_translates_all_known_production_trigger_categories():
         CREATE TRIGGER trg_marketplace_offer_status_notification AFTER UPDATE OF status ON marketplace_offers BEGIN SELECT 1; END;
         CREATE TRIGGER trg_marketplace_order_cancel_declines_offers AFTER UPDATE OF status ON marketplace_orders BEGIN SELECT 1; END;
         CREATE TRIGGER verified_assets_metadata_immutable BEFORE UPDATE OF source, external_asset_id, owner_telegram_id, title, asset_type, image_url, verification_method, verification_reference_hash, verified_at ON verified_assets BEGIN SELECT 1; END;
+        CREATE TRIGGER verified_assets_consume_transfer_authorization AFTER UPDATE OF owner_telegram_id ON verified_assets BEGIN SELECT 1; END;
         """
     )
     result = build_postgres_ddl_plan(build_schema_manifest(connection))
     connection.close()
 
     trigger_statements = [sql for sql in result["statements"] if "TRIGGER" in sql.upper() or "FUNCTION" in sql.upper()]
-    assert len(trigger_statements) == 16
-    assert result["trigger_translation_count"] == 8
+    assert len(trigger_statements) == 18
+    assert result["trigger_translation_count"] == 9
     assert not any(item["feature"].startswith("trigger ") for item in result["blockers"])
     rendered = "\n".join(trigger_statements)
     assert "gen_random_uuid()" in rendered
@@ -182,6 +184,13 @@ def test_generated_production_trigger_ddl_executes_and_preserves_behavior():
         );
         CREATE TABLE marketplace_deal_events (id TEXT PRIMARY KEY);
         CREATE TABLE marketplace_deal_lifecycle_events (id TEXT PRIMARY KEY);
+        CREATE TABLE asset_owner_transfer_authorizations (
+            asset_id TEXT PRIMARY KEY,
+            previous_owner_id TEXT NOT NULL,
+            new_owner_id TEXT NOT NULL,
+            verification_reference_hash TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
         CREATE TABLE verified_assets (
             id TEXT PRIMARY KEY,
             source TEXT NOT NULL,
@@ -211,13 +220,17 @@ def test_generated_production_trigger_ddl_executes_and_preserves_behavior():
         CREATE TRIGGER trg_marketplace_order_cancel_declines_offers
         AFTER UPDATE OF status ON marketplace_orders BEGIN SELECT 1; END;
         CREATE TRIGGER verified_assets_metadata_immutable
-        BEFORE UPDATE ON verified_assets BEGIN SELECT 1; END;
+        BEFORE UPDATE OF source, external_asset_id, owner_telegram_id, title, asset_type,
+                         image_url, verification_method, verification_reference_hash, verified_at
+        ON verified_assets BEGIN SELECT 1; END;
+        CREATE TRIGGER verified_assets_consume_transfer_authorization
+        AFTER UPDATE OF owner_telegram_id ON verified_assets BEGIN SELECT 1; END;
         """
     )
     plan = build_postgres_ddl_plan(build_schema_manifest(sqlite))
     sqlite.close()
     assert plan["blocker_count"] == 0, plan["blockers"]
-    assert plan["trigger_translation_count"] == 8
+    assert plan["trigger_translation_count"] == 9
 
     schema = "mig_trigger_" + uuid.uuid4().hex[:12]
     with psycopg.connect(dsn, autocommit=True) as pg:
@@ -276,11 +289,26 @@ def test_generated_production_trigger_ddl_executes_and_preserves_behavior():
                         'ton_connect_proof', 'hash1', 20)
                 """
             )
-            pg.execute("UPDATE verified_assets SET owner_telegram_id='owner2' WHERE id='asset1'")
+            pg.execute(
+                """INSERT INTO asset_owner_transfer_authorizations
+                   (asset_id, previous_owner_id, new_owner_id, verification_reference_hash, created_at)
+                   VALUES ('asset1', 'owner1', 'owner2', 'hash2', 21)"""
+            )
+            pg.execute(
+                "UPDATE verified_assets SET owner_telegram_id='owner2', verification_reference_hash='hash2' WHERE id='asset1'"
+            )
+            assert pg.execute(
+                "SELECT COUNT(*) FROM asset_owner_transfer_authorizations WHERE asset_id='asset1'"
+            ).fetchone()[0] == 0
+            with pytest.raises(psycopg.Error):
+                with pg.transaction():
+                    pg.execute("UPDATE verified_assets SET owner_telegram_id='owner1', verification_reference_hash='hash1' WHERE id='asset1'")
             with pytest.raises(psycopg.Error):
                 with pg.transaction():
                     pg.execute("UPDATE verified_assets SET title='Changed' WHERE id='asset1'")
         finally:
+            # Flush deferred FK/trigger events before dropping the isolated schema.
+            pg.commit()
             pg.execute("SET search_path TO public")
             pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
 
@@ -306,7 +334,12 @@ def test_generated_production_trigger_ddl_executes_and_enforces_in_postgres():
         CREATE TABLE marketplace_offers(id TEXT, order_id TEXT, sender_user_id TEXT, sender_name TEXT, status TEXT, created_at TEXT, updated_at TEXT);
         CREATE TABLE marketplace_orders(id TEXT, user_id TEXT, title TEXT, owner_name TEXT, status TEXT, updated_at TEXT);
         CREATE TABLE marketplace_notifications(id TEXT, user_id TEXT, event_type TEXT, offer_id TEXT, order_id TEXT, order_title TEXT, actor_name TEXT, created_at TEXT);
-        CREATE TABLE verified_assets(id TEXT, source TEXT, external_asset_id TEXT, owner_telegram_id TEXT, title TEXT, asset_type TEXT, image_url TEXT, verification_method TEXT, verification_reference_hash TEXT, verified_at TEXT, status TEXT);
+        CREATE TABLE verified_assets(id TEXT PRIMARY KEY, source TEXT, external_asset_id TEXT, owner_telegram_id TEXT, title TEXT, asset_type TEXT, image_url TEXT, verification_method TEXT, verification_reference_hash TEXT, verified_at TEXT, status TEXT);
+        CREATE TABLE asset_owner_transfer_authorizations(
+            asset_id TEXT PRIMARY KEY REFERENCES verified_assets(id),
+            previous_owner_id TEXT NOT NULL, new_owner_id TEXT NOT NULL,
+            verification_reference_hash TEXT NOT NULL, created_at INTEGER NOT NULL
+        );
         CREATE TRIGGER trg_marketplace_deal_events_no_delete BEFORE DELETE ON marketplace_deal_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
         CREATE TRIGGER trg_marketplace_deal_events_no_update BEFORE UPDATE ON marketplace_deal_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
         CREATE TRIGGER trg_marketplace_deal_lifecycle_events_no_delete BEFORE DELETE ON marketplace_deal_lifecycle_events BEGIN SELECT RAISE(ABORT, 'immutable'); END;
@@ -314,7 +347,8 @@ def test_generated_production_trigger_ddl_executes_and_enforces_in_postgres():
         CREATE TRIGGER trg_marketplace_offer_received AFTER INSERT ON marketplace_offers BEGIN SELECT 1; END;
         CREATE TRIGGER trg_marketplace_offer_status_notification AFTER UPDATE OF status ON marketplace_offers BEGIN SELECT 1; END;
         CREATE TRIGGER trg_marketplace_order_cancel_declines_offers AFTER UPDATE OF status ON marketplace_orders BEGIN SELECT 1; END;
-        CREATE TRIGGER verified_assets_metadata_immutable BEFORE UPDATE ON verified_assets BEGIN SELECT 1; END;
+        CREATE TRIGGER verified_assets_metadata_immutable BEFORE UPDATE OF source, external_asset_id, owner_telegram_id, title, asset_type, image_url, verification_method, verification_reference_hash, verified_at ON verified_assets BEGIN SELECT 1; END;
+        CREATE TRIGGER verified_assets_consume_transfer_authorization AFTER UPDATE OF owner_telegram_id ON verified_assets BEGIN SELECT 1; END;
         """
     )
     plan = build_postgres_ddl_plan(build_schema_manifest(connection))
@@ -341,7 +375,14 @@ def test_generated_production_trigger_ddl_executes_and_enforces_in_postgres():
             with pytest.raises(psycopg.Error):
                 with pg.transaction():
                     pg.execute("UPDATE verified_assets SET title='tampered' WHERE id='asset'")
-            pg.execute("UPDATE verified_assets SET owner_telegram_id='owner-2' WHERE id='asset'")
+            pg.execute(
+                "INSERT INTO asset_owner_transfer_authorizations(asset_id,previous_owner_id,new_owner_id,verification_reference_hash,created_at) VALUES ('asset','owner-1','owner-2','hash-2',1)"
+            )
+            pg.execute("UPDATE verified_assets SET owner_telegram_id='owner-2', verification_reference_hash='hash-2', status='verified' WHERE id='asset'")
+            assert pg.execute("SELECT COUNT(*) FROM asset_owner_transfer_authorizations WHERE asset_id='asset'").fetchone()[0] == 0
+            with pytest.raises(psycopg.Error):
+                with pg.transaction():
+                    pg.execute("UPDATE verified_assets SET owner_telegram_id='owner-1', verification_reference_hash='hash-1' WHERE id='asset'")
 
             pg.execute(
                 "INSERT INTO marketplace_orders(id, user_id, title, owner_name, status, updated_at) "
@@ -364,6 +405,8 @@ def test_generated_production_trigger_ddl_executes_and_enforces_in_postgres():
             ).fetchone()[0]
             assert declined == 1
         finally:
+            # Finish queued row-trigger events before dropping tables in this schema.
+            pg.commit()
             pg.execute("SET search_path TO public")
             pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
 

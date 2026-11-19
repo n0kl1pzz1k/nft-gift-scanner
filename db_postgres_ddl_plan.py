@@ -125,6 +125,13 @@ END;"""
     AND NEW.owner_telegram_id IS DISTINCT FROM OLD.owner_telegram_id
     AND NEW.source IS NOT DISTINCT FROM OLD.source
     AND NEW.external_asset_id IS NOT DISTINCT FROM OLD.external_asset_id
+    AND EXISTS (
+      SELECT 1 FROM asset_owner_transfer_authorizations auth
+      WHERE auth.asset_id = OLD.id
+        AND auth.previous_owner_id = OLD.owner_telegram_id
+        AND auth.new_owner_id = NEW.owner_telegram_id
+        AND auth.verification_reference_hash = NEW.verification_reference_hash
+    )
   ) THEN
     RAISE EXCEPTION 'verified asset metadata is immutable';
   END IF;
@@ -134,6 +141,19 @@ END;"""
             f"CREATE TRIGGER {qtrigger} BEFORE UPDATE OF "
             "source, external_asset_id, owner_telegram_id, title, asset_type, "
             "image_url, verification_method, verification_reference_hash, verified_at "
+            f"ON {qtable} FOR EACH ROW EXECUTE FUNCTION {function}()"
+        )
+        return [prefix + body + suffix, trigger]
+    if name == "verified_assets_consume_transfer_authorization" and table == "verified_assets":
+        body = """BEGIN
+  DELETE FROM asset_owner_transfer_authorizations
+   WHERE asset_id = OLD.id
+     AND previous_owner_id = OLD.owner_telegram_id
+     AND new_owner_id = NEW.owner_telegram_id;
+  RETURN NEW;
+END;"""
+        trigger = (
+            f"CREATE TRIGGER {qtrigger} AFTER UPDATE OF owner_telegram_id "
             f"ON {qtable} FOR EACH ROW EXECUTE FUNCTION {function}()"
         )
         return [prefix + body + suffix, trigger]

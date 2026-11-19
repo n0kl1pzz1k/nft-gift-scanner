@@ -116,6 +116,11 @@ def test_schema_apply_preserves_all_marketplace_trigger_behaviors(tmp_path):
             verification_reference_hash TEXT NOT NULL DEFAULT '', verified_at INTEGER NOT NULL,
             status TEXT NOT NULL DEFAULT 'verified'
         );
+        CREATE TABLE asset_owner_transfer_authorizations (
+            asset_id TEXT PRIMARY KEY REFERENCES verified_assets(id),
+            previous_owner_id TEXT NOT NULL, new_owner_id TEXT NOT NULL,
+            verification_reference_hash TEXT NOT NULL, created_at INTEGER NOT NULL
+        );
 
         CREATE TRIGGER trg_marketplace_deal_events_no_update
         BEFORE UPDATE ON marketplace_deal_events BEGIN
@@ -171,6 +176,13 @@ def test_schema_apply_preserves_all_marketplace_trigger_behaviors(tmp_path):
           AND NEW.source=OLD.source AND NEW.external_asset_id=OLD.external_asset_id
         )
         BEGIN SELECT RAISE(ABORT, 'verified asset metadata is immutable'); END;
+        CREATE TRIGGER verified_assets_consume_transfer_authorization
+        AFTER UPDATE OF owner_telegram_id ON verified_assets
+        BEGIN
+          DELETE FROM asset_owner_transfer_authorizations
+          WHERE asset_id=NEW.id AND previous_owner_id=OLD.owner_telegram_id
+            AND new_owner_id=NEW.owner_telegram_id;
+        END;
         """
     )
     source.commit()
@@ -183,7 +195,7 @@ def test_schema_apply_preserves_all_marketplace_trigger_behaviors(tmp_path):
         try:
             applied = apply_schema(str(source_path), dsn, apply=True, target_schema=schema)
             assert applied["verified"] is True
-            assert applied["target_counts"]["triggers"] == 8
+            assert applied["target_counts"]["triggers"] == 9
 
             with psycopg.connect(dsn) as target:
                 target.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
@@ -271,12 +283,23 @@ def test_schema_apply_preserves_all_marketplace_trigger_behaviors(tmp_path):
                 with pytest.raises(psycopg.Error):
                     with target.transaction():
                         target.execute("UPDATE verified_assets SET title='tampered' WHERE id='asset-1'")
+                with pytest.raises(psycopg.Error):
+                    with target.transaction():
+                        target.execute(
+                            "UPDATE verified_assets SET owner_telegram_id='buyer' WHERE id='asset-1'"
+                        )
                 target.execute(
-                    "UPDATE verified_assets SET owner_telegram_id='buyer' WHERE id='asset-1'"
+                    "INSERT INTO asset_owner_transfer_authorizations(asset_id,previous_owner_id,new_owner_id,verification_reference_hash,created_at) VALUES ('asset-1','seller','buyer','verified-hash',108)"
+                )
+                target.execute(
+                    "UPDATE verified_assets SET owner_telegram_id='buyer', verification_reference_hash='verified-hash', status='verified' WHERE id='asset-1'"
                 )
                 assert target.execute(
                     "SELECT owner_telegram_id FROM verified_assets WHERE id='asset-1'"
                 ).fetchone() == ("buyer",)
+                assert target.execute(
+                    "SELECT COUNT(*) FROM asset_owner_transfer_authorizations WHERE asset_id='asset-1'"
+                ).fetchone() == (0,)
         finally:
             pg.execute("SET search_path TO public")
             pg.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))

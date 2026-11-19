@@ -23,7 +23,7 @@ def test_postgres_core_marketplace_schema_bootstrap_is_idempotent_and_verified()
         second = initialize_postgres_marketplace_schema(adapter)
         assert first["verified"] is True
         assert second["verified"] is True
-        assert first["tables_verified"] == 16
+        assert first["tables_verified"] == 17
         assert first["columns_verified"] > 0
         assert second["columns_verified"] == first["columns_verified"]
         assert first["indexes_verified"] == 16
@@ -56,15 +56,41 @@ def test_postgres_core_marketplace_schema_bootstrap_is_idempotent_and_verified()
 
         # A verified ownership transfer is the one permitted metadata-column
         # update, provided source and external asset identity remain unchanged.
+        with pytest.raises(Exception, match="verified asset metadata is immutable"):
+            adapter.execute(
+                "UPDATE verified_assets SET owner_telegram_id=?, status='verified' WHERE id=?",
+                ("owner-2", "asset-1"),
+            )
         adapter.execute(
-            "UPDATE verified_assets SET owner_telegram_id=?, status='verified' WHERE id=?",
-            ("owner-2", "asset-1"),
+            """INSERT INTO asset_owner_transfer_authorizations
+               (asset_id, previous_owner_id, new_owner_id, verification_reference_hash, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            ("asset-1", "owner-1", "owner-2", "hash-2", 2),
         )
+        adapter.execute(
+            "UPDATE verified_assets SET owner_telegram_id=?, verification_reference_hash=?, status='verified' WHERE id=?",
+            ("owner-2", "hash-2", "asset-1"),
+        )
+        remaining = adapter.execute(
+            "SELECT COUNT(*) AS n FROM asset_owner_transfer_authorizations WHERE asset_id=?",
+            ("asset-1",),
+        ).fetchone()
+        assert remaining["n"] == 0
         owner = adapter.execute(
             "SELECT owner_telegram_id FROM verified_assets WHERE id=?",
             ("asset-1",),
         ).fetchone()
         assert owner["owner_telegram_id"] == "owner-2"
+        with pytest.raises(Exception, match="verified asset metadata is immutable"):
+            adapter.execute(
+                "UPDATE verified_assets SET owner_telegram_id=?, verification_reference_hash=? WHERE id=?",
+                ("owner-1", "hash-1", "asset-1"),
+            )
+        remaining_after_replay = adapter.execute(
+            "SELECT COUNT(*) AS n FROM asset_owner_transfer_authorizations WHERE asset_id=?",
+            ("asset-1",),
+        ).fetchone()
+        assert remaining_after_replay["n"] == 0
 
         # The exception does not permit changing the asset's identity or
         # transferring an asset into a revoked state.
@@ -358,6 +384,10 @@ def test_postgres_ownership_transfer_rolls_back_then_cancels_stale_listing():
                         "SELECT COUNT(*) FROM asset_ownership_history WHERE asset_id=?",
                         (asset["id"],),
                     ).fetchone()[0]
+                    authorization_count = conn.execute(
+                        "SELECT COUNT(*) FROM asset_owner_transfer_authorizations WHERE asset_id=?",
+                        (asset["id"],),
+                    ).fetchone()[0]
 
                 assert stored_asset["owner_telegram_id"] == "101"
                 assert stored_asset["title"] == "Original verified gift"
@@ -365,6 +395,7 @@ def test_postgres_ownership_transfer_rolls_back_then_cancels_stale_listing():
                 assert stored_listing["status"] == "active"
                 assert stored_offer["status"] == "pending"
                 assert history_count == 0
+                assert authorization_count == 0
 
                 with database.db() as conn:
                     conn.execute("DROP TRIGGER test_fail_ownership_history ON asset_ownership_history")
@@ -398,11 +429,16 @@ def test_postgres_ownership_transfer_rolls_back_then_cancels_stale_listing():
                         "SELECT COUNT(*) FROM asset_ownership_history WHERE asset_id=?",
                         (asset["id"],),
                     ).fetchone()[0]
+                    final_authorization_count = conn.execute(
+                        "SELECT COUNT(*) FROM asset_owner_transfer_authorizations WHERE asset_id=?",
+                        (asset["id"],),
+                    ).fetchone()[0]
 
                 assert final_asset["owner_telegram_id"] == "202"
                 assert final_listing["status"] == "cancelled"
                 assert final_offer["status"] == "declined"
                 assert final_history_count == 1
+                assert final_authorization_count == 0
 
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:

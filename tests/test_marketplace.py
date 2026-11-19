@@ -333,6 +333,18 @@ class SharedMarketplaceTests(unittest.TestCase):
         with marketplace._db() as conn:
             with self.assertRaises(sqlite3.IntegrityError):
                 conn.execute("UPDATE verified_assets SET title = ? WHERE id = ?", ("Spoofed title", asset["id"]))
+            # A direct owner reassignment must be rejected too. Only the
+            # trusted registration path can create the one-use authorization.
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute(
+                    "UPDATE verified_assets SET owner_telegram_id = ?, title = ?, verification_reference_hash = ? WHERE id = ?",
+                    ("202", "Claimed by B", "forged-reference-hash", asset["id"]),
+                )
+            pending_authorizations = conn.execute(
+                "SELECT COUNT(*) FROM asset_owner_transfer_authorizations WHERE asset_id = ?",
+                (asset["id"],),
+            ).fetchone()[0]
+            self.assertEqual(pending_authorizations, 0)
         with self.assertRaises(ValueError):
             marketplace.register_verified_asset(
                 source="ton_nft", external_asset_id="EQB_immutable_asset",
@@ -382,6 +394,10 @@ class SharedMarketplaceTests(unittest.TestCase):
                 "SELECT previous_owner_id, new_owner_id FROM asset_ownership_history WHERE asset_id = ?",
                 (old_asset["id"],),
             ).fetchone()
+            pending_authorizations = conn.execute(
+                "SELECT COUNT(*) FROM asset_owner_transfer_authorizations WHERE asset_id = ?",
+                (old_asset["id"],),
+            ).fetchone()[0]
             old_offer = conn.execute(
                 "SELECT status FROM marketplace_offers WHERE id = ?", (offer.json()["item"]["id"],)
             ).fetchone()
@@ -389,6 +405,13 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(old_offer["status"], "declined")
         self.assertEqual(history["previous_owner_id"], "101")
         self.assertEqual(history["new_owner_id"], "202")
+        self.assertEqual(pending_authorizations, 0)
+        with marketplace._db() as conn:
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute(
+                    "UPDATE verified_assets SET owner_telegram_id = ?, verification_reference_hash = ? WHERE id = ?",
+                    ("101", "old-owner-one-time-verification-reference", old_asset["id"]),
+                )
 
     def test_asset_owner_transfer_rolls_back_all_marketplace_changes_on_history_failure(self):
         external_id = "0:" + "d" * 64
@@ -449,6 +472,10 @@ class SharedMarketplaceTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM asset_ownership_history WHERE asset_id = ?",
                 (asset["id"],),
             ).fetchone()[0]
+            pending_authorizations = conn.execute(
+                "SELECT COUNT(*) FROM asset_owner_transfer_authorizations WHERE asset_id = ?",
+                (asset["id"],),
+            ).fetchone()[0]
 
         self.assertEqual(stored_asset["owner_telegram_id"], "101")
         self.assertEqual(stored_asset["title"], "Original owner gift")
@@ -456,6 +483,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(stored_listing["status"], "active")
         self.assertEqual(stored_offer["status"], "pending")
         self.assertEqual(history_count, 0)
+        self.assertEqual(pending_authorizations, 0)
 
 
     def test_public_catalog_hides_legacy_unverified_listings_but_keeps_verified_assets(self):
