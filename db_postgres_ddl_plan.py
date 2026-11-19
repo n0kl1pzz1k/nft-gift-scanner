@@ -135,10 +135,6 @@ END;"""
   ) THEN
     RAISE EXCEPTION 'verified asset metadata is immutable';
   END IF;
-  DELETE FROM asset_owner_transfer_authorizations
-   WHERE asset_id = NEW.id
-     AND previous_owner_id = OLD.owner_telegram_id
-     AND new_owner_id = NEW.owner_telegram_id;
   RETURN NEW;
 END;"""
         trigger = (
