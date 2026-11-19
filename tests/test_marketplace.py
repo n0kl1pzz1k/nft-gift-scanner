@@ -1093,6 +1093,54 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(withdrawn.status_code, 200)
         self.assertEqual(withdrawn.json()["item"]["status"], "withdrawn")
 
+    def test_offer_author_can_edit_pending_offer_and_currency_rules_are_enforced(self):
+        owner_headers = {"X-Telegram-Init-Data": "user-a"}
+        buyer_headers = {"X-Telegram-Init-Data": "user-b"}
+        listing = self.client.post(
+            "/api/marketplace/orders", headers=owner_headers,
+            json={"kind": "listing", "title": "Editable offer asset", "price": "3", "currency": "TON"},
+        )
+        self.assertEqual(listing.status_code, 201, listing.text)
+        offer = self.client.post(
+            "/api/marketplace/offers", headers=buyer_headers,
+            json={"order_id": listing.json()["item"]["id"], "amount": "2", "note": "initial"},
+        )
+        self.assertEqual(offer.status_code, 201, offer.text)
+        offer_id = offer.json()["item"]["id"]
+
+        edited = self.client.patch(
+            f"/api/marketplace/offers/{offer_id}", headers=buyer_headers,
+            json={"action": "edit", "amount": "2.4", "note": "updated offer"},
+        )
+        self.assertEqual(edited.status_code, 200, edited.text)
+        self.assertTrue(edited.json()["edited"])
+        self.assertEqual(edited.json()["item"]["amount"], "2.4")
+        self.assertEqual(edited.json()["item"]["note"], "updated offer")
+        self.assertEqual(edited.json()["item"]["status"], "pending")
+
+        owner_edit = self.client.patch(
+            f"/api/marketplace/offers/{offer_id}", headers=owner_headers,
+            json={"action": "edit", "amount": "2.5"},
+        )
+        self.assertEqual(owner_edit.status_code, 403)
+
+        stars_listing = self.client.post(
+            "/api/marketplace/orders", headers=owner_headers,
+            json={"kind": "listing", "title": "Stars offer asset", "price": "100", "currency": "XTR"},
+        )
+        self.assertEqual(stars_listing.status_code, 201, stars_listing.text)
+        stars_offer = self.client.post(
+            "/api/marketplace/offers", headers=buyer_headers,
+            json={"order_id": stars_listing.json()["item"]["id"], "amount": "90"},
+        )
+        self.assertEqual(stars_offer.status_code, 201, stars_offer.text)
+        invalid_stars_edit = self.client.patch(
+            f"/api/marketplace/offers/{stars_offer.json()['item']['id']}",
+            headers=buyer_headers,
+            json={"action": "edit", "amount": "90.5"},
+        )
+        self.assertEqual(invalid_stars_edit.status_code, 422)
+
     def test_offer_decline_rolls_back_when_notification_insert_fails(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         sender_headers = {"X-Telegram-Init-Data": "user-b"}
