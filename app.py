@@ -150,6 +150,35 @@ app.add_middleware(
     max_age=600,
 )
 
+MAX_TELEGRAM_WEBHOOK_BODY_BYTES = 1_048_576
+
+
+async def _read_limited_request_body(request: Request, max_bytes: int) -> bytes:
+    """Read request chunks incrementally and reject oversized bodies before buffering them all."""
+    if max_bytes < 1:
+        raise ValueError("max_bytes must be positive")
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared_length = int(content_length)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid content length")
+        if declared_length < 0:
+            raise HTTPException(status_code=400, detail="Invalid content length")
+        if declared_length > max_bytes:
+            raise HTTPException(status_code=413, detail="Telegram update is too large")
+
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        if not isinstance(chunk, bytes):
+            raise HTTPException(status_code=400, detail="Invalid request body")
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(status_code=413, detail="Telegram update is too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
 class TelegramAuthRequest(BaseModel):
     init_data: str
 
@@ -313,16 +342,7 @@ async def telegram_webhook(
     ):
         raise HTTPException(status_code=403, detail="Invalid Telegram webhook secret")
 
-    content_length = request.headers.get("content-length")
-    if content_length:
-        try:
-            if int(content_length) > 1_048_576:
-                raise HTTPException(status_code=413, detail="Telegram update is too large")
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid content length")
-    raw_body = await request.body()
-    if len(raw_body) > 1_048_576:
-        raise HTTPException(status_code=413, detail="Telegram update is too large")
+    raw_body = await _read_limited_request_body(request, MAX_TELEGRAM_WEBHOOK_BODY_BYTES)
     try:
         payload = json.loads(raw_body)
         if not isinstance(payload, dict):
