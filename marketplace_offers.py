@@ -475,20 +475,20 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                     (deal_id, row["order_id"], offer_id, row["order_owner_id"],
                      row["sender_user_id"], row["amount"], row["currency"], now),
                 )
-                conn.execute(
+                reserved_order = conn.execute(
                     """UPDATE marketplace_orders SET status='matched', updated_at=?
                        WHERE id=? AND status='active'""",
                     (now, row["order_id"]),
                 )
-                if conn.execute("SELECT changes()").fetchone()[0] != 1:
+                if reserved_order.rowcount != 1:
                     conn.rollback()
                     raise HTTPException(status_code=409, detail="Listing reservation lost a concurrent update")
-                conn.execute(
+                accepted_offer = conn.execute(
                     """UPDATE marketplace_offers SET status='accepted', updated_at=?
                        WHERE id=? AND status='pending'""",
                     (now, offer_id),
                 )
-                if conn.execute("SELECT changes()").fetchone()[0] != 1:
+                if accepted_offer.rowcount != 1:
                     conn.rollback()
                     raise HTTPException(status_code=409, detail="Offer changed before reservation")
                 conn.execute(
