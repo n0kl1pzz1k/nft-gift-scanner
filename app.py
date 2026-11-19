@@ -278,6 +278,7 @@ def _require_admin(credential: str | None) -> dict:
 @app.post("/api/auth/telegram")
 async def telegram_auth(payload: TelegramAuthRequest):
     user = _verify_telegram_init_data(payload.init_data)
+    _enforce_user_rate_limit(str(user["id"]), "telegram_auth_exchange", 30, 60)
     if not consume_telegram_init_data(payload.init_data, str(user["id"])):
         raise HTTPException(status_code=409, detail="This Telegram initData was already exchanged; reopen the Mini App")
     profile = upsert_telegram_user(user)
@@ -375,6 +376,7 @@ async def telegram_webhook(
 async def ton_proof_payload(x_telegram_init_data: str | None = Header(default=None)):
     credential = x_telegram_init_data or ""
     user = _authenticate_telegram_credential(credential)
+    _enforce_user_rate_limit(str(user["id"]), "ton_proof_payload", 10, 60)
     try:
         payload = create_proof_challenge(str(user["id"]), credential)
     except ValueError as exc:
@@ -389,6 +391,7 @@ async def ton_proof_verify(
 ):
     credential = x_telegram_init_data or ""
     user = _authenticate_telegram_credential(credential)
+    _enforce_user_rate_limit(str(user["id"]), "ton_proof_verify", 10, 60)
     expected_domain = os.getenv(
         "TON_CONNECT_DOMAIN",
         "hassle-nft-market.fj7kmzkhn9.workers.dev",
