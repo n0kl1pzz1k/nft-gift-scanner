@@ -170,6 +170,7 @@
     (orderKindFilter === 'all' || order.kind === orderKindFilter)
   ));
   const visibleOffers = $derived(offers.filter(offer => offerStatusFilter === 'all' || offer.status === offerStatusFilter));
+  const myListings = $derived(orders.filter(order => order.isMine).sort((a, b) => b.createdAt - a.createdAt));
   const invalidPriceRange = $derived(marketCurrency !== 'all' && ((marketMinPrice !== '' && (!Number.isFinite(Number(marketMinPrice)) || Number(marketMinPrice) < 0)) || (marketMaxPrice !== '' && (!Number.isFinite(Number(marketMaxPrice)) || Number(marketMaxPrice) < 0)) || (marketMinPrice !== '' && marketMaxPrice !== '' && Number(marketMinPrice) > Number(marketMaxPrice))));
   const hasMarketFilters = $derived(Boolean(marketSearch.trim() || marketCollectionSearch.trim() || marketNftIdSearch.trim() || assetTypeFilter !== 'all' || marketCurrency !== 'all' || marketMinPrice !== '' || marketMaxPrice !== ''));
   function resetMarketFilters() {
@@ -1077,6 +1078,32 @@
             {#if offer.status==='pending' && offer.is_mine}<div class="order-actions"><button class="cancel-button" onclick={()=>respondToOffer(offer.id,'withdraw')} disabled={offerActionBusy===offer.id}>{offerActionBusy===offer.id?'…':t.withdrawOffer}</button></div>{:else if offer.status==='pending' && !offer.is_mine}<div class="order-actions"><button class="asset-offer-button" onclick={()=>respondToOffer(offer.id,'accept')} disabled={offerActionBusy===offer.id}>{offerActionBusy===offer.id?'…':(lang==='ru'?'Принять и зарезервировать':'Accept & reserve')}</button><button class="cancel-button" onclick={()=>respondToOffer(offer.id,'decline')} disabled={offerActionBusy===offer.id}>{t.declineOffer}</button></div><p class="safety-note">{lang==='ru'?'Принятие создаёт резерв объявления. Оплата и передача NFT пока не выполняются, поэтому сделка не считается завершённой.':'Accepting creates a listing reservation. Payment and NFT delivery are not active, so the trade is not completed.'}</p>{/if}</article>
           {/each}</div>{/if}
         {#if offers.length < offersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOffers} disabled={offersLoadingMore}>{offersLoadingMore?'…':t.loadMore}</button></div>{/if}
+
+        <div class="activity-history-panel">
+          <div class="section-title"><div><div class="eyebrow">YOUR MARKET</div><h2>{lang==='ru'?'Мои объявления':'My listings'}</h2></div><span>{myListings.length}</span></div>
+          {#if myListings.length}
+            <div class="orders-list">
+              {#each myListings as listing (listing.id)}
+                <article class="order-card">
+                  <div class="order-icon">{listing.kind==='listing'?'◇':'⌕'}</div>
+                  <div class="order-main">
+                    <div class="order-kind">{listing.kind==='listing'?(lang==='ru'?'ТВОЯ ПРОДАЖА':'YOUR LISTING'):(lang==='ru'?'ЗАЯВКА НА ПОКУПКУ':'YOUR BUY REQUEST')}</div>
+                    <h3>{listing.title}</h3>
+                    <p>{listing.price} {listing.currency==='XTR'?'⭐ Stars':'TON'} · {new Date(listing.createdAt*1000).toLocaleDateString(lang==='ru'?'ru-RU':'en-US')}</p>
+                  </div>
+                  <div class="order-price">
+                    <span class={'status-'+(listing.status==='active'?'active':listing.status==='matched'?'matched':'cancelled')}>{listing.status==='active'?(lang==='ru'?'АКТИВНО':'ACTIVE'):listing.status==='matched'?(lang==='ru'?'ЗАРЕЗЕРВИРОВАНО':'RESERVED'):(lang==='ru'?'СНЯТО':'CANCELLED')}</span>
+                    {#if listing.status==='active' && listing.kind==='listing'}
+                      <button class="cancel-button" onclick={()=>startEditOrder(listing)}>{lang==='ru'?'Управлять':'Manage'}</button>
+                    {/if}
+                  </div>
+                </article>
+              {/each}
+            </div>
+          {:else}
+            <div class="state-panel">{lang==='ru'?'У тебя пока нет объявлений. Выставь подтверждённый актив из инвентаря.':'You have no listings yet. List a verified asset from your inventory.'}</div>
+          {/if}
+        </div>
 
         <div class="activity-history-panel">
           <div class="section-title"><div><div class="eyebrow">RESERVATIONS</div><h2>{lang==='ru'?'Резервы и сделки':'Reservations and deals'}</h2></div><span>{deals.length}</span></div>
