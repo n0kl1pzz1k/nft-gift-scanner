@@ -83,7 +83,7 @@ def _trigger_ddl(item: dict[str, Any]) -> list[str] | None:
         expected_table, action, message = immutable_tables[name]
         if table != expected_table:
             return None
-        body = f"BEGIN\\n  RAISE EXCEPTION '{message}';\\nEND;"
+        body = f"BEGIN\n  RAISE EXCEPTION '{message}';\nEND;"
         trigger = f"CREATE TRIGGER {qtrigger} BEFORE {action} ON {qtable} FOR EACH ROW EXECUTE FUNCTION {function}()"
         return [prefix + body + suffix, trigger]
     if name == "trg_marketplace_offer_received" and table == "marketplace_offers":
