@@ -436,7 +436,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
                 values,
             ).fetchone()[0]
             rows = conn.execute(f"""
-                SELECT f.*, o.title AS order_title, o.user_id AS order_owner_id,
+                SELECT f.*, o.title AS order_title, o.kind AS order_kind, o.user_id AS order_owner_id,
                        o.owner_name AS order_owner_name, o.status AS order_status
                 FROM marketplace_offers f JOIN marketplace_orders o ON o.id = f.order_id
                 WHERE {where} ORDER BY f.created_at DESC, f.id DESC LIMIT ? OFFSET ?
