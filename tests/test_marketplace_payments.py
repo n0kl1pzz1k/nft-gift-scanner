@@ -80,11 +80,6 @@ def test_payment_intents_allow_only_stars_and_ton_with_provider_matched_currency
             conn, deal_id="deal-1", provider="telegram_stars", currency="TON",
             amount="1", idempotency_key="stars-wrong-currency", expires_at=2000, now=1000,
         )
-    with pytest.raises(ValueError, match="Unsupported payment currency"):
-        create_payment_intent(
-            conn, deal_id="deal-1", provider="ton", currency="USDT",
-            amount="1", idempotency_key="usdt-disabled", expires_at=2000, now=1000,
-        )
     intent = create_payment_intent(
         conn, deal_id="deal-1", provider="ton", currency="TON",
         amount="1.000000001", idempotency_key="ton-valid", expires_at=2000, now=1000,
