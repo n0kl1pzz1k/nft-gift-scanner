@@ -387,6 +387,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             return {"items": [], "total": 0, "limit": limit, "offset": offset}
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         user_id = str(user["id"])
+        _enforce_user_rate_limit(user_id, "list_offers", 60)
         where = "f.sender_user_id = ? OR o.user_id = ?"
         values: list[object] = [user_id, user_id]
         if status != "all":
@@ -592,6 +593,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             return {"items": [], "total": 0, "limit": limit, "offset": offset, "unread_count": 0}
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         user_id = str(user["id"])
+        _enforce_user_rate_limit(user_id, "list_notifications", 60)
         clause = " AND read_at IS NULL" if unread_only else ""
         with _db() as conn:
             total = conn.execute(
@@ -628,6 +630,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
         x_telegram_init_data: str | None = Header(default=None),
     ):
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        _enforce_user_rate_limit(str(user["id"]), "mark_notification_read", 60)
         with _db() as conn:
             updated = conn.execute(
                 """UPDATE marketplace_notifications SET read_at = ?
@@ -647,6 +650,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
         x_telegram_init_data: str | None = Header(default=None),
     ):
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        _enforce_user_rate_limit(str(user["id"]), "mark_all_notifications_read", 10)
         with _db() as conn:
             updated = conn.execute(
                 "UPDATE marketplace_notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL",
@@ -661,6 +665,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             return {"active_orders": 0, "completed_orders": 0, "pending_offers_sent": 0, "pending_offers_received": 0, "deals": 0, "unread_notifications": 0}
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         user_id = str(user["id"])
+        _enforce_user_rate_limit(user_id, "account_stats", 30)
         with _db() as conn:
             orders = conn.execute(
                 """SELECT
@@ -704,6 +709,7 @@ def create_marketplace_offers_router(verify_telegram_init_data: Callable[[str], 
             return {"items": [], "total": 0, "limit": limit, "offset": offset}
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         user_id = str(user["id"])
+        _enforce_user_rate_limit(user_id, "account_activity", 60)
         query = """
             WITH activity AS (
                 SELECT

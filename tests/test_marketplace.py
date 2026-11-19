@@ -273,6 +273,42 @@ class SharedMarketplaceTests(unittest.TestCase):
             marketplace.revoke_telegram_session(token)
         self.assertIsNotNone(marketplace.get_telegram_session_user(token))
 
+    def test_seller_profile_get_is_idempotent_and_rate_limited(self):
+        authenticated = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
+        headers = {"X-Telegram-Init-Data": authenticated.json()["session_token"]}
+        with patch.object(marketplace, "_enforce_user_rate_limit") as limiter:
+            first = self.client.get("/api/marketplace/profiles/me", headers=headers)
+            second = self.client.get("/api/marketplace/profiles/me", headers=headers)
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(first.json()["profile"]["profile_id"], second.json()["profile"]["profile_id"])
+        self.assertEqual(limiter.call_count, 2)
+        limiter.assert_any_call("101", "get_seller_profile", 30)
+
+    def test_private_notification_and_account_reads_are_rate_limited(self):
+        authenticated = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
+        headers = {"X-Telegram-Init-Data": authenticated.json()["session_token"]}
+        with patch.object(marketplace_offers, "_enforce_user_rate_limit") as limiter:
+            responses = [
+                self.client.get("/api/marketplace/offers", headers=headers),
+                self.client.get("/api/marketplace/notifications", headers=headers),
+                self.client.patch("/api/marketplace/notifications/missing/read", headers=headers),
+                self.client.post("/api/marketplace/notifications/read-all", headers=headers),
+                self.client.get("/api/marketplace/account/stats", headers=headers),
+                self.client.get("/api/marketplace/activity", headers=headers),
+            ]
+        self.assertEqual([response.status_code for response in responses], [200, 200, 404, 200, 200, 200])
+        expected = {
+            ("101", "list_offers", 60),
+            ("101", "list_notifications", 60),
+            ("101", "mark_notification_read", 60),
+            ("101", "mark_all_notifications_read", 10),
+            ("101", "account_stats", 30),
+            ("101", "account_activity", 60),
+        }
+        actual = {(args[0], args[1], args[2]) for args, _kwargs in limiter.call_args_list}
+        self.assertEqual(actual, expected)
+
     def test_telegram_auth_reports_server_verified_admin_role(self):
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
             admin = self.client.post("/api/auth/telegram", json={"init_data": "user-a"})
