@@ -81,6 +81,16 @@ def test_postgres_core_marketplace_schema_bootstrap_is_idempotent_and_verified()
             ("asset-1",),
         ).fetchone()
         assert owner["owner_telegram_id"] == "owner-2"
+        with pytest.raises(Exception, match="verified asset metadata is immutable"):
+            adapter.execute(
+                "UPDATE verified_assets SET owner_telegram_id=?, verification_reference_hash=? WHERE id=?",
+                ("owner-1", "hash-1", "asset-1"),
+            )
+        remaining_after_replay = adapter.execute(
+            "SELECT COUNT(*) AS n FROM asset_owner_transfer_authorizations WHERE asset_id=?",
+            ("asset-1",),
+        ).fetchone()
+        assert remaining_after_replay["n"] == 0
 
         # The exception does not permit changing the asset's identity or
         # transferring an asset into a revoked state.
