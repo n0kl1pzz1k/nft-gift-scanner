@@ -11,7 +11,7 @@
     createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; seller_profile_id?: string | null; events?: {type:string;createdAt:number}[];
   };
   type MarketplaceOffer = { id:string; order_id:string; sender_name:string; amount:string; currency:'TON'|'XTR'; note:string; status:'pending'|'accepted'|'declined'|'withdrawn'; created_at:number; is_mine:boolean; order_title:string; order_owner_id:string; order_owner_name:string; order_status:string; order_kind:'listing'|'buy-order' };
-  type MarketplaceDeal = { id:string; order_id:string; offer_id:string; is_seller:boolean; order_title:string; agreed_amount:string; currency:'TON'|'XTR'; status:'payment_not_enabled'|'awaiting_payment'|'payment_pending'|'paid'|'delivery_pending'|'completed'|'disputed'|'cancelled'|'expired'; order_status:string; created_at:number; reservation_active:boolean; payments_enabled:boolean; delivery_completed:boolean };
+  type MarketplaceDeal = { id:string; order_id:string; offer_id:string; is_seller:boolean; order_title:string; agreed_amount:string; currency:'TON'|'XTR'; status:'payment_not_enabled'|'awaiting_payment'|'payment_pending'|'paid'|'delivery_pending'|'completed'|'disputed'|'cancelled'|'expired'; order_status:string; created_at:number; reservation_active:boolean; payments_enabled:boolean; delivery_completed:boolean; asset_source?:string|null };
   
   type AccountNotification = { id:string; type:'offer_received'|'offer_accepted'|'offer_declined'|'offer_withdrawn'; offer_id:string; order_id:string; order_title:string; actor_name:string; created_at:number; read_at:number|null };
   type AccountStats = { active_orders:number; completed_orders:number; pending_offers_sent:number; pending_offers_received:number; unread_notifications:number };
@@ -94,6 +94,8 @@
   let offersBusy = $state(false);
   let offerActionBusy = $state('');
   let starsCheckoutBusy = $state('');
+  let tonDeliveryRequest = $state<{dealId:string;sellerWallet:string;transaction:{validUntil:number;network:string;messages:Array<{address:string;amount:string;payload?:string}>}}|null>(null);
+  let tonDeliveryBusy = $state('');
   let offerStatusFilter = $state<'all'|'pending'|'accepted'|'declined'|'withdrawn'>('all');
   let telegramUser = $state('');
   let telegramPhoto = $state('');
@@ -668,6 +670,48 @@
       deals = Array.isArray(results[2].items) ? results[2].items as MarketplaceDeal[] : [];
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
     finally { offersBusy = false; }
+  }
+
+  async function prepareTonNftDelivery(dealId: string) {
+    if (!dealId || tonDeliveryBusy) return;
+    tonDeliveryBusy = dealId;
+    try {
+      const data = await request('/api/marketplace/deals/' + encodeURIComponent(dealId) + '/ton-nft-delivery/prepare', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idempotency_key: crypto.randomUUID() }),
+      });
+      if (!data.transaction || !data.seller_wallet) throw new Error(lang === 'ru' ? 'Сервер не вернул запрос перевода NFT.' : 'The server did not return an NFT transfer request.');
+      tonDeliveryRequest = { dealId, sellerWallet: String(data.seller_wallet), transaction: data.transaction };
+      view = 'create';
+      notice = lang === 'ru'
+        ? 'Запрос передачи подготовлен. Подключи кошелёк продавца и подтверди перевод.'
+        : 'Delivery request prepared. Connect the seller wallet and approve the transfer.';
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      tonDeliveryBusy = '';
+    }
+  }
+
+  async function verifyTonNftDelivery(dealId: string) {
+    if (!dealId || tonDeliveryBusy) return;
+    tonDeliveryBusy = dealId;
+    try {
+      await request('/api/marketplace/deals/' + encodeURIComponent(dealId) + '/ton-nft-delivery/confirm', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idempotency_key: crypto.randomUUID() }),
+      });
+      notice = lang === 'ru'
+        ? 'TON подтвердил нового владельца. Сделка завершена, NFT добавлен в инвентарь покупателя.'
+        : 'TON confirmed the new owner. The deal is complete and the NFT is in the buyer inventory.';
+      await Promise.all([loadOffersAndDeals(), loadMarketplace(), loadVerifiedInventory()]);
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      tonDeliveryBusy = '';
+    }
   }
 
   async function startStarsCheckout(dealId: string) {
@@ -1277,6 +1321,11 @@
                   </div>
                   <div class="order-price">
                     <span class={'status-'+(deal.reservation_active?'matched':'cancelled')}>{deal.reservation_active?(lang==='ru'?'РЕЗЕРВ':'RESERVED'):(lang==='ru'?'ЗАКРЫТА':'CLOSED')}</span>
+                    {#if deal.status==='paid' && deal.is_seller && deal.asset_source==='ton_nft'}
+                      <button class="asset-offer-button" onclick={()=>prepareTonNftDelivery(deal.id)} disabled={tonDeliveryBusy===deal.id}>{tonDeliveryBusy===deal.id?'…':(lang==='ru'?'Подготовить передачу NFT':'Prepare NFT delivery')}</button>
+                    {:else if deal.status==='delivery_pending' && !deal.is_seller && deal.asset_source==='ton_nft'}
+                      <button class="asset-offer-button" onclick={()=>verifyTonNftDelivery(deal.id)} disabled={tonDeliveryBusy===deal.id}>{tonDeliveryBusy===deal.id?'…':(lang==='ru'?'Проверить владельца в TON':'Verify TON ownership')}</button>
+                    {/if}
                     {#if deal.status==='payment_not_enabled'}
                       {#if !deal.is_seller && deal.payments_enabled && deal.currency==='XTR'}
                         <button class="asset-offer-button" onclick={()=>startStarsCheckout(deal.id)} disabled={starsCheckoutBusy===deal.id}>{starsCheckoutBusy===deal.id?'…':(lang==='ru'?'Оплатить Stars':'Pay with Stars')}</button>
@@ -1325,7 +1374,7 @@
           {/if}
           <button class="refresh-button" type="button" onclick={loadTelegramBusinessStatus}>{lang==='ru'?'Проверить подключение':'Check connection'} ↻</button>
         </div>
-        <TonWalletConnect api={API} authToken={authToken} {lang} onVerified={(address)=>{walletConnected=Boolean(address);}} />{#if walletConnected}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTonWalletAssets} disabled={tonNftImportBusy}>{tonNftImportBusy?(lang==='ru'?'Сканируем блокчейн…':'Scanning the blockchain…'):(lang==='ru'?'↓ Загрузить NFT из TON':'↓ Import NFTs from TON')}</button>{/if}{#if tonNftImportMessage}<p class="ton-wallet-message">{tonNftImportMessage}</p>{/if}</div></div>
+        <TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} onDeliverySent={(dealId)=>{tonDeliveryRequest=null;view='offers';notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';void loadOffersAndDeals();}} onVerified={(address)=>{walletConnected=Boolean(address);}} />{#if walletConnected}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTonWalletAssets} disabled={tonNftImportBusy}>{tonNftImportBusy?(lang==='ru'?'Сканируем блокчейн…':'Scanning the blockchain…'):(lang==='ru'?'↓ Загрузить NFT из TON':'↓ Import NFTs from TON')}</button>{/if}{#if tonNftImportMessage}<p class="ton-wallet-message">{tonNftImportMessage}</p>{/if}</div></div>
        {#if verifiedAssetsLoading}
          <div class="inventory-empty-state"><span class="state-icon">◌</span><strong>{lang==='ru'?'Проверяем инвентарь…':'Checking inventory…'}</strong></div>
        {:else if verifiedAssets.length}
@@ -1370,7 +1419,7 @@
       <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.profile}</h1></section>
       <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div>{#if !signedIn}<button class="publish-button" onclick={()=>telegramLogin()} disabled={authBusy}>{authBusy?(lang==='ru'?'Подтверждаем…':'Verifying…'):t.signIn+' →'}</button>{:else}<span class="telegram-verified-state">✓ {lang==='ru'?'Подтверждено':'Verified'}</span>{/if}</article>
       <article class="profile-card wallet-card">
-        <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">TON CONNECT · PROOF</div><h2>{lang==='ru'?'TON-кошелёк':'TON wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} onVerified={(address)=>{walletConnected=Boolean(address);}} /></div>
+        <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">TON CONNECT · PROOF</div><h2>{lang==='ru'?'TON-кошелёк':'TON wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} onDeliverySent={(dealId)=>{tonDeliveryRequest=null;view='offers';notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';void loadOffersAndDeals();}} onVerified={(address)=>{walletConnected=Boolean(address);}} /></div>
       </article>
       {#if signedIn}
          <article class="profile-card seller-profile-editor">
