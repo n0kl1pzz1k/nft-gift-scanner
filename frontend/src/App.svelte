@@ -13,6 +13,7 @@
   type MarketplaceOffer = { id:string; order_id:string; sender_name:string; amount:string; currency:'TON'|'XTR'; note:string; status:'pending'|'accepted'|'declined'|'withdrawn'; created_at:number; is_mine:boolean; order_title:string; order_owner_id:string; order_owner_name:string; order_status:string; order_kind:'listing'|'buy-order' };
   type MarketplaceDeal = { id:string; order_id:string; offer_id:string; is_seller:boolean; order_title:string; agreed_amount:string; currency:'TON'|'XTR'; status:'payment_not_enabled'|'awaiting_payment'|'payment_pending'|'paid'|'delivery_pending'|'completed'|'disputed'|'cancelled'|'expired'; order_status:string; created_at:number; reservation_active:boolean; payments_enabled:boolean; delivery_completed:boolean; asset_source?:string|null };
   
+  type DealTimelineEvent = {id:string;actor_user_id:string;type:string;data:Record<string,unknown>;created_at:number};
   type AccountNotification = { id:string; type:'offer_received'|'offer_accepted'|'offer_declined'|'offer_withdrawn'; offer_id:string; order_id:string; order_title:string; actor_name:string; created_at:number; read_at:number|null };
   type AccountStats = { active_orders:number; completed_orders:number; pending_offers_sent:number; pending_offers_received:number; unread_notifications:number };
   type AccountActivity = { id:string; type:string; order_id:string; title:string; actor_name:string; created_at:number; amount:string; currency:'TON'|'XTR'; };
@@ -96,6 +97,10 @@
   let starsCheckoutBusy = $state('');
   let tonDeliveryRequest = $state<{dealId:string;sellerWallet:string;transaction:{validUntil:number;network:string;messages:Array<{address:string;amount:string;payload?:string}>}}|null>(null);
   let tonDeliveryBusy = $state('');
+  let expandedDealTimeline = $state('');
+  let dealTimelineItems = $state<Record<string,DealTimelineEvent[]>>({});
+  let dealTimelineBusy = $state('');
+  let disputeBusy = $state('');
   let offerStatusFilter = $state<'all'|'pending'|'accepted'|'declined'|'withdrawn'>('all');
   let telegramUser = $state('');
   let telegramPhoto = $state('');
@@ -670,6 +675,66 @@
       deals = Array.isArray(results[2].items) ? results[2].items as MarketplaceDeal[] : [];
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
     finally { offersBusy = false; }
+  }
+
+  function dealEventLabel(event: DealTimelineEvent) {
+    const labels: Record<string,string> = {
+      deal_created: lang==='ru'?'Создана сделка':'Deal created',
+      listing_reserved: lang==='ru'?'Актив зарезервирован':'Listing reserved',
+      deal_payment_requested: lang==='ru'?'Запрошена оплата':'Payment requested',
+      payment_intent_created: lang==='ru'?'Создан платёжный счёт':'Payment invoice created',
+      payment_pending: lang==='ru'?'Проверка платежа':'Payment pending',
+      payment_confirmed: lang==='ru'?'Платёж подтверждён':'Payment confirmed',
+      escrow_funded: lang==='ru'?'Средства учтены в эскроу-журнале':'Escrow journal funded',
+      asset_transfer_requested: lang==='ru'?'Подготовлена передача актива':'Asset transfer requested',
+      asset_transfer_submitted: lang==='ru'?'Кошелёк отправил транзакцию':'Wallet transaction submitted',
+      asset_transfer_confirmed: lang==='ru'?'Новый владелец подтверждён в TON':'New owner verified on TON',
+      deal_completed: lang==='ru'?'Сделка завершена':'Deal completed',
+      deal_disputed: lang==='ru'?'Открыт спор':'Dispute opened',
+      deal_cancelled: lang==='ru'?'Сделка отменена':'Deal cancelled',
+      deal_expired: lang==='ru'?'Резерв истёк':'Reservation expired',
+      dispute_resolution_approved: lang==='ru'?'Администратор одобрил решение':'Admin approved resolution',
+      dispute_resolution_ready: lang==='ru'?'Набран порог одобрений':'Approval threshold reached',
+    };
+    return labels[event.type] || event.type.replaceAll('_',' ');
+  }
+
+  async function toggleDealTimeline(dealId: string) {
+    if (expandedDealTimeline === dealId) {
+      expandedDealTimeline = '';
+      return;
+    }
+    expandedDealTimeline = dealId;
+    if (dealTimelineItems[dealId]) return;
+    dealTimelineBusy = dealId;
+    try {
+      const data = await request('/api/marketplace/deals/' + encodeURIComponent(dealId) + '/events');
+      dealTimelineItems = { ...dealTimelineItems, [dealId]: Array.isArray(data.items) ? data.items as DealTimelineEvent[] : [] };
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      dealTimelineBusy = '';
+    }
+  }
+
+  async function openDealDispute(dealId: string) {
+    if (!dealId || disputeBusy) return;
+    const reason = window.prompt(lang==='ru' ? 'Опиши проблему по сделке:' : 'Describe the issue with this deal:');
+    if (!reason || !reason.trim()) return;
+    disputeBusy = dealId;
+    try {
+      await request('/api/marketplace/deals/' + encodeURIComponent(dealId) + '/disputes', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason.trim().slice(0,1000), idempotency_key: crypto.randomUUID() }),
+      });
+      notice = lang==='ru' ? 'Спор открыт. Сделка заблокирована для обычного завершения до решения.' : 'Dispute opened. Normal completion is blocked pending resolution.';
+      await loadOffersAndDeals();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      disputeBusy = '';
+    }
   }
 
   async function prepareTonNftDelivery(dealId: string) {
@@ -1321,6 +1386,33 @@
                   </div>
                   <div class="order-price">
                     <span class={'status-'+(deal.reservation_active?'matched':'cancelled')}>{deal.reservation_active?(lang==='ru'?'РЕЗЕРВ':'RESERVED'):(lang==='ru'?'ЗАКРЫТА':'CLOSED')}</span>
+                    <div class="order-actions">
+                      <button class="cancel-button" onclick={()=>toggleDealTimeline(deal.id)}>{expandedDealTimeline===deal.id?(lang==='ru'?'Скрыть журнал':'Hide timeline'):(lang==='ru'?'Журнал сделки':'Deal timeline')}</button>
+                      {#if deal.status==='paid' || deal.status==='delivery_pending'}
+                        <button class="cancel-button" onclick={()=>openDealDispute(deal.id)} disabled={disputeBusy===deal.id}>{disputeBusy===deal.id?'…':(lang==='ru'?'Открыть спор':'Open dispute')}</button>
+                      {:else if deal.status==='disputed'}
+                        <span class="status-cancelled">{lang==='ru'?'СПОР ОТКРЫТ':'DISPUTED'}</span>
+                      {/if}
+                    </div>
+                    {#if expandedDealTimeline===deal.id}
+                      {#if dealTimelineBusy===deal.id}
+                        <p class="safety-note">{lang==='ru'?'Загружаем журнал…':'Loading timeline…'}</p>
+                      {:else if (dealTimelineItems[deal.id]||[]).length}
+                        <div class="activity-timeline deal-timeline">
+                          {#each dealTimelineItems[deal.id] as event (event.id)}
+                            <div class="activity-row">
+                              <span class="activity-marker"></span>
+                              <div class="activity-row-main">
+                                <strong>{dealEventLabel(event)}</strong>
+                                <small>{event.actor_user_id} · {new Date(event.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</small>
+                              </div>
+                            </div>
+                          {/each}
+                        </div>
+                      {:else}
+                        <p class="safety-note">{lang==='ru'?'Событий пока нет.':'No events recorded yet.'}</p>
+                      {/if}
+                    {/if}
                     {#if deal.status==='paid' && deal.is_seller && deal.asset_source==='ton_nft'}
                       <button class="asset-offer-button" onclick={()=>prepareTonNftDelivery(deal.id)} disabled={tonDeliveryBusy===deal.id}>{tonDeliveryBusy===deal.id?'…':(lang==='ru'?'Подготовить передачу NFT':'Prepare NFT delivery')}</button>
                     {:else if deal.status==='delivery_pending' && !deal.is_seller && deal.asset_source==='ton_nft'}
