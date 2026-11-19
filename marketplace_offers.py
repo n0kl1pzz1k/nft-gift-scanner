@@ -1133,11 +1133,13 @@ def create_marketplace_offers_router(
         if not bot_token:
             raise HTTPException(status_code=503, detail="Telegram payment bot is not configured")
         with _db() as conn:
+            begin_write(conn, f"deal:{deal_id}")
             deal = conn.execute(
-                "SELECT * FROM marketplace_deals WHERE id = ?",
+                select_for_update(conn, "SELECT * FROM marketplace_deals WHERE id = ?"),
                 (deal_id,),
             ).fetchone()
             if deal is None:
+                conn.rollback()
                 raise HTTPException(status_code=404, detail="Deal not found")
             if deal["status"] == "cancelled":
                 completed = conn.execute(
@@ -1170,6 +1172,26 @@ def create_marketplace_offers_router(
             buyer_id = str(deal["offer_sender_id"])
             charge_id = str(intent["provider_reference"])
             amount = str(intent["amount"])
+            requested_event = conn.execute(
+                """SELECT event_key FROM marketplace_escrow_events
+                   WHERE deal_id = ? AND event_type = 'refund_requested' LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            expected_refund_key = f"{deal_id}:stars-refund-requested:{payload.idempotency_key}"
+            if requested_event is not None and requested_event["event_key"] != expected_refund_key:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="A refund is already in progress; retry with the original idempotency key")
+            from marketplace_payments import append_escrow_event
+            append_escrow_event(
+                conn,
+                deal_id=deal_id,
+                actor_user_id=admin_id,
+                event_type="refund_requested",
+                event_key=expected_refund_key,
+                event_data={"provider": "telegram_stars", "provider_reference": charge_id, "amount": amount, "currency": "XTR"},
+                now=int(time.time()),
+            )
+            conn.commit()
         provider_already_refunded = False
         try:
             async with httpx.AsyncClient(timeout=12.0) as client:
