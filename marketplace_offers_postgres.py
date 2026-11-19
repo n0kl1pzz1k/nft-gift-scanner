@@ -69,7 +69,7 @@ _FUNCTION_DDL = (
     CREATE OR REPLACE FUNCTION hassle_nft_order_cancel_declines_offers()
     RETURNS trigger
     LANGUAGE plpgsql
-    AS $
+    AS $hassle_order$
     BEGIN
         IF OLD.status = 'active' AND NEW.status = 'cancelled' THEN
             UPDATE marketplace_offers
@@ -78,13 +78,13 @@ _FUNCTION_DDL = (
         END IF;
         RETURN NEW;
     END;
-    $
+    $hassle_order$
     """,
     """
     CREATE OR REPLACE FUNCTION hassle_nft_assert_ledger_transaction_balanced()
     RETURNS trigger
     LANGUAGE plpgsql
-    AS $
+    AS $hassle_ledger$
     DECLARE
         v_transaction_id TEXT;
         v_expected_amount NUMERIC;
@@ -132,7 +132,7 @@ _FUNCTION_DDL = (
         END IF;
         RETURN NULL;
     END;
-    $
+    $hassle_ledger$
     """,
 )
 
