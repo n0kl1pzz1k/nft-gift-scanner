@@ -77,6 +77,31 @@ class MarketplaceAdminConsoleTests(unittest.TestCase):
         self.assertEqual(users.status_code, 403)
         self.assertEqual(reports.status_code, 200, reports.text)
 
+    def test_moderator_can_revoke_verified_asset_and_audit_it(self):
+        asset = marketplace.register_verified_asset(
+            source="ton_nft", external_asset_id="EQAdminModerationAsset",
+            owner_telegram_id="9002", title="Moderation test asset",
+            asset_type="gift", image_url="",
+            verification_method="ton_connect_proof",
+            verification_reference="admin-test-reference",
+        )
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_ROLES": "9001:moderator"}):
+            response = self.client.post(
+                f"/api/marketplace/admin/assets/{asset['id']}/revoke",
+                headers=self.headers(self.admin_token),
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["status"], "revoked")
+        with marketplace._db() as conn:
+            row = conn.execute("SELECT status, revoked_at FROM verified_assets WHERE id=?", (asset["id"],)).fetchone()
+            event = conn.execute(
+                "SELECT action, target_type FROM security_audit_events ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        self.assertEqual(row["status"], "revoked")
+        self.assertIsNotNone(row["revoked_at"])
+        self.assertEqual(event["action"], "admin_asset_revoked")
+        self.assertEqual(event["target_type"], "verified_asset")
+
     def test_admin_can_revoke_user_sessions_and_action_is_audited(self):
         target_token = marketplace.create_telegram_session("9002")
         response = self.client.post(
