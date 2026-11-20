@@ -102,6 +102,44 @@ class MarketplaceAdminConsoleTests(unittest.TestCase):
         self.assertEqual(event["action"], "admin_asset_revoked")
         self.assertEqual(event["target_type"], "verified_asset")
 
+    def test_moderator_can_revoke_verified_asset_and_audit_it(self):
+        now = 1700000000
+        with marketplace._db() as conn:
+            conn.execute(
+                """INSERT INTO verified_assets
+                   (id, source, external_asset_id, owner_telegram_id, title, asset_type,
+                    image_url, verification_method, verification_reference_hash, status,
+                    created_at, verified_at, revoked_at)
+                   VALUES ('asset-admin-001','telegram_gift','gift-001','9002','Gift',
+                           'gift','','telegram_gift_owner',?, 'verified',?,?,NULL)""",
+                ("a" * 64, now, now),
+            )
+            conn.execute(
+                """INSERT INTO marketplace_orders
+                   (id,user_id,owner_name,kind,title,price,currency,status,created_at,updated_at,note,asset_id)
+                   VALUES ('listing-admin-001','9002','Member','listing','Gift','10','TON','active',?,?, '', 'asset-admin-001')""",
+                (now, now),
+            )
+            conn.commit()
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_ROLES": "9001:moderator"}):
+            response = self.client.post(
+                "/api/marketplace/admin/assets/asset-admin-001/revoke",
+                headers=self.headers(self.admin_token),
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["cancelled_listings"], 1)
+        with marketplace._db() as conn:
+            asset = conn.execute("SELECT status FROM verified_assets WHERE id='asset-admin-001'").fetchone()
+            listing = conn.execute("SELECT status FROM marketplace_orders WHERE id='listing-admin-001'").fetchone()
+            audit = conn.execute(
+                "SELECT action,target_type,metadata_json FROM security_audit_events ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        self.assertEqual(asset["status"], "revoked")
+        self.assertEqual(listing["status"], "cancelled")
+        self.assertEqual(audit["action"], "admin_asset_revoked")
+        self.assertEqual(audit["target_type"], "verified_asset")
+        self.assertIn('"cancelled_listings":1', audit["metadata_json"])
+
     def test_admin_can_revoke_user_sessions_and_action_is_audited(self):
         target_token = marketplace.create_telegram_session("9002")
         response = self.client.post(
