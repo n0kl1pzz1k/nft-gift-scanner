@@ -19,6 +19,8 @@ Status is evidence-based. "In progress" does not mean ready to market.
 | 11 | Buyer FAQ and negotiation brief | Assistant | In progress | FAQ/negotiation sheet to be finalized after asset inventory and screenshots; pricing is not yet an appraisal or a fixed commitment. |
 | 12 | Final buyer package and marketplace publication | Assistant | Pending | Assemble screenshots with reports/listings, final evidence links, asset schedule and due-diligence folder; publish only after owner approves price and final transfer scope. |
 
+**Important audit finding:** the repository is not a single fully merged release line. Block 6 PR #214 is merged into `main`; Block 5 PR #213 and Block 7 PR #216 remain open drafts. Railway is configured to deploy from `main` in `iad`, and the variable-name inventory still contains `PORTALS_API_KEY`. These points are disclosed in the buyer pack and remain part of cleanup/due diligence.
+
 ## Current release evidence
 
 - Mini App live URL: https://hassle-nft-market.fj7kmzkhn9.workers.dev
