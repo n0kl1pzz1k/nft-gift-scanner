@@ -2011,7 +2011,7 @@ def create_marketplace_offers_router(
             if (
                 deal["currency"] != "TON" or deal["listing_currency"] != "TON"
                 or deal["listing_status"] != "matched"
-                or deal["status"] not in {"payment_not_enabled", "awaiting_payment"}
+                or deal["status"] not in {"payment_not_enabled", "awaiting_payment", "payment_pending"}
                 or deal["source"] != "ton_nft" or deal["asset_status"] != "verified"
                 or str(deal["owner_telegram_id"]) != str(deal["listing_owner_id"])
             ):
@@ -2055,6 +2055,9 @@ def create_marketplace_offers_router(
             if intent is not None and int(intent["expires_at"]) <= now:
                 transition_payment_intent(conn, intent["id"], "expired", now=now)
                 intent = None
+                if deal["status"] == "payment_pending":
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="The previous TON invoice expired; this reservation must be released or expire before a new checkout")
             if intent is not None:
                 metadata = json.loads(intent["metadata_json"] or "{}")
                 memo = str(metadata.get("memo") or memo)
