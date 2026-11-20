@@ -2155,6 +2155,7 @@ def create_marketplace_offers_router(
                         detail="Telegram confirmed the transfer, but the confirmation journal needs reconciliation",
                     ) from exc
                 conn.commit()
+                confirmed_event_key = provider_confirmation_key
 
         # Finalize from the durable provider confirmation. This section is safe to
         # retry and never calls Telegram a second time.
@@ -2170,7 +2171,7 @@ def create_marketplace_offers_router(
             ).fetchone()
             confirmed = conn.execute(
                 "SELECT 1 FROM marketplace_escrow_events WHERE event_key=?",
-                (provider_confirmation_key,),
+                (confirmed_event_key,),
             ).fetchone()
             if confirmed is None:
                 conn.rollback()
