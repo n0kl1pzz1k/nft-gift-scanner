@@ -354,6 +354,19 @@ class TonPaymentConfirmRequest(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=128)
 
 
+class TonRefundExecuteRequest(BaseModel):
+    transaction_hash: str = Field(min_length=32, max_length=128)
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+    @field_validator("transaction_hash")
+    @classmethod
+    def clean_transaction_hash(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned or any(ch not in "0123456789abcdefABCDEF_-" for ch in cleaned):
+            raise ValueError("A valid TON transaction hash is required")
+        return cleaned
+
+
 class DisputeResolutionApprovalRequest(BaseModel):
     decision: Literal["refund_buyer", "release_to_seller"]
     idempotency_key: str = Field(min_length=1, max_length=128)
@@ -1293,6 +1306,154 @@ def create_marketplace_offers_router(
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             conn.commit()
         return {"deal_id": deal_id, "status": "cancelled", "refund_status": "refunded", "currency": "XTR", "amount": amount, "idempotent_replay": False}
+
+
+    @router.post("/admin/deals/{deal_id}/execute-ton-refund")
+    async def execute_approved_ton_refund(
+        deal_id: str,
+        payload: TonRefundExecuteRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Record a manual treasury refund only after TON independently confirms the outgoing transfer."""
+        import hashlib
+        import httpx
+        from decimal import Decimal
+        from ton_nft_inventory import normalise_ton_address
+        from marketplace_payments import PaymentConflict, PaymentStateError, append_escrow_event, post_ledger_transaction, record_payment_event, transition_deal_status, transition_payment_intent
+
+        admin = _admin_user(x_telegram_init_data)
+        admin_id = str(admin["id"])
+        _enforce_user_rate_limit(admin_id, "ton_refund_execution", 5)
+        configured_admins = {
+            part.strip() for part in os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", "")).split(",")
+            if part.strip().isdigit()
+        }
+        if len(configured_admins) < 2:
+            raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
+        token = os.getenv("TONAPI_TOKEN", "").strip()
+        if not token:
+            raise HTTPException(status_code=503, detail="TON transaction verification provider is not configured")
+        with _db() as conn:
+            begin_write(conn, f"deal:{deal_id}")
+            deal = conn.execute(
+                select_for_update(conn, "SELECT * FROM marketplace_deals WHERE id=?"),
+                (deal_id,),
+            ).fetchone()
+            if deal is None:
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Deal not found")
+            if deal["status"] != "disputed":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Only disputed deals can be refunded")
+            approvals = conn.execute(
+                """SELECT admin_user_id FROM marketplace_dispute_resolution_approvals
+                   WHERE deal_id=? AND decision='refund_buyer'""",
+                (deal_id,),
+            ).fetchall()
+            all_count = int(conn.execute(
+                "SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals WHERE deal_id=?",
+                (deal_id,),
+            ).fetchone()[0])
+            approvers = {str(row["admin_user_id"]) for row in approvals}
+            if len(approvals) != 2 or all_count != 2 or len(approvers) != 2 or not approvers.issubset(configured_admins):
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Two matching refund approvals from distinct configured administrators are required")
+            intent = conn.execute(
+                """SELECT * FROM marketplace_payment_intents
+                   WHERE deal_id=? AND provider='ton' ORDER BY created_at DESC LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            if intent is None or intent["status"] not in {"confirmed", "refunded"} or not intent["provider_reference"]:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="A confirmed TON payment is required")
+            if intent["status"] == "refunded":
+                conn.rollback()
+                return {"deal_id": deal_id, "status": "cancelled", "refund_status": "refunded", "idempotent_replay": True}
+            metadata = json.loads(intent["metadata_json"] or "{}")
+            treasury = str(metadata.get("treasury") or "")
+            buyer_wallet = str(metadata.get("buyer_wallet") or "")
+            amount = str(intent["amount"])
+            intent_id = str(intent["id"])
+            conn.commit()
+        try:
+            treasury_raw = normalise_ton_address(treasury)
+            buyer_raw = normalise_ton_address(buyer_wallet)
+            base_url = os.getenv("TONAPI_BASE_URL", "https://tonapi.io").rstrip("/")
+            async with httpx.AsyncClient(timeout=12.0, follow_redirects=False) as client:
+                response = await client.get(
+                    f"{base_url}/v2/blockchain/transactions/{payload.transaction_hash}",
+                    headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                )
+                response.raise_for_status()
+                transaction = response.json()
+            if not isinstance(transaction, dict) or transaction.get("success") is not True:
+                raise HTTPException(status_code=409, detail="TON has not confirmed a successful refund transaction")
+            account_value = transaction.get("account")
+            if isinstance(account_value, dict):
+                account_value = account_value.get("address")
+            if normalise_ton_address(str(account_value or "")) != treasury_raw:
+                raise HTTPException(status_code=409, detail="Refund transaction was not sent by the configured treasury")
+            expected_nano = int(Decimal(amount) * Decimal(1_000_000_000))
+            refunded = False
+            for message in transaction.get("out_msgs", []) if isinstance(transaction.get("out_msgs"), list) else []:
+                if not isinstance(message, dict):
+                    continue
+                try:
+                    destination = normalise_ton_address(str(message.get("destination") or ""))
+                    value = int(message.get("value") or 0)
+                except Exception:
+                    continue
+                if destination == buyer_raw and value == expected_nano:
+                    refunded = True
+                    break
+            if not refunded:
+                raise HTTPException(status_code=409, detail="TON transaction does not contain the exact approved refund to the buyer")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="TON refund transaction could not be verified") from exc
+        now = int(time.time())
+        with _db() as conn:
+            begin_write(conn, f"deal:{deal_id}", f"payment-intent:{intent_id}")
+            locked = conn.execute(
+                select_for_update(conn, "SELECT * FROM marketplace_payment_intents WHERE id=?"),
+                (intent_id,),
+            ).fetchone()
+            locked_deal = conn.execute(
+                select_for_update(conn, "SELECT * FROM marketplace_deals WHERE id=?"),
+                (deal_id,),
+            ).fetchone()
+            if locked is None or locked_deal is None or locked["status"] != "confirmed" or locked_deal["status"] != "disputed":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Payment or dispute state changed during refund verification")
+            tx_hash = payload.transaction_hash
+            event_hash = hashlib.sha256(f"{deal_id}:{tx_hash}:{buyer_raw}:{expected_nano}".encode()).hexdigest()
+            try:
+                record_payment_event(
+                    conn, provider="ton", provider_event_id=f"refund:{tx_hash}",
+                    payment_intent_id=intent_id, event_type="refund_confirmed",
+                    payload_hash=event_hash, now=now,
+                )
+                transition_payment_intent(conn, intent_id, "refunded", now=now)
+                ledger = post_ledger_transaction(
+                    conn, idempotency_key=f"{deal_id}:ton-refund:{tx_hash}",
+                    reference_type="refund", reference_id=deal_id, currency="TON",
+                    debit_account=("escrow", deal_id), credit_account=("ton_treasury_clearing", tx_hash),
+                    debit_amount=amount, credit_amount=amount, now=now,
+                )
+                transition_deal_status(
+                    conn, deal_id=deal_id, new_status="cancelled", actor_user_id=admin_id,
+                    idempotency_key=f"{deal_id}:ton-refund-confirmed:{tx_hash}",
+                    event_type="refund_confirmed",
+                    event_data={"provider":"ton", "provider_reference":tx_hash, "payment_intent_id":intent_id,
+                                "ledger_transaction_id":ledger["id"], "currency":"TON", "amount":amount},
+                    now=now,
+                )
+            except (PaymentConflict, PaymentStateError) as exc:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            conn.commit()
+        return {"deal_id":deal_id, "status":"cancelled", "refund_status":"refunded", "currency":"TON", "amount":amount}
 
 
     @router.post("/admin/deals/{deal_id}/execute-seller-release")
