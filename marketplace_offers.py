@@ -1677,7 +1677,7 @@ def create_marketplace_offers_router(
                 )
                 changed = conn.execute(
                     """UPDATE verified_assets
-                       SET owner_telegram_id=?, verification_method='tonapi_current_owner',
+                       SET owner_telegram_id=?, verification_method='ton_connect_proof',
                            verification_reference_hash=?, verified_at=?, status='verified', revoked_at=NULL
                        WHERE id=? AND owner_telegram_id=? AND status='verified'""",
                     (buyer_id, ownership_reference, now, deal["asset_id"], str(locked["listing_owner_id"])),
