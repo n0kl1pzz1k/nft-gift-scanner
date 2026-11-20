@@ -94,7 +94,7 @@ def initialize_sqlite_payment_schema(conn: Any) -> None:
         event_type TEXT NOT NULL CHECK(event_type IN (
             'deal_payment_requested', 'payment_intent_created', 'payment_pending',
             'payment_confirmed', 'escrow_funded', 'asset_transfer_requested',
-            'asset_transfer_submitted', 'asset_transfer_confirmed', 'deal_completed',
+            'asset_transfer_submitted', 'asset_transfer_confirmed', 'asset_transfer_rejected', 'deal_completed',
             'deal_disputed', 'refund_requested', 'refund_confirmed', 'payout_released', 'seller_credit_recorded',
             'deal_cancelled', 'deal_expired', 'dispute_resolution_approved',
             'dispute_resolution_ready'
@@ -185,6 +185,57 @@ def initialize_sqlite_payment_schema(conn: Any) -> None:
         SELECT RAISE(ABORT, 'ledger entries are immutable');
     END;
     """)
+    # Existing installations created the escrow journal with a CHECK constraint
+    # that predates explicit provider-rejection events. Rebuild only this table,
+    # preserving every immutable journal row and its uniqueness guarantees.
+    escrow_schema = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='marketplace_escrow_events'"
+    ).fetchone()
+    if escrow_schema is not None and "asset_transfer_rejected" not in str(escrow_schema["sql"] or ""):
+        conn.execute("DROP TRIGGER IF EXISTS trg_marketplace_escrow_events_no_update")
+        conn.execute("DROP TRIGGER IF EXISTS trg_marketplace_escrow_events_no_delete")
+        conn.execute("ALTER TABLE marketplace_escrow_events RENAME TO marketplace_escrow_events_legacy")
+        conn.execute("DROP INDEX IF EXISTS idx_marketplace_escrow_events_deal_created")
+        conn.execute("""
+            CREATE TABLE marketplace_escrow_events (
+                id TEXT PRIMARY KEY,
+                deal_id TEXT NOT NULL,
+                actor_user_id TEXT NOT NULL,
+                event_type TEXT NOT NULL CHECK(event_type IN (
+                    'deal_payment_requested', 'payment_intent_created', 'payment_pending',
+                    'payment_confirmed', 'escrow_funded', 'asset_transfer_requested',
+                    'asset_transfer_submitted', 'asset_transfer_confirmed', 'asset_transfer_rejected',
+                    'deal_completed', 'deal_disputed', 'refund_requested', 'refund_confirmed',
+                    'payout_released', 'seller_credit_recorded', 'deal_cancelled', 'deal_expired',
+                    'dispute_resolution_approved', 'dispute_resolution_ready'
+                )),
+                event_key TEXT NOT NULL UNIQUE,
+                event_data TEXT NOT NULL DEFAULT '{}',
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY(deal_id) REFERENCES marketplace_deals(id)
+            )
+        """)
+        conn.execute("""
+            INSERT INTO marketplace_escrow_events
+                (id, deal_id, actor_user_id, event_type, event_key, event_data, created_at)
+            SELECT id, deal_id, actor_user_id, event_type, event_key, event_data, created_at
+            FROM marketplace_escrow_events_legacy
+        """)
+        conn.execute("DROP TABLE marketplace_escrow_events_legacy")
+        conn.execute("""
+            CREATE INDEX idx_marketplace_escrow_events_deal_created
+            ON marketplace_escrow_events(deal_id, created_at ASC, id ASC)
+        """)
+        conn.execute("""
+            CREATE TRIGGER trg_marketplace_escrow_events_no_update
+            BEFORE UPDATE ON marketplace_escrow_events
+            BEGIN SELECT RAISE(ABORT, 'escrow events are immutable'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER trg_marketplace_escrow_events_no_delete
+            BEFORE DELETE ON marketplace_escrow_events
+            BEGIN SELECT RAISE(ABORT, 'escrow events are immutable'); END
+        """)
 
 
 def _amount_text(value: Any, currency: str) -> str:
