@@ -1777,10 +1777,12 @@
           {#each adminDisputes as dispute (String(dispute.id))}
             <div class="activity-row">
               <div class="activity-row-main"><strong>{String(dispute.id)}</strong><small>{lang==='ru'?'Покупатель':'Buyer'} {dispute.buyer_telegram_id} · {lang==='ru'?'Продавец':'Seller'} {dispute.seller_telegram_id} · {dispute.status}</small><small>{lang==='ru'?'Подтверждения':'Approvals'}: {dispute.approval_count || 0} / 2 · {dispute.approved_decision || (lang==='ru'?'нет решения':'no decision')}</small></div>
-              <div class="order-actions">
-                <button class="match-button" onclick={()=>approveAdminDispute(String(dispute.id),'refund_buyer')}>{lang==='ru'?'За возврат':'Approve refund'}</button>
-                <button class="match-button" onclick={()=>approveAdminDispute(String(dispute.id),'release_to_seller')}>{lang==='ru'?'За продавца':'Approve seller'}</button>
-              </div>
+              {#if adminRole==='owner' || adminRole==='finance'}
+                <div class="order-actions">
+                  <button class="match-button" onclick={()=>approveAdminDispute(String(dispute.id),'refund_buyer')}>{lang==='ru'?'За возврат':'Approve refund'}</button>
+                  <button class="match-button" onclick={()=>approveAdminDispute(String(dispute.id),'release_to_seller')}>{lang==='ru'?'За продавца':'Approve seller'}</button>
+                </div>
+              {/if}
             </div>
           {/each}
           {/if}
