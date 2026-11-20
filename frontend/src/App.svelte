@@ -132,6 +132,12 @@
   let adminReports = $state<OrderReport[]>([]);
   let adminReportsBusy = $state(false);
   let adminReportActionBusy = $state('');
+  let adminOverview = $state<Record<string,number> | null>(null);
+  let adminUsers = $state<Array<Record<string,unknown>>>([]);
+  let adminAssets = $state<Array<Record<string,unknown>>>([]);
+  let adminReconciliation = $state<{payments:Array<Record<string,unknown>>;transfers:Array<Record<string,unknown>>}>({payments:[],transfers:[]});
+  let adminUserSearch = $state('');
+  let adminBusy = $state(false);
   let orderStatusFilter = $state<'all' | 'active' | 'matched' | 'cancelled'>('active');
   let orderKindFilter = $state<'all' | 'listing' | 'buy-order'>('all');
 
@@ -1158,7 +1164,47 @@
   }
 
   async function loadAdminOverview() {
-    if (isAdmin) await loadAdminReports();
+    if (!isAdmin || adminBusy) return;
+    adminBusy = true;
+    try {
+      const [overview, reports, users, assets, reconciliation] = await Promise.all([
+        request('/api/marketplace/admin/overview'),
+        request('/api/marketplace/admin/reports?status=open&limit=50'),
+        request('/api/marketplace/admin/users?limit=25'),
+        request('/api/marketplace/admin/assets?status=verified&limit=25'),
+        request('/api/marketplace/admin/reconciliation?limit=50'),
+      ]);
+      adminOverview = overview as Record<string,number>;
+      adminReports = Array.isArray(reports.items) ? reports.items as OrderReport[] : [];
+      adminUsers = Array.isArray(users.items) ? users.items as Array<Record<string,unknown>> : [];
+      adminAssets = Array.isArray(assets.items) ? assets.items as Array<Record<string,unknown>> : [];
+      adminReconciliation = {
+        payments: Array.isArray(reconciliation.payments) ? reconciliation.payments as Array<Record<string,unknown>> : [],
+        transfers: Array.isArray(reconciliation.transfers) ? reconciliation.transfers as Array<Record<string,unknown>> : [],
+      };
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      adminBusy = false;
+    }
+  }
+
+  async function searchAdminUsers() {
+    if (!isAdmin) return;
+    try {
+      const suffix = adminUserSearch.trim() ? '&q=' + encodeURIComponent(adminUserSearch.trim()) : '';
+      const data = await request('/api/marketplace/admin/users?limit=25' + suffix);
+      adminUsers = Array.isArray(data.items) ? data.items as Array<Record<string,unknown>> : [];
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+  }
+
+  async function revokeAdminUserSessions(telegramId: string) {
+    if (!isAdmin || !/^\\d+$/.test(telegramId)) return;
+    try {
+      await request('/api/marketplace/admin/users/' + encodeURIComponent(telegramId) + '/revoke-sessions', undefined, {method:'POST'});
+      notice = lang==='ru' ? 'Активные сессии пользователя отозваны.' : 'User sessions revoked.';
+      await searchAdminUsers();
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
   async function loadAdminReports() {
@@ -1681,6 +1727,33 @@
         {:else}<div class="state-panel">{t.noNotifications}</div>{/if}
       </article>
       <article class="profile-card preferences-card"><div class="eyebrow">PREFERENCES</div><h2>HASSLE NFT</h2><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang==='ru'?'Язык интерфейса':'Interface language'} · {lang.toUpperCase()}</button></article>{#if isAdmin}
+        <article class="profile-card moderation-card">
+          <div class="notification-heading"><div><div class="eyebrow">HASSLE NFT · ADMIN</div><h2>{lang==='ru'?'Операционный центр':'Operations center'}</h2></div><button class="refresh-button" onclick={loadAdminOverview} disabled={adminBusy}>{adminBusy?'…':t.refresh}</button></div>
+          {#if adminOverview}
+            <div class="account-stats-grid">
+              {#each [{label:lang==='ru'?'Пользователи':'Users',value:adminOverview.users},{label:lang==='ru'?'Проверенные активы':'Verified assets',value:adminOverview.verified_assets},{label:lang==='ru'?'Объявления':'Active listings',value:adminOverview.active_listings},{label:lang==='ru'?'Жалобы':'Open reports',value:adminOverview.open_reports},{label:lang==='ru'?'Споры':'Open disputes',value:adminOverview.open_disputes},{label:lang==='ru'?'Платежи на проверке':'Pending payments',value:adminOverview.pending_payments}] as metric}
+                <div class="account-stat"><small>{metric.label}</small><strong>{metric.value}</strong></div>
+              {/each}
+            </div>
+          {/if}
+          <div class="notification-heading"><h3>{lang==='ru'?'Пользователи':'Users'}</h3></div>
+          <div class="report-actions"><input class="form-input" bind:value={adminUserSearch} placeholder={lang==='ru'?'Telegram ID или @username':'Telegram ID or @username'} /><button class="refresh-button" onclick={searchAdminUsers}>{lang==='ru'?'Найти':'Search'}</button></div>
+          {#each adminUsers as user (String(user.telegram_id))}
+            <div class="activity-row"><div class="activity-row-main"><strong>{user.first_name || 'Telegram user'} {user.username ? '@'+user.username : ''}</strong><small>ID {user.telegram_id} · {lang==='ru'?'активных сессий':'active sessions'}: {user.active_sessions}</small></div><button class="cancel-button" onclick={()=>revokeAdminUserSessions(String(user.telegram_id))}>{lang==='ru'?'Завершить сессии':'Revoke sessions'}</button></div>
+          {/each}
+          <div class="notification-heading"><h3>{lang==='ru'?'Ручная сверка':'Manual reconciliation'}</h3></div>
+          <div class="state-panel">{lang==='ru'?'Ожидают проверки платежи':'Payments awaiting review'}: {adminReconciliation.payments.length} · {lang==='ru'?'передачи активов':'asset transfers'}: {adminReconciliation.transfers.length}</div>
+          {#each adminReconciliation.payments as item (String(item.id))}
+            <div class="activity-row"><div class="activity-row-main"><strong>{item.provider} · {item.amount} {item.currency}</strong><small>{item.deal_id} · {item.status}</small></div></div>
+          {/each}
+          {#each adminReconciliation.transfers as item (String(item.id))}
+            <div class="activity-row"><div class="activity-row-main"><strong>{lang==='ru'?'Передача актива ожидает сверки':'Asset transfer needs reconciliation'}</strong><small>{item.deal_id} · {item.event_type}</small></div></div>
+          {/each}
+          <div class="notification-heading"><h3>{lang==='ru'?'Проверенные активы':'Verified assets'}</h3></div>
+          {#each adminAssets as asset (String(asset.id))}
+            <div class="activity-row"><div class="activity-row-main"><strong>{asset.title}</strong><small>{asset.source} · owner {asset.owner_telegram_id} · {lang==='ru'?'активных объявлений':'active listings'}: {asset.active_listings}</small></div></div>
+          {/each}
+        </article>
         <article class="profile-card moderation-card">
           <div class="notification-heading">
             <div><div class="eyebrow">MODERATION</div><h2>{t.adminReports}</h2></div>
