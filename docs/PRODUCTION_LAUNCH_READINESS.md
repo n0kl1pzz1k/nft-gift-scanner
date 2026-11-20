@@ -32,7 +32,14 @@ python db_backup.py --source /data/hassle.sqlite3 --output /data/backups/hassle-
 python db_restore.py --backup /data/backups/hassle-<timestamp>.sqlite3 --manifest /data/backups/hassle-<timestamp>.sqlite3.manifest.json --output /tmp/hassle-restore-check.sqlite3
 ```
 
-These commands are a manual SQLite rehearsal, not evidence of an automated scheduled backup. Production PostgreSQL requires managed-provider automated backups/PITR, retention, access controls and a successful restore drill. Those provider-side settings cannot be inferred from repository CI.
+For PostgreSQL, use the custom-format archive scripts (the runner must have PostgreSQL client tools installed):
+
+```bash
+DATABASE_URL="$HASSLE_POSTGRES_DSN" BACKUP_DIR="/secure-backup-target" scripts/postgres_backup.sh
+TARGET_DATABASE_URL="$HASSLE_POSTGRES_RESTORE_TEST_DSN" BACKUP_FILE="/secure-backup-target/hassle-postgres-<timestamp>.dump" scripts/postgres_restore.sh
+```
+
+The restore script verifies the SHA256 manifest and refuses a target containing user tables. Keep backup files off the application container's ephemeral filesystem; use a protected backup volume or object storage with encryption and restricted credentials. These scripts provide manual backup/restore operations, not an automated schedule. Production PostgreSQL still requires managed-provider automated backups/PITR, retention, access controls and a successful restore drill. Those provider-side settings cannot be inferred from repository CI.
 
 ## Smoke/load test
 
