@@ -399,7 +399,9 @@ def create_marketplace_admin_router(verify_credential: Callable[[str], dict]) ->
             rows = conn.execute(
                 """SELECT d.id, d.listing_owner_id, d.offer_sender_id, d.agreed_amount,
                           d.currency, d.status, d.created_at, o.title,
-                          (SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals a WHERE a.deal_id=d.id) AS approvals
+                          (SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals a WHERE a.deal_id=d.id) AS approvals,
+                          (SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals a WHERE a.deal_id=d.id AND a.decision='refund_buyer') AS refund_approvals,
+                          (SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals a WHERE a.deal_id=d.id AND a.decision='release_to_seller') AS seller_release_approvals
                    FROM marketplace_deals d JOIN marketplace_orders o ON o.id=d.order_id
                    WHERE d.status='disputed' ORDER BY d.created_at DESC LIMIT ?""",
                 (limit,),
