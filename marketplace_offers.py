@@ -1408,6 +1408,30 @@ def create_marketplace_offers_router(
             if deal is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Deal not found")
+            if deal["status"] == "cancelled":
+                refund_event = conn.execute(
+                    """SELECT event_data FROM marketplace_escrow_events
+                       WHERE deal_id=? AND event_type='refund_confirmed' ORDER BY created_at DESC LIMIT 1""",
+                    (deal_id,),
+                ).fetchone()
+                if refund_event is not None:
+                    refund_data = json.loads(refund_event["event_data"] or "{}")
+                    if refund_data.get("provider") == "ton":
+                        refunded_intent = conn.execute(
+                            """SELECT status FROM marketplace_payment_intents
+                               WHERE deal_id=? AND provider='ton' ORDER BY created_at DESC LIMIT 1""",
+                            (deal_id,),
+                        ).fetchone()
+                        if refunded_intent is not None and refunded_intent["status"] == "refunded":
+                            conn.rollback()
+                            return {
+                                "deal_id": deal_id,
+                                "status": "cancelled",
+                                "refund_status": "refunded",
+                                "idempotent_replay": True,
+                            }
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Deal was cancelled without a confirmed TON refund")
             if deal["status"] != "disputed":
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Only disputed deals can be refunded")
