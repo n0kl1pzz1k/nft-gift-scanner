@@ -48,7 +48,7 @@ def normalise_business_owned_gift(raw: Any) -> dict[str, Any] | None:
             break
     if len(preview_file_id) > 512:
         preview_file_id = ""
-    transfer_fee = gift.get("transfer_star_count")
+    transfer_fee = raw.get("transfer_star_count")
     if isinstance(transfer_fee, bool) or not isinstance(transfer_fee, int) or transfer_fee < 0:
         transfer_fee = None
     next_transfer_date = raw.get("next_transfer_date")
