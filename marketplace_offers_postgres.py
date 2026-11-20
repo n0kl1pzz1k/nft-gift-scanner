@@ -580,7 +580,7 @@ def initialize_postgres_offer_schema(connection: Any) -> dict[str, Any]:
              event_type TEXT NOT NULL CHECK (event_type IN (
                  'deal_payment_requested', 'payment_intent_created', 'payment_pending',
                  'payment_confirmed', 'escrow_funded', 'asset_transfer_requested',
-                 'asset_transfer_submitted', 'asset_transfer_confirmed', 'deal_completed',
+                 'asset_transfer_submitted', 'asset_transfer_confirmed', 'asset_transfer_rejected', 'deal_completed',
                  'deal_disputed', 'refund_requested', 'refund_confirmed', 'payout_released', 'seller_credit_recorded',
                  'deal_cancelled', 'deal_expired', 'dispute_resolution_approved', 'dispute_resolution_ready')),
              event_key TEXT NOT NULL, event_data TEXT NOT NULL DEFAULT '{}',
@@ -616,6 +616,30 @@ def initialize_postgres_offer_schema(connection: Any) -> dict[str, Any]:
     )
     for statement in statements:
         execute(statement)
+    # Upgrade the event-type CHECK constraint on databases created before
+    # definitive provider-rejection events were introduced.
+    event_constraint = execute(
+        """SELECT pg_get_constraintdef(oid) AS definition
+           FROM pg_constraint
+           WHERE conrelid='marketplace_escrow_events'::regclass
+             AND conname='marketplace_escrow_events_event_type_check'"""
+    ).fetchone()
+    if event_constraint is not None and "asset_transfer_rejected" not in str(event_constraint["definition"]):
+        execute("ALTER TABLE marketplace_escrow_events DROP CONSTRAINT marketplace_escrow_events_event_type_check")
+        event_constraint = None
+    if event_constraint is None:
+        execute(
+            """ALTER TABLE marketplace_escrow_events
+               ADD CONSTRAINT marketplace_escrow_events_event_type_check
+               CHECK (event_type IN (
+                   'deal_payment_requested', 'payment_intent_created', 'payment_pending',
+                   'payment_confirmed', 'escrow_funded', 'asset_transfer_requested',
+                   'asset_transfer_submitted', 'asset_transfer_confirmed', 'asset_transfer_rejected',
+                   'deal_completed', 'deal_disputed', 'refund_requested', 'refund_confirmed',
+                   'payout_released', 'seller_credit_recorded', 'deal_cancelled', 'deal_expired',
+                   'dispute_resolution_approved', 'dispute_resolution_ready'
+               ))"""
+        )
     install_postgres_offer_triggers(connection)
     verification = verify_postgres_offer_schema(connection)
     return {
