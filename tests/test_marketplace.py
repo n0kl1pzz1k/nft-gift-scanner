@@ -735,6 +735,19 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(refunded.json()["refund_status"], "refunded")
         self.assertEqual(replay.status_code, 200, replay.text)
         self.assertTrue(replay.json()["idempotent_replay"])
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS":"202,303","TONAPI_TOKEN":"test-tonapi-token","BOT_TOKEN":"test-bot-token"}):
+            wrong_hash_replay = self.client.post(
+                f"/api/marketplace/admin/deals/{deal_id}/execute-ton-refund",
+                headers={"X-Telegram-Init-Data":"user-b"},
+                json={"transaction_hash":"cd"*32,"idempotency_key":"ton-refund-wrong-hash-replay"},
+            )
+            cross_provider_replay = self.client.post(
+                f"/api/marketplace/admin/deals/{deal_id}/execute-refund",
+                headers={"X-Telegram-Init-Data":"user-b"},
+                json={"idempotency_key":"stars-refund-must-not-replay-ton"},
+            )
+        self.assertEqual(wrong_hash_replay.status_code, 409, wrong_hash_replay.text)
+        self.assertEqual(cross_provider_replay.status_code, 409, cross_provider_replay.text)
         with marketplace_offers._db() as conn:
             deal = conn.execute("SELECT status FROM marketplace_deals WHERE id=?",(deal_id,)).fetchone()
             intent = conn.execute("SELECT status FROM marketplace_payment_intents WHERE id=?",(intent["id"],)).fetchone()
