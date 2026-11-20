@@ -64,7 +64,7 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
 
         def handler(request):
             calls.append(request)
-            return httpx.Response(200, json={"public_key": public_key.upper()})
+            return httpx.Response(200, json={"success": True, "exit_code": 0, "stack": [{"type": "num", "num": "0x" + public_key}]})
 
         client = httpx.AsyncClient(
             transport=httpx.MockTransport(handler),
@@ -75,7 +75,7 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
             result = await fetch_ton_wallet_public_key(TREASURY, client=client)
         await client.aclose()
         self.assertEqual(result, public_key)
-        self.assertEqual(calls[0].url.path, f"/v2/accounts/{TREASURY}/publickey")
+        self.assertEqual(calls[0].url.path, f"/v2/blockchain/accounts/{TREASURY}/methods/get_public_key")
         self.assertEqual(calls[0].headers.get("Authorization"), "Bearer test-token")
 
     async def test_rejects_malformed_wallet_public_key(self):
