@@ -1993,6 +1993,35 @@ def create_marketplace_offers_router(
         except ValueError:
             ttl = 900
         now = int(time.time())
+        # Re-check the seller's live on-chain ownership before accepting buyer funds.
+        from ton_nft_inventory import fetch_nft_owner
+        with _db() as preflight_conn:
+            preflight = preflight_conn.execute(
+                """SELECT d.*, o.currency AS listing_currency, o.status AS listing_status,
+                          a.source, a.status AS asset_status, a.owner_telegram_id, a.external_asset_id
+                   FROM marketplace_deals d
+                   JOIN marketplace_orders o ON o.id=d.order_id
+                   JOIN verified_assets a ON a.id=o.asset_id
+                   WHERE d.id=?""",
+                (deal_id,),
+            ).fetchone()
+            seller_wallet_preflight = preflight_conn.execute(
+                """SELECT address FROM verified_wallets
+                   WHERE telegram_id=? AND network='-239' AND revoked_at IS NULL
+                   ORDER BY last_verified_at DESC LIMIT 1""",
+                (str(preflight["listing_owner_id"]),),
+            ).fetchone() if preflight is not None else None
+        if preflight is None or buyer_id != str(preflight["offer_sender_id"]):
+            raise HTTPException(status_code=404, detail="Deal not found")
+        if seller_wallet_preflight is None or preflight["source"] != "ton_nft" or preflight["asset_status"] != "verified":
+            raise HTTPException(status_code=409, detail="Seller must link a TON mainnet wallet and own a verified TON NFT")
+        try:
+            live_owner = await fetch_nft_owner(str(preflight["external_asset_id"]))
+            seller_wallet_raw = normalise_ton_address(seller_wallet_preflight["address"])
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="TON ownership verification is temporarily unavailable") from exc
+        if live_owner.get("is_scam") or live_owner.get("owner_address") != seller_wallet_raw:
+            raise HTTPException(status_code=409, detail="The seller no longer owns this NFT on-chain")
         with _db() as conn:
             begin_write(conn, f"deal:{deal_id}")
             deal = conn.execute(
