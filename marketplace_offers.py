@@ -2021,11 +2021,13 @@ def create_marketplace_offers_router(
             buyer_id = str(deal["offer_sender_id"])
             existing_events = conn.execute(
                 """SELECT event_type, event_key, event_data FROM marketplace_escrow_events
-                   WHERE deal_id=? AND event_type IN ('asset_transfer_submitted','asset_transfer_confirmed')
+                   WHERE deal_id=? AND event_type IN (
+                       'asset_transfer_submitted','asset_transfer_rejected','asset_transfer_confirmed'
+                   )
                    ORDER BY created_at ASC, id ASC""",
                 (deal_id,),
             ).fetchall()
-            attempt_exists = False
+            pending_attempts: set[str] = set()
             provider_confirmed = False
             confirmed_event_key = ""
             for event in existing_events:
@@ -2035,14 +2037,18 @@ def create_marketplace_offers_router(
                     event_data = {}
                 if event_data.get("provider") != "telegram_business":
                     continue
-                if event["event_type"] == "asset_transfer_submitted":
-                    attempt_exists = True
+                attempt_digest = str(event_data.get("attempt_digest") or "")
+                if event["event_type"] == "asset_transfer_submitted" and attempt_digest:
+                    pending_attempts.add(attempt_digest)
+                elif event["event_type"] == "asset_transfer_rejected" and attempt_digest:
+                    pending_attempts.discard(attempt_digest)
                 if (
                     event["event_type"] == "asset_transfer_confirmed"
                     and str(event_data.get("buyer_telegram_id") or "") == buyer_id
                 ):
                     provider_confirmed = True
                     confirmed_event_key = str(event["event_key"])
+            attempt_exists = bool(pending_attempts)
             if provider_confirmed and confirmed_event_key:
                 # A provider-confirmed transfer can resume finalization even if the
                 # seller reopens the Mini App and supplies a fresh request key.
@@ -2119,16 +2125,24 @@ def create_marketplace_offers_router(
                     conn.rollback()
                     raise HTTPException(status_code=409, detail="Seller gift ownership changed before transfer")
                 previous = conn.execute(
-                    """SELECT event_data FROM marketplace_escrow_events
-                       WHERE deal_id=? AND event_type='asset_transfer_submitted'""",
+                    """SELECT event_type, event_data FROM marketplace_escrow_events
+                       WHERE deal_id=? AND event_type IN ('asset_transfer_submitted','asset_transfer_rejected')
+                       ORDER BY created_at ASC, id ASC""",
                     (deal_id,),
                 ).fetchall()
-                if any(
-                    json.loads(row["event_data"] or "{}").get("provider") == "telegram_business"
-                    for row in previous
-                ):
+                pending_digests: set[str] = set()
+                for row in previous:
+                    previous_data = json.loads(row["event_data"] or "{}")
+                    if previous_data.get("provider") != "telegram_business":
+                        continue
+                    previous_digest = str(previous_data.get("attempt_digest") or "")
+                    if row["event_type"] == "asset_transfer_submitted" and previous_digest:
+                        pending_digests.add(previous_digest)
+                    elif row["event_type"] == "asset_transfer_rejected" and previous_digest:
+                        pending_digests.discard(previous_digest)
+                if pending_digests:
                     conn.rollback()
-                    raise HTTPException(status_code=409, detail="A Telegram gift transfer attempt already exists")
+                    raise HTTPException(status_code=409, detail="A Telegram gift transfer attempt is awaiting provider reconciliation")
                 try:
                     if locked["status"] == "paid":
                         transition_deal_status(
@@ -2164,8 +2178,41 @@ def create_marketplace_offers_router(
                     star_count=transfer_fee,
                 )
             except TelegramBusinessGiftInventoryError as exc:
-                # A network timeout may happen after Telegram accepted the transfer.
-                # Keep the attempt locked rather than risk sending the gift twice.
+                if exc.definitive_rejection:
+                    # A definitive Bot API rejection means no transfer occurred.
+                    # Record it durably so the seller can correct permissions/eligibility
+                    # and retry with a new idempotency key without risking a duplicate.
+                    with _db() as conn:
+                        begin_write(conn, f"deal:{deal_id}")
+                        try:
+                            append_escrow_event(
+                                conn,
+                                deal_id=deal_id,
+                                actor_user_id=seller_id,
+                                event_type="asset_transfer_rejected",
+                                event_key=f"{deal_id}:tg-gift-rejected:{request_digest}",
+                                event_data={
+                                    "asset_id": asset_id,
+                                    "provider": "telegram_business",
+                                    "attempt_digest": request_digest,
+                                    "buyer_telegram_id": buyer_id,
+                                    "reason": "telegram_definitive_rejection",
+                                },
+                                now=int(time.time()),
+                            )
+                        except (PaymentConflict, PaymentStateError, ValueError) as journal_exc:
+                            conn.rollback()
+                            raise HTTPException(
+                                status_code=503,
+                                detail="Telegram rejected the transfer, but the rejection journal needs reconciliation",
+                            ) from journal_exc
+                        conn.commit()
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Telegram rejected the gift transfer; correct the Business permissions or gift eligibility and retry",
+                    ) from exc
+                # A network timeout or server error may happen after Telegram accepted
+                # the transfer. Keep this attempt locked pending manual reconciliation.
                 raise HTTPException(
                     status_code=502,
                     detail="Telegram transfer result is unconfirmed; automatic retry is blocked for safety",
