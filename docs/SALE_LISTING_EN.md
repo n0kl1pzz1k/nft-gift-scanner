@@ -14,6 +14,12 @@ HASSLE NFT is an independent Telegram Mini App marketplace project built around 
 - CI workflows and test evidence.
 - Telegram bot identity and associated Mini App entry point, subject to confirmation and Telegram's supported transfer process.
 
+## Source branch and production disclosure
+
+Block 6 payment/escrow code is merged into the repository's `main` branch, but the original PR records that it was not production-deployed at merge time and payment flags remain disabled. Block 5 trading/offer implementation (PR #213) and Block 7 admin/support implementation (PR #216) remain open draft pull requests and are not merged into `main`. The buyer should assess these branches separately from the deployed application.
+
+The Railway service deploys from `main` in the US East (`iad`) region. Its configured variable names include a legacy `PORTALS_API_KEY`; the value is not disclosed and active use has not been verified. The repository slug and GitHub description also retain legacy scanner branding and need final cleanup.
+
 ## Technology
 Svelte 5, TypeScript, Vite, Tailwind CSS, Python, FastAPI, PostgreSQL, Redis, aiogram, TON Connect, Cloudflare Workers, Railway and GitHub Actions.
 
