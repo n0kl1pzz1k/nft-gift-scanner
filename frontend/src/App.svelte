@@ -1471,6 +1471,8 @@
                       <button class="cancel-button" onclick={()=>cancelDealReservation(deal.id)} disabled={offerActionBusy===deal.id || starsCheckoutBusy===deal.id || tonDeliveryBusy===deal.id}>{offerActionBusy===deal.id?'…':(lang==='ru'?'Снять резерв':'Release reservation')}</button>
                     {:else if deal.status==='awaiting_payment' && !deal.is_seller && deal.payments_enabled && deal.currency==='TON'}
                       <button class="asset-offer-button" onclick={()=>startTonCheckout(deal.id)} disabled={tonDeliveryBusy===deal.id}>{tonDeliveryBusy===deal.id?'…':(lang==='ru'?'Продолжить оплату TON':'Continue TON payment')}</button>
+                    {:else if deal.status==='payment_pending' && !deal.is_seller && deal.currency==='TON'}
+                      <button class="asset-offer-button" onclick={()=>confirmTonPayment(deal.id)} disabled={tonDeliveryBusy===deal.id}>{tonDeliveryBusy===deal.id?'…':(lang==='ru'?'Проверить оплату TON':'Verify TON payment')}</button>
                     {:else if deal.status==='awaiting_payment' && !deal.is_seller && deal.payments_enabled && deal.currency==='XTR'}
                       <button class="asset-offer-button" onclick={()=>startStarsCheckout(deal.id)} disabled={starsCheckoutBusy===deal.id}>{starsCheckoutBusy===deal.id?'…':(lang==='ru'?'Создать счёт Stars':'Create Stars invoice')}</button>
                     {/if}
