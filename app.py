@@ -866,7 +866,11 @@ async def _run_marketplace_expiry_sweeper():
     while True:
         try:
             result = await asyncio.to_thread(expire_unpaid_marketplace_deals)
-            if result.get("expired_deals"):
+            delivery_result = await asyncio.to_thread(
+                __import__("marketplace_offers").escalate_stalled_paid_deals
+            )
+            result.update(delivery_result)
+            if result.get("expired_deals") or result.get("stalled_deliveries_disputed"):
                 logging.getLogger("hassle_nft.escrow").info(
                     "reservation_timeout_sweep=%s",
                     json.dumps(result, sort_keys=True),
