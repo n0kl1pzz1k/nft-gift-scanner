@@ -28,6 +28,16 @@ GitHub Actions run [44729819248](https://github.com/n0kl1pzz1k/nft-gift-scanner/
 
 A passing CI run verifies the listed automated checks. It does **not** certify production payments, asset custody, legal compliance, independent security review, provider-side configuration or operational readiness for live settlement.
 
+## Source branch and release status (2026-11-20)
+
+The GitHub repository has active draft branches and open pull requests. Do not treat every feature described in a draft PR as part of the deployed product:
+- Block 6 payment/escrow/delivery code was merged into `main` in PR [#214](https://github.com/n0kl1pzz1k/nft-gift-scanner/pull/214), but its own PR description says it was not production-deployed at merge time. Real payment flags remain disabled.
+- Block 5 marketplace/trading implementation is in open draft PR [#213](https://github.com/n0kl1pzz1k/nft-gift-scanner/pull/213), not merged into `main`.
+- Block 7 admin/support implementation is in open draft PR [#216](https://github.com/n0kl1pzz1k/nft-gift-scanner/pull/216), based on the Block 6 branch, not merged into `main`.
+- Other older open PRs also remain and need review before a clean buyer handover.
+
+Railway's backend service is configured to deploy from `main` in the `iad` region. Its variable-name inventory includes PostgreSQL configuration variables and a legacy `PORTALS_API_KEY` name; secret values are not exposed in this audit. The presence of a variable name does not prove that the code currently uses it, but it must be checked before claiming all legacy integrations have been removed.
+
 ## Product areas
 
 - Public marketplace catalog, search, filters and sorting
@@ -90,7 +100,7 @@ python -m pytest -q tests
 - GitHub Actions validates the backend, frontend and deployment configuration. On pushes to `main`, the frontend job deploys the Worker using GitHub Actions secrets.
 - Runtime credentials must be stored in Railway/Cloudflare secret settings, never committed to Git.
 
-See [Buyer overview](docs/BUYER_OVERVIEW.md) for a component map and [Handover checklist](docs/HANDOVER_CHECKLIST.md) for a complete-asset transfer outline.
+See [Buyer overview](docs/BUYER_OVERVIEW.md), [Known limitations](docs/KNOWN_LIMITATIONS.md), [Buyer FAQ](docs/BUYER_FAQ.md), [12-point sale tracker](docs/SALE_PREPARATION_CHECKLIST.md) and [Handover checklist](docs/HANDOVER_CHECKLIST.md) for due diligence and transfer.
 
 ## Security and payment boundaries
 
