@@ -291,10 +291,20 @@
     return headers;
   };
 
+  async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 12000): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...init, signal: init.signal || controller.signal });
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }
+
   async function request(path: string, signal?: AbortSignal, init: RequestInit = {}) {
     const headers = new Headers(authHeaders());
     new Headers(init.headers || {}).forEach((value, key) => headers.set(key, value));
-    const response = await fetch(API + path, { ...init, signal, headers });
+    const response = await fetchWithTimeout(API + path, { ...init, signal, headers });
     const data = await response.json().catch(() => ({ detail: 'Invalid server response' }));
     if (!response.ok) {
       const detail = data.detail;
@@ -1304,7 +1314,7 @@
     if (!savedToken.startsWith('grs_')) return false;
     authToken = savedToken;
     try {
-      const response = await fetch(API + '/api/auth/me', { headers: authHeaders() });
+      const response = await fetchWithTimeout(API + '/api/auth/me', { headers: authHeaders() }, 8000);
       const data = await response.json();
       if (!response.ok || data.authenticated !== true || !data.user) throw new Error('Session expired');
       telegramUser = data.user.first_name || 'Telegram user';
@@ -1343,10 +1353,10 @@
     authBusy = true;
     isAdmin = false;
     try {
-      const response = await fetch(API + '/api/auth/telegram', {
+      const response = await fetchWithTimeout(API + '/api/auth/telegram', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ init_data: initData }),
-      });
+      }, 12000);
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Authentication failed');
       if (typeof data.session_token !== 'string' || !data.session_token.startsWith('grs_')) throw new Error('Server did not issue a valid session');
@@ -1406,10 +1416,15 @@
       const savedOrders = JSON.parse(localStorage.getItem('hassle-nft-favorite-orders-v1') || '[]');
       if (Array.isArray(savedOrders)) favoriteOrderIds = savedOrders.filter((id): id is string => typeof id === 'string');
     } catch {}
+    // Load the public marketplace immediately. Session restoration must never
+    // block the first screen: an expired Telegram session or a slow auth endpoint
+    // previously left the Mini App on its initial loading state.
+    void loadMarketplace();
     void restoreTelegramSession().then(restored => {
       if (restored) return;
       if (window.Telegram?.WebApp?.initData) void telegramLogin(false);
-      else void loadMarketplace();
+    }).catch(() => {
+      // Public browsing remains available even when Telegram authentication fails.
     });
     return () => webApp?.offEvent?.('themeChanged', syncTelegramTheme);
   });
