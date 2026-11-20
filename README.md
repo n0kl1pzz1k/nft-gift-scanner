@@ -100,7 +100,7 @@ python -m pytest -q tests
 - GitHub Actions validates the backend, frontend and deployment configuration. On pushes to `main`, the frontend job deploys the Worker using GitHub Actions secrets.
 - Runtime credentials must be stored in Railway/Cloudflare secret settings, never committed to Git.
 
-See [Buyer overview](docs/BUYER_OVERVIEW.md), [Infrastructure map](docs/INFRASTRUCTURE_MAP.md), [Known limitations](docs/KNOWN_LIMITATIONS.md), [Buyer FAQ](docs/BUYER_FAQ.md), [12-point sale tracker](docs/SALE_PREPARATION_CHECKLIST.md) and [Handover checklist](docs/HANDOVER_CHECKLIST.md) for due diligence and transfer.
+See [Buyer overview](docs/BUYER_OVERVIEW.md), [Infrastructure map](docs/INFRASTRUCTURE_MAP.md), [Open PR inventory](docs/OPEN_PULL_REQUESTS.md), [Known limitations](docs/KNOWN_LIMITATIONS.md), [Buyer FAQ](docs/BUYER_FAQ.md), [12-point sale tracker](docs/SALE_PREPARATION_CHECKLIST.md) and [Handover checklist](docs/HANDOVER_CHECKLIST.md) for due diligence and transfer.
 
 ## Security and payment boundaries
 
