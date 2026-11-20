@@ -2587,6 +2587,56 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(restored.status_code, 200, restored.text)
         self.assertFalse(marketplace_admin.user_is_suspended("202"))
 
+    def test_support_tickets_are_private_and_admin_resolution_is_audited(self):
+        created = self.client.post(
+            "/api/marketplace/support/tickets",
+            headers={"X-Telegram-Init-Data":"user-b"},
+            json={"ticket_type":"payment","subject":"Payment needs review","message":"I paid and the deal status has not updated yet."},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        ticket_id = created.json()["id"]
+        own = self.client.get(
+            "/api/marketplace/support/tickets/me",
+            headers={"X-Telegram-Init-Data":"user-b"},
+        )
+        other = self.client.get(
+            "/api/marketplace/support/tickets/me",
+            headers={"X-Telegram-Init-Data":"user-a"},
+        )
+        self.assertEqual(len(own.json()["items"]), 1)
+        self.assertEqual(other.json()["items"], [])
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS":"101"}):
+            denied = self.client.get(
+                "/api/marketplace/admin/support-tickets",
+                headers={"X-Telegram-Init-Data":"user-b"},
+            )
+            self.assertEqual(denied.status_code, 403)
+            listed = self.client.get(
+                "/api/marketplace/admin/support-tickets",
+                headers={"X-Telegram-Init-Data":"user-a"},
+            )
+            self.assertEqual(listed.status_code, 200, listed.text)
+            self.assertEqual(listed.json()["items"][0]["id"], ticket_id)
+            assigned = self.client.patch(
+                f"/api/marketplace/admin/support-tickets/{ticket_id}",
+                headers={"X-Telegram-Init-Data":"user-a"},
+                json={"status":"in_progress","note":"Assigned to support."},
+            )
+            self.assertEqual(assigned.status_code, 200, assigned.text)
+            resolved = self.client.patch(
+                f"/api/marketplace/admin/support-tickets/{ticket_id}",
+                headers={"X-Telegram-Init-Data":"user-a"},
+                json={"status":"resolved","note":"Compared provider payment and deal timeline."},
+            )
+            self.assertEqual(resolved.status_code, 200, resolved.text)
+            audit = self.client.get(
+                "/api/marketplace/admin/audit",
+                headers={"X-Telegram-Init-Data":"user-a"},
+            )
+            actions = {row["action"] for row in audit.json()["items"]}
+            self.assertIn("admin_support_ticket_assigned", actions)
+            self.assertIn("admin_support_ticket_resolved", actions)
+
     def test_manual_reconciliation_queue_is_admin_only_and_resolution_is_audited(self):
         from marketplace_payments import create_manual_reconciliation_item
         with marketplace._db() as conn:
