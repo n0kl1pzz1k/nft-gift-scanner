@@ -41,6 +41,39 @@ def is_two_of_three_multisig(config: Any, expected_address: str) -> bool:
         return False
 
 
+async def fetch_ton_wallet_public_key(
+    address: str,
+    *,
+    client: httpx.AsyncClient | None = None,
+) -> str:
+    """Fetch and validate an initialized TON wallet public key."""
+    raw_address = _raw_address(address)
+    token = os.getenv("TONAPI_TOKEN", "").strip()
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    owns_client = client is None
+    session = client or httpx.AsyncClient(
+        base_url=TONAPI_BASE_URL,
+        timeout=httpx.Timeout(12.0, connect=5.0),
+        follow_redirects=False,
+    )
+    try:
+        response = await session.get(f"/v2/accounts/{raw_address}/publickey", headers=headers)
+        response.raise_for_status()
+        payload = response.json()
+        public_key = payload.get("public_key") if isinstance(payload, dict) else None
+        if (
+            not isinstance(public_key, str)
+            or len(public_key) != 64
+            or any(char not in "0123456789abcdefABCDEF" for char in public_key)
+        ):
+            raise ValueError("TONAPI returned an invalid wallet public key")
+        return public_key.lower()
+    finally:
+        if owns_client:
+            await session.aclose()
+
 async def fetch_ton_multisig_config(
     address: str,
     *,
