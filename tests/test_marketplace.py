@@ -775,11 +775,12 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(released.status_code, 200, released.text)
         self.assertEqual(released.json()["seller_credit"], "recorded")
         self.assertEqual(released.json()["settlement_status"], "pending_manual_payout")
-        replay = self.client.post(
-            f"/api/marketplace/admin/deals/{deal_id}/execute-seller-release",
-            headers={"X-Telegram-Init-Data":"user-b"},
-            json={"idempotency_key":"seller-release-execute-replay"},
-        )
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS":"202,303"}):
+            replay = self.client.post(
+                f"/api/marketplace/admin/deals/{deal_id}/execute-seller-release",
+                headers={"X-Telegram-Init-Data":"user-b"},
+                json={"idempotency_key":"seller-release-execute-replay"},
+            )
         self.assertEqual(replay.status_code, 200, replay.text)
         self.assertTrue(replay.json()["idempotent_replay"])
         with marketplace_offers._db() as conn:
@@ -2766,7 +2767,8 @@ class SharedMarketplaceTests(unittest.TestCase):
             self.assertEqual(len(dismissed_event["target_hash"]), 64)
 
         mine = self.client.get("/api/marketplace/mine", headers=owner_headers)
-        self.assertEqual(mine.json()["items"][0]["status"], "cancelled")
+        removed_listing = next(item for item in mine.json()["items"] if item["id"] == order_id)
+        self.assertEqual(removed_listing["status"], "cancelled")
         with marketplace._db() as conn:
             status = conn.execute(
                 "SELECT status FROM marketplace_order_reports WHERE id = ?", (report_id,),
