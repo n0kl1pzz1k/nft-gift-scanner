@@ -15,7 +15,8 @@
   
   type DealTimelineEvent = {id:string;actor_user_id:string;type:string;data:Record<string,unknown>;created_at:number};
   type AccountNotification = { id:string; type:'offer_received'|'offer_accepted'|'offer_declined'|'offer_withdrawn'; offer_id:string; order_id:string; order_title:string; actor_name:string; created_at:number; read_at:number|null };
-  type AccountStats = { active_orders:number; completed_orders:number; pending_offers_sent:number; pending_offers_received:number; unread_notifications:number };
+  type SellerPendingSettlement = { currency:'TON'|'XTR'; amount:string; status:'pending_manual_payout'|'internal_xtr_credit'; automatic_withdrawal_available:boolean };
+  type AccountStats = { active_orders:number; completed_orders:number; pending_offers_sent:number; pending_offers_received:number; unread_notifications:number; deals:number; seller_pending_settlements:SellerPendingSettlement[] };
   type AccountActivity = { id:string; type:string; order_id:string; title:string; actor_name:string; created_at:number; amount:string; currency:'TON'|'XTR'; };
   type OrderReport = { id:string; order_id:string; reporter_name:string; reason:'scam'|'misleading'|'inappropriate'|'spam'|'other'; details:string; status:'open'|'dismissed'|'removed'; created_at:number; order_title:string; order_status:string; order_owner:string };
   type SellerProfile = { profile_id:string; display_name:string; bio:string; created_at:number; updated_at:number; username:string };
@@ -82,7 +83,7 @@
   let accountActivity = $state<AccountActivity[]>([]);
   let activityTotal = $state(0);
   let activityBusy = $state(false);
-  let accountStats = $state<AccountStats>({active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,unread_notifications:0});
+  let accountStats = $state<AccountStats>({active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,unread_notifications:0,deals:0,seller_pending_settlements:[]});
   let marketplaceStats = $state<MarketplaceStats>({active_listings:0,active_buy_requests:0,matched_orders:0,volume_ton:0,volume_stars:0,floor_ton:null,floor_stars:null,total_orders:0});
   let sellerProfile = $state<SellerProfile | null>(null);
   let sellerDisplayName = $state('');
@@ -98,6 +99,7 @@
   let tonDeliveryRequest = $state<{dealId:string;sellerWallet:string;transaction:{validUntil:number;network:string;messages:Array<{address:string;amount:string;payload?:string}>}}|null>(null);
   let tonPaymentRequest = $state<{ dealId:string; buyerWallet:string; transaction:{ validUntil:number; network:string; messages:Array<{ address:string; amount:string; payload?:string }> } } | null>(null);
   let tonDeliveryBusy = $state('');
+  let businessGiftDeliveryBusy = $state('');
   let expandedDealTimeline = $state('');
   let dealTimelineItems = $state<Record<string,DealTimelineEvent[]>>({});
   let dealTimelineBusy = $state('');
@@ -284,7 +286,12 @@
     new Headers(init.headers || {}).forEach((value, key) => headers.set(key, value));
     const response = await fetch(API + path, { ...init, signal, headers });
     const data = await response.json().catch(() => ({ detail: 'Invalid server response' }));
-    if (!response.ok) throw new Error(data.detail || 'Request failed');
+    if (!response.ok) {
+      const detail = data.detail;
+      const error = new Error(typeof detail === 'string' ? detail : (detail ? JSON.stringify(detail) : 'Request failed')) as Error & { detail?: unknown };
+      error.detail = detail;
+      throw error;
+    }
     return data;
   }
 
@@ -620,7 +627,7 @@
     if (!window.Telegram?.WebApp?.initData) {
       notifications = [];
       notificationTotal = 0;
-      accountStats = {active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,unread_notifications:0};
+      accountStats = {active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,unread_notifications:0,deals:0,seller_pending_settlements:[]};
       return;
     }
     const [stats, feed, activity] = await Promise.all([
