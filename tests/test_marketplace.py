@@ -103,6 +103,30 @@ class SharedMarketplaceTests(unittest.TestCase):
             conn.commit()
         return deal_id, invoice_payload, intent["id"]
 
+    def test_seller_response_to_buy_request_is_rejected_until_asset_binding_exists(self):
+        buyer_headers = {"X-Telegram-Init-Data": "user-a"}
+        seller_headers = {"X-Telegram-Init-Data": "user-b"}
+        buy_request = self.client.post(
+            "/api/marketplace/orders",
+            headers=buyer_headers,
+            json={"kind": "buy-order", "title": "Wanted collectible gift", "price": "25", "currency": "TON"},
+        )
+        self.assertEqual(buy_request.status_code, 201, buy_request.text)
+        response = self.client.post(
+            "/api/marketplace/offers",
+            headers=seller_headers,
+            json={
+                "order_id": buy_request.json()["item"]["id"],
+                "amount": "24",
+                "note": "I have a collectible gift",
+            },
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertIn("specific verified asset", response.json()["detail"])
+        with marketplace_offers._db() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM marketplace_offers").fetchone()[0]
+        self.assertEqual(count, 0)
+
     def test_telegram_business_gift_delivery_transfers_once_and_records_buyer_ownership(self):
         asset = marketplace.register_verified_asset(
             source="telegram_gift",
