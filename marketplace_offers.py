@@ -1395,13 +1395,11 @@ def create_marketplace_offers_router(
         from ton_nft_inventory import normalise_ton_address
         from marketplace_payments import PaymentConflict, PaymentStateError, append_escrow_event, post_ledger_transaction, record_payment_event, transition_deal_status, transition_payment_intent
 
-        admin = _admin_user(x_telegram_init_data)
+        admin = _admin_user(x_telegram_init_data, "payments.refund")
         admin_id = str(admin["id"])
         _enforce_user_rate_limit(admin_id, "ton_refund_execution", 5)
-        configured_admins = {
-            part.strip() for part in os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", "")).split(",")
-            if part.strip().isdigit()
-        }
+        from marketplace_admin import get_admin_ids_with_permission
+        configured_admins = get_admin_ids_with_permission("payments.refund")
         if len(configured_admins) < 2:
             raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
         token = os.getenv("TONAPI_TOKEN", "").strip()
@@ -1540,14 +1538,11 @@ def create_marketplace_offers_router(
         import httpx
         from ton_nft_inventory import fetch_nft_owner, normalise_ton_address
 
-        admin = _admin_user(x_telegram_init_data)
+        admin = _admin_user(x_telegram_init_data, "disputes.resolve")
         admin_id = str(admin["id"])
         _enforce_user_rate_limit(admin_id, "seller_release_execution", 5)
-        configured_admins = {
-            part.strip()
-            for part in os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", "")).split(",")
-            if part.strip().isdigit()
-        }
+        from marketplace_admin import get_admin_ids_with_permission
+        configured_admins = get_admin_ids_with_permission("disputes.resolve")
         if len(configured_admins) < 2:
             raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
         with _db() as conn:
