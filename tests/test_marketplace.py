@@ -1124,6 +1124,8 @@ class SharedMarketplaceTests(unittest.TestCase):
             "PAYMENT_SUPPORT_CONTACT": "@hassle_support",
         }
         with patch.dict(os.environ, flags), patch(
+            "marketplace_offers._require_ton_multisig_2_of_3", new=AsyncMock(return_value=None),
+        ), patch(
             "ton_nft_inventory.fetch_nft_owner",
             new=AsyncMock(return_value={"owner_address":seller_wallet,"is_scam":False}),
         ):
