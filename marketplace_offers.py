@@ -1556,14 +1556,20 @@ def create_marketplace_offers_router(
             if deal is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Deal not found")
-            if deal["status"] == "cancelled":
-                released = conn.execute(
-                    "SELECT 1 FROM marketplace_escrow_events WHERE deal_id=? AND event_type='payout_released'",
+            if deal["status"] == "completed":
+                credited = conn.execute(
+                    "SELECT 1 FROM marketplace_escrow_events WHERE deal_id=? AND event_type='seller_credit_recorded'",
                     (deal_id,),
                 ).fetchone()
-                if released:
+                if credited:
                     conn.rollback()
-                    return {"deal_id": deal_id, "status": "cancelled", "seller_credit": "released", "idempotent_replay": True}
+                    return {
+                        "deal_id": deal_id,
+                        "status": "completed",
+                        "seller_credit": "recorded",
+                        "settlement_status": "pending_manual_payout",
+                        "idempotent_replay": True,
+                    }
             if deal["status"] != "disputed":
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Only disputed deals can execute a seller release")
@@ -1634,9 +1640,9 @@ def create_marketplace_offers_router(
                     now=now,
                 )
                 transition_deal_status(
-                    conn, deal_id=deal_id, new_status="cancelled", actor_user_id=admin_id,
+                    conn, deal_id=deal_id, new_status="completed", actor_user_id=admin_id,
                     idempotency_key=f"{deal_id}:seller-release-confirmed:{payload.idempotency_key}",
-                    event_type="payout_released",
+                    event_type="seller_credit_recorded",
                     event_data={"payment_intent_id": intent["id"], "ledger_transaction_id": ledger["id"],
                                 "currency": str(intent["currency"]), "amount": str(intent["amount"]),
                                 "seller_telegram_id": str(deal["listing_owner_id"]),
