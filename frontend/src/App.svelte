@@ -1442,7 +1442,7 @@
     <div class="nav-caption">{lang === 'ru' ? 'МЕНЮ' : 'MENU'}</div>
     <nav class="side-nav">
       {#each [{id:'orders',label:lang==='ru'?'Маркет':'Market',icon:'▦'},{id:'create',label:lang==='ru'?'Инвентарь':'Inventory',icon:'◈'},{id:'offers',label:lang==='ru'?'Активность':'Activity',icon:'↗'},{id:'profile',label:lang==='ru'?'Профиль':'Profile',icon:'◉'}] as item}
-        <button class:active={view===item.id || (view==='favorites' && item.id==='orders') || (view==='seller' && item.id==='profile')} class="nav-item" onclick={()=>{haptic();view=item.id as View;notice='';}}><span>{item.icon}</span>{item.label}</button>
+        <button class:active={view===item.id || (view==='favorites' && item.id==='orders') || (view==='seller' && item.id==='profile')} class="nav-item" onclick={()=>{haptic();view=item.id as View;notice='';if(item.id==='profile')void loadSellerProfile();}}><span>{item.icon}</span>{item.label}</button>
       {/each}
     </nav>
     <div class="sidebar-bottom"><div class="sidebar-version">NFT GIFTS · TON · STARS</div></div>
@@ -1451,10 +1451,50 @@
   <main class="main-content">
     <header class="topbar">
       <div class="crumb"><span>HASSLE NFT</span><b>/</b><span>{view==='orders'?(lang==='ru'?'Маркет':'Market'):view==='offers'?(lang==='ru'?'Активность':'Activity'):view==='create'?(lang==='ru'?'Инвентарь':'Inventory'):view==='favorites'?(lang==='ru'?'Избранное':'Saved'):view==='seller'?(lang==='ru'?'Продавец':'Seller'):t.profile}</span></div>
-      <div class="top-actions"><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>view='profile'}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
+      <div class="top-actions"><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>{view='profile';void loadSellerProfile();}}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
     </header>
 
-    {#if view==='seller'}
+    {#if view==='profile'}
+      <section class="page-heading compact-heading">
+        <div class="eyebrow">HASSLE NFT · ACCOUNT</div>
+        <h1>{t.profile}</h1>
+        <p>{lang==='ru'?'Аккаунт Telegram и публичная карточка продавца':'Your Telegram account and public seller card'}</p>
+      </section>
+      {#if signedIn}
+        <section class="public-seller-layout">
+          <article class="profile-card public-seller-card">
+            <div class="profile-avatar">
+              {#if telegramPhoto}<img src={telegramPhoto} alt="Telegram avatar"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'T'}</span>{/if}
+            </div>
+            <div class="public-seller-identity">
+              <h2>{telegramUser || 'Telegram user'}</h2>
+              {#if telegramUsername}<p>{telegramUsername}</p>{/if}
+              <p>{lang==='ru'?'Telegram подтверждён':'Telegram verified'}{telegramPremium?' · Premium':''}</p>
+              <small>{lang==='ru'?'Аккаунт авторизован через Telegram Mini App':'Signed in through Telegram Mini App'}</small>
+            </div>
+          </article>
+          <article class="profile-card seller-profile-editor">
+            <div class="section-title"><div><div class="eyebrow">PUBLIC PROFILE</div><h2>{t.sellerCardTitle}</h2></div></div>
+            <label class="profile-field-label">{t.sellerDisplayName}
+              <input class="form-input" bind:value={sellerDisplayName} maxlength="60" placeholder={telegramUser || (lang==='ru'?'Твоё имя':'Your name')}/>
+            </label>
+            <label class="profile-field-label">{t.sellerBio}
+              <textarea class="form-input note-input" bind:value={sellerBio} maxlength="300" placeholder={lang==='ru'?'Расскажи о себе или своих активах':'Tell buyers about yourself or your assets'}></textarea>
+            </label>
+            <button class="ton-primary offer-submit" type="button" onclick={saveSellerProfile} disabled={sellerProfileBusy}>
+              {sellerProfileBusy?(lang==='ru'?'Сохраняем…':'Saving…'):t.sellerSave}
+            </button>
+            {#if sellerProfile?.profile_id}<small class="sell-modal-hint">{t.sellerProfileId}: {sellerProfile.profile_id}</small>{/if}
+          </article>
+        </section>
+      {:else}
+        <div class="state-panel">
+          <strong>{t.guest}</strong>
+          <small>{t.authHint}</small>
+          <small>{lang==='ru'?'Закрой это окно и открой Mini App заново через Telegram-бота.':'Close this window and reopen the Mini App from the Telegram bot.'}</small>
+        </div>
+      {/if}
+    {:else if view==='seller'}
       <section class="page-heading"><div class="eyebrow">HASSLE NFT · SELLER</div><h1>{lang==='ru'?'Профиль продавца':'Seller profile'}</h1><p>{lang==='ru'?'Публичная информация и активы на продаже':'Public information and active listings'}</p></section>
       {#if publicSellerBusy}<div class="state-panel">{t.loading}</div>
       {:else if publicSellerProfile}
@@ -1997,4 +2037,4 @@
   </main>
 </div>
 
-<BottomNav lang={lang} active={view==='favorites'?'orders':view==='seller'?'profile':view as 'orders'|'create'|'offers'|'profile'} onNavigate={(target)=>{haptic();view=target;notice='';}} />
+<BottomNav lang={lang} active={view==='favorites'?'orders':view==='seller'?'profile':view as 'orders'|'create'|'offers'|'profile'} onNavigate={(target)=>{haptic();view=target;notice='';if(target==='profile')void loadSellerProfile();}} />
