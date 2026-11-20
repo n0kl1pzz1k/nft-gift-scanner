@@ -706,8 +706,15 @@ class SharedMarketplaceTests(unittest.TestCase):
                 headers={"X-Telegram-Init-Data":"user-b"},
                 json={"transaction_hash":"ab"*32,"idempotency_key":"ton-refund-execute-001"},
             )
+            replay = self.client.post(
+                f"/api/marketplace/admin/deals/{deal_id}/execute-ton-refund",
+                headers={"X-Telegram-Init-Data":"user-b"},
+                json={"transaction_hash":"ab"*32,"idempotency_key":"ton-refund-execute-001"},
+            )
         self.assertEqual(refunded.status_code, 200, refunded.text)
         self.assertEqual(refunded.json()["refund_status"], "refunded")
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertTrue(replay.json()["idempotent_replay"])
         with marketplace_offers._db() as conn:
             deal = conn.execute("SELECT status FROM marketplace_deals WHERE id=?",(deal_id,)).fetchone()
             intent = conn.execute("SELECT status FROM marketplace_payment_intents WHERE id=?",(intent["id"],)).fetchone()
