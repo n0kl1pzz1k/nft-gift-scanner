@@ -2408,8 +2408,11 @@ def create_marketplace_offers_router(
             raise HTTPException(status_code=503, detail="TON ownership verification is temporarily unavailable") from exc
         if current_owner.get("is_scam") or current_owner.get("owner_address") != seller_raw:
             raise HTTPException(status_code=409, detail="The seller no longer owns this NFT on-chain")
+        # A deal has exactly one intended NFT handoff. Keep the TEP-62 query_id
+        # stable across repeated prepare calls so a fresh HTTP idempotency key cannot
+        # produce a second, distinct transfer payload for the same delivery.
         query_id = int(hashlib.sha256(
-            f"{deal_id}:{payload.idempotency_key}".encode("utf-8")
+            f"hassle-ton-nft-delivery:{deal_id}".encode("utf-8")
         ).hexdigest()[:16], 16)
         try:
             transfer_payload = build_nft_transfer_payload(
