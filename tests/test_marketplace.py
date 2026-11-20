@@ -846,6 +846,19 @@ class SharedMarketplaceTests(unittest.TestCase):
             async def get(self, url, headers):
                 return FakePayoutResponse()
 
+        class FakeWrongDestinationResponse:
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {
+                    "success": True,
+                    "account": treasury,
+                    "out_msgs": [{"destination": buyer_address, "value": "9000000000"}],
+                }
+        class FakeWrongDestinationClient(FakePayoutClient):
+            async def get(self, url, headers):
+                return FakeWrongDestinationResponse()
+
         payout_flags = {
             "ADMIN_TELEGRAM_IDS":"202,303",
             "TONAPI_TOKEN":"test-tonapi-token",
@@ -853,6 +866,13 @@ class SharedMarketplaceTests(unittest.TestCase):
             "HASSLE_TON_PAYOUT_MODE":"manual_multisig_2_of_3",
             "HASSLE_TON_TREASURY_ADDRESS":treasury,
         }
+        with patch.dict(os.environ, payout_flags), patch("httpx.AsyncClient", FakeWrongDestinationClient):
+            wrong_destination = self.client.post(
+                f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
+                headers={"X-Telegram-Init-Data":"user-b"},
+                json={"transaction_hash":"ba"*32,"idempotency_key":"seller-payout-wrong-destination"},
+            )
+        self.assertEqual(wrong_destination.status_code, 409, wrong_destination.text)
         with patch.dict(os.environ, payout_flags), patch("httpx.AsyncClient", FakePayoutClient):
             payout = self.client.post(
                 f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
