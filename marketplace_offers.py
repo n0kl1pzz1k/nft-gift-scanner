@@ -1756,6 +1756,7 @@ def create_marketplace_offers_router(
         return {
             "deal_id": deal_id, "payment_intent_id": intent["id"], "provider": "ton",
             "currency": "TON", "amount": str(amount), "memo": memo,
+            "buyer_wallet": buyer_wallet["address"],
             "expires_at": intent["expires_at"],
             "transaction": {
                 "validUntil": min(now + ttl, int(intent["expires_at"])),
