@@ -15,7 +15,7 @@
   
   type AdminAsset = {id:string;source:string;external_asset_id:string;owner_telegram_id:string;title:string;asset_type:string;status:string;verified_at:number;revoked_at:number|null;owner_username:string};
   type AdminUser = {telegram_id:string;username:string;first_name:string;last_name:string;created_at:number;account_status:'active'|'suspended';control_reason:string;admin_role:string;order_count:number;verified_asset_count:number;is_environment_admin:boolean};
-  type AdminDispute = {id:string;listing_owner_id:string;offer_sender_id:string;agreed_amount:string;currency:'TON'|'XTR';status:string;created_at:number;title:string;approvals:number};
+  type AdminDispute = {id:string;listing_owner_id:string;offer_sender_id:string;agreed_amount:string;currency:'TON'|'XTR';status:string;created_at:number;title:string;approvals:number;refund_approvals:number;seller_release_approvals:number};
   type ReconciliationItem = {id:string;kind:string;deal_id:string|null;payment_intent_id:string|null;provider_reference:string|null;summary:string;status:'open'|'resolved'|'ignored';created_at:number};
   type AdminAuditItem = {id:string;actor_telegram_id:string;action:string;target_type:string;target_hash:string;outcome:string;metadata:Record<string,unknown>;created_at:number};
   type AdminRoleItem = {telegram_id:string;role:string;permissions:string[];assigned_by:string;created_at:number;updated_at:number;revoked_at:number|null};
@@ -1237,6 +1237,46 @@
     finally { adminUserActionBusy = ''; }
   }
 
+  async function executeAdminTonRefund(dealId: string) {
+    if (!adminPermissions.includes('payments.refund') || adminUserActionBusy) return;
+    const transactionHash = window.prompt(lang==='ru'
+      ? 'Вставь hash исходящей TON-транзакции возврата из treasury-кошелька:'
+      : 'Paste the outgoing TON refund transaction hash from the treasury wallet:');
+    if (!transactionHash || !transactionHash.trim()) return;
+    if (!window.confirm(lang==='ru'
+      ? 'Проверить транзакцию в TONAPI и закрыть возврат?'
+      : 'Verify this transaction with TONAPI and close the refund?')) return;
+    adminUserActionBusy = dealId;
+    try {
+      await request('/api/marketplace/admin/deals/' + encodeURIComponent(dealId) + '/execute-ton-refund', undefined, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({transaction_hash:transactionHash.trim(),idempotency_key:crypto.randomUUID()}),
+      });
+      notice = lang==='ru' ? 'TON-возврат подтверждён в блокчейне.' : 'TON refund confirmed on-chain.';
+      await loadAdminDisputes();
+      await loadAdminReconciliation();
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { adminUserActionBusy = ''; }
+  }
+
+  async function executeAdminSellerRelease(dealId: string) {
+    if (!adminPermissions.includes('disputes.resolve') || adminUserActionBusy) return;
+    if (!window.confirm(lang==='ru'
+      ? 'Проверить владение NFT продавцом в TON и зачислить сумму в его внутренний payable?'
+      : 'Verify seller NFT ownership on TON and record the seller payable?')) return;
+    adminUserActionBusy = dealId;
+    try {
+      await request('/api/marketplace/admin/deals/' + encodeURIComponent(dealId) + '/execute-seller-release', undefined, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({idempotency_key:crypto.randomUUID()}),
+      });
+      notice = lang==='ru' ? 'Зачисление продавцу записано. Выплата остаётся ручной.' : 'Seller payable recorded. Payout remains manual.';
+      await loadAdminDisputes();
+      await loadAdminReconciliation();
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { adminUserActionBusy = ''; }
+  }
+
   async function loadAdminReconciliation() {
     if (!(adminPermissions.includes('payments.reconcile.read') || adminPermissions.includes('payments.reconcile')) || adminReconciliationBusy) return;
     adminReconciliationBusy = true;
@@ -1907,8 +1947,14 @@
                       <button class="match-button" onclick={()=>approveAdminDispute(dispute.id,'refund_buyer')} disabled={adminUserActionBusy===dispute.id}>{lang==='ru'?'Одобрить возврат':'Approve refund'}</button>
                       <button class="cancel-button" onclick={()=>approveAdminDispute(dispute.id,'release_to_seller')} disabled={adminUserActionBusy===dispute.id}>{lang==='ru'?'Одобрить продавцу':'Approve seller release'}</button>
                     {/if}
-                    {#if adminPermissions.includes('payments.refund') && dispute.approvals>=2}
+                    {#if adminPermissions.includes('payments.refund') && dispute.refund_approvals>=2 && dispute.currency==='XTR'}
                       <button class="ton-primary" onclick={()=>executeAdminRefund(dispute.id)} disabled={adminUserActionBusy===dispute.id}>{lang==='ru'?'Выполнить возврат Stars':'Execute Stars refund'}</button>
+                    {/if}
+                    {#if adminPermissions.includes('payments.refund') && dispute.refund_approvals>=2 && dispute.currency==='TON'}
+                      <button class="ton-primary" onclick={()=>executeAdminTonRefund(dispute.id)} disabled={adminUserActionBusy===dispute.id}>{lang==='ru'?'Подтвердить TON-возврат':'Verify TON refund'}</button>
+                    {/if}
+                    {#if adminPermissions.includes('disputes.resolve') && dispute.seller_release_approvals>=2 && dispute.currency==='TON'}
+                      <button class="ton-primary" onclick={()=>executeAdminSellerRelease(dispute.id)} disabled={adminUserActionBusy===dispute.id}>{lang==='ru'?'Выполнить решение в пользу продавца':'Execute seller release'}</button>
                     {/if}
                   </div>
                 </article>
