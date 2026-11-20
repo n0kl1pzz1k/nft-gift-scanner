@@ -2007,14 +2007,9 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(removed.status_code, 200)
         self.assertEqual(self.client.get("/api/marketplace/favorites", headers=owner_headers).json()["items"], [])
 
-    def test_seller_can_send_counteroffer_to_buy_request_and_buyer_can_decline(self):
+    def test_seller_counteroffer_to_buy_request_is_disabled_until_asset_binding_exists(self):
         seller_headers = {"X-Telegram-Init-Data": "user-b"}
         buyer_headers = {"X-Telegram-Init-Data": "user-a"}
-        listing = self.client.post(
-            "/api/marketplace/orders", headers=seller_headers,
-            json={"kind": "listing", "title": "Collectible gift #7", "price": "90", "currency": "TON"},
-        )
-        self.assertEqual(listing.status_code, 201, listing.text)
         request = self.client.post(
             "/api/marketplace/orders", headers=buyer_headers,
             json={"kind": "buy-order", "title": "Collectible gift", "price": "80", "currency": "TON"},
@@ -2024,22 +2019,8 @@ class SharedMarketplaceTests(unittest.TestCase):
             "/api/marketplace/offers", headers=seller_headers,
             json={"order_id": request.json()["item"]["id"], "amount": "78", "note": "Collectible gift #7, verified asset"},
         )
-        self.assertEqual(response.status_code, 201, response.text)
-        offer = response.json()["item"]
-        self.assertEqual(offer["order_kind"], "buy-order")
-        buyer_offers = self.client.get("/api/marketplace/offers", headers=buyer_headers)
-        self.assertEqual(buyer_offers.status_code, 200)
-        self.assertTrue(any(item["id"] == offer["id"] and item["order_kind"] == "buy-order" for item in buyer_offers.json()["items"]))
-        cannot_accept = self.client.patch(
-            f"/api/marketplace/offers/{offer['id']}", headers=buyer_headers,
-            json={"action": "accept"},
-        )
-        self.assertEqual(cannot_accept.status_code, 409)
-        declined = self.client.patch(
-            f"/api/marketplace/offers/{offer['id']}", headers=buyer_headers,
-            json={"action": "decline"},
-        )
-        self.assertEqual(declined.status_code, 200, declined.text)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertIn("verified asset", response.json()["detail"])
 
     def test_seller_cannot_respond_to_buy_request_without_active_listing(self):
         buyer_headers = {"X-Telegram-Init-Data": "user-a"}
@@ -2068,7 +2049,8 @@ class SharedMarketplaceTests(unittest.TestCase):
             "/api/marketplace/offers", headers=seller_headers,
             json={"order_id": request.json()["item"]["id"], "amount": "75", "note": ""},
         )
-        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertIn("verified asset", response.json()["detail"])
 
     def test_buy_requests_can_be_published_and_discovered_without_seller_asset_listing_gate(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
