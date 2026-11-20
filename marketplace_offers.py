@@ -1985,12 +1985,23 @@ def create_marketplace_offers_router(
             "created_at": row["created_at"],
             "reservation_active": row["status"] not in {"cancelled", "expired", "completed"},
             "payments_enabled": (
-                row["currency"] == "XTR"
-                and os.getenv("HASSLE_STARS_CHECKOUT_ENABLED", "0") == "1"
-                and os.getenv("HASSLE_STARS_CUSTODY_ACKNOWLEDGED", "0") == "1"
-                and os.getenv("HASSLE_STARS_PAYOUT_MODE", "") == "internal_xtr_credit"
-                and bool(os.getenv("BOT_TOKEN", "").strip())
-                and bool(os.getenv("PAYMENT_SUPPORT_CONTACT", "").strip())
+                (
+                    row["currency"] == "XTR"
+                    and os.getenv("HASSLE_STARS_CHECKOUT_ENABLED", "0") == "1"
+                    and os.getenv("HASSLE_STARS_CUSTODY_ACKNOWLEDGED", "0") == "1"
+                    and os.getenv("HASSLE_STARS_PAYOUT_MODE", "") == "internal_xtr_credit"
+                    and bool(os.getenv("BOT_TOKEN", "").strip())
+                    and bool(os.getenv("PAYMENT_SUPPORT_CONTACT", "").strip())
+                )
+                or (
+                    row["currency"] == "TON"
+                    and os.getenv("HASSLE_TON_CHECKOUT_ENABLED", "0") == "1"
+                    and bool(os.getenv("HASSLE_TON_TREASURY_ADDRESS", "").strip())
+                    and bool(os.getenv("TONAPI_TOKEN", "").strip())
+                    and bool(os.getenv("PAYMENT_SUPPORT_CONTACT", "").strip())
+                    and row["asset_source"] == "ton_nft"
+                    and row["asset_status"] == "verified"
+                )
             ),
             "delivery_completed": row["status"] == "completed",
         } for row in rows]
