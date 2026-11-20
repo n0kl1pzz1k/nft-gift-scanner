@@ -118,3 +118,43 @@ jobs:
       - name: Compile upstream multisig contract
         working-directory: /tmp/ton-multisig
         run: npx blueprint build Multisig
+      - name: Derive and verify exact HASSLE Mainnet multisig configuration
+        working-directory: /tmp/ton-multisig
+        run: |
+          cat > scripts/hassle-derive.ts <<'TS'
+          import fs from 'node:fs';
+          import { Address, Cell } from '@ton/core';
+          import { Multisig } from '../wrappers/Multisig';
+
+          const compiled = JSON.parse(fs.readFileSync('build/Multisig.compiled.json', 'utf8'));
+          if (typeof compiled.hex !== 'string') throw new Error('Missing compiled Multisig BOC hex');
+          const code = Cell.fromBoc(Buffer.from(compiled.hex, 'hex'))[0];
+          const config = {
+            threshold: 2,
+            signers: [
+              Address.parse('UQA3K2PGXyotga99en2ZXE_Ne9wY5u-lC07oQK6bRdxtENfs'),
+              Address.parse('UQDqyqwz6TKotnrjHnEtWnlpZgEwNj5I54n5bAOmFivBR8ys'),
+              Address.parse('UQCO3ghYMh52rbhO5leQQxu4AAUKz8DuW2wSVeZRN_MiHJyI'),
+            ],
+            proposers: [],
+            allowArbitrarySeqno: false,
+          };
+          const wallet = Multisig.createFromConfig(config, code);
+          const codeHash = code.hash().toString('hex');
+          const dataHash = wallet.init!.data.hash().toString('hex');
+          const publishedTonkeyCodeHash = 'd3d14da9a627f0ec3533341829762af92b9540b21bf03665fac09c2b46eabbac';
+          if (codeHash !== publishedTonkeyCodeHash) {
+            throw new Error('Compiled code hash does not match the published TON multisig-v2 hash');
+          }
+          console.log(JSON.stringify({
+            network: 'mainnet',
+            address: wallet.address.toRawString(),
+            codeHash,
+            dataHash,
+            threshold: config.threshold,
+            signers: config.signers.map((address) => address.toRawString()),
+            proposers: config.proposers,
+            allowArbitrarySeqno: config.allowArbitrarySeqno,
+          }, null, 2));
+          TS
+          npx ts-node scripts/hassle-derive.ts
