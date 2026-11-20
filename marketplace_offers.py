@@ -30,6 +30,20 @@ def _db():
     return _database_db(DB_PATH)
 
 
+async def _require_ton_multisig_2_of_3(address: str) -> None:
+    """Fail closed unless TonAPI confirms the configured treasury is a 2-of-3 multisig."""
+    from ton_multisig import fetch_ton_multisig_config, is_two_of_three_multisig
+
+    if not os.getenv("TONAPI_TOKEN", "").strip():
+        raise HTTPException(status_code=503, detail="TONAPI token is required to verify the treasury multisig")
+    try:
+        config = await fetch_ton_multisig_config(address)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="TON treasury multisig verification is temporarily unavailable") from exc
+    if not is_two_of_three_multisig(config, address):
+        raise HTTPException(status_code=503, detail="Configured TON treasury is not verified as a 2-of-3 multisig")
+
+
 def init_marketplace_offers_db() -> None:
     with _db() as conn:
         if bool(getattr(conn, "supports_for_update", False)):
@@ -1482,6 +1496,7 @@ def create_marketplace_offers_router(
         try:
             treasury_raw = normalise_ton_address(treasury)
             buyer_raw = normalise_ton_address(buyer_wallet)
+            await _require_ton_multisig_2_of_3(treasury_raw)
             base_url = os.getenv("TONAPI_BASE_URL", "https://tonapi.io").rstrip("/")
             async with httpx.AsyncClient(timeout=12.0, follow_redirects=False) as client:
                 response = await client.get(
@@ -1797,6 +1812,7 @@ def create_marketplace_offers_router(
             treasury_raw = normalise_ton_address(treasury)
         except Exception as exc:
             raise HTTPException(status_code=503, detail="Configured TON treasury address is invalid") from exc
+        await _require_ton_multisig_2_of_3(treasury_raw)
 
         with _db() as conn:
             begin_write(conn, f"deal:{deal_id}")
@@ -2761,6 +2777,7 @@ def create_marketplace_offers_router(
             treasury_raw = normalise_ton_address(treasury)
         except Exception as exc:
             raise HTTPException(status_code=503, detail="Configured TON treasury address is invalid") from exc
+        await _require_ton_multisig_2_of_3(treasury_raw)
         try:
             ttl = max(300, min(int(os.getenv("HASSLE_TON_INVOICE_TTL_SECONDS", "900")), 3600))
         except ValueError:
