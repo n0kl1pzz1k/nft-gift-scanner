@@ -102,6 +102,158 @@ class SharedMarketplaceTests(unittest.TestCase):
             conn.commit()
         return deal_id, invoice_payload, intent["id"]
 
+    def test_telegram_business_gift_delivery_transfers_once_and_records_buyer_ownership(self):
+        asset = marketplace.register_verified_asset(
+            source="telegram_gift",
+            external_asset_id="test-business-gift-unique-9001",
+            owner_telegram_id="101",
+            title="Business Gift #9001",
+            asset_type="gift",
+            image_url="",
+            verification_method="telegram_gift_owner",
+            verification_reference="business-gift-proof-reference-9001",
+            allow_owner_transfer=True,
+        )
+        marketplace.upsert_telegram_business_connection({
+            "id": "business-connection-101",
+            "user": {"id": 101},
+            "user_chat_id": 101,
+            "is_enabled": True,
+            "rights": {
+                "can_view_gifts_and_stars": True,
+                "can_transfer_and_upgrade_gifts": True,
+                "can_transfer_stars": True,
+            },
+        })
+        marketplace.save_telegram_business_gift_ref(
+            asset_id=asset["id"],
+            owner_telegram_id="101",
+            business_connection_id="business-connection-101",
+            owned_gift_id="owned-gift-9001",
+            gift_slug="BusinessGift-9001",
+        )
+        listing = self.client.post(
+            "/api/marketplace/orders",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={
+                "kind": "listing", "title": "Business Gift #9001", "price": "9",
+                "currency": "XTR", "asset_id": asset["id"],
+            },
+        )
+        self.assertEqual(listing.status_code, 201, listing.text)
+        offer = self.client.post(
+            "/api/marketplace/offers",
+            headers={"X-Telegram-Init-Data": "user-b"},
+            json={"order_id": listing.json()["item"]["id"], "amount": "9", "note": "buy"},
+        )
+        self.assertEqual(offer.status_code, 201, offer.text)
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer.json()['item']['id']}",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        deal_id = accepted.json()["deal_id"]
+        with marketplace_offers._db() as conn:
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="awaiting_payment",
+                actor_user_id="202", idempotency_key=f"{deal_id}:test-awaiting",
+                event_type="deal_payment_requested", event_data={"provider": "telegram_stars"},
+                now=1700000000,
+            )
+            intent = create_payment_intent(
+                conn, deal_id=deal_id, provider="telegram_stars", currency="XTR",
+                amount="9", idempotency_key=f"{deal_id}:test-business-gift-payment",
+                invoice_payload=f"hassle:test:{deal_id}", expires_at=1700000900,
+                metadata={"buyer_telegram_id": "202"}, now=1700000000,
+            )
+            transition_payment_intent(conn, intent["id"], "pending", now=1700000001)
+            transition_payment_intent(
+                conn, intent["id"], "confirmed",
+                provider_reference="test-business-gift-charge", now=1700000002,
+            )
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="payment_pending",
+                actor_user_id="202", idempotency_key=f"{deal_id}:test-payment-pending",
+                event_type="payment_pending", event_data={"provider": "telegram_stars"},
+                now=1700000001,
+            )
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="paid",
+                actor_user_id="202", idempotency_key=f"{deal_id}:test-payment-confirmed",
+                event_type="payment_confirmed", event_data={"provider": "telegram_stars"},
+                now=1700000002,
+            )
+            post_ledger_transaction(
+                conn, idempotency_key=f"{deal_id}:test-business-gift-escrow",
+                reference_type="deal", reference_id=deal_id, currency="XTR",
+                debit_account=("telegram_stars_clearing", "test-business-gift-charge"),
+                credit_account=("escrow", deal_id), debit_amount="9", credit_amount="9",
+                now=1700000002,
+            )
+            conn.commit()
+
+        live_inventory = {
+            "complete": True,
+            "items": [{
+                "owned_gift_id": "owned-gift-9001",
+                "can_be_transferred": True,
+                "transfer_star_count": 0,
+                "next_transfer_date": 0,
+            }],
+        }
+        with patch(
+            "telegram_business_gift_inventory.fetch_business_account_gifts",
+            new=AsyncMock(return_value=live_inventory),
+        ), patch(
+            "telegram_business_gift_inventory.transfer_business_account_gift",
+            new=AsyncMock(return_value=None),
+        ) as transfer:
+            response = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/telegram-business-gift-delivery/transfer",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"idempotency_key": "business-transfer-9001"},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["status"], "completed")
+            replay = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/telegram-business-gift-delivery/transfer",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"idempotency_key": "business-transfer-9001"},
+            )
+            self.assertEqual(replay.status_code, 200, replay.text)
+            self.assertTrue(replay.json()["idempotent_replay"])
+            transfer.assert_awaited_once()
+
+        with marketplace._db() as conn:
+            owner = conn.execute(
+                "SELECT owner_telegram_id FROM verified_assets WHERE id=?", (asset["id"],)
+            ).fetchone()
+            deal = conn.execute(
+                "SELECT status FROM marketplace_deals WHERE id=?", (deal_id,)
+            ).fetchone()
+            history = conn.execute(
+                "SELECT previous_owner_id,new_owner_id FROM asset_ownership_history WHERE asset_id=?",
+                (asset["id"],),
+            ).fetchall()
+            seller_credit = conn.execute(
+                """SELECT account_id,amount FROM marketplace_ledger_entries
+                   WHERE account_type='seller_payable' AND transaction_id IN
+                     (SELECT id FROM marketplace_ledger_transactions WHERE idempotency_key=?)""",
+                (f"{deal_id}:seller-payable:XTR",),
+            ).fetchone()
+            gift_ref = conn.execute(
+                "SELECT 1 FROM telegram_business_gift_refs WHERE asset_id=?", (asset["id"],)
+            ).fetchone()
+        self.assertEqual(owner["owner_telegram_id"], "202")
+        self.assertEqual(deal["status"], "completed")
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["previous_owner_id"], "101")
+        self.assertEqual(history[0]["new_owner_id"], "202")
+        self.assertEqual(seller_credit["account_id"], "101")
+        self.assertEqual(seller_credit["amount"], "9")
+        self.assertIsNone(gift_ref)
+
     def test_ton_nft_delivery_requires_live_buyer_ownership_before_completion(self):
         asset = marketplace.register_verified_asset(
             source="ton_nft",
