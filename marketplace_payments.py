@@ -1,9 +1,8 @@
-"""Disabled-by-default payment persistence primitives for HASSLE NFT.
+"""Payment persistence primitives for HASSLE NFT.
 
-This module records intents, provider events and balanced accounting entries.
-It deliberately does not create invoices, submit TON transactions, or enable
-deal acceptance. Provider integrations must call these primitives only after
-the escrow and asset-delivery state machine is ready.
+This module records idempotent provider intents/events, immutable balanced
+ledger entries, escrow timelines and two-person dispute approvals. Provider
+adapters live at the marketplace API boundary and remain feature-gated.
 """
 from __future__ import annotations
 
