@@ -202,17 +202,37 @@ class SharedMarketplaceTests(unittest.TestCase):
                 "next_transfer_date": 0,
             }],
         }
+        original_transition = transition_deal_status
+        fail_completion_once = {"pending": True}
+        def injected_finalization_failure(conn, **kwargs):
+            if kwargs.get("new_status") == "completed" and fail_completion_once["pending"]:
+                fail_completion_once["pending"] = False
+                raise RuntimeError("injected post-provider finalization failure")
+            return original_transition(conn, **kwargs)
+
         with patch(
             "telegram_business_gift_inventory.fetch_business_account_gifts",
             new=AsyncMock(return_value=live_inventory),
         ), patch(
             "telegram_business_gift_inventory.transfer_business_account_gift",
             new=AsyncMock(return_value=None),
-        ) as transfer:
-            response = self.client.post(
+        ) as transfer, patch(
+            "marketplace_payments.transition_deal_status",
+            side_effect=injected_finalization_failure,
+        ):
+            uncertain = self.client.post(
                 f"/api/marketplace/deals/{deal_id}/telegram-business-gift-delivery/transfer",
                 headers={"X-Telegram-Init-Data": "user-a"},
                 json={"idempotency_key": "business-transfer-9001"},
+            )
+            self.assertEqual(uncertain.status_code, 409, uncertain.text)
+            self.assertIn("reconciliation", uncertain.text)
+            # The provider already confirmed the irreversible transfer. A fresh
+            # request key must resume DB finalization without calling Telegram again.
+            response = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/telegram-business-gift-delivery/transfer",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"idempotency_key": "business-transfer-recovery-9002"},
             )
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual(response.json()["status"], "completed")
