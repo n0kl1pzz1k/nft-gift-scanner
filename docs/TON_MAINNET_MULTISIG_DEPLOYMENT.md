@@ -35,7 +35,7 @@ All three addresses were observed as active Wallet V5R1 accounts, and their on-c
 - Derive and record the expected contract address from the exact compiled code and config before any wallet signs.
 - Show the complete initialization transaction in TON Connect/Tonkeeper; the initiating signer must verify network=mainnet, derived contract address, code/config hash, and attached amount.
 - Do not ask for, collect, transmit, or store seed phrases or private keys.
-- After deployment, independently query the deployed contract's `get_multisig_data` and verify threshold=2, exact three signer addresses, no unexpected proposers, and expected code hash.
+- After deployment, independently query the deployed contract's `get_multisig_data` and verify threshold=2, exact three signer addresses, no unexpected proposers, and expected code hash. The getter returns `(next_order_seqno, threshold, signers, proposers)`; it does not expose the `allowArbitrarySeqno` bit, so confirm the deterministic address and code/data StateInit hash as well.
 - Make a small controlled treasury test transaction requiring two distinct signer approvals; verify one signature cannot execute it and two can.
 - Only after all checks pass may the backend treasury address be configured and payment feature flags reconsidered.
 
@@ -45,7 +45,7 @@ All three addresses were observed as active Wallet V5R1 accounts, and their on-c
 - No deployment transaction has been signed or broadcast.
 - No on-chain multisig configuration has been verified.
 - Real TON and Telegram Stars checkout remain disabled.
-- The backend's existing TON multisig verifier must be validated against the deployed v2 contract's actual on-chain getter/schema before it can be used as a production gate.
+- Backend verification now calls the actual `get_multisig_data` getter through TONAPI, decodes the signer/proposer Hashmap BOCs, and requires exactly 2-of-3 with no proposers. The getter does not expose `allowArbitrarySeqno`; production verification must additionally match the precomputed deterministic contract address and compiled code hash derived from the reviewed StateInit.
 
 ## Funding note
 
