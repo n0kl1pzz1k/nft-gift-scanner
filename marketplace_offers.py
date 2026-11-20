@@ -1011,6 +1011,8 @@ def create_marketplace_offers_router(
         configured_admins = {part.strip() for part in raw_ids.split(",") if part.strip().isdigit()}
         if len(configured_admins) < 2:
             raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
+        if admin_id not in configured_admins:
+            raise HTTPException(status_code=403, detail="Only currently configured dispute administrators can approve a resolution")
         with _db() as conn:
             begin_write(conn, f"deal:{deal_id}")
             deal = conn.execute(
