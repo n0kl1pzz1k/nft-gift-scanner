@@ -787,6 +787,56 @@
     }
   }
 
+  async function transferTelegramBusinessGift(dealId: string) {
+    if (!dealId || businessGiftDeliveryBusy) return;
+    businessGiftDeliveryBusy = dealId;
+    const idempotencyKey = crypto.randomUUID();
+    const sendTransfer = (acceptTransferFee: boolean) => request(
+      '/api/marketplace/deals/' + encodeURIComponent(dealId) + '/telegram-business-gift-delivery/transfer',
+      undefined,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idempotency_key: idempotencyKey, accept_transfer_fee: acceptTransferFee }),
+      },
+    );
+    try {
+      try {
+        await sendTransfer(false);
+      } catch (error) {
+        const detail = (error as Error & { detail?: { code?: string; transfer_star_count?: number } }).detail;
+        if (detail?.code !== 'seller_fee_consent_required') throw error;
+        const fee = Number(detail.transfer_star_count) || 0;
+        const message = lang === 'ru'
+          ? `Telegram требует комиссию ${fee} Stars за передачу подарка. Разрешить списание этой комиссии с подключённого Business-аккаунта?`
+          : `Telegram requires a ${fee} Stars transfer fee. Allow this fee to be charged to the connected Business account?`;
+        const webApp = (window as any).Telegram?.WebApp;
+        const accepted = await new Promise<boolean>((resolve) => {
+          if (typeof webApp?.showConfirm === 'function') {
+            webApp.showConfirm(message, (confirmed: boolean) => resolve(Boolean(confirmed)));
+          } else {
+            resolve(window.confirm(message));
+          }
+        });
+        if (!accepted) {
+          notice = lang === 'ru' ? 'Передача отменена. Комиссия не списывалась.' : 'Transfer cancelled. No fee was charged.';
+          return;
+        }
+        await sendTransfer(true);
+      }
+      haptic('success');
+      notice = lang === 'ru'
+        ? 'Telegram подтвердил передачу подарка. Сделка завершена, начисление продавцу записано.'
+        : 'Telegram confirmed the gift transfer. The deal is complete and the seller credit is recorded.';
+      await Promise.all([loadOffersAndDeals(), loadMarketplace(), loadVerifiedInventory(), loadAccountOverview()]);
+    } catch (error) {
+      haptic('error');
+      notice = error instanceof Error ? error.message : String(error);
+    } finally {
+      businessGiftDeliveryBusy = '';
+    }
+  }
+
   async function startTonCheckout(dealId: string) {
     if (!dealId || tonDeliveryBusy) return;
     tonDeliveryBusy = dealId;
