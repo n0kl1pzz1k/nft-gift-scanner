@@ -1553,6 +1553,7 @@ def create_marketplace_offers_router(
         x_telegram_init_data: str | None = Header(default=None),
     ):
         """Release escrow to the seller only after two admins approve and TON confirms the buyer owns the NFT."""
+        import hashlib
         import httpx
         from ton_nft_inventory import fetch_nft_owner, normalise_ton_address
 
