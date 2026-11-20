@@ -13,6 +13,7 @@ from typing import Any
 
 from database import begin_write, select_for_update
 from marketplace_payments import (
+    record_manual_reconciliation_item,
     PaymentConflict,
     PaymentStateError,
     append_escrow_event,
@@ -22,6 +23,43 @@ from marketplace_payments import (
     transition_deal_status,
     transition_payment_intent,
 )
+
+
+def record_stars_reconciliation_required(
+    *,
+    invoice_payload: str,
+    telegram_user_id: str | int,
+    telegram_payment_charge_id: str,
+    error_code: str = "successful_payment_confirmation_failed",
+) -> dict[str, Any]:
+    """Queue a provider-confirmed Stars payment that could not be applied locally."""
+    import hashlib
+    from marketplace_offers import _db
+    from marketplace_payments import create_manual_reconciliation_item
+
+    payload_hash = hashlib.sha256(str(invoice_payload).encode("utf-8")).hexdigest()
+    deal_id = None
+    intent_id = None
+    with _db() as conn:
+        try:
+            intent = get_payment_intent_by_invoice_payload(conn, invoice_payload)
+            deal_id = str(intent["deal_id"])
+            intent_id = str(intent["id"])
+        except Exception:
+            pass
+    charge_id = str(telegram_payment_charge_id or "").strip()
+    key_suffix = charge_id or payload_hash
+    return record_manual_reconciliation_item(
+        idempotency_key=f"stars-callback-error:{key_suffix}",
+        kind="stars_callback_error",
+        deal_id=deal_id,
+        payment_intent_id=intent_id,
+        provider_reference=charge_id or None,
+        summary=(
+            f"Telegram confirmed Stars payment for buyer {str(telegram_user_id)} "
+            f"but local confirmation failed ({error_code}); reconcile before retrying delivery."
+        ),
+    )
 
 
 def validate_stars_pre_checkout(

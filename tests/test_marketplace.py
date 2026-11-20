@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 import app as api
 import marketplace
 import marketplace_offers
+import marketplace_admin
 from marketplace_payments import create_payment_intent, post_ledger_transaction, record_dispute_resolution_approval, transition_deal_status, transition_payment_intent
 from marketplace_stars import confirm_stars_payment, validate_stars_pre_checkout
 from marketplace_offers import escalate_stalled_paid_deals
@@ -2417,6 +2418,264 @@ class SharedMarketplaceTests(unittest.TestCase):
         )
         self.assertEqual(duplicate.status_code, 409)
 
+    def test_asset_moderation_cannot_revoke_an_asset_with_an_active_listing(self):
+        asset = marketplace.register_verified_asset(
+            source="ton_nft",
+            external_asset_id="0:" + "55" * 32,
+            owner_telegram_id="101",
+            title="Listed moderation asset",
+            asset_type="gift",
+            image_url="",
+            verification_method="ton_connect_proof",
+            verification_reference="active-listing-proof-001",
+        )
+        listing = self.client.post(
+            "/api/marketplace/orders",
+            headers={"X-Telegram-Init-Data": "user-a"},
+            json={"kind": "listing", "title": "Listed moderation asset", "price": "10", "currency": "TON", "asset_id": asset["id"]},
+        )
+        self.assertEqual(listing.status_code, 201, listing.text)
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
+            response = self.client.post(
+                f"/api/marketplace/admin/assets/{asset['id']}/revoke",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"reason": "Review pending"},
+            )
+        self.assertEqual(response.status_code, 409)
+        with marketplace._db() as conn:
+            row = conn.execute("SELECT status FROM verified_assets WHERE id=?", (asset["id"],)).fetchone()
+        self.assertEqual(row["status"], "verified")
+
+    def test_security_audit_schema_migration_preserves_old_events_and_allows_new_admin_actions(self):
+        legacy_path = os.path.join(self.temp_dir.name, "legacy-audit.sqlite3")
+        conn = sqlite3.connect(legacy_path)
+        conn.row_factory = sqlite3.Row
+        conn.executescript("""
+            CREATE TABLE security_audit_events (
+                id TEXT PRIMARY KEY,
+                actor_telegram_id TEXT NOT NULL,
+                action TEXT NOT NULL CHECK(action IN (
+                    'telegram_session_revoked', 'telegram_sessions_revoked_all',
+                    'ton_wallet_linked', 'ton_wallet_revoked',
+                    'admin_report_dismissed', 'admin_order_removed'
+                )),
+                target_type TEXT NOT NULL CHECK(target_type IN ('session','account','wallet','order_report','order')),
+                target_hash TEXT NOT NULL CHECK(length(target_hash)=64),
+                outcome TEXT NOT NULL CHECK(outcome IN ('success','denied')),
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX idx_security_audit_actor_created ON security_audit_events(actor_telegram_id,created_at DESC);
+            CREATE INDEX idx_security_audit_action_created ON security_audit_events(action,created_at DESC);
+            CREATE TRIGGER security_audit_events_no_update BEFORE UPDATE ON security_audit_events
+            BEGIN SELECT RAISE(ABORT, 'security audit events are immutable'); END;
+            CREATE TRIGGER security_audit_events_no_delete BEFORE DELETE ON security_audit_events
+            BEGIN SELECT RAISE(ABORT, 'security audit events are immutable'); END;
+            INSERT INTO security_audit_events
+            (id,actor_telegram_id,action,target_type,target_hash,outcome,metadata_json,created_at)
+            VALUES ('old-event','101','ton_wallet_linked','wallet','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','success','{}',1);
+        """)
+        conn.close()
+        with patch.object(marketplace, "DB_PATH", legacy_path):
+            marketplace.init_marketplace_db()
+            with marketplace._db() as migrated:
+                old = migrated.execute("SELECT action FROM security_audit_events WHERE id='old-event'").fetchone()
+                marketplace.insert_security_audit_event(
+                    migrated,
+                    actor_telegram_id="101",
+                    action="admin_asset_revoked",
+                    target_type="asset",
+                    target_id="asset-legacy-test",
+                    now=2,
+                )
+                migrated.commit()
+                new = migrated.execute(
+                    "SELECT action, target_type FROM security_audit_events WHERE action='admin_asset_revoked'"
+                ).fetchone()
+        self.assertEqual(old["action"], "ton_wallet_linked")
+        self.assertEqual(new["action"], "admin_asset_revoked")
+        self.assertEqual(new["target_type"], "asset")
+
+    def test_moderator_can_list_and_revoke_verified_asset_only_when_not_listed(self):
+        asset = marketplace.register_verified_asset(
+            source="ton_nft",
+            external_asset_id="0:" + "44" * 32,
+            owner_telegram_id="202",
+            title="Moderation candidate",
+            asset_type="gift",
+            image_url="",
+            verification_method="ton_connect_proof",
+            verification_reference="moderator-proof-reference-001",
+        )
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
+            listed = self.client.get(
+                "/api/marketplace/admin/assets?status=verified",
+                headers={"X-Telegram-Init-Data": "user-a"},
+            )
+            self.assertEqual(listed.status_code, 200, listed.text)
+            self.assertTrue(any(item["id"] == asset["id"] for item in listed.json()["items"]))
+            revoked = self.client.post(
+                f"/api/marketplace/admin/assets/{asset['id']}/revoke",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"reason": "Ownership verification failed on review"},
+            )
+            self.assertEqual(revoked.status_code, 200, revoked.text)
+        with marketplace._db() as conn:
+            row = conn.execute("SELECT status FROM verified_assets WHERE id=?", (asset["id"],)).fetchone()
+        self.assertEqual(row["status"], "revoked")
+
+    def test_role_based_admin_permissions_allow_moderator_dashboard_but_not_role_management(self):
+        marketplace.upsert_telegram_user({"id": "202", "first_name": "Moderator", "username": "mod"})
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
+            assigned = self.client.put(
+                "/api/marketplace/admin/roles/202",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"role": "moderator", "active": True},
+            )
+            self.assertEqual(assigned.status_code, 200, assigned.text)
+            self.assertEqual(assigned.json()["role"], "moderator")
+            overview = self.client.get(
+                "/api/marketplace/admin/overview",
+                headers={"X-Telegram-Init-Data": "user-b"},
+            )
+            self.assertEqual(overview.status_code, 200, overview.text)
+            role_admin = self.client.get(
+                "/api/marketplace/admin/roles",
+                headers={"X-Telegram-Init-Data": "user-b"},
+            )
+            self.assertEqual(role_admin.status_code, 403)
+            finance_action = self.client.post(
+                "/api/marketplace/admin/deals/nonexistent/execute-refund",
+                headers={"X-Telegram-Init-Data": "user-b"},
+                json={"idempotency_key": "moderator-cannot-refund"},
+            )
+            self.assertEqual(finance_action.status_code, 403)
+            access = marketplace_admin.get_admin_access("202")
+            self.assertIn("dashboard.read", access["permissions"])
+            self.assertNotIn("roles.manage", access["permissions"])
+
+    def test_admin_user_suspension_revokes_sessions_and_blocks_access_state(self):
+        marketplace.upsert_telegram_user({"id": "202", "first_name": "Suspended", "username": "suspended"})
+        session = marketplace.create_telegram_session("202")
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
+            role_response = self.client.put(
+                "/api/marketplace/admin/roles/202",
+                headers={"X-Telegram-Init-Data":"user-a"},
+                json={"role":"finance","active":True},
+            )
+            self.assertEqual(role_response.status_code, 200, role_response.text)
+            response = self.client.patch(
+                "/api/marketplace/admin/users/202",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"status": "suspended", "reason": "Repeated fraudulent listings"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(marketplace_admin.user_is_suspended("202"))
+        self.assertNotIn("202", marketplace_admin.get_admin_ids_with_permission("payments.refund"))
+        with marketplace._db() as conn:
+            revoked = conn.execute(
+                "SELECT revoked_at FROM telegram_sessions WHERE token_hash=?",
+                (hashlib.sha256(session.encode("utf-8")).hexdigest(),),
+            ).fetchone()
+        self.assertIsNotNone(revoked["revoked_at"])
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
+            restored = self.client.patch(
+                "/api/marketplace/admin/users/202",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"status": "active", "reason": "Appeal reviewed"},
+            )
+        self.assertEqual(restored.status_code, 200, restored.text)
+        self.assertFalse(marketplace_admin.user_is_suspended("202"))
+
+    def test_support_tickets_are_private_and_admin_resolution_is_audited(self):
+        created = self.client.post(
+            "/api/marketplace/support/tickets",
+            headers={"X-Telegram-Init-Data":"user-b"},
+            json={"ticket_type":"payment","subject":"Payment needs review","message":"I paid and the deal status has not updated yet."},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        ticket_id = created.json()["id"]
+        own = self.client.get(
+            "/api/marketplace/support/tickets/me",
+            headers={"X-Telegram-Init-Data":"user-b"},
+        )
+        other = self.client.get(
+            "/api/marketplace/support/tickets/me",
+            headers={"X-Telegram-Init-Data":"user-a"},
+        )
+        self.assertEqual(len(own.json()["items"]), 1)
+        self.assertEqual(other.json()["items"], [])
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS":"101"}):
+            denied = self.client.get(
+                "/api/marketplace/admin/support-tickets",
+                headers={"X-Telegram-Init-Data":"user-b"},
+            )
+            self.assertEqual(denied.status_code, 403)
+            listed = self.client.get(
+                "/api/marketplace/admin/support-tickets",
+                headers={"X-Telegram-Init-Data":"user-a"},
+            )
+            self.assertEqual(listed.status_code, 200, listed.text)
+            self.assertEqual(listed.json()["items"][0]["id"], ticket_id)
+            assigned = self.client.patch(
+                f"/api/marketplace/admin/support-tickets/{ticket_id}",
+                headers={"X-Telegram-Init-Data":"user-a"},
+                json={"status":"in_progress","note":"Assigned to support."},
+            )
+            self.assertEqual(assigned.status_code, 200, assigned.text)
+            resolved = self.client.patch(
+                f"/api/marketplace/admin/support-tickets/{ticket_id}",
+                headers={"X-Telegram-Init-Data":"user-a"},
+                json={"status":"resolved","note":"Compared provider payment and deal timeline."},
+            )
+            self.assertEqual(resolved.status_code, 200, resolved.text)
+            audit = self.client.get(
+                "/api/marketplace/admin/audit",
+                headers={"X-Telegram-Init-Data":"user-a"},
+            )
+            actions = {row["action"] for row in audit.json()["items"]}
+            self.assertIn("admin_support_ticket_assigned", actions)
+            self.assertIn("admin_support_ticket_resolved", actions)
+
+    def test_manual_reconciliation_queue_is_admin_only_and_resolution_is_audited(self):
+        from marketplace_payments import create_manual_reconciliation_item
+        with marketplace._db() as conn:
+            item = create_manual_reconciliation_item(
+                conn,
+                idempotency_key="stars-callback-error:test-queue-001",
+                kind="stars_callback_error",
+                summary="Telegram confirmed a payment but local settlement needs review.",
+                deal_id="deal-test-001",
+                provider_reference="charge-test-001",
+                now=1700000000,
+            )
+            conn.commit()
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
+            outsider = self.client.get(
+                "/api/marketplace/admin/reconciliation",
+                headers={"X-Telegram-Init-Data": "user-b"},
+            )
+            self.assertEqual(outsider.status_code, 403)
+            listed = self.client.get(
+                "/api/marketplace/admin/reconciliation",
+                headers={"X-Telegram-Init-Data": "user-a"},
+            )
+            self.assertEqual(listed.status_code, 200, listed.text)
+            self.assertEqual(listed.json()["total"], 1)
+            resolved = self.client.post(
+                f"/api/marketplace/admin/reconciliation/{item['id']}",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"action": "resolve", "note": "Compared with Telegram transaction record."},
+            )
+            self.assertEqual(resolved.status_code, 200, resolved.text)
+            self.assertEqual(resolved.json()["status"], "resolved")
+            audit = self.client.get(
+                "/api/marketplace/admin/audit",
+                headers={"X-Telegram-Init-Data": "user-a"},
+            )
+            self.assertEqual(audit.status_code, 200, audit.text)
+            self.assertIn("admin_reconciliation_resolved", {row["action"] for row in audit.json()["items"]})
+
     def test_admin_order_removal_rolls_back_when_cancel_event_insert_fails(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         reporter_headers = {"X-Telegram-Init-Data": "user-b"}
@@ -2448,7 +2707,7 @@ class SharedMarketplaceTests(unittest.TestCase):
                    BEGIN SELECT RAISE(ABORT, 'injected admin cancellation event failure'); END"""
             )
 
-        with patch.object(api, "_require_admin", side_effect=admin_check):
+        with patch.object(api, "_require_admin_permission", side_effect=lambda value, permission: admin_check(value)):
             with self.assertRaises(sqlite3.IntegrityError):
                 self.client.patch(
                     f"/api/marketplace/admin/reports/{report_id}",
@@ -2473,7 +2732,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(cancellation_events, 0)
 
     def test_admin_report_listing_is_rate_limited(self):
-        with patch.object(api, "_require_admin", return_value={"id": "909"}), \
+        with patch.object(api, "_require_admin_permission", return_value={"id": "909"}), \
              patch.object(marketplace, "_enforce_user_rate_limit") as limiter:
             response = self.client.get(
                 "/api/marketplace/admin/reports",
@@ -2483,7 +2742,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         limiter.assert_called_once_with("909", "list_order_reports", 60)
 
     def test_admin_security_audit_view_is_rate_limited(self):
-        with patch.object(api, "_require_admin", return_value={"id": "909"}), \
+        with patch.object(api, "_require_admin_permission", return_value={"id": "909"}), \
              patch.object(marketplace, "_enforce_user_rate_limit") as limiter:
             response = self.client.get(
                 "/api/marketplace/admin/security-audit",
@@ -2511,7 +2770,7 @@ class SharedMarketplaceTests(unittest.TestCase):
                 raise api.HTTPException(status_code=403, detail="Administrator access only")
             return {"id": "999"}
 
-        with patch.object(api, "_require_admin", side_effect=admin_check):
+        with patch.object(api, "_require_admin_permission", side_effect=lambda value, permission: admin_check(value)):
             forbidden = self.client.get("/api/marketplace/admin/reports", headers=reporter_headers)
             self.assertEqual(forbidden.status_code, 403)
             queue = self.client.get(
