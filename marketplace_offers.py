@@ -2038,6 +2038,14 @@ def create_marketplace_offers_router(
             memo = "HASSLE:" + hashlib.sha256(
                 f"{deal_id}:{payload.idempotency_key}:{buyer_raw}".encode("utf-8")
             ).hexdigest()[:40]
+            if deal["status"] == "payment_not_enabled":
+                transition_deal_status(
+                    conn, deal_id=deal_id, new_status="awaiting_payment", actor_user_id=buyer_id,
+                    idempotency_key=f"{deal_id}:ton-payment-requested:{payload.idempotency_key}",
+                    event_type="deal_payment_requested",
+                    event_data={"provider": "ton", "currency": "TON"},
+                    now=now,
+                )
             intent = conn.execute(
                 """SELECT * FROM marketplace_payment_intents
                    WHERE deal_id = ? AND status IN ('created', 'pending')
@@ -2068,14 +2076,6 @@ def create_marketplace_offers_router(
                         "buyer_telegram_id": buyer_id, "seller_telegram_id": str(deal["listing_owner_id"]),
                         "buyer_wallet": buyer_raw, "treasury": treasury_raw, "memo": memo,
                     }, now=now,
-                )
-            if deal["status"] == "payment_not_enabled":
-                transition_deal_status(
-                    conn, deal_id=deal_id, new_status="awaiting_payment", actor_user_id=buyer_id,
-                    idempotency_key=f"{deal_id}:ton-payment-requested:{intent['id']}",
-                    event_type="deal_payment_requested",
-                    event_data={"provider": "ton", "currency": "TON", "payment_intent_id": intent["id"]},
-                    now=now,
                 )
             if intent["status"] == "created":
                 transition_payment_intent(conn, intent["id"], "pending", now=now)
