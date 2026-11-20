@@ -818,6 +818,13 @@ _READINESS_TABLES = (
     # TON Connect proof and verified wallet bindings.
     "ton_proof_challenges",
     "verified_wallets",
+    # Payment intents, provider evidence, immutable ledger and escrow approvals.
+    "marketplace_payment_intents",
+    "marketplace_payment_events",
+    "marketplace_ledger_transactions",
+    "marketplace_ledger_entries",
+    "marketplace_escrow_events",
+    "marketplace_dispute_resolution_approvals",
 )
 
 # Required columns are checked separately from table presence so an incomplete
@@ -838,6 +845,12 @@ _READINESS_COLUMNS = {
     "ton_proof_challenges": {"payload_hash", "telegram_id", "session_hash", "expires_at"},
     "verified_wallets": {"network", "address", "telegram_id", "state_init_hash", "revoked_at"},
     "security_audit_events": {"id", "actor_telegram_id", "action", "target_type", "target_hash", "outcome", "created_at"},
+    "marketplace_payment_intents": {"id", "deal_id", "provider", "currency", "amount", "status", "idempotency_key", "expires_at", "created_at", "updated_at"},
+    "marketplace_payment_events": {"id", "provider", "provider_event_id", "payment_intent_id", "event_type", "payload_hash", "created_at"},
+    "marketplace_ledger_transactions": {"id", "idempotency_key", "reference_type", "reference_id", "currency", "amount", "created_at"},
+    "marketplace_ledger_entries": {"id", "transaction_id", "account_type", "account_id", "direction", "currency", "amount", "created_at"},
+    "marketplace_escrow_events": {"id", "deal_id", "actor_user_id", "event_type", "event_key", "event_data", "created_at"},
+    "marketplace_dispute_resolution_approvals": {"id", "deal_id", "admin_user_id", "decision", "idempotency_key", "created_at"},
 }
 
 
