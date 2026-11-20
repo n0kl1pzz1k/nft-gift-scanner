@@ -1552,7 +1552,7 @@ def create_marketplace_offers_router(
         payload: DisputeResolutionExecuteRequest,
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        """Release escrow to the seller only after two admins approve and TON confirms seller still owns the NFT."""
+        """Release escrow to the seller only after two admins approve and TON confirms the buyer owns the NFT."""
         import httpx
         from ton_nft_inventory import fetch_nft_owner, normalise_ton_address
 
@@ -1586,7 +1586,7 @@ def create_marketplace_offers_router(
                     (deal_id,),
                 ).fetchall()
                 seller_release_was_recorded = any(
-                    json.loads(row["event_data"] or "{}").get("asset_ownership") == "seller_confirmed_on_ton"
+                    json.loads(row["event_data"] or "{}").get("asset_ownership") == "buyer_confirmed_on_ton"
                     for row in credit_events
                 )
                 if seller_release_was_recorded:
@@ -1626,35 +1626,69 @@ def create_marketplace_offers_router(
             if intent is None:
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="A confirmed payment is required before seller release")
+            buyer_id = str(deal["offer_sender_id"])
+            buyer_wallet = conn.execute(
+                """SELECT address FROM verified_wallets
+                   WHERE telegram_id=? AND network='-239' AND revoked_at IS NULL
+                   ORDER BY last_verified_at DESC LIMIT 1""",
+                (buyer_id,),
+            ).fetchone()
+            if buyer_wallet is None:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="The buyer must link and verify a TON mainnet wallet")
             conn.commit()
         try:
             owner = await fetch_nft_owner(str(deal["external_asset_id"]))
-            seller_wallet = conn = None
-            with _db() as read_conn:
-                seller_wallet = read_conn.execute(
-                    """SELECT address FROM verified_wallets
-                       WHERE telegram_id=? AND network='-239' AND revoked_at IS NULL
-                       ORDER BY last_verified_at DESC LIMIT 1""",
-                    (str(deal["listing_owner_id"]),),
-                ).fetchone()
-            if seller_wallet is None or owner.get("is_scam") or owner.get("owner_address") != normalise_ton_address(seller_wallet["address"]):
-                raise HTTPException(status_code=409, detail="TON does not confirm that the seller still owns the NFT")
+            buyer_raw = normalise_ton_address(buyer_wallet["address"])
+            if owner.get("is_scam") or normalise_ton_address(str(owner.get("owner_address") or "")) != buyer_raw:
+                raise HTTPException(status_code=409, detail="TON does not confirm that the buyer owns the NFT")
         except HTTPException:
             raise
         except Exception as exc:
             raise HTTPException(status_code=503, detail="TON ownership verification is temporarily unavailable") from exc
         now = int(time.time())
+        ownership_reference = hashlib.sha256(
+            f"hassle-dispute-seller-release:{deal_id}:{deal['asset_id']}:{buyer_id}:{buyer_raw}".encode("utf-8")
+        ).hexdigest()
         with _db() as conn:
-            begin_write(conn, f"deal:{deal_id}")
+            begin_write(conn, f"deal:{deal_id}", f"asset:{deal['asset_id']}")
             locked = conn.execute(
                 select_for_update(conn, "SELECT * FROM marketplace_deals WHERE id=?"),
                 (deal_id,),
             ).fetchone()
-            if locked is None or locked["status"] != "disputed":
+            asset = conn.execute(
+                select_for_update(conn, "SELECT * FROM verified_assets WHERE id=?"),
+                (deal["asset_id"],),
+            ).fetchone()
+            if locked is None or locked["status"] != "disputed" or asset is None:
                 conn.rollback()
-                raise HTTPException(status_code=409, detail="Deal state changed during seller release")
+                raise HTTPException(status_code=409, detail="Deal or asset state changed during seller release")
+            if str(asset["owner_telegram_id"]) != str(locked["listing_owner_id"]) or asset["status"] != "verified":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Asset ownership record changed during seller release")
             from marketplace_payments import PaymentConflict, PaymentStateError, append_escrow_event, post_ledger_transaction, transition_deal_status
             try:
+                conn.execute(
+                    """INSERT INTO asset_owner_transfer_authorizations
+                       (asset_id, previous_owner_id, new_owner_id, verification_reference_hash, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (deal["asset_id"], str(locked["listing_owner_id"]), buyer_id, ownership_reference, now),
+                )
+                changed = conn.execute(
+                    """UPDATE verified_assets
+                       SET owner_telegram_id=?, verification_method='tonapi_current_owner',
+                           verification_reference_hash=?, verified_at=?, status='verified', revoked_at=NULL
+                       WHERE id=? AND owner_telegram_id=? AND status='verified'""",
+                    (buyer_id, ownership_reference, now, deal["asset_id"], str(locked["listing_owner_id"])),
+                )
+                if changed.rowcount != 1:
+                    raise RuntimeError("Dispute seller-release ownership update did not match")
+                conn.execute(
+                    """INSERT INTO asset_ownership_history
+                       (asset_id, previous_owner_id, new_owner_id, verification_reference_hash, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (deal["asset_id"], str(locked["listing_owner_id"]), buyer_id, ownership_reference, now),
+                )
                 ledger = post_ledger_transaction(
                     conn,
                     idempotency_key=f"{deal_id}:seller-release:{intent['provider_reference']}",
@@ -1675,7 +1709,7 @@ def create_marketplace_offers_router(
                                 "currency": str(intent["currency"]), "amount": str(intent["amount"]),
                                 "seller_telegram_id": str(deal["listing_owner_id"]),
                                 "settlement_status": "pending_manual_payout",
-                                "asset_ownership": "seller_confirmed_on_ton"},
+                                "asset_ownership": "buyer_confirmed_on_ton"},
                     now=now,
                 )
             except (PaymentConflict, PaymentStateError) as exc:
