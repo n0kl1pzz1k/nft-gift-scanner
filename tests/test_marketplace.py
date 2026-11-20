@@ -1095,6 +1095,12 @@ class SharedMarketplaceTests(unittest.TestCase):
                 headers={"X-Telegram-Init-Data":"user-b"},
                 json={"transaction_hash":"cd"*32,"idempotency_key":"seller-payout-001"},
             )
+        with patch.dict(os.environ, payout_flags), patch(
+            "marketplace_offers._require_ton_multisig_2_of_3",
+            new=AsyncMock(side_effect=marketplace_offers.HTTPException(
+                status_code=503, detail="TONAPI temporarily unavailable",
+            )),
+        ):
             payout_replay = self.client.post(
                 f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
                 headers={"X-Telegram-Init-Data":"user-b"},
