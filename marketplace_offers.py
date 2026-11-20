@@ -1812,8 +1812,6 @@ def create_marketplace_offers_router(
             treasury_raw = normalise_ton_address(treasury)
         except Exception as exc:
             raise HTTPException(status_code=503, detail="Configured TON treasury address is invalid") from exc
-        await _require_ton_multisig_2_of_3(treasury_raw)
-
         with _db() as conn:
             begin_write(conn, f"deal:{deal_id}")
             deal = conn.execute(
@@ -1890,6 +1888,7 @@ def create_marketplace_offers_router(
             seller_raw = normalise_ton_address(seller_wallet["address"])
             conn.commit()
 
+        await _require_ton_multisig_2_of_3(treasury_raw)
         try:
             async with httpx.AsyncClient(timeout=12.0, follow_redirects=False) as client:
                 response = await client.get(
