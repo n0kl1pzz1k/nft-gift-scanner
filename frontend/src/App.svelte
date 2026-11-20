@@ -1424,7 +1424,7 @@
                     {:else if deal.status==='awaiting_payment'}
                       <p class="safety-note">{lang==='ru'?'Ожидается подтверждение оплаты. Не отправляй деньги напрямую продавцу.':'Waiting for payment confirmation. Do not send funds directly to the seller.'}</p>
                     {:else if deal.status==='payment_pending'}
-                      <p class="safety-note">{lang==='ru'?'Telegram обрабатывает платёж. Не оплачивай повторно.':'Telegram is processing the payment. Do not pay again.'}</p>
+                      <p class="safety-note">{lang==='ru'?'Проверяем подтверждение в платёжной сети. Не отправляй оплату повторно.':'Waiting for network confirmation. Do not submit another payment.'}</p>
                     {/if}
                   </div>
                   <div class="order-price">
@@ -1468,9 +1468,7 @@
                       {#if !deal.is_seller && deal.payments_enabled && deal.currency==='XTR'}
                         <button class="asset-offer-button" onclick={()=>startStarsCheckout(deal.id)} disabled={starsCheckoutBusy===deal.id}>{starsCheckoutBusy===deal.id?'…':(lang==='ru'?'Оплатить Stars':'Pay with Stars')}</button>
                       {/if}
-                      <button class="cancel-button" onclick={()=>cancelDealReservation(deal.id)} disabled={offerActionBusy===deal.id || starsCheckoutBusy===deal.id}>{offerActionBusy===deal.id?'…':(lang==='ru'?'Снять резерв':'Release reservation')}</button>
-                    {:else if deal.status==='payment_not_enabled' && !deal.is_seller && deal.payments_enabled && deal.currency==='TON'}
-                      <button class="asset-offer-button" onclick={()=>startTonCheckout(deal.id)} disabled={tonDeliveryBusy===deal.id}>{tonDeliveryBusy===deal.id?'…':(lang==='ru'?'Оплатить TON':'Pay with TON')}</button>
+                      <button class="cancel-button" onclick={()=>cancelDealReservation(deal.id)} disabled={offerActionBusy===deal.id || starsCheckoutBusy===deal.id || tonDeliveryBusy===deal.id}>{offerActionBusy===deal.id?'…':(lang==='ru'?'Снять резерв':'Release reservation')}</button>
                     {:else if deal.status==='awaiting_payment' && !deal.is_seller && deal.payments_enabled && deal.currency==='TON'}
                       <button class="asset-offer-button" onclick={()=>startTonCheckout(deal.id)} disabled={tonDeliveryBusy===deal.id}>{tonDeliveryBusy===deal.id?'…':(lang==='ru'?'Продолжить оплату TON':'Continue TON payment')}</button>
                     {:else if deal.status==='awaiting_payment' && !deal.is_seller && deal.payments_enabled && deal.currency==='XTR'}
