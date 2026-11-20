@@ -164,7 +164,7 @@ def create_marketplace_admin_router(verify_admin):
                 """SELECT d.id, d.status, d.offer_sender_id AS buyer_telegram_id, d.listing_owner_id AS seller_telegram_id,
                           d.created_at, d.updated_at
                    FROM marketplace_deals d""" + where +
-                " ORDER BY d.updated_at DESC LIMIT ?", (*values, limit)
+                " ORDER BY d.created_at DESC LIMIT ?", (*values, limit)
             ).fetchall()
         return {"items": [dict(row) for row in rows]}
 
