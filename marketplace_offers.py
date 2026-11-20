@@ -1720,6 +1720,198 @@ def create_marketplace_offers_router(
         return {"deal_id": deal_id, "status": "completed", "seller_credit": "recorded", "settlement_status": "pending_manual_payout", "idempotent_replay": False}
 
 
+    @router.post("/admin/deals/{deal_id}/execute-ton-seller-payout")
+    async def execute_confirmed_ton_seller_payout(
+        deal_id: str,
+        payload: TonRefundExecuteRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Record a manual TON multisig payout only after TONAPI confirms the exact treasury transfer."""
+        import httpx
+        from decimal import Decimal
+        from ton_nft_inventory import normalise_ton_address
+        from marketplace_payments import PaymentConflict, append_escrow_event, post_ledger_transaction
+
+        admin = _admin_user(x_telegram_init_data)
+        admin_id = str(admin["id"])
+        _enforce_user_rate_limit(admin_id, "ton_seller_payout_execution", 5)
+        configured_admins = {
+            part.strip() for part in os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", "")).split(",")
+            if part.strip().isdigit()
+        }
+        if len(configured_admins) < 2:
+            raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
+        if (
+            os.getenv("HASSLE_TON_CUSTODY_ACKNOWLEDGED", "0") != "1"
+            or os.getenv("HASSLE_TON_PAYOUT_MODE", "") != "manual_multisig_2_of_3"
+        ):
+            raise HTTPException(status_code=503, detail="Manual 2-of-3 TON multisig custody policy must be acknowledged")
+        token = os.getenv("TONAPI_TOKEN", "").strip()
+        treasury = os.getenv("HASSLE_TON_TREASURY_ADDRESS", "").strip()
+        if not token or not treasury:
+            raise HTTPException(status_code=503, detail="TON payout verification or treasury is not configured")
+        try:
+            treasury_raw = normalise_ton_address(treasury)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Configured TON treasury address is invalid") from exc
+
+        with _db() as conn:
+            begin_write(conn, f"deal:{deal_id}")
+            deal = conn.execute(
+                select_for_update(conn, "SELECT * FROM marketplace_deals WHERE id=?"),
+                (deal_id,),
+            ).fetchone()
+            if deal is None:
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Deal not found")
+            prior = conn.execute(
+                """SELECT event_data FROM marketplace_escrow_events
+                   WHERE deal_id=? AND event_type='payout_released' ORDER BY created_at DESC LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            if prior is not None:
+                prior_data = json.loads(prior["event_data"] or "{}")
+                if prior_data.get("provider_reference") == payload.transaction_hash:
+                    conn.rollback()
+                    return {"deal_id": deal_id, "payout_status": "paid", "transaction_hash": payload.transaction_hash, "idempotent_replay": True}
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="A payout has already been recorded for this deal")
+            if deal["status"] != "completed" or str(deal["currency"]) != "TON":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Only completed TON deals can be paid out")
+            seller_id = str(deal["listing_owner_id"])
+            seller_wallet = conn.execute(
+                """SELECT address FROM verified_wallets
+                   WHERE telegram_id=? AND network='-239' AND revoked_at IS NULL
+                   ORDER BY last_verified_at DESC LIMIT 1""",
+                (seller_id,),
+            ).fetchone()
+            payable = conn.execute(
+                """SELECT lt.id, lt.amount
+                   FROM marketplace_ledger_transactions lt
+                   JOIN marketplace_ledger_entries le ON le.transaction_id=lt.id
+                   WHERE lt.reference_id=? AND lt.currency='TON'
+                     AND le.account_type='seller_payable' AND le.account_id=?
+                     AND le.direction='credit'
+                   ORDER BY lt.created_at DESC LIMIT 2""",
+                (deal_id, seller_id),
+            ).fetchall()
+            if seller_wallet is None or len(payable) != 1:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="A single recorded TON seller payable and an active verified seller wallet are required")
+            payable_amount = str(payable[0]["amount"])
+            if conn.execute(
+                "SELECT 1 FROM marketplace_ledger_transactions WHERE reference_type='withdrawal' AND reference_id=? LIMIT 1",
+                (deal_id,),
+            ).fetchone():
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="A seller payout is already recorded for this deal")
+            seller_raw = normalise_ton_address(seller_wallet["address"])
+            conn.commit()
+
+        try:
+            async with httpx.AsyncClient(timeout=12.0, follow_redirects=False) as client:
+                response = await client.get(
+                    f"{os.getenv('TONAPI_BASE_URL', 'https://tonapi.io').rstrip('/')}/v2/blockchain/transactions/{payload.transaction_hash}",
+                    headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                )
+                response.raise_for_status()
+                transaction = response.json()
+            account_value = transaction.get("account") if isinstance(transaction, dict) else None
+            if isinstance(account_value, dict):
+                account_value = account_value.get("address")
+            if not isinstance(transaction, dict) or transaction.get("success") is not True:
+                raise HTTPException(status_code=409, detail="TON has not confirmed a successful seller payout")
+            if normalise_ton_address(str(account_value or "")) != treasury_raw:
+                raise HTTPException(status_code=409, detail="Payout transaction was not sent by the configured treasury")
+            expected_nano = int(Decimal(payable_amount) * Decimal(1_000_000_000))
+            paid = False
+            for message in transaction.get("out_msgs", []) if isinstance(transaction.get("out_msgs"), list) else []:
+                if not isinstance(message, dict):
+                    continue
+                try:
+                    destination = normalise_ton_address(str(message.get("destination") or ""))
+                    value = int(message.get("value") or 0)
+                except Exception:
+                    continue
+                if destination == seller_raw and value == expected_nano:
+                    paid = True
+                    break
+            if not paid:
+                raise HTTPException(status_code=409, detail="TON transaction does not contain the exact payout to the verified seller wallet")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="TON seller payout transaction could not be verified") from exc
+
+        now = int(time.time())
+        with _db() as conn:
+            begin_write(conn, f"deal:{deal_id}")
+            locked = conn.execute(
+                select_for_update(conn, "SELECT * FROM marketplace_deals WHERE id=?"),
+                (deal_id,),
+            ).fetchone()
+            if locked is None or locked["status"] != "completed":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Deal state changed during payout verification")
+            prior = conn.execute(
+                """SELECT event_data FROM marketplace_escrow_events
+                   WHERE deal_id=? AND event_type='payout_released' LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            if prior is not None:
+                prior_data = json.loads(prior["event_data"] or "{}")
+                if prior_data.get("provider_reference") == payload.transaction_hash:
+                    conn.rollback()
+                    return {"deal_id": deal_id, "payout_status": "paid", "transaction_hash": payload.transaction_hash, "idempotent_replay": True}
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="A different payout was recorded while verification was running")
+            try:
+                ledger = post_ledger_transaction(
+                    conn,
+                    idempotency_key=f"ton-seller-payout:{payload.transaction_hash}",
+                    reference_type="withdrawal",
+                    reference_id=deal_id,
+                    currency="TON",
+                    debit_account=("seller_payable", str(locked["listing_owner_id"])),
+                    credit_account=("ton_treasury_clearing", treasury_raw),
+                    debit_amount=payable_amount,
+                    credit_amount=payable_amount,
+                    now=now,
+                )
+                append_escrow_event(
+                    conn,
+                    deal_id=deal_id,
+                    actor_user_id=admin_id,
+                    event_type="payout_released",
+                    event_key=f"{deal_id}:ton-payout:{payload.transaction_hash}",
+                    event_data={
+                        "provider": "ton",
+                        "provider_reference": payload.transaction_hash,
+                        "seller_telegram_id": str(locked["listing_owner_id"]),
+                        "seller_wallet": seller_raw,
+                        "ledger_transaction_id": ledger["id"],
+                        "currency": "TON",
+                        "amount": payable_amount,
+                        "settlement_status": "paid",
+                        "custody_mode": "manual_multisig_2_of_3",
+                    },
+                    now=now,
+                )
+            except PaymentConflict as exc:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            conn.commit()
+        return {
+            "deal_id": deal_id,
+            "payout_status": "paid",
+            "currency": "TON",
+            "amount": payable_amount,
+            "transaction_hash": payload.transaction_hash,
+            "idempotent_replay": False,
+        }
+
+
     @router.post("/deals/{deal_id}/telegram-business-gift-delivery/transfer")
     async def transfer_telegram_business_gift_delivery(
         deal_id: str,
