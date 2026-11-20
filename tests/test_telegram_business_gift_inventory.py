@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 import app
 import marketplace
 from telegram_business_gift_inventory import (
+    TelegramBusinessGiftInventoryError,
     fetch_business_account_gifts,
     fetch_sticker_preview,
     normalise_business_owned_gift,
@@ -127,8 +128,9 @@ class TelegramBusinessGiftInventoryTests(unittest.IsolatedAsyncioTestCase):
             base_url="https://api.telegram.org",
         )
         with patch.dict(os.environ, {"BOT_TOKEN": "123456:test-token"}):
-            with self.assertRaises(ValueError):
+            with self.assertRaises(TelegramBusinessGiftInventoryError) as caught:
                 await transfer_business_account_gift("business-101", "owned-gift-9", "202", client=client)
+        self.assertTrue(caught.exception.definitive_rejection)
         await client.aclose()
 
     async def test_transfer_rejects_invalid_recipient_before_api_call(self):
