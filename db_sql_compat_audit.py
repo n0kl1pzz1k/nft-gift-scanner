@@ -20,6 +20,9 @@ SOURCE_FILES = (
     "database.py",
     "marketplace.py",
     "marketplace_offers.py",
+    "marketplace_admin.py",
+    "marketplace_payments.py",
+    "marketplace_stars.py",
     "telegram_business_gift_inventory.py",
     "telegram_gift_inventory.py",
     "ton_connect.py",
@@ -38,7 +41,9 @@ SQLITE_FALLBACK_FUNCTIONS = {
     ("marketplace.py", "_migrate_legacy_marketplace_table_names"),
     ("marketplace.py", "_migrate_legacy_order_event_types"),
     ("marketplace.py", "init_marketplace_db"),
+    ("marketplace.py", "_migrate_security_audit_events_schema"),
     ("marketplace_offers.py", "init_marketplace_offers_db"),
+    ("marketplace_payments.py", "initialize_sqlite_payment_schema"),
     ("ton_connect.py", "verify_ton_connect_schema"),
 }
 
