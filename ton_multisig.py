@@ -46,7 +46,7 @@ async def fetch_ton_wallet_public_key(
     *,
     client: httpx.AsyncClient | None = None,
 ) -> str:
-    """Fetch and validate an initialized TON wallet public key."""
+    """Read a wallet public key using TONAPI on-chain get_public_key getter."""
     raw_address = _raw_address(address)
     token = os.getenv("TONAPI_TOKEN", "").strip()
     headers = {"Accept": "application/json"}
@@ -59,17 +59,34 @@ async def fetch_ton_wallet_public_key(
         follow_redirects=False,
     )
     try:
-        response = await session.get(f"/v2/accounts/{raw_address}/publickey", headers=headers)
+        response = await session.get(
+            f"/v2/blockchain/accounts/{raw_address}/methods/get_public_key",
+            headers=headers,
+        )
         response.raise_for_status()
         payload = response.json()
-        public_key = payload.get("public_key") if isinstance(payload, dict) else None
+        if not isinstance(payload, dict) or payload.get("success") is not True:
+            raise ValueError("TONAPI could not execute the wallet public-key getter")
+        if payload.get("exit_code") != 0:
+            raise ValueError("TON wallet public-key getter failed")
+        stack = payload.get("stack")
+        public_key = None
+        if isinstance(stack, list) and stack and isinstance(stack[0], dict):
+            item = stack[0]
+            if item.get("type") == "num" and isinstance(item.get("num"), str):
+                number = item["num"]
+                if number.startswith(("0x", "0X")):
+                    try:
+                        public_key = f"{int(number, 16):064x}"
+                    except ValueError:
+                        public_key = None
         if (
             not isinstance(public_key, str)
             or len(public_key) != 64
-            or any(char not in "0123456789abcdefABCDEF" for char in public_key)
+            or any(char not in "0123456789abcdef" for char in public_key)
         ):
             raise ValueError("TONAPI returned an invalid wallet public key")
-        return public_key.lower()
+        return public_key
     finally:
         if owns_client:
             await session.aclose()
