@@ -13,7 +13,11 @@ MAX_ITEMS = 500
 
 
 class TelegramBusinessGiftInventoryError(ValueError):
-    """Telegram Business returned an unusable or incomplete inventory response."""
+    """Telegram Business API failure, with explicit certainty about rejection."""
+
+    def __init__(self, message: str, *, definitive_rejection: bool = False):
+        super().__init__(message)
+        self.definitive_rejection = bool(definitive_rejection)
 
 
 def normalise_business_owned_gift(raw: Any) -> dict[str, Any] | None:
@@ -235,10 +239,16 @@ async def transfer_business_account_gift(
             },
         )
         if response.status_code != 200:
-            raise TelegramBusinessGiftInventoryError("Telegram Business gift transfer was rejected")
+            raise TelegramBusinessGiftInventoryError(
+                "Telegram Business gift transfer was rejected",
+                definitive_rejection=400 <= response.status_code < 500,
+            )
         payload = response.json()
         if not isinstance(payload, dict) or payload.get("ok") is not True or payload.get("result") is not True:
-            raise TelegramBusinessGiftInventoryError("Telegram did not confirm the Business gift transfer")
+            raise TelegramBusinessGiftInventoryError(
+                "Telegram did not confirm the Business gift transfer",
+                definitive_rejection=True,
+            )
     except httpx.HTTPError as exc:
         raise TelegramBusinessGiftInventoryError("Telegram Business gift transfer could not be confirmed") from exc
     finally:
