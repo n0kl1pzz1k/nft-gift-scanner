@@ -436,14 +436,17 @@ class SharedMarketplaceTests(unittest.TestCase):
         return accepted.json()["deal_id"], seller_address, buyer_address
 
     def test_ton_checkout_creates_reusable_verified_wallet_invoice(self):
-        deal_id, _, buyer_wallet = self._create_ton_deal_with_verified_wallets()
+        deal_id, seller_wallet, buyer_wallet = self._create_ton_deal_with_verified_wallets()
         flags = {
             "HASSLE_TON_CHECKOUT_ENABLED": "1",
             "HASSLE_TON_TREASURY_ADDRESS": "0:" + "aa" * 32,
             "TONAPI_TOKEN": "test-tonapi-token",
             "PAYMENT_SUPPORT_CONTACT": "@hassle_support",
         }
-        with patch.dict(os.environ, flags):
+        with patch.dict(os.environ, flags), patch(
+            "ton_nft_inventory.fetch_nft_owner",
+            new=AsyncMock(return_value={"owner_address":seller_wallet,"is_scam":False}),
+        ):
             buyer_deals = self.client.get("/api/marketplace/deals", headers={"X-Telegram-Init-Data": "user-b"})
             self.assertTrue(buyer_deals.json()["items"][0]["payments_enabled"])
             first = self.client.post(
@@ -475,7 +478,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(deal["status"], "payment_pending")
 
     def test_two_admin_approved_ton_refund_requires_matching_outgoing_chain_transaction(self):
-        deal_id, _, buyer_wallet = self._create_ton_deal_with_verified_wallets()
+        deal_id, seller_wallet, buyer_wallet = self._create_ton_deal_with_verified_wallets()
         treasury = "0:" + "aa" * 32
         now = int(time.time())
         with marketplace_offers._db() as conn:
@@ -636,7 +639,10 @@ class SharedMarketplaceTests(unittest.TestCase):
             "TONAPI_TOKEN": "test-tonapi-token",
             "PAYMENT_SUPPORT_CONTACT": "@hassle_support",
         }
-        with patch.dict(os.environ, flags):
+        with patch.dict(os.environ, flags), patch(
+            "ton_nft_inventory.fetch_nft_owner",
+            new=AsyncMock(return_value={"owner_address":seller_wallet,"is_scam":False}),
+        ):
             checkout = self.client.post(
                 f"/api/marketplace/deals/{deal_id}/ton-checkout",
                 headers={"X-Telegram-Init-Data": "user-b"},
