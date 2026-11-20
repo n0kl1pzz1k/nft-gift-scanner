@@ -3136,6 +3136,8 @@ def create_marketplace_offers_router(
             seller_pending_settlements = []
             for row in balance_rows:
                 amount = Decimal(str(row["balance"] or 0))
+                if amount == 0:
+                    continue
                 seller_pending_settlements.append({
                     "currency": str(row["currency"]),
                     "amount": format(amount, "f"),
