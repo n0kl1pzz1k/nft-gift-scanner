@@ -346,6 +346,14 @@ class StarsCheckoutRequest(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=128)
 
 
+class TonCheckoutRequest(BaseModel):
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+
+class TonPaymentConfirmRequest(BaseModel):
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+
 class DisputeResolutionApprovalRequest(BaseModel):
     decision: Literal["refund_buyer", "release_to_seller"]
     idempotency_key: str = Field(min_length=1, max_length=128)
@@ -1601,6 +1609,299 @@ def create_marketplace_offers_router(
                 raise HTTPException(status_code=409, detail="Could not safely record verified NFT ownership transfer") from exc
             conn.commit()
         return {"deal_id": deal_id, "status": "completed", "asset_id": str(deal["asset_id"]), "owner_telegram_id": buyer_id}
+
+
+    @router.post("/deals/{deal_id}/ton-checkout")
+    async def create_ton_checkout(
+        deal_id: str,
+        payload: TonCheckoutRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Create a TON Connect transfer request with a unique, verifiable memo."""
+        import base64
+        import hashlib
+        from decimal import Decimal, InvalidOperation
+        from ton_nft_inventory import normalise_ton_address
+        from marketplace_payments import append_escrow_event, create_payment_intent, transition_deal_status, transition_payment_intent
+
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        buyer_id = str(user["id"])
+        _enforce_user_rate_limit(buyer_id, "ton_checkout", 5)
+        if os.getenv("HASSLE_TON_CHECKOUT_ENABLED", "0") != "1":
+            raise HTTPException(status_code=503, detail="TON checkout is not enabled")
+        treasury = os.getenv("HASSLE_TON_TREASURY_ADDRESS", "").strip()
+        support_contact = os.getenv("PAYMENT_SUPPORT_CONTACT", "").strip()
+        if not treasury or not support_contact:
+            raise HTTPException(status_code=503, detail="TON treasury or payment support is not configured")
+        try:
+            treasury_raw = normalise_ton_address(treasury)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Configured TON treasury address is invalid") from exc
+        try:
+            ttl = max(300, min(int(os.getenv("HASSLE_TON_INVOICE_TTL_SECONDS", "900")), 3600))
+        except ValueError:
+            ttl = 900
+        now = int(time.time())
+        with _db() as conn:
+            begin_write(conn, f"deal:{deal_id}")
+            deal = conn.execute(
+                select_for_update(conn, """SELECT d.*, o.status AS listing_status, o.asset_id,
+                    o.currency AS listing_currency, a.source, a.status AS asset_status,
+                    a.owner_telegram_id
+                    FROM marketplace_deals d
+                    JOIN marketplace_orders o ON o.id = d.order_id
+                    LEFT JOIN verified_assets a ON a.id = o.asset_id
+                    WHERE d.id = ?"""),
+                (deal_id,),
+            ).fetchone()
+            if deal is None or buyer_id != str(deal["offer_sender_id"]):
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Deal not found")
+            if (
+                deal["currency"] != "TON" or deal["listing_currency"] != "TON"
+                or deal["listing_status"] != "matched"
+                or deal["status"] not in {"payment_not_enabled", "awaiting_payment"}
+                or deal["source"] != "ton_nft" or deal["asset_status"] != "verified"
+                or str(deal["owner_telegram_id"]) != str(deal["listing_owner_id"])
+            ):
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Deal is not eligible for verified TON NFT checkout")
+            buyer_wallet = conn.execute(
+                """SELECT address FROM verified_wallets
+                   WHERE telegram_id = ? AND network = '-239' AND revoked_at IS NULL
+                   ORDER BY last_verified_at DESC LIMIT 1""",
+                (buyer_id,),
+            ).fetchone()
+            if buyer_wallet is None:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Link and verify your TON mainnet wallet first")
+            try:
+                amount = Decimal(str(deal["agreed_amount"]))
+                nano_amount = amount * Decimal(1_000_000_000)
+                if not amount.is_finite() or amount <= 0 or nano_amount != nano_amount.to_integral_value():
+                    raise ValueError("TON amount must be positive and use no more than 9 decimal places")
+            except (InvalidOperation, ValueError) as exc:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Deal has an invalid TON amount") from exc
+            buyer_raw = normalise_ton_address(buyer_wallet["address"])
+            memo = "HASSLE:" + hashlib.sha256(
+                f"{deal_id}:{payload.idempotency_key}:{buyer_raw}".encode("utf-8")
+            ).hexdigest()[:40]
+            intent = conn.execute(
+                """SELECT * FROM marketplace_payment_intents
+                   WHERE deal_id = ? AND status IN ('created', 'pending')
+                   ORDER BY created_at DESC LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            if intent is not None and int(intent["expires_at"]) <= now:
+                transition_payment_intent(conn, intent["id"], "expired", now=now)
+                intent = None
+            if intent is not None:
+                metadata = json.loads(intent["metadata_json"] or "{}")
+                memo = str(metadata.get("memo") or memo)
+                if (
+                    intent["provider"] != "ton" or intent["currency"] != "TON"
+                    or Decimal(str(intent["amount"])) != amount
+                    or str(metadata.get("buyer_wallet")) != buyer_raw
+                    or str(metadata.get("treasury")) != treasury_raw
+                ):
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="An incompatible payment request is already active")
+                intent = dict(intent)
+            else:
+                intent = create_payment_intent(
+                    conn, deal_id=deal_id, provider="ton", currency="TON", amount=str(amount),
+                    idempotency_key=f"ton:{deal_id}:{payload.idempotency_key}",
+                    expires_at=now + ttl, invoice_payload=memo,
+                    metadata={
+                        "buyer_telegram_id": buyer_id, "seller_telegram_id": str(deal["listing_owner_id"]),
+                        "buyer_wallet": buyer_raw, "treasury": treasury_raw, "memo": memo,
+                    }, now=now,
+                )
+            if deal["status"] == "payment_not_enabled":
+                transition_deal_status(
+                    conn, deal_id=deal_id, new_status="awaiting_payment", actor_user_id=buyer_id,
+                    idempotency_key=f"{deal_id}:ton-payment-requested:{intent['id']}",
+                    event_type="deal_payment_requested",
+                    event_data={"provider": "ton", "currency": "TON", "payment_intent_id": intent["id"]},
+                    now=now,
+                )
+            if intent["status"] == "created":
+                transition_payment_intent(conn, intent["id"], "pending", now=now)
+            if deal["status"] != "payment_pending":
+                transition_deal_status(
+                    conn, deal_id=deal_id, new_status="payment_pending", actor_user_id=buyer_id,
+                    idempotency_key=f"{deal_id}:ton-payment-pending:{intent['id']}",
+                    event_type="payment_pending",
+                    event_data={"provider": "ton", "payment_intent_id": intent["id"], "memo": memo},
+                    now=now,
+                )
+            append_escrow_event(
+                conn, deal_id=deal_id, actor_user_id=buyer_id,
+                event_type="payment_intent_created",
+                event_key=f"{deal_id}:ton-intent:{intent['id']}",
+                event_data={"provider": "ton", "payment_intent_id": intent["id"], "currency": "TON",
+                            "amount": str(amount), "memo": memo, "treasury": treasury_raw},
+                now=now,
+            )
+            conn.commit()
+        # TON Connect comment payload: 32-bit zero op-code followed by UTF-8 memo.
+        # Cell BOC is constructed server-side; wallet signs only the transfer.
+        try:
+            from tonsdk.boc import begin_cell
+            comment_boc = begin_cell().store_uint(0, 32).store_string(memo).end_cell().to_boc(False).hex()
+            comment_payload = base64.b64encode(bytes.fromhex(comment_boc)).decode("ascii")
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="TON transfer payload encoder is unavailable") from exc
+        return {
+            "deal_id": deal_id, "payment_intent_id": intent["id"], "provider": "ton",
+            "currency": "TON", "amount": str(amount), "memo": memo,
+            "expires_at": intent["expires_at"],
+            "transaction": {
+                "validUntil": min(now + ttl, int(intent["expires_at"])),
+                "network": "-239",
+                "messages": [{"address": treasury, "amount": str(int(nano_amount)), "payload": comment_payload}],
+            },
+        }
+
+
+    @router.post("/deals/{deal_id}/ton-payment/confirm")
+    async def confirm_ton_checkout(
+        deal_id: str,
+        payload: TonPaymentConfirmRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Confirm a TON deposit only from a successful incoming treasury transaction."""
+        import hashlib
+        import httpx
+        from decimal import Decimal
+        from ton_nft_inventory import normalise_ton_address
+        from marketplace_payments import PaymentConflict, PaymentStateError, append_escrow_event, post_ledger_transaction, record_payment_event, transition_deal_status, transition_payment_intent
+
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        buyer_id = str(user["id"])
+        _enforce_user_rate_limit(buyer_id, "ton_payment_confirm", 8)
+        token = os.getenv("TONAPI_TOKEN", "").strip()
+        if not token:
+            raise HTTPException(status_code=503, detail="TON transaction verification provider is not configured")
+        with _db() as conn:
+            intent = conn.execute(
+                """SELECT pi.*, d.offer_sender_id, d.listing_owner_id, d.status AS deal_status
+                   FROM marketplace_payment_intents pi
+                   JOIN marketplace_deals d ON d.id = pi.deal_id
+                   WHERE pi.deal_id = ? AND pi.provider = 'ton'
+                   ORDER BY pi.created_at DESC LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            if intent is None or str(intent["offer_sender_id"]) != buyer_id:
+                raise HTTPException(status_code=404, detail="Payment request not found")
+            if intent["status"] == "confirmed":
+                return {"deal_id": deal_id, "status": "paid", "currency": "TON", "idempotent_replay": True}
+            if intent["status"] != "pending" or int(intent["expires_at"]) <= int(time.time()):
+                raise HTTPException(status_code=409, detail="TON payment request is not active")
+            metadata = json.loads(intent["metadata_json"] or "{}")
+        treasury = str(metadata["treasury"])
+        buyer_wallet = str(metadata["buyer_wallet"])
+        memo = str(metadata["memo"])
+        try:
+            treasury_raw = normalise_ton_address(treasury)
+            buyer_raw = normalise_ton_address(buyer_wallet)
+            base_url = os.getenv("TONAPI_BASE_URL", "https://tonapi.io").rstrip("/")
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+            async with httpx.AsyncClient(timeout=12.0, follow_redirects=False) as client:
+                response = await client.get(
+                    f"{base_url}/v2/blockchain/accounts/{treasury_raw}/transactions?limit=100",
+                    headers=headers,
+                )
+                response.raise_for_status()
+                body = response.json()
+            transactions = body.get("transactions", []) if isinstance(body, dict) else []
+            expected_nano = int(Decimal(str(intent["amount"])) * Decimal(1_000_000_000))
+            matched = None
+            for tx in transactions if isinstance(transactions, list) else []:
+                if not isinstance(tx, dict) or tx.get("success") is not True:
+                    continue
+                if int(tx.get("utime") or 0) < int(intent["created_at"]) - 60:
+                    continue
+                incoming = tx.get("in_msg") if isinstance(tx.get("in_msg"), dict) else {}
+                try:
+                    source = normalise_ton_address(str(incoming.get("source") or ""))
+                    destination = normalise_ton_address(str(incoming.get("destination") or ""))
+                    value = int(incoming.get("value") or 0)
+                except Exception:
+                    continue
+                content = incoming.get("decoded_body") if isinstance(incoming.get("decoded_body"), dict) else {}
+                comment = content.get("text") or content.get("comment")
+                if not comment:
+                    nested = incoming.get("message_content")
+                    if isinstance(nested, dict):
+                        decoded = nested.get("decoded")
+                        if isinstance(decoded, dict):
+                            comment = decoded.get("comment") or decoded.get("text")
+                if (
+                    source == buyer_raw and destination == treasury_raw
+                    and value == expected_nano and str(comment or "") == memo
+                ):
+                    matched = tx
+                    break
+            if matched is None:
+                raise HTTPException(status_code=409, detail="TON has not confirmed the exact payment yet")
+            provider_reference = str(matched.get("hash") or "").strip()
+            if not provider_reference:
+                raise HTTPException(status_code=503, detail="TON provider returned a transaction without a hash")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="TON transaction verification is temporarily unavailable") from exc
+        now = int(time.time())
+        with _db() as conn:
+            begin_write(conn, f"deal:{deal_id}", f"payment-intent:{intent['id']}")
+            locked = conn.execute(
+                select_for_update(conn, "SELECT * FROM marketplace_payment_intents WHERE id = ?"),
+                (intent["id"],),
+            ).fetchone()
+            deal = conn.execute(
+                select_for_update(conn, "SELECT * FROM marketplace_deals WHERE id = ?"),
+                (deal_id,),
+            ).fetchone()
+            if locked is None or deal is None or locked["status"] != "pending" or deal["status"] != "payment_pending":
+                conn.rollback()
+                if locked is not None and locked["status"] == "confirmed":
+                    return {"deal_id": deal_id, "status": "paid", "currency": "TON", "idempotent_replay": True}
+                raise HTTPException(status_code=409, detail="Deal or TON payment state changed during verification")
+            event_hash = hashlib.sha256(
+                f"{deal_id}:{provider_reference}:{buyer_raw}:{treasury_raw}:{expected_nano}:{memo}".encode()
+            ).hexdigest()
+            record_payment_event(
+                conn, provider="ton", provider_event_id=provider_reference,
+                payment_intent_id=intent["id"], event_type="confirmed_incoming_transfer",
+                payload_hash=event_hash, now=now,
+            )
+            transition_payment_intent(conn, intent["id"], "confirmed", provider_reference=provider_reference, now=now)
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="paid", actor_user_id=buyer_id,
+                idempotency_key=f"{deal_id}:ton-payment-confirmed:{intent['id']}",
+                event_type="payment_confirmed",
+                event_data={"provider": "ton", "payment_intent_id": intent["id"], "provider_reference": provider_reference,
+                            "currency": "TON", "amount": str(intent["amount"])}, now=now,
+            )
+            ledger = post_ledger_transaction(
+                conn, idempotency_key=f"{deal_id}:ton-escrow:{provider_reference}",
+                reference_type="deal", reference_id=deal_id, currency="TON",
+                debit_account=("ton_treasury_clearing", provider_reference),
+                credit_account=("escrow", deal_id), debit_amount=intent["amount"],
+                credit_amount=intent["amount"], now=now,
+            )
+            append_escrow_event(
+                conn, deal_id=deal_id, actor_user_id=buyer_id, event_type="escrow_funded",
+                event_key=f"{deal_id}:ton-escrow-funded:{intent['id']}",
+                event_data={"provider": "ton", "payment_intent_id": intent["id"],
+                            "ledger_transaction_id": ledger["id"], "currency": "TON",
+                            "amount": str(intent["amount"]), "custody": "configured_ton_treasury"},
+                now=now,
+            )
+            conn.commit()
+        return {"deal_id": deal_id, "status": "paid", "currency": "TON", "amount": str(intent["amount"]), "idempotent_replay": False}
 
 
     @router.get("/deals/{deal_id}/payment-status")
