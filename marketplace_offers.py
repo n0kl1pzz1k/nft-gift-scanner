@@ -1223,6 +1223,8 @@ def create_marketplace_offers_router(
         }
         if len(configured_admins) < 2:
             raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
+        if admin_id not in configured_admins:
+            raise HTTPException(status_code=403, detail="Only currently configured dispute administrators can execute this action")
         bot_token = os.getenv("BOT_TOKEN", "").strip()
         if not bot_token:
             raise HTTPException(status_code=503, detail="Telegram payment bot is not configured")
@@ -1407,6 +1409,8 @@ def create_marketplace_offers_router(
         }
         if len(configured_admins) < 2:
             raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
+        if admin_id not in configured_admins:
+            raise HTTPException(status_code=403, detail="Only currently configured dispute administrators can execute this action")
         token = os.getenv("TONAPI_TOKEN", "").strip()
         if not token:
             raise HTTPException(status_code=503, detail="TON transaction verification provider is not configured")
@@ -1594,6 +1598,8 @@ def create_marketplace_offers_router(
         }
         if len(configured_admins) < 2:
             raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
+        if admin_id not in configured_admins:
+            raise HTTPException(status_code=403, detail="Only currently configured dispute administrators can execute this action")
         with _db() as conn:
             begin_write(conn, f"deal:{deal_id}")
             deal = conn.execute(
@@ -1794,6 +1800,8 @@ def create_marketplace_offers_router(
         }
         if len(configured_admins) < 2:
             raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
+        if admin_id not in configured_admins:
+            raise HTTPException(status_code=403, detail="Only currently configured dispute administrators can execute this action")
         if (
             os.getenv("HASSLE_TON_CUSTODY_ACKNOWLEDGED", "0") != "1"
             or os.getenv("HASSLE_TON_PAYOUT_MODE", "") != "manual_multisig_2_of_3"
