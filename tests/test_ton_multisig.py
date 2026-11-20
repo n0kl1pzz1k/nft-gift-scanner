@@ -31,6 +31,12 @@ def dictionary_boc(addresses):
     return base64.b64encode(dictionary.end_dict().to_boc(False)).decode()
 
 
+CODE_BOC_HEX = Cell().to_boc(False).hex()
+DATA_BOC_HEX = Builder().store_uint(1, 1).end_cell().to_boc(False).hex()
+CODE_HASH = Cell.one_from_boc(bytes.fromhex(CODE_BOC_HEX)).bytes_hash().hex()
+DATA_HASH = Cell.one_from_boc(bytes.fromhex(DATA_BOC_HEX)).bytes_hash().hex()
+
+
 def getter_payload(signers=SIGNERS, proposers=None):
     proposer_item = {"type": "null"}
     if proposers:
@@ -47,6 +53,18 @@ def getter_payload(signers=SIGNERS, proposers=None):
     }
 
 
+def raw_account_payload():
+    return {"status": "active", "code": CODE_BOC_HEX, "data": DATA_BOC_HEX}
+
+
+def multisig_env():
+    return {
+        "HASSLE_TON_MULTISIG_EXPECTED_ADDRESS": TREASURY,
+        "HASSLE_TON_MULTISIG_CODE_HASH": CODE_HASH,
+        "HASSLE_TON_MULTISIG_DATA_HASH": DATA_HASH,
+    }
+
+
 class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
     def test_decodes_real_multisig_v2_getter_stack(self):
         config = decode_multisig_v2_getter(getter_payload(), TREASURY)
@@ -54,7 +72,9 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config["threshold"], 2)
         self.assertEqual(config["signers"], SIGNERS)
         self.assertEqual(config["proposers"], [])
-        self.assertTrue(is_two_of_three_multisig(config, TREASURY))
+        config.update({"code_hash": CODE_HASH, "data_hash": DATA_HASH})
+        with patch.dict(os.environ, multisig_env()):
+            self.assertTrue(is_two_of_three_multisig(config, TREASURY))
 
     def test_accepts_only_exact_two_of_three_with_no_proposers(self):
         config = {
@@ -63,23 +83,27 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
             "signers": SIGNERS,
             "proposers": [],
         }
-        self.assertTrue(is_two_of_three_multisig(config, TREASURY))
-        self.assertFalse(is_two_of_three_multisig({**config, "threshold": 1}, TREASURY))
-        self.assertFalse(is_two_of_three_multisig({**config, "threshold": 2.0}, TREASURY))
-        self.assertFalse(is_two_of_three_multisig({**config, "signers": SIGNERS[:2]}, TREASURY))
-        self.assertFalse(is_two_of_three_multisig(
-            {**config, "signers": ["0:" + "b" * 64, "0:" + "c" * 64, "0:" + "d" * 64]},
-            TREASURY,
-        ))
-        self.assertFalse(is_two_of_three_multisig(
-            {**config, "signers": [TREASURY, SIGNERS[0], SIGNERS[1]]}, TREASURY,
-        ))
-        self.assertFalse(is_two_of_three_multisig(
-            {**config, "signers": [SIGNERS[0], SIGNERS[0], SIGNERS[2]]}, TREASURY,
-        ))
-        self.assertFalse(is_two_of_three_multisig({**config, "address": SIGNERS[0]}, TREASURY))
-        self.assertFalse(is_two_of_three_multisig({**config, "proposers": [SIGNERS[0]]}, TREASURY))
-        self.assertFalse(is_two_of_three_multisig(None, TREASURY))
+        with patch.dict(os.environ, multisig_env()):
+            self.assertTrue(is_two_of_three_multisig(config, TREASURY))
+            self.assertFalse(is_two_of_three_multisig({**config, "threshold": 1}, TREASURY))
+            self.assertFalse(is_two_of_three_multisig({**config, "threshold": 2.0}, TREASURY))
+            self.assertFalse(is_two_of_three_multisig({**config, "signers": SIGNERS[:2]}, TREASURY))
+            self.assertFalse(is_two_of_three_multisig(
+                {**config, "signers": ["0:" + "b" * 64, "0:" + "c" * 64, "0:" + "d" * 64]},
+                TREASURY,
+            ))
+            self.assertFalse(is_two_of_three_multisig(
+                {**config, "signers": [TREASURY, SIGNERS[0], SIGNERS[1]]}, TREASURY,
+            ))
+            self.assertFalse(is_two_of_three_multisig(
+                {**config, "signers": [SIGNERS[0], SIGNERS[0], SIGNERS[2]]}, TREASURY,
+            ))
+            self.assertFalse(is_two_of_three_multisig({**config, "address": SIGNERS[0]}, TREASURY))
+            self.assertFalse(is_two_of_three_multisig({**config, "proposers": [SIGNERS[0]]}, TREASURY))
+            self.assertFalse(is_two_of_three_multisig({**config, "code_hash": "00"}, TREASURY))
+            self.assertFalse(is_two_of_three_multisig({**config, "data_hash": "00"}, TREASURY))
+            self.assertFalse(is_two_of_three_multisig(None, TREASURY))
+        self.assertFalse(is_two_of_three_multisig(config, TREASURY))
 
     def test_rejects_unexpected_or_malformed_getter_responses(self):
         with self.assertRaises(ValueError):
@@ -101,19 +125,25 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
 
         def handler(request):
             calls.append(request)
-            return httpx.Response(200, json=getter_payload())
+            if request.url.path.endswith("/methods/get_multisig_data"):
+                return httpx.Response(200, json=getter_payload())
+            return httpx.Response(200, json=raw_account_payload())
 
         client = httpx.AsyncClient(
             transport=httpx.MockTransport(handler),
             base_url="https://tonapi.io",
         )
-        with patch.dict(os.environ, {"TONAPI_TOKEN": "test-token"}):
+        with patch.dict(os.environ, {"TONAPI_TOKEN": "test-token", **multisig_env()}):
             config = await fetch_ton_multisig_config(TREASURY, client=client)
         await client.aclose()
         self.assertTrue(is_two_of_three_multisig(config, TREASURY))
         self.assertEqual(
             calls[0].url.path,
             f"/v2/blockchain/accounts/{TREASURY}/methods/get_multisig_data",
+        )
+        self.assertEqual(
+            calls[1].url.path,
+            f"/v2/blockchain/accounts/{TREASURY}",
         )
         self.assertEqual(calls[0].headers.get("Authorization"), "Bearer test-token")
 
