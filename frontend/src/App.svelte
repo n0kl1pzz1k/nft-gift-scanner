@@ -136,6 +136,7 @@
   let adminUsers = $state<Array<Record<string,unknown>>>([]);
   let adminAssets = $state<Array<Record<string,unknown>>>([]);
   let adminDisputes = $state<Array<Record<string,unknown>>>([]);
+  let adminAudit = $state<Array<Record<string,unknown>>>([]);
   let adminReconciliation = $state<{payments:Array<Record<string,unknown>>;transfers:Array<Record<string,unknown>>}>({payments:[],transfers:[]});
   let adminUserSearch = $state('');
   let adminBusy = $state(false);
@@ -1168,19 +1169,21 @@
     if (!isAdmin || adminBusy) return;
     adminBusy = true;
     try {
-      const [overview, reports, users, assets, reconciliation, disputes] = await Promise.all([
+      const [overview, reports, users, assets, reconciliation, disputes, audit] = await Promise.all([
         request('/api/marketplace/admin/overview'),
         request('/api/marketplace/admin/reports?status=open&limit=50'),
         request('/api/marketplace/admin/users?limit=25'),
         request('/api/marketplace/admin/assets?status=verified&limit=25'),
         request('/api/marketplace/admin/reconciliation?limit=50'),
         request('/api/marketplace/admin/deals?status=disputed&limit=50'),
+        request('/api/marketplace/admin/security-audit?limit=25'),
       ]);
       adminOverview = overview as Record<string,number>;
       adminReports = Array.isArray(reports.items) ? reports.items as OrderReport[] : [];
       adminUsers = Array.isArray(users.items) ? users.items as Array<Record<string,unknown>> : [];
       adminAssets = Array.isArray(assets.items) ? assets.items as Array<Record<string,unknown>> : [];
       adminDisputes = Array.isArray(disputes.items) ? disputes.items as Array<Record<string,unknown>> : [];
+      adminAudit = Array.isArray(audit.items) ? audit.items as Array<Record<string,unknown>> : [];
       adminReconciliation = {
         payments: Array.isArray(reconciliation.payments) ? reconciliation.payments as Array<Record<string,unknown>> : [],
         transfers: Array.isArray(reconciliation.transfers) ? reconciliation.transfers as Array<Record<string,unknown>> : [],
@@ -1778,6 +1781,10 @@
           {/each}
           {#each adminReconciliation.transfers as item (String(item.id))}
             <div class="activity-row"><div class="activity-row-main"><strong>{lang==='ru'?'Передача актива ожидает сверки':'Asset transfer needs reconciliation'}</strong><small>{item.deal_id} · {item.event_type}</small></div></div>
+          {/each}
+          <div class="notification-heading"><h3>{lang==='ru'?'Журнал операций':'Operations journal'}</h3></div>
+          {#each adminAudit as event (String(event.id))}
+            <div class="activity-row"><div class="activity-row-main"><strong>{event.action} · {event.outcome}</strong><small>{lang==='ru'?'Администратор':'Admin'} {event.actor_telegram_id} · {new Date(Number(event.created_at)*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} · {String(event.target_hash).slice(0,12)}…</small></div></div>
           {/each}
           <div class="notification-heading"><h3>{lang==='ru'?'Проверенные активы':'Verified assets'}</h3></div>
           {#each adminAssets as asset (String(asset.id))}
