@@ -2539,7 +2539,10 @@ def create_marketplace_offers_router(
     ):
         """Complete delivery only after TonAPI independently reports the buyer as owner."""
         import hashlib
-        from ton_nft_inventory import fetch_nft_owner, normalise_ton_address
+        from ton_nft_inventory import (
+            fetch_nft_owner, fetch_wallet_nft_history,
+            find_confirmed_nft_transfer, normalise_ton_address,
+        )
 
         user = _require_user(x_telegram_init_data, verify_telegram_init_data)
         buyer_id = str(user["id"])
@@ -2567,17 +2570,40 @@ def create_marketplace_offers_router(
                    ORDER BY last_verified_at DESC LIMIT 1""",
                 (buyer_id,),
             ).fetchone()
-        if buyer_wallet is None:
-            raise HTTPException(status_code=409, detail="Link and verify your TON mainnet wallet first")
+            seller_wallet = conn.execute(
+                """SELECT address FROM verified_wallets
+                   WHERE telegram_id = ? AND network = '-239' AND revoked_at IS NULL
+                   ORDER BY last_verified_at DESC LIMIT 1""",
+                (str(deal["listing_owner_id"]),),
+            ).fetchone()
+            transfer_request = conn.execute(
+                """SELECT created_at FROM marketplace_escrow_events
+                   WHERE deal_id=? AND event_type='asset_transfer_requested'
+                   ORDER BY created_at DESC LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+        if buyer_wallet is None or seller_wallet is None or transfer_request is None:
+            raise HTTPException(status_code=409, detail="Both verified TON wallets and a recorded delivery request are required")
         try:
             current_owner = await fetch_nft_owner(str(deal["external_asset_id"]))
             buyer_raw = normalise_ton_address(buyer_wallet["address"])
+            seller_raw = normalise_ton_address(seller_wallet["address"])
+            history = await fetch_wallet_nft_history(seller_wallet["address"])
+            confirmed_transfer = find_confirmed_nft_transfer(
+                history,
+                item_address=str(deal["external_asset_id"]),
+                source_address=seller_raw,
+                destination_address=buyer_raw,
+                not_before=int(transfer_request["created_at"]),
+            )
         except Exception as exc:
-            raise HTTPException(status_code=503, detail="TON ownership verification is temporarily unavailable") from exc
+            raise HTTPException(status_code=503, detail="TON ownership or transfer-history verification is temporarily unavailable") from exc
         if current_owner.get("is_scam") or current_owner.get("owner_address") != buyer_raw:
             raise HTTPException(status_code=409, detail="TON has not yet confirmed the buyer as the NFT owner")
+        if confirmed_transfer is None:
+            raise HTTPException(status_code=409, detail="TON history does not confirm this NFT transfer from the seller to the buyer after delivery was requested")
         reference = hashlib.sha256(
-            f"hassle-ton-delivery:{deal_id}:{deal['asset_id']}:{buyer_id}:{buyer_raw}".encode("utf-8")
+            f"hassle-ton-delivery:{deal_id}:{deal['asset_id']}:{buyer_id}:{buyer_raw}:{confirmed_transfer['transaction_hash']}".encode("utf-8")
         ).hexdigest()
         now = int(time.time())
         with _db() as conn:
@@ -2632,7 +2658,10 @@ def create_marketplace_offers_router(
                         "new_owner_wallet": buyer_raw,
                         "new_owner_telegram_id": buyer_id,
                         "network": "ton-mainnet",
-                        "verification": "tonapi_current_owner",
+                        "verification": "tonapi_owner_and_transfer_history",
+                        "transfer_transaction_hash": confirmed_transfer["transaction_hash"],
+                        "transfer_utime": confirmed_transfer["utime"],
+                        "transfer_lt": confirmed_transfer["lt"],
                     },
                     now=now,
                 )
