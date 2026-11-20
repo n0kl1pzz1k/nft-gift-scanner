@@ -1623,6 +1623,23 @@
       <article class="profile-card wallet-card">
         <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">TON CONNECT · PROOF</div><h2>{lang==='ru'?'TON-кошелёк':'TON wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления TON и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for TON to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletConnected=Boolean(address);}} /></div>
       </article>
+       {#if signedIn && accountStats.seller_pending_settlements.length}
+         <article class="profile-card activity-card">
+           <div class="notification-heading"><div><div class="eyebrow">SELLER SETTLEMENT</div><strong>{lang==='ru'?'Начисления продавцу':'Seller earnings'}</strong></div><span>{accountStats.seller_pending_settlements.length}</span></div>
+           <div class="activity-timeline">
+             {#each accountStats.seller_pending_settlements as settlement (settlement.currency)}
+               <div class="activity-row">
+                 <span class="activity-marker"></span>
+                 <div class="activity-row-main">
+                   <strong>{settlement.currency==='XTR'?'⭐ Telegram Stars':'TON'}</strong>
+                   <small>{settlement.status==='pending_manual_payout'?(lang==='ru'?'Ожидает ручной выплаты через мультиподпись 2 из 3':'Awaiting manual 2-of-3 multisig payout'):(lang==='ru'?'Внутреннее начисление Stars. Автоматический вывод недоступен.':'Internal Stars credit. Automatic withdrawal is unavailable.')}</small>
+                 </div>
+                 <div class="activity-row-value"><strong>{settlement.amount} {settlement.currency==='XTR'?'⭐':'TON'}</strong></div>
+               </div>
+             {/each}
+           </div>
+         </article>
+       {/if}
       {#if signedIn}
          <article class="profile-card seller-profile-editor">
            <div class="eyebrow">{t.sellerCardTitle}</div>
