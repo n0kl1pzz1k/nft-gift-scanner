@@ -19,7 +19,13 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
             {**config, "threshold": 1}, TREASURY,
         ))
         self.assertFalse(is_two_of_three_multisig(
+            {**config, "threshold": 2.0}, TREASURY,
+        ))
+        self.assertFalse(is_two_of_three_multisig(
             {**config, "signers": SIGNERS[:2]}, TREASURY,
+        ))
+        self.assertFalse(is_two_of_three_multisig(
+            {**config, "signers": [TREASURY, SIGNERS[0], SIGNERS[1]]}, TREASURY,
         ))
         self.assertFalse(is_two_of_three_multisig(
             {**config, "signers": [SIGNERS[0], SIGNERS[0], SIGNERS[2]]}, TREASURY,
