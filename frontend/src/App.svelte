@@ -1978,7 +1978,7 @@
           </div>
           {#if adminTab==='overview'}
             <div class="admin-stats-grid">
-              {#each [{key:'users',label:lang==='ru'?'Пользователи':'Users'},{key:'suspended_users',label:lang==='ru'?'Ограничены':'Suspended'},{key:'verified_assets',label:lang==='ru'?'Проверенные активы':'Verified assets'},{key:'active_listings',label:lang==='ru'?'Активные объявления':'Active listings'},{key:'open_reports',label:lang==='ru'?'Жалобы':'Open reports'},{key:'disputed_deals',label:lang==='ru'?'Споры':'Disputed deals'},{key:'open_reconciliation',label:lang==='ru'?'Сверка':'Open reconciliation'}] as metric}
+              {#each [{key:'users',label:lang==='ru'?'Пользователи':'Users'},{key:'suspended_users',label:lang==='ru'?'Ограничены':'Suspended'},{key:'verified_assets',label:lang==='ru'?'Проверенные активы':'Verified assets'},{key:'active_listings',label:lang==='ru'?'Активные объявления':'Active listings'},{key:'open_reports',label:lang==='ru'?'Жалобы':'Open reports'},{key:'disputed_deals',label:lang==='ru'?'Споры':'Disputed deals'},{key:'open_reconciliation',label:lang==='ru'?'Сверка':'Open reconciliation'},{key:'open_support_tickets',label:lang==='ru'?'Поддержка':'Open support tickets'}] as metric}
                 <div class="admin-stat"><strong>{adminOverview[metric.key]??'—'}</strong><span>{metric.label}</span></div>
               {/each}
             </div>
