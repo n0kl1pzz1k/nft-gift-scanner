@@ -155,6 +155,7 @@ def create_marketplace_admin_router(verify_credential: Callable[[str], dict]) ->
                 "open_reports": int(conn.execute("SELECT COUNT(*) FROM marketplace_order_reports WHERE status='open'").fetchone()[0]),
                 "disputed_deals": int(conn.execute("SELECT COUNT(*) FROM marketplace_deals WHERE status='disputed'").fetchone()[0]),
                 "open_reconciliation": int(conn.execute("SELECT COUNT(*) FROM marketplace_manual_reconciliation_items WHERE status='open'").fetchone()[0]),
+                "open_support_tickets": int(conn.execute("SELECT COUNT(*) FROM marketplace_support_tickets WHERE status IN ('open','in_progress')").fetchone()[0]),
             }
         return {"counts": counts}
 
