@@ -179,7 +179,9 @@ def create_marketplace_admin_router(verify_admin):
         with marketplace._db() as conn:
             rows = conn.execute(
                 """SELECT d.id, d.status, d.offer_sender_id AS buyer_telegram_id, d.listing_owner_id AS seller_telegram_id,
-                          d.created_at
+                          d.created_at,
+                          (SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals a WHERE a.deal_id=d.id) AS approval_count,
+                          (SELECT a.decision FROM marketplace_dispute_resolution_approvals a WHERE a.deal_id=d.id ORDER BY a.created_at DESC LIMIT 1) AS approved_decision
                    FROM marketplace_deals d""" + where +
                 " ORDER BY d.created_at DESC LIMIT ?", (*values, limit)
             ).fetchall()
