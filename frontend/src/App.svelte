@@ -1210,6 +1210,22 @@
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
+  async function approveAdminDispute(dealId: string, decision: 'refund_buyer'|'release_to_seller') {
+    if (!isAdmin) return;
+    try {
+      const idempotencyKey = 'admin-dispute:' + dealId + ':' + decision + ':' + crypto.randomUUID();
+      const result = await request('/api/marketplace/admin/deals/' + encodeURIComponent(dealId) + '/dispute-approvals', undefined, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({decision,idempotency_key:idempotencyKey}),
+      });
+      notice = lang==='ru'
+        ? 'Согласование записано: ' + result.approvals + ' / ' + result.required + '. Исполнение не запускается автоматически.'
+        : 'Approval recorded: ' + result.approvals + ' / ' + result.required + '. Execution is not automatic.';
+      await loadAdminOverview();
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+  }
+
   async function loadAdminReports() {
     if (!isAdmin || adminReportsBusy) return;
     adminReportsBusy = true;
@@ -1747,7 +1763,13 @@
           {/each}
           <div class="notification-heading"><h3>{lang==='ru'?'Споры':'Disputes'} · {adminDisputes.length}</h3></div>
           {#each adminDisputes as dispute (String(dispute.id))}
-            <div class="activity-row"><div class="activity-row-main"><strong>{String(dispute.id)}</strong><small>{lang==='ru'?'Покупатель':'Buyer'} {dispute.buyer_telegram_id} · {lang==='ru'?'Продавец':'Seller'} {dispute.seller_telegram_id} · {dispute.status}</small></div></div>
+            <div class="activity-row">
+              <div class="activity-row-main"><strong>{String(dispute.id)}</strong><small>{lang==='ru'?'Покупатель':'Buyer'} {dispute.buyer_telegram_id} · {lang==='ru'?'Продавец':'Seller'} {dispute.seller_telegram_id} · {dispute.status}</small><small>{lang==='ru'?'Подтверждения':'Approvals'}: {dispute.approval_count || 0} / 2 · {dispute.approved_decision || (lang==='ru'?'нет решения':'no decision')}</small></div>
+              <div class="order-actions">
+                <button class="match-button" onclick={()=>approveAdminDispute(String(dispute.id),'refund_buyer')}>{lang==='ru'?'За возврат':'Approve refund'}</button>
+                <button class="match-button" onclick={()=>approveAdminDispute(String(dispute.id),'release_to_seller')}>{lang==='ru'?'За продавца':'Approve seller'}</button>
+              </div>
+            </div>
           {/each}
           <div class="notification-heading"><h3>{lang==='ru'?'Ручная сверка':'Manual reconciliation'}</h3></div>
           <div class="state-panel">{lang==='ru'?'Ожидают проверки платежи':'Payments awaiting review'}: {adminReconciliation.payments.length} · {lang==='ru'?'передачи активов':'asset transfers'}: {adminReconciliation.transfers.length}</div>
