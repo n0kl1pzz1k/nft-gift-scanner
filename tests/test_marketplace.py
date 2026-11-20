@@ -631,7 +631,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(release_count, 1)
 
     def test_ton_payment_confirms_exact_incoming_transaction_once(self):
-        deal_id, _, buyer_wallet = self._create_ton_deal_with_verified_wallets()
+        deal_id, seller_wallet, buyer_wallet = self._create_ton_deal_with_verified_wallets()
         treasury = "0:" + "aa" * 32
         flags = {
             "HASSLE_TON_CHECKOUT_ENABLED": "1",
