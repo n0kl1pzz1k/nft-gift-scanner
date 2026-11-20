@@ -726,8 +726,8 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(intent["status"], "refunded")
         self.assertEqual(tx_count, 2)
 
-    def test_two_admin_approved_seller_release_requires_seller_to_still_own_ton_nft(self):
-        deal_id, seller_address, _ = self._create_ton_deal_with_verified_wallets()
+    def test_two_admin_approved_seller_release_requires_buyer_to_own_ton_nft(self):
+        deal_id, _, buyer_address = self._create_ton_deal_with_verified_wallets()
         now = int(time.time())
         with marketplace_offers._db() as conn:
             transition_deal_status(
@@ -762,7 +762,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             transition_deal_status(
                 conn, deal_id=deal_id, new_status="disputed", actor_user_id="202",
                 idempotency_key=f"{deal_id}:seller-release-test-disputed",
-                event_type="deal_disputed", event_data={"reason":"Seller retained the verified NFT"}, now=now,
+                event_type="deal_disputed", event_data={"reason":"Buyer ownership is confirmed on TON"}, now=now,
             )
             for admin_id in ("202","303"):
                 record_dispute_resolution_approval(
@@ -772,7 +772,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             conn.commit()
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS":"202,303"}), patch(
             "ton_nft_inventory.fetch_nft_owner",
-            new=AsyncMock(return_value={"owner_address":seller_address,"is_scam":False}),
+            new=AsyncMock(return_value={"owner_address":buyer_address,"is_scam":False}),
         ):
             released = self.client.post(
                 f"/api/marketplace/admin/deals/{deal_id}/execute-seller-release",
@@ -792,6 +792,14 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertTrue(replay.json()["idempotent_replay"])
         with marketplace_offers._db() as conn:
             deal = conn.execute("SELECT status FROM marketplace_deals WHERE id=?",(deal_id,)).fetchone()
+            asset = conn.execute(
+                "SELECT owner_telegram_id FROM verified_assets WHERE id=(SELECT asset_id FROM marketplace_orders WHERE id=(SELECT order_id FROM marketplace_deals WHERE id=?))",
+                (deal_id,),
+            ).fetchone()
+            ownership_count = conn.execute(
+                "SELECT COUNT(*) FROM asset_ownership_history WHERE asset_id=(SELECT asset_id FROM marketplace_orders WHERE id=(SELECT order_id FROM marketplace_deals WHERE id=?)) AND new_owner_id='202'",
+                (deal_id,),
+            ).fetchone()[0]
             credit_count = conn.execute(
                 "SELECT COUNT(*) FROM marketplace_escrow_events WHERE deal_id=? AND event_type='seller_credit_recorded'",
                 (deal_id,),
@@ -801,6 +809,8 @@ class SharedMarketplaceTests(unittest.TestCase):
                 (f"{deal_id}:seller-release:seller-release-chain-tx",),
             ).fetchone()[0]
         self.assertEqual(deal["status"], "completed")
+        self.assertEqual(asset["owner_telegram_id"], "202")
+        self.assertEqual(ownership_count, 1)
         self.assertEqual(credit_count, 1)
         self.assertEqual(ledger_count, 1)
 
