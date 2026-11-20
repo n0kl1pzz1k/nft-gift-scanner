@@ -146,7 +146,7 @@ def create_marketplace_admin_router(verify_admin):
         with marketplace._db() as conn:
             begin_write(conn, f"admin-revoke-asset:{asset_id}")
             asset = conn.execute(
-                "SELECT id, owner_telegram_id, status FROM verified_assets WHERE id=?",
+                select_for_update(conn, "SELECT id, owner_telegram_id, status FROM verified_assets WHERE id=?"),
                 (asset_id,),
             ).fetchone()
             if asset is None:
@@ -160,7 +160,7 @@ def create_marketplace_admin_router(verify_admin):
                 (now, asset_id),
             )
             listings = conn.execute(
-                "SELECT id FROM marketplace_orders WHERE asset_id=? AND status='active'",
+                select_for_update(conn, "SELECT id FROM marketplace_orders WHERE asset_id=? AND status='active'"),
                 (asset_id,),
             ).fetchall()
             listing_ids = [row["id"] for row in listings]
