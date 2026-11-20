@@ -858,6 +858,20 @@ class SharedMarketplaceTests(unittest.TestCase):
     def test_two_admin_approved_seller_release_requires_buyer_to_own_ton_nft(self):
         deal_id, seller_address, buyer_address = self._create_ton_deal_with_verified_wallets()
         now = int(time.time())
+        with marketplace_offers._db() as conn:
+            asset_address = conn.execute(
+                """SELECT a.external_asset_id FROM marketplace_deals d
+                   JOIN marketplace_orders o ON o.id=d.order_id
+                   JOIN verified_assets a ON a.id=o.asset_id WHERE d.id=?""",
+                (deal_id,),
+            ).fetchone()["external_asset_id"]
+        transfer_history = [{
+            "operation": "transfer", "utime": now + 10, "lt": 123456789,
+            "transaction_hash": "fa" * 32,
+            "item": {"address": asset_address},
+            "source": {"address": seller_address},
+            "destination": {"address": buyer_address},
+        }]
         treasury = "0:" + "aa" * 32
         with marketplace_offers._db() as conn:
             transition_deal_status(
@@ -890,6 +904,11 @@ class SharedMarketplaceTests(unittest.TestCase):
                 credit_account=("escrow",deal_id), debit_amount="9", credit_amount="9", now=now,
             )
             transition_deal_status(
+                conn, deal_id=deal_id, new_status="delivery_pending", actor_user_id="101",
+                idempotency_key=f"{deal_id}:seller-release-test-delivery-requested",
+                event_type="asset_transfer_requested", event_data={"network":"ton-mainnet"}, now=now,
+            )
+            transition_deal_status(
                 conn, deal_id=deal_id, new_status="disputed", actor_user_id="202",
                 idempotency_key=f"{deal_id}:seller-release-test-disputed",
                 event_type="deal_disputed", event_data={"reason":"Buyer ownership is confirmed on TON"}, now=now,
@@ -903,6 +922,9 @@ class SharedMarketplaceTests(unittest.TestCase):
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS":"202,303"}), patch(
             "ton_nft_inventory.fetch_nft_owner",
             new=AsyncMock(return_value={"owner_address":seller_address,"is_scam":False}),
+        ), patch(
+            "ton_nft_inventory.fetch_wallet_nft_history",
+            new=AsyncMock(return_value=transfer_history),
         ):
             seller_still_owns = self.client.post(
                 f"/api/marketplace/admin/deals/{deal_id}/execute-seller-release",
@@ -914,6 +936,9 @@ class SharedMarketplaceTests(unittest.TestCase):
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS":"202,303"}), patch(
             "ton_nft_inventory.fetch_nft_owner",
             new=AsyncMock(return_value={"owner_address":buyer_address,"is_scam":False}),
+        ), patch(
+            "ton_nft_inventory.fetch_wallet_nft_history",
+            new=AsyncMock(return_value=transfer_history),
         ):
             released = self.client.post(
                 f"/api/marketplace/admin/deals/{deal_id}/execute-seller-release",
