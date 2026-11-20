@@ -161,7 +161,7 @@ def create_marketplace_admin_router(verify_admin):
         values: list[object] = [] if status == "all" else [status]
         with marketplace._db() as conn:
             rows = conn.execute(
-                """SELECT d.id, d.status, d.buyer_telegram_id, d.seller_telegram_id,
+                """SELECT d.id, d.status, d.offer_sender_id AS buyer_telegram_id, d.listing_owner_id AS seller_telegram_id,
                           d.created_at, d.updated_at
                    FROM marketplace_deals d""" + where +
                 " ORDER BY d.updated_at DESC LIMIT ?", (*values, limit)
