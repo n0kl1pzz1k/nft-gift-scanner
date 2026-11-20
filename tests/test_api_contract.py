@@ -50,6 +50,10 @@ class ApiContractTests(unittest.TestCase):
                 "/api/marketplace/admin/reconciliation",
                 "/api/marketplace/admin/reconciliation/{item_id}",
                 "/api/marketplace/admin/audit",
+                "/api/marketplace/admin/support-tickets",
+                "/api/marketplace/admin/support-tickets/{ticket_id}",
+                "/api/marketplace/support/tickets",
+                "/api/marketplace/support/tickets/me",
             },
         )
         self.assertFalse(any("balance" in path or "withdraw" in path for path in admin_paths))
