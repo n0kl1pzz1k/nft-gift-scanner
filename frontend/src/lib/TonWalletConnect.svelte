@@ -24,6 +24,11 @@
   let network = $state('');
   let status = $state<'idle' | 'connected' | 'verified' | 'error'>('idle');
   let message = $state('');
+  let paymentSubmitted = $state(false);
+
+  $effect(() => {
+    if (!paymentRequest) paymentSubmitted = false;
+  });
 
   const copy = $derived({
     connect: lang === 'ru' ? 'Подключить TON-кошелёк' : 'Connect TON wallet',
@@ -189,13 +194,25 @@
     message = '';
     try {
       await tonConnect.sendTransaction(paymentRequest.transaction);
+      paymentSubmitted = true;
       await onPaymentSent(paymentRequest.dealId);
       message = lang === 'ru'
-        ? 'Перевод отправлен. Проверяем подтверждение в блокчейне TON…'
-        : 'Transfer submitted. Verifying confirmation on TON…';
+        ? 'Перевод отправлен. Не отправляй его повторно. Если блокчейн ещё не обновился, нажми «Проверить оплату».'
+        : 'Transfer submitted. Do not send it again. If the chain has not updated yet, select “Verify payment”.';
     } catch (error) {
       message = error instanceof Error ? error.message : (lang === 'ru' ? 'Кошелёк отклонил или не отправил перевод.' : 'Wallet rejected or failed to submit the transfer.');
       status = 'error';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function verifyTonPayment() {
+    if (!paymentRequest || busy) return;
+    busy = true;
+    message = '';
+    try {
+      await onPaymentSent(paymentRequest.dealId);
     } finally {
       busy = false;
     }
@@ -276,7 +293,11 @@
     </button>
   {/if}
   {#if paymentRequest && status === 'verified' && address === paymentRequest.buyerWallet}
-    {#if tonConnect?.wallet}
+    {#if paymentSubmitted}
+      <button class="ton-wallet-button inventory-import-button" type="button" onclick={verifyTonPayment} disabled={busy}>
+        {busy ? '…' : (lang === 'ru' ? 'Проверить оплату TON' : 'Verify TON payment')}
+      </button>
+    {:else if tonConnect?.wallet}
       <button class="ton-wallet-button inventory-import-button" type="button" onclick={sendTonPayment} disabled={busy}>
         {busy ? '…' : (lang === 'ru' ? 'Оплатить TON из кошелька' : 'Pay with TON wallet')}
       </button>
