@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 import app as api
 import marketplace
 import marketplace_offers
-from marketplace_payments import create_payment_intent, post_ledger_transaction, record_dispute_resolution_approval, transition_deal_status, transition_payment_intent
+from marketplace_payments import PaymentStateError, create_payment_intent, post_ledger_transaction, record_dispute_resolution_approval, transition_deal_status, transition_payment_intent
 from marketplace_stars import confirm_stars_payment, validate_stars_pre_checkout
 from marketplace_offers import escalate_stalled_paid_deals
 from ton_nft_inventory import build_nft_transfer_payload, normalise_ton_address
@@ -796,7 +796,7 @@ class SharedMarketplaceTests(unittest.TestCase):
                 (deal_id,),
             )
             conn.commit()
-        with self.assertRaises(Exception):
+        with self.assertRaises(PaymentStateError):
             confirm_stars_payment(
                 invoice_payload=invoice_payload,
                 telegram_user_id="202",
