@@ -1982,11 +1982,8 @@ def create_marketplace_router(
                 raise HTTPException(status_code=404, detail="Verified asset not found")
             if preflight_asset["owner_telegram_id"] != owner_id:
                 raise HTTPException(status_code=403, detail="Only the verified asset owner can list it")
-            if preflight_asset["source"] == "telegram_gift":
-                raise HTTPException(
-                    status_code=409,
-                    detail="Telegram gift listings are locked until a safe gift transfer flow is implemented",
-                )
+            # Telegram Business gifts are eligible for listing; delivery is gated
+            # by the deal-bound transferGift workflow in marketplace_offers.py.
             if preflight_asset["source"] == "ton_nft" and not _test_ton_owner_recheck_skipped():
                 from ton_connect import list_verified_wallets
                 from ton_nft_inventory import fetch_nft_owner, fragment_collection_address
