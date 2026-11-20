@@ -420,7 +420,9 @@ class SharedMarketplaceTests(unittest.TestCase):
             prepared.json()["transaction"]["messages"][0]["payload"],
         )
 
-        with patch("ton_nft_inventory.fetch_nft_owner", new=AsyncMock(return_value=seller_owner)):
+        with patch("ton_nft_inventory.fetch_nft_owner", new=AsyncMock(return_value=seller_owner)), patch(
+            "ton_nft_inventory.fetch_wallet_nft_history", new=AsyncMock(return_value=[]),
+        ):
             not_yet = self.client.post(
                 f"/api/marketplace/deals/{deal_id}/ton-nft-delivery/confirm",
                 headers={"X-Telegram-Init-Data": "user-b"},
@@ -428,7 +430,29 @@ class SharedMarketplaceTests(unittest.TestCase):
             )
         self.assertEqual(not_yet.status_code, 409)
 
-        with patch("ton_nft_inventory.fetch_nft_owner", new=AsyncMock(return_value=buyer_owner)):
+        with patch("ton_nft_inventory.fetch_nft_owner", new=AsyncMock(return_value=buyer_owner)), patch(
+            "ton_nft_inventory.fetch_wallet_nft_history", new=AsyncMock(return_value=[]),
+        ):
+            no_transfer_proof = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/ton-nft-delivery/confirm",
+                headers={"X-Telegram-Init-Data": "user-b"},
+                json={"idempotency_key": "confirm-ton-transfer-without-history"},
+            )
+        self.assertEqual(no_transfer_proof.status_code, 409, no_transfer_proof.text)
+        self.assertIn("history", no_transfer_proof.text.lower())
+
+        transfer_history = [{
+            "operation": "transfer",
+            "utime": int(time.time()) + 10,
+            "lt": 123456789,
+            "transaction_hash": "ef" * 32,
+            "item": {"address": asset["external_asset_id"]},
+            "source": {"address": seller_address},
+            "destination": {"address": buyer_address},
+        }]
+        with patch("ton_nft_inventory.fetch_nft_owner", new=AsyncMock(return_value=buyer_owner)), patch(
+            "ton_nft_inventory.fetch_wallet_nft_history", new=AsyncMock(return_value=transfer_history),
+        ):
             confirmed = self.client.post(
                 f"/api/marketplace/deals/{deal_id}/ton-nft-delivery/confirm",
                 headers={"X-Telegram-Init-Data": "user-b"},
