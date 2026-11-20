@@ -133,6 +133,17 @@ class TelegramBusinessGiftInventoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(caught.exception.definitive_rejection)
         await client.aclose()
 
+    async def test_transfer_treats_provider_server_errors_as_uncertain(self):
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda request: httpx.Response(500, json={"ok": False})),
+            base_url="https://api.telegram.org",
+        )
+        with patch.dict(os.environ, {"BOT_TOKEN": "123456:test-token"}):
+            with self.assertRaises(TelegramBusinessGiftInventoryError) as caught:
+                await transfer_business_account_gift("business-101", "owned-gift-9", "202", client=client)
+        self.assertFalse(caught.exception.definitive_rejection)
+        await client.aclose()
+
     async def test_transfer_rejects_invalid_recipient_before_api_call(self):
         client = httpx.AsyncClient(
             transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"ok": True, "result": True})),
