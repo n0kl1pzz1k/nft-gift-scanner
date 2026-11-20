@@ -30,7 +30,7 @@ from ton_nft_chain import verify_nft_collection_membership, verify_nft_owner_onc
 from telegram_gift_inventory import fetch_user_telegram_gifts
 from telegram_business_gift_inventory import fetch_business_account_gifts, fetch_sticker_preview
 import httpx
-from marketplace_offers import create_marketplace_offers_router, init_marketplace_offers_db, expire_unpaid_marketplace_deals
+from marketplace_offers import create_marketplace_offers_router, init_marketplace_offers_db, expire_unpaid_marketplace_deals, escalate_stalled_paid_deals
 
 app = FastAPI(title="HASSLE NFT Market API", version="1.0.0")
 app.include_router(create_marketplace_router(
@@ -866,9 +866,7 @@ async def _run_marketplace_expiry_sweeper():
     while True:
         try:
             result = await asyncio.to_thread(expire_unpaid_marketplace_deals)
-            delivery_result = await asyncio.to_thread(
-                __import__("marketplace_offers").escalate_stalled_paid_deals
-            )
+            delivery_result = await asyncio.to_thread(escalate_stalled_paid_deals)
             result.update(delivery_result)
             if result.get("expired_deals") or result.get("stalled_deliveries_disputed"):
                 logging.getLogger("hassle_nft.escrow").info(
