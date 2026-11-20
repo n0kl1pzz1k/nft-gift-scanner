@@ -138,10 +138,10 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
         )
         with patch.dict(os.environ, {"TONAPI_TOKEN": "test-token", **multisig_env()}):
             config = await fetch_ton_multisig_config(TREASURY, client=client)
+            self.assertEqual(config["code_hash"], CODE_HASH)
+            self.assertEqual(config["data_hash"], DATA_HASH)
+            self.assertTrue(is_two_of_three_multisig(config, TREASURY))
         await client.aclose()
-        self.assertEqual(config["code_hash"], CODE_HASH)
-        self.assertEqual(config["data_hash"], DATA_HASH)
-        self.assertTrue(is_two_of_three_multisig(config, TREASURY))
         self.assertEqual(
             calls[0].url.path,
             f"/v2/blockchain/accounts/{TREASURY}/methods/get_multisig_data",
