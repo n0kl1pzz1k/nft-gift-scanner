@@ -10,6 +10,11 @@ from typing import Any
 import httpx
 
 TONAPI_BASE_URL = "https://tonapi.io"
+EXPECTED_TON_MULTISIG_SIGNERS = [
+    "0:372b63c65f2a2d81af7d7a7d995c4fcd7bdc18e6efa50b4ee840ae9b45dc6d10",
+    "0:eacaac33e932a8b67ae31e712d5a7969660130363e48e789f96c03a6162bc147",
+    "0:8ede0858321e76adb84ee65790431bb800050acfc0ee5b6c1255e65137f3221c",
+]
 
 
 def _raw_address(value: str) -> str:
@@ -149,7 +154,7 @@ def is_two_of_three_multisig(config: Any, expected_address: str) -> bool:
         if not isinstance(signers, list) or len(signers) != 3:
             return False
         normalised = [_raw_address(str(signer)) for signer in signers]
-        if len(set(normalised)) != 3 or expected in set(normalised):
+        if normalised != EXPECTED_TON_MULTISIG_SIGNERS or expected in set(normalised):
             return False
         if not isinstance(proposers, list) or proposers:
             return False
