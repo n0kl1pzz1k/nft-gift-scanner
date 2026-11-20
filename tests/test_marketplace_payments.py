@@ -165,8 +165,9 @@ def test_ton_transaction_hash_cannot_be_reused_across_payment_and_settlement_eve
         conn, deal_id="deal-1", provider="ton", currency="TON", amount="1",
         idempotency_key="ton-payment-one", expires_at=2000, now=1000,
     )
+    conn.execute("INSERT INTO marketplace_deals (id, status) VALUES ('deal-2', 'awaiting_payment')")
     second = create_payment_intent(
-        conn, deal_id="deal-1", provider="ton", currency="TON", amount="2",
+        conn, deal_id="deal-2", provider="ton", currency="TON", amount="2",
         idempotency_key="ton-payment-two", expires_at=2000, now=1000,
     )
     event = {
