@@ -58,5 +58,37 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls[0].headers.get("Authorization"), "Bearer test-token")
 
 
+    async def test_fetches_and_validates_wallet_public_key(self):
+        calls = []
+        public_key = "ab" * 32
+
+        def handler(request):
+            calls.append(request)
+            return httpx.Response(200, json={"public_key": public_key.upper()})
+
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://tonapi.io",
+        )
+        with patch.dict(os.environ, {"TONAPI_TOKEN": "test-token"}):
+            from ton_multisig import fetch_ton_wallet_public_key
+            result = await fetch_ton_wallet_public_key(TREASURY, client=client)
+        await client.aclose()
+        self.assertEqual(result, public_key)
+        self.assertEqual(calls[0].url.path, f"/v2/accounts/{TREASURY}/publickey")
+        self.assertEqual(calls[0].headers.get("Authorization"), "Bearer test-token")
+
+    async def test_rejects_malformed_wallet_public_key(self):
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, json={"public_key": "not-a-key"})
+            ),
+            base_url="https://tonapi.io",
+        )
+        from ton_multisig import fetch_ton_wallet_public_key
+        with self.assertRaises(ValueError):
+            await fetch_ton_wallet_public_key(TREASURY, client=client)
+        await client.aclose()
+
 if __name__ == "__main__":
     unittest.main()
