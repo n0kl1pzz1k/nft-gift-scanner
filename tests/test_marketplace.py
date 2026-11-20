@@ -17,6 +17,7 @@ import marketplace
 import marketplace_offers
 from marketplace_payments import create_payment_intent, post_ledger_transaction, record_dispute_resolution_approval, transition_deal_status, transition_payment_intent
 from marketplace_stars import confirm_stars_payment, validate_stars_pre_checkout
+from marketplace_offers import escalate_stalled_paid_deals
 from ton_nft_inventory import build_nft_transfer_payload, normalise_ton_address
 
 
@@ -2909,6 +2910,48 @@ class SharedMarketplaceTests(unittest.TestCase):
                 json={"decision": "refund_buyer", "idempotency_key": f"{deal_id}:admin-103"},
             )
             self.assertEqual(non_admin.status_code, 403)
+
+    def test_paid_delivery_timeout_moves_deal_to_dispute_without_releasing_escrow(self):
+        deal_id, _, _ = self._create_ton_deal_with_verified_wallets()
+        now = int(time.time())
+        with marketplace_offers._db() as conn:
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="awaiting_payment", actor_user_id="202",
+                idempotency_key=f"{deal_id}:delivery-timeout-awaiting",
+                event_type="deal_payment_requested", event_data={}, now=now,
+            )
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="payment_pending", actor_user_id="202",
+                idempotency_key=f"{deal_id}:delivery-timeout-pending",
+                event_type="payment_pending", event_data={}, now=now,
+            )
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="paid", actor_user_id="202",
+                idempotency_key=f"{deal_id}:delivery-timeout-paid",
+                event_type="payment_confirmed", event_data={"provider":"ton"}, now=now,
+            )
+            post_ledger_transaction(
+                conn, idempotency_key=f"{deal_id}:delivery-timeout-escrow",
+                reference_type="deal", reference_id=deal_id, currency="TON",
+                debit_account=("ton_treasury_clearing","timeout-test"),
+                credit_account=("escrow",deal_id), debit_amount="9", credit_amount="9", now=now,
+            )
+            conn.commit()
+        result = escalate_stalled_paid_deals(now=now+601, timeout_seconds=600)
+        self.assertEqual(result["stalled_deliveries_disputed"], 1)
+        with marketplace_offers._db() as conn:
+            deal = conn.execute("SELECT status FROM marketplace_deals WHERE id=?",(deal_id,)).fetchone()
+            escrow = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_ledger_entries WHERE account_type='escrow' AND account_id=?",
+                (deal_id,),
+            ).fetchone()[0]
+            refund_events = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_escrow_events WHERE deal_id=? AND event_type='refund_confirmed'",
+                (deal_id,),
+            ).fetchone()[0]
+        self.assertEqual(deal["status"], "disputed")
+        self.assertEqual(escrow, 1)
+        self.assertEqual(refund_events, 0)
 
     def test_unpaid_reservation_timeout_expires_deal_and_releases_listing(self):
         seller_headers = {"X-Telegram-Init-Data": "user-a"}
