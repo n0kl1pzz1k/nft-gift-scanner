@@ -66,12 +66,9 @@ class TelegramBusinessGiftInventoryTests(unittest.IsolatedAsyncioTestCase):
             "type": "unique",
             "owned_gift_id": "owned-transfer-1",
             "can_be_transferred": True,
+            "transfer_star_count": 17,
             "next_transfer_date": 1760000000,
-            "gift": {
-                "name": "Gift-Transfer-1",
-                "number": 1,
-                "transfer_star_count": 17,
-            },
+            "gift": {"name": "Gift-Transfer-1", "number": 1},
         })
         self.assertTrue(item["can_be_transferred"])
         self.assertEqual(item["transfer_star_count"], 17)
@@ -82,12 +79,9 @@ class TelegramBusinessGiftInventoryTests(unittest.IsolatedAsyncioTestCase):
             "type": "unique",
             "owned_gift_id": "owned-transfer-2",
             "can_be_transferred": "true",
+            "transfer_star_count": True,
             "next_transfer_date": True,
-            "gift": {
-                "name": "Gift-Transfer-2",
-                "number": 2,
-                "transfer_star_count": True,
-            },
+            "gift": {"name": "Gift-Transfer-2", "number": 2},
         })
         self.assertFalse(item["can_be_transferred"])
         self.assertIsNone(item["transfer_star_count"])
