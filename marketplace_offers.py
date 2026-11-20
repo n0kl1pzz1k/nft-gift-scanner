@@ -1988,6 +1988,7 @@ def create_marketplace_offers_router(
             ).fetchall()
             attempt_exists = False
             provider_confirmed = False
+            confirmed_event_key = ""
             for event in existing_events:
                 try:
                     event_data = json.loads(event["event_data"] or "{}")
@@ -1997,8 +1998,17 @@ def create_marketplace_offers_router(
                     continue
                 if event["event_type"] == "asset_transfer_submitted":
                     attempt_exists = True
-                if event["event_type"] == "asset_transfer_confirmed" and event["event_key"] == provider_confirmation_key:
+                if (
+                    event["event_type"] == "asset_transfer_confirmed"
+                    and str(event_data.get("buyer_telegram_id") or "") == buyer_id
+                ):
                     provider_confirmed = True
+                    confirmed_event_key = str(event["event_key"])
+            if provider_confirmed and confirmed_event_key:
+                # A provider-confirmed transfer can resume finalization even if the
+                # seller reopens the Mini App and supplies a fresh request key.
+                confirmed_digest = confirmed_event_key.rsplit(":tg-gift-provider-ok:", 1)[-1]
+                completion_key = f"{deal_id}:tg-gift-complete:{confirmed_digest}"
             if deal["status"] == "completed":
                 conn.rollback()
                 return {"deal_id": deal_id, "status": "completed", "idempotent_replay": True}
