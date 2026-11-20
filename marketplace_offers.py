@@ -463,6 +463,65 @@ def expire_unpaid_marketplace_deals(
     return {"expired_deals": expired, "reservations_released": released, "skipped_confirmed_payment": skipped_paid}
 
 
+def escalate_stalled_paid_deals(
+    *,
+    now: int | None = None,
+    timeout_seconds: int | None = None,
+    limit: int = 100,
+) -> dict[str, int]:
+    """Move overdue paid deliveries to dispute without releasing or refunding escrow."""
+    from marketplace_payments import transition_deal_status
+
+    timestamp = int(time.time()) if now is None else int(now)
+    if timeout_seconds is None:
+        try:
+            timeout_seconds = int(os.getenv("HASSLE_DELIVERY_TIMEOUT_SECONDS", "86400"))
+        except ValueError:
+            timeout_seconds = 86400
+    ttl = max(300, min(int(timeout_seconds), 604800))
+    batch_limit = max(1, min(int(limit), 500))
+    disputed = 0
+    with _db() as conn:
+        candidates = conn.execute(
+            """SELECT d.id, d.order_id, d.status
+               FROM marketplace_deals d
+               WHERE d.status IN ('paid', 'delivery_pending')
+                 AND COALESCE(
+                    (SELECT MAX(e.created_at) FROM marketplace_escrow_events e
+                     WHERE e.deal_id=d.id AND e.event_type IN ('payment_confirmed','asset_transfer_requested')),
+                    d.created_at
+                 ) <= ?
+               ORDER BY d.created_at ASC, d.id ASC LIMIT ?""",
+            (timestamp - ttl, batch_limit),
+        ).fetchall()
+        for candidate in candidates:
+            deal_id = str(candidate["id"])
+            begin_write(conn, f"deal:{deal_id}", f"order:{candidate['order_id']}")
+            locked = conn.execute(
+                select_for_update(conn, "SELECT status FROM marketplace_deals WHERE id=?"),
+                (deal_id,),
+            ).fetchone()
+            if locked is None or locked["status"] not in {"paid", "delivery_pending"}:
+                conn.rollback()
+                continue
+            try:
+                transition_deal_status(
+                    conn, deal_id=deal_id, new_status="disputed",
+                    actor_user_id="system:delivery-timeout",
+                    idempotency_key=f"{deal_id}:delivery-timeout",
+                    event_type="deal_disputed",
+                    event_data={"reason":"seller_delivery_timeout","timeout_seconds":ttl,
+                                "escrow_preserved":True},
+                    now=timestamp,
+                )
+            except Exception:
+                conn.rollback()
+                continue
+            conn.commit()
+            disputed += 1
+    return {"stalled_deliveries_disputed": disputed}
+
+
 def create_marketplace_offers_router(
     verify_telegram_init_data: Callable[[str], dict],
     require_admin: Callable[[str | None], dict] | None = None,
