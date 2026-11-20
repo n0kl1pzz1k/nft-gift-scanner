@@ -335,6 +335,11 @@ class DisputeResolutionExecuteRequest(BaseModel):
 class TonNftDeliveryPrepareRequest(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=128)
 
+class TelegramBusinessGiftDeliveryRequest(BaseModel):
+    idempotency_key: str = Field(min_length=1, max_length=128)
+    accept_transfer_fee: bool = False
+
+
 
 class TonNftDeliverySubmittedRequest(BaseModel):
     boc: str = Field(min_length=20, max_length=20000)
@@ -1644,6 +1649,326 @@ def create_marketplace_offers_router(
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             conn.commit()
         return {"deal_id": deal_id, "status": "cancelled", "seller_credit": "recorded", "settlement_status": "pending_manual_payout"}
+
+
+    @router.post("/deals/{deal_id}/telegram-business-gift-delivery/transfer")
+    async def transfer_telegram_business_gift_delivery(
+        deal_id: str,
+        payload: TelegramBusinessGiftDeliveryRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Transfer a paid Business-owned gift once, then atomically finalize marketplace ownership."""
+        import hashlib
+        from telegram_business_gift_inventory import (
+            fetch_business_account_gifts,
+            transfer_business_account_gift,
+            TelegramBusinessGiftInventoryError,
+        )
+        from marketplace import get_telegram_business_connection, get_telegram_business_gift_ref
+        from marketplace_payments import (
+            PaymentConflict, PaymentStateError, append_escrow_event,
+            post_ledger_transaction, transition_deal_status,
+        )
+
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        seller_id = str(user["id"])
+        _enforce_user_rate_limit(seller_id, "telegram_business_gift_delivery", 4)
+        request_digest = hashlib.sha256(payload.idempotency_key.encode("utf-8")).hexdigest()[:24]
+        attempt_key = f"{deal_id}:tg-gift-attempt:{request_digest}"
+        provider_confirmation_key = f"{deal_id}:tg-gift-provider-ok:{request_digest}"
+        completion_key = f"{deal_id}:tg-gift-complete:{request_digest}"
+        now = int(time.time())
+
+        # A previously confirmed Telegram response can safely resume database finalization
+        # without invoking transferGift again. An attempt without that confirmation is
+        # deliberately locked for reconciliation because Telegram transfers are irreversible.
+        with _db() as conn:
+            deal = conn.execute(
+                """SELECT d.*, o.asset_id, a.source, a.external_asset_id, a.owner_telegram_id,
+                          a.title, a.asset_type, a.image_url, a.status AS asset_status
+                   FROM marketplace_deals d
+                   JOIN marketplace_orders o ON o.id=d.order_id
+                   JOIN verified_assets a ON a.id=o.asset_id
+                   WHERE d.id=?""",
+                (deal_id,),
+            ).fetchone()
+            if deal is None or str(deal["listing_owner_id"]) != seller_id:
+                raise HTTPException(status_code=404, detail="Deal not found")
+            if deal["source"] != "telegram_gift" or deal["asset_status"] != "verified":
+                raise HTTPException(status_code=409, detail="This deal does not contain a verified Telegram Business gift")
+            if deal["status"] not in {"paid", "delivery_pending", "completed"}:
+                raise HTTPException(status_code=409, detail="The deal must be paid before gift delivery")
+            existing_events = conn.execute(
+                """SELECT event_type, event_key, event_data FROM marketplace_escrow_events
+                   WHERE deal_id=? AND event_type IN ('asset_transfer_submitted','asset_transfer_confirmed')
+                   ORDER BY created_at ASC, id ASC""",
+                (deal_id,),
+            ).fetchall()
+            attempt_exists = False
+            provider_confirmed = False
+            for event in existing_events:
+                try:
+                    event_data = json.loads(event["event_data"] or "{}")
+                except (TypeError, ValueError):
+                    event_data = {}
+                if event_data.get("provider") != "telegram_business":
+                    continue
+                if event["event_type"] == "asset_transfer_submitted":
+                    attempt_exists = True
+                if event["event_type"] == "asset_transfer_confirmed" and event["event_key"] == provider_confirmation_key:
+                    provider_confirmed = True
+            if deal["status"] == "completed":
+                conn.rollback()
+                return {"deal_id": deal_id, "status": "completed", "idempotent_replay": True}
+            if attempt_exists and not provider_confirmed:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A Telegram gift transfer was already attempted; automatic retry is blocked pending reconciliation",
+                )
+            if str(deal["owner_telegram_id"]) != seller_id:
+                raise HTTPException(status_code=409, detail="The seller is no longer the recorded gift owner")
+            payment = conn.execute(
+                """SELECT id FROM marketplace_payment_intents
+                   WHERE deal_id=? AND status='confirmed' LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            if payment is None:
+                raise HTTPException(status_code=409, detail="A confirmed payment is required before gift delivery")
+            asset_id = str(deal["asset_id"])
+            buyer_id = str(deal["offer_sender_id"])
+            if not buyer_id.isdigit():
+                raise HTTPException(status_code=409, detail="The buyer Telegram account is invalid")
+            asset_snapshot = dict(deal)
+
+        if not provider_confirmed:
+            connection = get_telegram_business_connection(seller_id)
+            gift_ref = get_telegram_business_gift_ref(asset_id, seller_id)
+            if not connection or not connection.get("connected") or not connection.get("can_transfer_and_upgrade_gifts") or not gift_ref:
+                raise HTTPException(status_code=409, detail="Seller must reconnect Telegram Business and grant gift-transfer permission")
+            try:
+                inventory = await fetch_business_account_gifts(str(gift_ref["business_connection_id"]))
+            except TelegramBusinessGiftInventoryError as exc:
+                raise HTTPException(status_code=503, detail="Could not refresh the seller's Telegram gift inventory") from exc
+            if not inventory.get("complete"):
+                raise HTTPException(status_code=503, detail="Telegram gift inventory is incomplete; transfer is blocked")
+            owned_gift_id = str(gift_ref["owned_gift_id"])
+            live_gift = next(
+                (item for item in inventory["items"] if str(item.get("owned_gift_id")) == owned_gift_id),
+                None,
+            )
+            if live_gift is None or live_gift.get("can_be_transferred") is not True:
+                raise HTTPException(status_code=409, detail="Telegram no longer marks this gift as transferable")
+            next_transfer = live_gift.get("next_transfer_date")
+            if isinstance(next_transfer, int) and next_transfer > now:
+                raise HTTPException(status_code=409, detail="Telegram transfer lock has not expired")
+            transfer_fee = live_gift.get("transfer_star_count")
+            transfer_fee = transfer_fee if isinstance(transfer_fee, int) and not isinstance(transfer_fee, bool) else 0
+            if transfer_fee > 0 and not payload.accept_transfer_fee:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "seller_fee_consent_required", "transfer_star_count": transfer_fee},
+                )
+            if transfer_fee > 0 and not connection.get("can_transfer_stars"):
+                raise HTTPException(status_code=409, detail="Telegram Business has no permission to pay the transfer fee")
+            # Persist the irreversible-attempt marker before calling Telegram. This is
+            # intentionally conservative: a timeout is never retried automatically.
+            with _db() as conn:
+                begin_write(conn, f"deal:{deal_id}", f"asset:{asset_id}")
+                locked = conn.execute(
+                    select_for_update(conn, "SELECT * FROM marketplace_deals WHERE id=?"),
+                    (deal_id,),
+                ).fetchone()
+                asset = conn.execute(
+                    select_for_update(conn, "SELECT owner_telegram_id,status FROM verified_assets WHERE id=?"),
+                    (asset_id,),
+                ).fetchone()
+                if locked is None or locked["status"] not in {"paid", "delivery_pending"} or asset is None:
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Deal or gift state changed before transfer")
+                if str(locked["listing_owner_id"]) != seller_id or str(asset["owner_telegram_id"]) != seller_id or asset["status"] != "verified":
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Seller gift ownership changed before transfer")
+                previous = conn.execute(
+                    """SELECT event_data FROM marketplace_escrow_events
+                       WHERE deal_id=? AND event_type='asset_transfer_submitted'""",
+                    (deal_id,),
+                ).fetchall()
+                if any(
+                    json.loads(row["event_data"] or "{}").get("provider") == "telegram_business"
+                    for row in previous
+                ):
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="A Telegram gift transfer attempt already exists")
+                try:
+                    if locked["status"] == "paid":
+                        transition_deal_status(
+                            conn, deal_id=deal_id, new_status="delivery_pending",
+                            actor_user_id=seller_id,
+                            idempotency_key=f"{deal_id}:tg-gift-request:{request_digest}",
+                            event_type="asset_transfer_requested",
+                            event_data={"asset_id": asset_id, "provider": "telegram_business"},
+                            now=now,
+                        )
+                    append_escrow_event(
+                        conn, deal_id=deal_id, actor_user_id=seller_id,
+                        event_type="asset_transfer_submitted", event_key=attempt_key,
+                        event_data={
+                            "asset_id": asset_id,
+                            "provider": "telegram_business",
+                            "transfer_fee_stars": transfer_fee,
+                            "seller_fee_consent": bool(payload.accept_transfer_fee),
+                            "buyer_telegram_id": buyer_id,
+                            "attempt_digest": request_digest,
+                        },
+                        now=now,
+                    )
+                except (PaymentConflict, PaymentStateError, ValueError) as exc:
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Could not safely reserve the Telegram gift transfer") from exc
+                conn.commit()
+            try:
+                await transfer_business_account_gift(
+                    str(gift_ref["business_connection_id"]),
+                    owned_gift_id,
+                    buyer_id,
+                    star_count=transfer_fee,
+                )
+            except TelegramBusinessGiftInventoryError as exc:
+                # A network timeout may happen after Telegram accepted the transfer.
+                # Keep the attempt locked rather than risk sending the gift twice.
+                raise HTTPException(
+                    status_code=502,
+                    detail="Telegram transfer result is unconfirmed; automatic retry is blocked for safety",
+                ) from exc
+            with _db() as conn:
+                begin_write(conn, f"deal:{deal_id}")
+                try:
+                    append_escrow_event(
+                        conn, deal_id=deal_id, actor_user_id=seller_id,
+                        event_type="asset_transfer_confirmed",
+                        event_key=provider_confirmation_key,
+                        event_data={
+                            "asset_id": asset_id,
+                            "provider": "telegram_business",
+                            "provider_confirmation": True,
+                            "buyer_telegram_id": buyer_id,
+                            "transfer_fee_stars": transfer_fee,
+                        },
+                        now=int(time.time()),
+                    )
+                except (PaymentConflict, PaymentStateError, ValueError) as exc:
+                    conn.rollback()
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Telegram confirmed the transfer, but the confirmation journal needs reconciliation",
+                    ) from exc
+                conn.commit()
+
+        # Finalize from the durable provider confirmation. This section is safe to
+        # retry and never calls Telegram a second time.
+        with _db() as conn:
+            begin_write(conn, f"deal:{deal_id}", f"asset:{asset_id}")
+            locked = conn.execute(
+                select_for_update(conn, "SELECT * FROM marketplace_deals WHERE id=?"),
+                (deal_id,),
+            ).fetchone()
+            asset = conn.execute(
+                select_for_update(conn, "SELECT * FROM verified_assets WHERE id=?"),
+                (asset_id,),
+            ).fetchone()
+            confirmed = conn.execute(
+                "SELECT 1 FROM marketplace_escrow_events WHERE event_key=?",
+                (provider_confirmation_key,),
+            ).fetchone()
+            if confirmed is None:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Telegram transfer confirmation is not recorded")
+            if locked is None or asset is None:
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Deal or gift record not found")
+            if locked["status"] == "completed" and str(asset["owner_telegram_id"]) == buyer_id:
+                conn.rollback()
+                return {"deal_id": deal_id, "status": "completed", "idempotent_replay": True}
+            if locked["status"] != "delivery_pending" or str(asset["owner_telegram_id"]) != seller_id or asset["status"] != "verified":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Gift ownership or deal state changed after Telegram transfer")
+            verification_reference = hashlib.sha256(
+                f"hassle-telegram-business-transfer:{deal_id}:{asset_id}:{buyer_id}:{request_digest}".encode("utf-8")
+            ).hexdigest()
+            try:
+                conn.execute(
+                    """INSERT INTO asset_owner_transfer_authorizations
+                       (asset_id, previous_owner_id, new_owner_id, verification_reference_hash, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (asset_id, seller_id, buyer_id, verification_reference, int(time.time())),
+                )
+                changed = conn.execute(
+                    """UPDATE verified_assets
+                       SET owner_telegram_id=?, verification_method='telegram_gift_owner',
+                           verification_reference_hash=?, verified_at=?, status='verified', revoked_at=NULL
+                       WHERE id=? AND owner_telegram_id=? AND status='verified'""",
+                    (buyer_id, verification_reference, int(time.time()), asset_id, seller_id),
+                )
+                if changed.rowcount != 1:
+                    raise RuntimeError("Telegram gift ownership update did not match")
+                conn.execute(
+                    """INSERT INTO asset_ownership_history
+                       (asset_id, previous_owner_id, new_owner_id, verification_reference_hash, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (asset_id, seller_id, buyer_id, verification_reference, int(time.time())),
+                )
+                conn.execute("DELETE FROM telegram_business_gift_refs WHERE asset_id=?", (asset_id,))
+                transition_deal_status(
+                    conn, deal_id=deal_id, new_status="completed",
+                    actor_user_id=seller_id, idempotency_key=completion_key,
+                    event_type="deal_completed",
+                    event_data={
+                        "asset_id": asset_id,
+                        "provider": "telegram_business",
+                        "new_owner_telegram_id": buyer_id,
+                        "verification": "telegram_transferGift_success",
+                    },
+                    now=int(time.time()),
+                )
+                seller_credit = post_ledger_transaction(
+                    conn,
+                    idempotency_key=f"{deal_id}:seller-payable:{locked['currency']}",
+                    reference_type="deal", reference_id=deal_id,
+                    currency=str(locked["currency"]),
+                    debit_account=("escrow", deal_id),
+                    credit_account=("seller_payable", seller_id),
+                    debit_amount=locked["agreed_amount"],
+                    credit_amount=locked["agreed_amount"],
+                    now=int(time.time()),
+                )
+                append_escrow_event(
+                    conn, deal_id=deal_id, actor_user_id=seller_id,
+                    event_type="seller_credit_recorded",
+                    event_key=f"{deal_id}:seller-credit-recorded",
+                    event_data={
+                        "ledger_transaction_id": seller_credit["id"],
+                        "seller_telegram_id": seller_id,
+                        "currency": str(locked["currency"]),
+                        "amount": str(locked["agreed_amount"]),
+                        "settlement_status": "pending_manual_payout",
+                    },
+                    now=int(time.time()),
+                )
+            except (PaymentConflict, PaymentStateError, ValueError) as exc:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Could not safely finalize Telegram gift delivery") from exc
+            except Exception as exc:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Telegram confirmed delivery; ownership finalization requires reconciliation") from exc
+            conn.commit()
+        return {
+            "deal_id": deal_id,
+            "status": "completed",
+            "asset_id": asset_id,
+            "owner_telegram_id": buyer_id,
+            "settlement_status": "pending_manual_payout",
+            "idempotent_replay": False,
+        }
 
 
     @router.post("/deals/{deal_id}/ton-nft-delivery/prepare")
