@@ -714,6 +714,8 @@ class SharedMarketplaceTests(unittest.TestCase):
             "PAYMENT_SUPPORT_CONTACT": "@hassle_support",
         }
         with patch.dict(os.environ, flags), patch(
+            "marketplace_offers._require_ton_multisig_2_of_3", new=AsyncMock(return_value=None),
+        ), patch(
             "ton_nft_inventory.fetch_nft_owner",
             new=AsyncMock(return_value={"owner_address":seller_wallet,"is_scam":False}),
         ):
@@ -815,6 +817,8 @@ class SharedMarketplaceTests(unittest.TestCase):
                 return FakeTonResponse()
 
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS":"202,303","TONAPI_TOKEN":"test-tonapi-token"}), patch(
+            "marketplace_offers._require_ton_multisig_2_of_3", new=AsyncMock(return_value=None),
+        ), patch(
             "httpx.AsyncClient", FakeTonClient
         ):
             refunded = self.client.post(
@@ -1046,21 +1050,27 @@ class SharedMarketplaceTests(unittest.TestCase):
             "HASSLE_TON_PAYOUT_MODE":"manual_multisig_2_of_3",
             "HASSLE_TON_TREASURY_ADDRESS":treasury,
         }
-        with patch.dict(os.environ, payout_flags), patch("httpx.AsyncClient", FakeBouncedClient):
+        with patch.dict(os.environ, payout_flags), patch(
+            "marketplace_offers._require_ton_multisig_2_of_3", new=AsyncMock(return_value=None),
+        ), patch("httpx.AsyncClient", FakeBouncedClient):
             bounced = self.client.post(
                 f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
                 headers={"X-Telegram-Init-Data":"user-b"},
                 json={"transaction_hash":"bb"*32,"idempotency_key":"seller-payout-bounced"},
             )
         self.assertEqual(bounced.status_code, 409, bounced.text)
-        with patch.dict(os.environ, payout_flags), patch("httpx.AsyncClient", FakeWrongDestinationClient):
+        with patch.dict(os.environ, payout_flags), patch(
+            "marketplace_offers._require_ton_multisig_2_of_3", new=AsyncMock(return_value=None),
+        ), patch("httpx.AsyncClient", FakeWrongDestinationClient):
             wrong_destination = self.client.post(
                 f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
                 headers={"X-Telegram-Init-Data":"user-b"},
                 json={"transaction_hash":"ba"*32,"idempotency_key":"seller-payout-wrong-destination"},
             )
         self.assertEqual(wrong_destination.status_code, 409, wrong_destination.text)
-        with patch.dict(os.environ, payout_flags), patch("httpx.AsyncClient", FakePayoutClient):
+        with patch.dict(os.environ, payout_flags), patch(
+            "marketplace_offers._require_ton_multisig_2_of_3", new=AsyncMock(return_value=None),
+        ), patch("httpx.AsyncClient", FakePayoutClient):
             payout = self.client.post(
                 f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
                 headers={"X-Telegram-Init-Data":"user-b"},
