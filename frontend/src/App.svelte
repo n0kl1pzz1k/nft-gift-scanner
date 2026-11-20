@@ -1219,6 +1219,16 @@
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
+  async function revokeAdminAsset(assetId: string) {
+    if (!isAdmin || !adminPermissions.includes('assets_moderate') || !assetId) return;
+    if (!window.confirm(lang==='ru' ? 'Отозвать подтверждение владения? Активные объявления будут сняты.' : 'Revoke asset verification? Active listings will be removed.')) return;
+    try {
+      await request('/api/marketplace/admin/assets/' + encodeURIComponent(assetId) + '/revoke', undefined, {method:'POST'});
+      notice = lang==='ru' ? 'Актив отозван, активные объявления сняты.' : 'Asset revoked and active listings removed.';
+      await loadAdminOverview();
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+  }
+
   async function approveAdminDispute(dealId: string, decision: 'refund_buyer'|'release_to_seller') {
     if (!isAdmin || (adminRole!=='owner' && adminRole!=='finance')) return;
     try {
@@ -1805,7 +1815,7 @@
           {#if adminPermissions.includes('assets_read')}
           <div class="notification-heading"><h3>{lang==='ru'?'Проверенные активы':'Verified assets'}</h3></div>
           {#each adminAssets as asset (String(asset.id))}
-            <div class="activity-row"><div class="activity-row-main"><strong>{asset.title}</strong><small>{asset.source} · owner {asset.owner_telegram_id} · {lang==='ru'?'активных объявлений':'active listings'}: {asset.active_listings}</small></div></div>
+            <div class="activity-row"><div class="activity-row-main"><strong>{asset.title}</strong><small>{asset.source} · owner {asset.owner_telegram_id} · {lang==='ru'?'активных объявлений':'active listings'}: {asset.active_listings}</small></div>{#if adminPermissions.includes('assets_moderate')}<button class="cancel-button" onclick={()=>revokeAdminAsset(String(asset.id))}>{lang==='ru'?'Отозвать':'Revoke'}</button>{/if}</div>
           {/each}
           {/if}
         </article>
