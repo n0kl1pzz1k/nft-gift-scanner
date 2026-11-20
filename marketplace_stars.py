@@ -128,6 +128,17 @@ def confirm_stars_payment(
         if locked is None or str(locked["offer_sender_id"]) != user_id:
             conn.rollback()
             raise PaymentStateError("Payment deal or buyer is no longer valid")
+        # A successful_payment update may be retried after settlement, but it
+        # must never revive an intent/deal that was cancelled, expired, or
+        # otherwise moved out of the payment-pending state.
+        intent_status = str(intent["status"])
+        deal_status = str(locked["status"])
+        if intent_status not in {"pending", "confirmed"} or deal_status not in {"payment_pending", "paid"}:
+            conn.rollback()
+            raise PaymentStateError("Stars payment is not attached to an active payment-pending deal")
+        if locked["listing_status"] != "matched":
+            conn.rollback()
+            raise PaymentStateError("The reserved listing is no longer available for this payment")
         payload_hash = hashlib.sha256(json.dumps({
             "invoice_payload": invoice_payload,
             "telegram_user_id": user_id,
