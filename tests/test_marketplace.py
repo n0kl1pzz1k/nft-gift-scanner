@@ -878,6 +878,18 @@ class SharedMarketplaceTests(unittest.TestCase):
         class FakeWrongDestinationClient(FakePayoutClient):
             async def get(self, url, headers):
                 return FakeWrongDestinationResponse()
+        class FakeBouncedResponse:
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {
+                    "success": True,
+                    "account": treasury,
+                    "out_msgs": [{"destination": seller_address, "value": "9000000000", "bounced": True}],
+                }
+        class FakeBouncedClient(FakePayoutClient):
+            async def get(self, url, headers):
+                return FakeBouncedResponse()
 
         payout_flags = {
             "ADMIN_TELEGRAM_IDS":"202,303",
@@ -886,6 +898,13 @@ class SharedMarketplaceTests(unittest.TestCase):
             "HASSLE_TON_PAYOUT_MODE":"manual_multisig_2_of_3",
             "HASSLE_TON_TREASURY_ADDRESS":treasury,
         }
+        with patch.dict(os.environ, payout_flags), patch("httpx.AsyncClient", FakeBouncedClient):
+            bounced = self.client.post(
+                f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
+                headers={"X-Telegram-Init-Data":"user-b"},
+                json={"transaction_hash":"bb"*32,"idempotency_key":"seller-payout-bounced"},
+            )
+        self.assertEqual(bounced.status_code, 409, bounced.text)
         with patch.dict(os.environ, payout_flags), patch("httpx.AsyncClient", FakeWrongDestinationClient):
             wrong_destination = self.client.post(
                 f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
