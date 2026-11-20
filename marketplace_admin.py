@@ -1,6 +1,7 @@
 """Read-only operations console and narrowly scoped admin account controls."""
 from __future__ import annotations
 
+import os
 import time
 from fastapi import APIRouter, Header, HTTPException, Query
 
@@ -11,12 +12,28 @@ from database import begin_write, select_for_update
 def create_marketplace_admin_router(verify_admin):
     router = APIRouter(prefix="/api/marketplace/admin", tags=["marketplace-admin"])
 
-    def admin_user(credential):
+    permissions = {
+        "owner": {"dashboard", "users_read", "users_manage", "assets_read", "reports", "reconciliation_read", "deals_read"},
+        "moderator": {"dashboard", "assets_read", "reports"},
+        "support": {"dashboard", "users_read", "users_manage", "reports", "deals_read"},
+        "finance": {"dashboard", "reconciliation_read", "deals_read"},
+    }
+
+    def admin_user(credential, permission="dashboard"):
         if verify_admin is None:
             raise HTTPException(status_code=503, detail="Admin access is not configured")
         user = verify_admin(credential)
+        role = user.get("admin_role", "owner")
+        if role not in permissions or permission not in permissions[role]:
+            raise HTTPException(status_code=403, detail="Administrator role does not grant this permission")
         marketplace._enforce_user_rate_limit(str(user["id"]), "admin_console", 60)
         return user
+
+    @router.get("/roles/me")
+    async def my_admin_role(x_telegram_init_data: str | None = Header(default=None)):
+        admin = admin_user(x_telegram_init_data)
+        role = admin.get("admin_role", "owner")
+        return {"telegram_id": str(admin["id"]), "role": role, "permissions": sorted(permissions[role])}
 
     @router.get("/overview")
     async def overview(x_telegram_init_data: str | None = Header(default=None)):
@@ -42,7 +59,7 @@ def create_marketplace_admin_router(verify_admin):
         offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        admin_user(x_telegram_init_data)
+        admin_user(x_telegram_init_data, "users_read")
         search = q.strip()
         where = ""
         values: list[object] = []
@@ -74,7 +91,7 @@ def create_marketplace_admin_router(verify_admin):
         telegram_id: str,
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        admin = admin_user(x_telegram_init_data)
+        admin = admin_user(x_telegram_init_data, "users_manage")
         if not telegram_id.isdigit():
             raise HTTPException(status_code=404, detail="User not found")
         now = int(time.time())
@@ -104,7 +121,7 @@ def create_marketplace_admin_router(verify_admin):
         offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        admin_user(x_telegram_init_data)
+        admin_user(x_telegram_init_data, "assets_read")
         where = "" if status == "all" else " WHERE a.status=?"
         values: list[object] = [] if status == "all" else [status]
         with marketplace._db() as conn:
@@ -124,7 +141,7 @@ def create_marketplace_admin_router(verify_admin):
         limit: int = Query(default=50, ge=1, le=100),
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        admin_user(x_telegram_init_data)
+        admin_user(x_telegram_init_data, "reconciliation_read")
         with marketplace._db() as conn:
             payments = conn.execute(
                 """SELECT p.id, p.deal_id, p.provider, p.currency, p.amount, p.status,
@@ -156,7 +173,7 @@ def create_marketplace_admin_router(verify_admin):
         limit: int = Query(default=50, ge=1, le=100),
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        admin_user(x_telegram_init_data)
+        admin_user(x_telegram_init_data, "deals_read")
         where = "" if status == "all" else " WHERE d.status=?"
         values: list[object] = [] if status == "all" else [status]
         with marketplace._db() as conn:
