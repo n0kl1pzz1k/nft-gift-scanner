@@ -396,6 +396,157 @@ class SharedMarketplaceTests(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(open_intents, 1)
 
+    def _create_ton_deal_with_verified_wallets(self):
+        asset = marketplace.register_verified_asset(
+            source="ton_nft", external_asset_id="0:" + "33" * 32,
+            owner_telegram_id="101", title="TON checkout gift", asset_type="gift",
+            image_url="", verification_method="ton_connect_proof",
+            verification_reference="ton-checkout-asset-proof-001",
+        )
+        seller_address = "0:" + "11" * 32
+        buyer_address = "0:" + "22" * 32
+        with marketplace._db() as conn:
+            for telegram_id, address in (("101", seller_address), ("202", buyer_address)):
+                conn.execute(
+                    """INSERT INTO verified_wallets
+                       (network, address, telegram_id, public_key, state_init_hash,
+                        created_at, last_verified_at, revoked_at)
+                       VALUES ('-239', ?, ?, ?, ?, ?, ?, NULL)""",
+                    (address, telegram_id, "ab" * 32, "cd" * 32, int(time.time()), int(time.time())),
+                )
+            conn.commit()
+        seller_headers = {"X-Telegram-Init-Data": "user-a"}
+        buyer_headers = {"X-Telegram-Init-Data": "user-b"}
+        listing = self.client.post(
+            "/api/marketplace/orders", headers=seller_headers,
+            json={"kind": "listing", "title": "TON checkout gift", "price": "10", "currency": "TON", "asset_id": asset["id"]},
+        )
+        self.assertEqual(listing.status_code, 201, listing.text)
+        offer = self.client.post(
+            "/api/marketplace/offers", headers=buyer_headers,
+            json={"order_id": listing.json()["item"]["id"], "amount": "9", "note": "TON checkout"},
+        )
+        self.assertEqual(offer.status_code, 201, offer.text)
+        accepted = self.client.patch(
+            f"/api/marketplace/offers/{offer.json()['item']['id']}",
+            headers=seller_headers, json={"action": "accept"},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        return accepted.json()["deal_id"], seller_address, buyer_address
+
+    def test_ton_checkout_creates_reusable_verified_wallet_invoice(self):
+        deal_id, _, buyer_wallet = self._create_ton_deal_with_verified_wallets()
+        flags = {
+            "HASSLE_TON_CHECKOUT_ENABLED": "1",
+            "HASSLE_TON_TREASURY_ADDRESS": "0:" + "aa" * 32,
+            "TONAPI_TOKEN": "test-tonapi-token",
+            "PAYMENT_SUPPORT_CONTACT": "@hassle_support",
+        }
+        with patch.dict(os.environ, flags):
+            buyer_deals = self.client.get("/api/marketplace/deals", headers={"X-Telegram-Init-Data": "user-b"})
+            self.assertTrue(buyer_deals.json()["items"][0]["payments_enabled"])
+            first = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/ton-checkout",
+                headers={"X-Telegram-Init-Data": "user-b"},
+                json={"idempotency_key": "ton-invoice-first"},
+            )
+            second = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/ton-checkout",
+                headers={"X-Telegram-Init-Data": "user-b"},
+                json={"idempotency_key": "ton-invoice-second"},
+            )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(first.json()["payment_intent_id"], second.json()["payment_intent_id"])
+        self.assertEqual(first.json()["buyer_wallet"], buyer_wallet)
+        self.assertEqual(first.json()["transaction"]["messages"][0]["amount"], "9000000000")
+        self.assertEqual(first.json()["transaction"]["network"], "-239")
+        self.assertEqual(first.json()["memo"], second.json()["memo"])
+        with marketplace_offers._db() as conn:
+            intent = conn.execute(
+                "SELECT status, provider, currency FROM marketplace_payment_intents WHERE deal_id=?",
+                (deal_id,),
+            ).fetchone()
+            deal = conn.execute("SELECT status FROM marketplace_deals WHERE id=?", (deal_id,)).fetchone()
+        self.assertEqual(intent["status"], "pending")
+        self.assertEqual(intent["provider"], "ton")
+        self.assertEqual(intent["currency"], "TON")
+        self.assertEqual(deal["status"], "payment_pending")
+
+    def test_ton_payment_confirms_exact_incoming_transaction_once(self):
+        deal_id, _, buyer_wallet = self._create_ton_deal_with_verified_wallets()
+        treasury = "0:" + "aa" * 32
+        flags = {
+            "HASSLE_TON_CHECKOUT_ENABLED": "1",
+            "HASSLE_TON_TREASURY_ADDRESS": treasury,
+            "TONAPI_TOKEN": "test-tonapi-token",
+            "PAYMENT_SUPPORT_CONTACT": "@hassle_support",
+        }
+        with patch.dict(os.environ, flags):
+            checkout = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/ton-checkout",
+                headers={"X-Telegram-Init-Data": "user-b"},
+                json={"idempotency_key": "ton-confirm-invoice"},
+            )
+        self.assertEqual(checkout.status_code, 200, checkout.text)
+        memo = checkout.json()["memo"]
+
+        class FakeTonResponse:
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {"transactions": [{
+                    "hash": "ton-chain-transaction-001",
+                    "success": True,
+                    "utime": int(time.time()),
+                    "in_msg": {
+                        "source": buyer_wallet,
+                        "destination": treasury,
+                        "value": "9000000000",
+                        "decoded_body": {"text": memo},
+                    },
+                }]}
+
+        class FakeTonClient:
+            def __init__(self, **kwargs):
+                self.calls = []
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return False
+            async def get(self, url, headers):
+                self.calls.append((url, headers))
+                return FakeTonResponse()
+
+        fake = FakeTonClient()
+        with patch.dict(os.environ, flags), patch("httpx.AsyncClient", return_value=fake):
+            first = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/ton-payment/confirm",
+                headers={"X-Telegram-Init-Data": "user-b"},
+                json={"idempotency_key": "ton-confirm-001"},
+            )
+            second = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/ton-payment/confirm",
+                headers={"X-Telegram-Init-Data": "user-b"},
+                json={"idempotency_key": "ton-confirm-002"},
+            )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(first.json()["status"], "paid")
+        self.assertTrue(second.json()["idempotent_replay"])
+        with marketplace_offers._db() as conn:
+            transactions = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_ledger_transactions WHERE reference_id=?",
+                (deal_id,),
+            ).fetchone()[0]
+            entries = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_ledger_entries WHERE transaction_id IN "
+                "(SELECT id FROM marketplace_ledger_transactions WHERE reference_id=?)",
+                (deal_id,),
+            ).fetchone()[0]
+        self.assertEqual(transactions, 1)
+        self.assertEqual(entries, 2)
+
     def test_stars_precheckout_binds_user_amount_and_deal_and_is_one_time(self):
         deal_id, invoice_payload, intent_id = self._create_stars_deal_with_intent()
         ok, reason = validate_stars_pre_checkout(
