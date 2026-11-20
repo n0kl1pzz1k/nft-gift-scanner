@@ -4,7 +4,7 @@ Status: PREPARED, NOT DEPLOYED. No multisig treasury address exists yet.
 
 ## Chosen contract
 
-Use the TON Core `ton-blockchain/multisig-contract-v2` multi-owner wallet implementation, not the legacy Fift tutorial contract and not the TON Multisig web UI. The public `multisig.ton.org` interface currently identifies itself as TESTNET and must never be used to deploy this production treasury.
+Use the TON Core `ton-blockchain/multisig-contract-v2` multi-owner wallet implementation, not the legacy Fift tutorial contract and not the `multisig.ton.org` web UI, which currently identifies itself as TESTNET. The planned non-custodial deployment interface is Tonkey at `https://app.tonkey.site`; it uses the official multisig-v2 contract and publishes the expected code hash. Tonkey is a third-party interface, not an official TON service, so the signer must independently inspect the wallet prompt and verify the resulting contract on-chain.
 
 Upstream source: https://github.com/ton-blockchain/multisig-contract-v2\nPinned revision: `9a4b13df6345c9c4068ca725e434b40f9ea5ca28` (reviewed source revision; CI must build and test this exact commit)
 Upstream documentation describes N-of-M approvals, immutable contract logic after deployment, and links Zellic and Trail of Bits audit reports:
@@ -33,7 +33,7 @@ All three addresses were observed as active Wallet V5R1 accounts, and their on-c
 - Deploy only from a reviewed, pinned upstream source revision. Do not silently follow an unpinned upstream branch in production.
 - Compile and run the upstream contract test suite before deployment.
 - Derive and record the expected contract address from the exact compiled code and config before any wallet signs.
-- Show the complete initialization transaction in TON Connect/Tonkeeper; the initiating signer must verify network=mainnet, derived contract address, code/config hash, and attached amount.
+- Show the complete initialization transaction in Tonkey/Ton Connect/Tonkeeper; the initiating signer must verify network=mainnet, the three exact signer addresses in the exact order above, threshold=2, no proposers, the derived contract address, code hash, and the attached initial balance plus network fee. Compare the address displayed by Tonkey with the independently derived address from the pinned build before confirming.
 - Do not ask for, collect, transmit, or store seed phrases or private keys.
 - After deployment, independently query the deployed contract's `get_multisig_data` and verify threshold=2, exact three signer addresses, no unexpected proposers, and expected code hash. The getter returns `(next_order_seqno, threshold, signers, proposers)`; it does not expose the `allowArbitrarySeqno` bit, so confirm the deterministic address and code/data StateInit hash as well.
 - Make a small controlled treasury test transaction requiring two distinct signer approvals; verify one signature cannot execute it and two can.
@@ -41,7 +41,7 @@ All three addresses were observed as active Wallet V5R1 accounts, and their on-c
 
 ## Current blockers
 
-- No mainnet multisig contract has been deployed.\n- The pinned upstream build/test job is being added to CI; its green result is required before preparing a deployable StateInit artifact.
+- No mainnet multisig contract has been deployed.\n- The deployer wallet currently needs at least 0.1 GRAM plus network fees; the primary signer balance observed during preparation was below the 0.1 GRAM initial-balance requirement.\n- The pinned upstream build/test job is being added to CI; its green result is required before preparing a deployable StateInit artifact.
 - No deployment transaction has been signed or broadcast.
 - No on-chain multisig configuration has been verified.
 - Real TON and Telegram Stars checkout remain disabled.
