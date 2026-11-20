@@ -159,6 +159,42 @@ def test_provider_events_are_idempotent_and_immutable():
     conn.close()
 
 
+def test_ton_transaction_hash_cannot_be_reused_across_payment_and_settlement_events():
+    conn = _connection()
+    first = create_payment_intent(
+        conn, deal_id="deal-1", provider="ton", currency="TON", amount="1",
+        idempotency_key="ton-payment-one", expires_at=2000, now=1000,
+    )
+    second = create_payment_intent(
+        conn, deal_id="deal-1", provider="ton", currency="TON", amount="2",
+        idempotency_key="ton-payment-two", expires_at=2000, now=1000,
+    )
+    event = {
+        "provider": "ton",
+        "provider_event_id": "same-ton-transaction-hash",
+        "payment_intent_id": first["id"],
+        "event_type": "payment_confirmed",
+        "payload_hash": "c" * 64,
+        "now": 1100,
+    }
+    assert record_payment_event(conn, **event) is True
+
+    # A chain transaction can be recorded only once for this provider,
+    # even if a caller tries to attach it to another intent or event type.
+    with pytest.raises(PaymentConflict, match="reused with different data"):
+        record_payment_event(
+            conn,
+            **{
+                **event,
+                "payment_intent_id": second["id"],
+                "event_type": "refund_confirmed",
+                "payload_hash": "d" * 64,
+            },
+        )
+    assert conn.execute("SELECT COUNT(*) FROM marketplace_payment_events").fetchone()[0] == 1
+    conn.close()
+
+
 def test_double_entry_ledger_posts_balanced_pair_once_and_is_immutable():
     conn = _connection()
     posted = post_ledger_transaction(
