@@ -130,6 +130,7 @@ class SupportTicketUpdateRequest(BaseModel):
 
 
 def create_marketplace_admin_router(verify_credential: Callable[[str], dict]) -> APIRouter:
+    root_router = APIRouter()
     router = APIRouter(prefix="/api/marketplace/admin", tags=["marketplace-admin"])
     support_router = APIRouter(prefix="/api/marketplace/support", tags=["marketplace-support"])
 
@@ -619,5 +620,6 @@ def create_marketplace_admin_router(verify_credential: Callable[[str], dict]) ->
             items.append(item)
         return {"items": items, "total": total}
 
-    router.include_router(support_router)
-    return router
+    root_router.include_router(router)
+    root_router.include_router(support_router)
+    return root_router
