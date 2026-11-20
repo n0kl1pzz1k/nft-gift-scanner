@@ -30,6 +30,8 @@ function renderBootError(error: unknown) {
 }
 
 try {
+  // Remove the static HTML bootstrap panel before Svelte takes ownership of #app.
+  target.replaceChildren();
   mount(App, { target });
   target.dataset.bootState = 'ready';
 } catch (error) {
