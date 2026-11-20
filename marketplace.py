@@ -1464,6 +1464,11 @@ def create_marketplace_router(
 ) -> APIRouter:
     router = APIRouter(prefix="/api/marketplace", tags=["marketplace"])
 
+    def require_admin_role(admin: dict, allowed_roles: set[str]) -> None:
+        role = admin.get("admin_role", "owner")
+        if role not in allowed_roles:
+            raise HTTPException(status_code=403, detail="Administrator role does not grant this permission")
+
     @router.get("/assets/me")
     async def list_my_verified_assets(
         x_telegram_init_data: str | None = Header(default=None),
@@ -1651,6 +1656,7 @@ def create_marketplace_router(
         if verify_admin is None:
             raise HTTPException(status_code=503, detail="Admin moderation is not configured")
         admin = verify_admin(x_telegram_init_data)
+        require_admin_role(admin, {"owner", "moderator", "support"})
         _enforce_user_rate_limit(str(admin["id"]), "list_order_reports", 60)
         where = ""
         values: list[object] = []
@@ -1680,6 +1686,7 @@ def create_marketplace_router(
         if verify_admin is None:
             raise HTTPException(status_code=503, detail="Admin audit is not configured")
         admin = verify_admin(x_telegram_init_data)
+        require_admin_role(admin, {"owner", "finance"})
         _enforce_user_rate_limit(str(admin["id"]), "list_security_audit", 30)
         with _db() as conn:
             rows = conn.execute(
@@ -1709,6 +1716,7 @@ def create_marketplace_router(
         if verify_admin is None:
             raise HTTPException(status_code=503, detail="Admin moderation is not configured")
         admin = verify_admin(x_telegram_init_data)
+        require_admin_role(admin, {"owner", "moderator"})
         admin_id = str(admin["id"])
         _enforce_user_rate_limit(admin_id, "moderate_order_report", 30)
         now = int(time.time())
