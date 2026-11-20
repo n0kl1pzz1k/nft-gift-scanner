@@ -1980,6 +1980,7 @@ def create_marketplace_offers_router(
                 raise HTTPException(status_code=409, detail="This deal does not contain a verified Telegram Business gift")
             if deal["status"] not in {"paid", "delivery_pending", "completed"}:
                 raise HTTPException(status_code=409, detail="The deal must be paid before gift delivery")
+            buyer_id = str(deal["offer_sender_id"])
             existing_events = conn.execute(
                 """SELECT event_type, event_key, event_data FROM marketplace_escrow_events
                    WHERE deal_id=? AND event_type IN ('asset_transfer_submitted','asset_transfer_confirmed')
@@ -2027,7 +2028,6 @@ def create_marketplace_offers_router(
             if payment is None:
                 raise HTTPException(status_code=409, detail="A confirmed payment is required before gift delivery")
             asset_id = str(deal["asset_id"])
-            buyer_id = str(deal["offer_sender_id"])
             if not buyer_id.isdigit():
                 raise HTTPException(status_code=409, detail="The buyer Telegram account is invalid")
             asset_snapshot = dict(deal)
