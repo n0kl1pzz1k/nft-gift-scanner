@@ -1569,7 +1569,10 @@ def create_marketplace_offers_router(
         """Release escrow to the seller only after two admins approve and TON confirms the buyer owns the NFT."""
         import hashlib
         import httpx
-        from ton_nft_inventory import fetch_nft_owner, normalise_ton_address
+        from ton_nft_inventory import (
+            fetch_nft_owner, fetch_wallet_nft_history,
+            find_confirmed_nft_transfer, normalise_ton_address,
+        )
 
         admin = _admin_user(x_telegram_init_data)
         admin_id = str(admin["id"])
@@ -1648,22 +1651,45 @@ def create_marketplace_offers_router(
                    ORDER BY last_verified_at DESC LIMIT 1""",
                 (buyer_id,),
             ).fetchone()
-            if buyer_wallet is None:
+            seller_wallet = conn.execute(
+                """SELECT address FROM verified_wallets
+                   WHERE telegram_id=? AND network='-239' AND revoked_at IS NULL
+                   ORDER BY last_verified_at DESC LIMIT 1""",
+                (str(deal["listing_owner_id"]),),
+            ).fetchone()
+            transfer_request = conn.execute(
+                """SELECT created_at FROM marketplace_escrow_events
+                   WHERE deal_id=? AND event_type='asset_transfer_requested'
+                   ORDER BY created_at DESC LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            if buyer_wallet is None or seller_wallet is None or transfer_request is None:
                 conn.rollback()
-                raise HTTPException(status_code=409, detail="The buyer must link and verify a TON mainnet wallet")
+                raise HTTPException(status_code=409, detail="Both verified TON wallets and a recorded delivery request are required")
             conn.commit()
         try:
             owner = await fetch_nft_owner(str(deal["external_asset_id"]))
             buyer_raw = normalise_ton_address(buyer_wallet["address"])
+            seller_raw = normalise_ton_address(seller_wallet["address"])
+            history = await fetch_wallet_nft_history(seller_wallet["address"])
+            confirmed_transfer = find_confirmed_nft_transfer(
+                history,
+                item_address=str(deal["external_asset_id"]),
+                source_address=seller_raw,
+                destination_address=buyer_raw,
+                not_before=int(transfer_request["created_at"]),
+            )
             if owner.get("is_scam") or normalise_ton_address(str(owner.get("owner_address") or "")) != buyer_raw:
                 raise HTTPException(status_code=409, detail="TON does not confirm that the buyer owns the NFT")
+            if confirmed_transfer is None:
+                raise HTTPException(status_code=409, detail="TON history does not confirm the seller-to-buyer transfer after delivery was requested")
         except HTTPException:
             raise
         except Exception as exc:
-            raise HTTPException(status_code=503, detail="TON ownership verification is temporarily unavailable") from exc
+            raise HTTPException(status_code=503, detail="TON ownership or transfer-history verification is temporarily unavailable") from exc
         now = int(time.time())
         ownership_reference = hashlib.sha256(
-            f"hassle-dispute-seller-release:{deal_id}:{deal['asset_id']}:{buyer_id}:{buyer_raw}".encode("utf-8")
+            f"hassle-dispute-seller-release:{deal_id}:{deal['asset_id']}:{buyer_id}:{buyer_raw}:{confirmed_transfer['transaction_hash']}".encode("utf-8")
         ).hexdigest()
         with _db() as conn:
             begin_write(conn, f"deal:{deal_id}", f"asset:{deal['asset_id']}")
@@ -1724,7 +1750,9 @@ def create_marketplace_offers_router(
                                 "currency": str(intent["currency"]), "amount": str(intent["amount"]),
                                 "seller_telegram_id": str(deal["listing_owner_id"]),
                                 "settlement_status": "pending_manual_payout",
-                                "asset_ownership": "buyer_confirmed_on_ton"},
+                                "asset_ownership": "buyer_confirmed_on_ton",
+                                "transfer_transaction_hash": confirmed_transfer["transaction_hash"],
+                                "transfer_utime": confirmed_transfer["utime"]},
                     now=now,
                 )
             except (PaymentConflict, PaymentStateError) as exc:
