@@ -162,7 +162,7 @@ def create_marketplace_admin_router(verify_admin):
         with marketplace._db() as conn:
             rows = conn.execute(
                 """SELECT d.id, d.status, d.offer_sender_id AS buyer_telegram_id, d.listing_owner_id AS seller_telegram_id,
-                          d.created_at, d.updated_at
+                          d.created_at
                    FROM marketplace_deals d""" + where +
                 " ORDER BY d.created_at DESC LIMIT ?", (*values, limit)
             ).fetchall()
