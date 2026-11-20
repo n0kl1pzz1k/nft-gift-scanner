@@ -67,6 +67,12 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run browser E2E smoke tests
+        working-directory: frontend
+        run: npm run test:e2e
       - name: Deploy HASSLE NFT Worker
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
