@@ -24,7 +24,7 @@ class ApiContractTests(unittest.TestCase):
         self.assertNotIn("/api/reference/gift-changes", paths)
         self.assertNotIn("/api/reference/daily-floors", paths)
 
-    def test_administrator_api_surface_is_limited_to_moderation_and_audit(self):
+    def test_administrator_api_surface_is_limited_to_moderation_disputes_and_settlement(self):
         admin_paths = {
             path for path in app.openapi()["paths"]
             if "/admin/" in path
@@ -39,6 +39,7 @@ class ApiContractTests(unittest.TestCase):
                 "/api/marketplace/admin/deals/{deal_id}/execute-refund",
                 "/api/marketplace/admin/deals/{deal_id}/execute-ton-refund",
                 "/api/marketplace/admin/deals/{deal_id}/execute-seller-release",
+                "/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
             },
         )
         self.assertFalse(any("balance" in path or "withdraw" in path for path in admin_paths))
