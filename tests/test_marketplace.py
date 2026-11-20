@@ -19,6 +19,7 @@ from marketplace_payments import PaymentStateError, create_payment_intent, post_
 from marketplace_stars import confirm_stars_payment, validate_stars_pre_checkout
 from marketplace_offers import escalate_stalled_paid_deals
 from ton_nft_inventory import build_nft_transfer_payload, normalise_ton_address
+from telegram_business_gift_inventory import TelegramBusinessGiftInventoryError
 
 
 class SharedMarketplaceTests(unittest.TestCase):
@@ -202,6 +203,24 @@ class SharedMarketplaceTests(unittest.TestCase):
                 "next_transfer_date": 0,
             }],
         }
+        with patch(
+            "telegram_business_gift_inventory.fetch_business_account_gifts",
+            new=AsyncMock(return_value=live_inventory),
+        ), patch(
+            "telegram_business_gift_inventory.transfer_business_account_gift",
+            new=AsyncMock(side_effect=TelegramBusinessGiftInventoryError(
+                "Telegram rejected transfer", definitive_rejection=True,
+            )),
+        ) as rejected_transfer:
+            rejected = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/telegram-business-gift-delivery/transfer",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"idempotency_key": "business-transfer-rejected-9000"},
+            )
+            self.assertEqual(rejected.status_code, 409, rejected.text)
+            self.assertIn("rejected", rejected.text.lower())
+            rejected_transfer.assert_awaited_once()
+
         original_transition = transition_deal_status
         fail_completion_once = {"pending": True}
         def injected_finalization_failure(conn, **kwargs):
