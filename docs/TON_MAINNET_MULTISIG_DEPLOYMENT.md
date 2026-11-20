@@ -6,7 +6,7 @@ Status: PREPARED, NOT DEPLOYED. No multisig treasury address exists yet.
 
 Use the TON Core `ton-blockchain/multisig-contract-v2` multi-owner wallet implementation, not the legacy Fift tutorial contract and not the TON Multisig web UI. The public `multisig.ton.org` interface currently identifies itself as TESTNET and must never be used to deploy this production treasury.
 
-Upstream source: https://github.com/ton-blockchain/multisig-contract-v2
+Upstream source: https://github.com/ton-blockchain/multisig-contract-v2\nPinned revision: `9a4b13df6345c9c4068ca725e434b40f9ea5ca28` (reviewed source revision; CI must build and test this exact commit)
 Upstream documentation describes N-of-M approvals, immutable contract logic after deployment, and links Zellic and Trail of Bits audit reports:
 - https://github.com/ton-blockchain/multisig-contract-v2/blob/master/audits/Multisig_Zellic_Audit_Report.pdf
 - https://github.com/ton-blockchain/multisig-contract-v2/blob/master/audits/202403TON_Foundation_Multisignature_Wallet_Report_%2B_Fix_Review.pdf
@@ -41,7 +41,7 @@ All three addresses were observed as active Wallet V5R1 accounts, and their on-c
 
 ## Current blockers
 
-- No mainnet multisig contract has been deployed.
+- No mainnet multisig contract has been deployed.\n- The pinned upstream build/test job is being added to CI; its green result is required before preparing a deployable StateInit artifact.
 - No deployment transaction has been signed or broadcast.
 - No on-chain multisig configuration has been verified.
 - Real TON and Telegram Stars checkout remain disabled.
