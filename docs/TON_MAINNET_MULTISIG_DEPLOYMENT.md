@@ -28,6 +28,18 @@ Signer addresses (canonical user-provided addresses):
 
 All three addresses were observed as active Wallet V5R1 accounts, and their on-chain `get_public_key` getters returned successfully. The backend verifier now pins this exact ordered signer list rather than accepting any arbitrary three addresses. The contract-v2 configuration uses signer wallet addresses; the public keys were useful for validating wallet control but are not the signer entries in this contract's config.
 
+## Independently derived deployment identity
+
+The pinned upstream CI build and exact config above produced this deterministic Mainnet identity:
+
+- Raw address: `0:35858d3b1bbd4eb1fd862329f427bb105a7a7f539a6448ebab3da3f5fc9148ac`
+- Bounceable address: `EQA1hY07G71Osf2GIyn0J7sQWnp_U5pkSOurPaP1_JFIrCov`
+- Non-bounceable address: `UQA1hY07G71Osf2GIyn0J7sQWnp_U5pkSOurPaP1_JFIrHfq`
+- Multisig code hash: `d3d14da9a627f0ec3533341829762af92b9540b21bf03665fac09c2b46eabbac`
+- Initial data hash: `2f7525872c75e2120cdcfe4683d312b409e657085ac7bf1a6d821ccf0b6d5849`
+
+The code hash matches the value Tonkey publishes for its official multisig-v2 build. The initial data hash binds the exact signer order, 2-of-3 threshold, empty proposers list, and disabled arbitrary sequence numbers. Do not confirm deployment if Tonkey shows a different address or configuration.
+
 ## Deployment safety gates
 
 - Deploy only from a reviewed, pinned upstream source revision. Do not silently follow an unpinned upstream branch in production.
