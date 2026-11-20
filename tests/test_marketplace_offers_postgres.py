@@ -255,6 +255,30 @@ def test_postgres_offer_schema_bootstrap_is_idempotent_and_creates_all_objects()
             }
             assert "idx_marketplace_deals_one_open_reservation" in indexes
 
+            # Simulate an installation whose escrow CHECK constraint predates
+            # definitive Telegram Business transfer-rejection events.
+            pg.execute("ALTER TABLE marketplace_escrow_events DROP CONSTRAINT marketplace_escrow_events_event_type_check")
+            pg.execute("""
+                ALTER TABLE marketplace_escrow_events
+                ADD CONSTRAINT marketplace_escrow_events_event_type_check
+                CHECK (event_type IN (
+                    'deal_payment_requested', 'payment_intent_created', 'payment_pending',
+                    'payment_confirmed', 'escrow_funded', 'asset_transfer_requested',
+                    'asset_transfer_submitted', 'asset_transfer_confirmed', 'deal_completed',
+                    'deal_disputed', 'refund_requested', 'refund_confirmed', 'payout_released',
+                    'seller_credit_recorded', 'deal_cancelled', 'deal_expired',
+                    'dispute_resolution_approved', 'dispute_resolution_ready'
+                ))
+            """)
+            migrated = initialize_postgres_offer_schema(adapter)
+            assert migrated["verified"] is True
+            definition = pg.execute(
+                """SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+                   WHERE conrelid='marketplace_escrow_events'::regclass
+                     AND conname='marketplace_escrow_events_event_type_check'"""
+            ).fetchone()["definition"]
+            assert "asset_transfer_rejected" in definition
+
             pg.execute("ALTER TABLE marketplace_offers DROP COLUMN sender_name")
             with pytest.raises(RuntimeError, match="missing columns in marketplace_offers: sender_name"):
                 verify_postgres_offer_schema(Adapter())
