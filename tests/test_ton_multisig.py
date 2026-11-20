@@ -16,7 +16,11 @@ from ton_multisig import (
 
 
 TREASURY = "0:" + "a" * 64
-SIGNERS = ["0:" + char * 64 for char in "bcd"]
+SIGNERS = [
+    "0:372b63c65f2a2d81af7d7a7d995c4fcd7bdc18e6efa50b4ee840ae9b45dc6d10",
+    "0:eacaac33e932a8b67ae31e712d5a7969660130363e48e789f96c03a6162bc147",
+    "0:8ede0858321e76adb84ee65790431bb800050acfc0ee5b6c1255e65137f3221c",
+]
 
 
 def dictionary_boc(addresses):
@@ -63,6 +67,10 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(is_two_of_three_multisig({**config, "threshold": 1}, TREASURY))
         self.assertFalse(is_two_of_three_multisig({**config, "threshold": 2.0}, TREASURY))
         self.assertFalse(is_two_of_three_multisig({**config, "signers": SIGNERS[:2]}, TREASURY))
+        self.assertFalse(is_two_of_three_multisig(
+            {**config, "signers": ["0:" + "b" * 64, "0:" + "c" * 64, "0:" + "d" * 64]},
+            TREASURY,
+        ))
         self.assertFalse(is_two_of_three_multisig(
             {**config, "signers": [TREASURY, SIGNERS[0], SIGNERS[1]]}, TREASURY,
         ))
