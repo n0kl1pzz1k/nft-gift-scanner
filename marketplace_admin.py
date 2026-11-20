@@ -185,8 +185,7 @@ def create_marketplace_admin_router(verify_admin):
                 conn, actor_telegram_id=str(admin["id"]),
                 action="admin_asset_revoked", target_type="verified_asset",
                 target_id=asset_id,
-                metadata={"owner_telegram_id": str(asset["owner_telegram_id"]),
-                          "cancelled_listings": len(listing_ids)},
+                metadata={"cancelled_listings": len(listing_ids), "reason": "asset_moderation"},
                 now=now,
             )
             conn.commit()
