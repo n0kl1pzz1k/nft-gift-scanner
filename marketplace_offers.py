@@ -1544,7 +1544,7 @@ def create_marketplace_offers_router(
             event_hash = hashlib.sha256(f"{deal_id}:{tx_hash}:{buyer_raw}:{expected_nano}".encode()).hexdigest()
             try:
                 record_payment_event(
-                    conn, provider="ton", provider_event_id=f"refund:{tx_hash}",
+                    conn, provider="ton", provider_event_id=tx_hash,
                     payment_intent_id=intent_id, event_type="refund_confirmed",
                     payload_hash=event_hash, now=now,
                 )
@@ -1751,10 +1751,11 @@ def create_marketplace_offers_router(
         x_telegram_init_data: str | None = Header(default=None),
     ):
         """Record a manual TON multisig payout only after TONAPI confirms the exact treasury transfer."""
+        import hashlib
         import httpx
         from decimal import Decimal
         from ton_nft_inventory import normalise_ton_address
-        from marketplace_payments import PaymentConflict, append_escrow_event, post_ledger_transaction
+        from marketplace_payments import PaymentConflict, append_escrow_event, post_ledger_transaction, record_payment_event
 
         admin = _admin_user(x_telegram_init_data)
         admin_id = str(admin["id"])
@@ -1842,6 +1843,7 @@ def create_marketplace_offers_router(
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="A single recorded TON seller payable and an active verified seller wallet are required")
             payable_amount = str(payable[0]["amount"])
+            payment_intent_id = str(payment_intent["id"])
             if Decimal(payable_amount) != Decimal(str(payment_intent["amount"])):
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Seller payable does not match the confirmed TON payment amount")
@@ -1912,6 +1914,18 @@ def create_marketplace_offers_router(
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="A different payout was recorded while verification was running")
             try:
+                payout_event_hash = hashlib.sha256(
+                    f"{deal_id}:{payload.transaction_hash}:{seller_raw}:{expected_nano}".encode("utf-8")
+                ).hexdigest()
+                record_payment_event(
+                    conn,
+                    provider="ton",
+                    provider_event_id=payload.transaction_hash,
+                    payment_intent_id=payment_intent_id,
+                    event_type="seller_payout_confirmed",
+                    payload_hash=payout_event_hash,
+                    now=now,
+                )
                 ledger = post_ledger_transaction(
                     conn,
                     idempotency_key=f"ton-seller-payout:{payload.transaction_hash}",
