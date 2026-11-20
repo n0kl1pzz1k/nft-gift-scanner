@@ -14,7 +14,7 @@ def create_marketplace_admin_router(verify_admin):
 
     permissions = {
         "owner": {"dashboard", "users_read", "users_manage", "assets_read", "assets_moderate", "reports", "reconciliation_read", "deals_read"},
-        "moderator": {"dashboard", "assets_read", "reports"},
+        "moderator": {"dashboard", "assets_read", "assets_moderate", "reports"},
         "support": {"dashboard", "users_read", "users_manage", "reports", "deals_read"},
         "finance": {"dashboard", "reconciliation_read", "deals_read"},
     }
