@@ -729,6 +729,7 @@ class SharedMarketplaceTests(unittest.TestCase):
     def test_two_admin_approved_seller_release_requires_buyer_to_own_ton_nft(self):
         deal_id, seller_address, buyer_address = self._create_ton_deal_with_verified_wallets()
         now = int(time.time())
+        treasury = "0:" + "aa" * 32
         with marketplace_offers._db() as conn:
             transition_deal_status(
                 conn, deal_id=deal_id, new_status="awaiting_payment", actor_user_id="202",
@@ -739,7 +740,7 @@ class SharedMarketplaceTests(unittest.TestCase):
                 conn, deal_id=deal_id, provider="ton", currency="TON", amount="9",
                 idempotency_key=f"{deal_id}:seller-release-test-intent",
                 invoice_payload=f"seller-release:{deal_id}", expires_at=now+900,
-                metadata={"buyer_telegram_id":"202"}, now=now,
+                metadata={"buyer_telegram_id":"202","treasury":treasury}, now=now,
             )
             transition_deal_status(
                 conn, deal_id=deal_id, new_status="payment_pending", actor_user_id="202",
@@ -826,7 +827,6 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(credit_count, 1)
         self.assertEqual(ledger_count, 1)
 
-        treasury = "0:" + "aa" * 32
         class FakePayoutResponse:
             def raise_for_status(self):
                 return None
