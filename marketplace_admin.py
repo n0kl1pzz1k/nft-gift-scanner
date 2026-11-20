@@ -13,7 +13,7 @@ def create_marketplace_admin_router(verify_admin):
     router = APIRouter(prefix="/api/marketplace/admin", tags=["marketplace-admin"])
 
     permissions = {
-        "owner": {"dashboard", "users_read", "users_manage", "assets_read", "reports", "reconciliation_read", "deals_read"},
+        "owner": {"dashboard", "users_read", "users_manage", "assets_read", "assets_moderate", "reports", "reconciliation_read", "deals_read"},
         "moderator": {"dashboard", "assets_read", "reports"},
         "support": {"dashboard", "users_read", "users_manage", "reports", "deals_read"},
         "finance": {"dashboard", "reconciliation_read", "deals_read"},
@@ -135,6 +135,62 @@ def create_marketplace_admin_router(verify_admin):
                 (*values, limit, offset),
             ).fetchall()
         return {"items": [dict(row) for row in rows], "total": total, "limit": limit, "offset": offset}
+
+    @router.post("/assets/{asset_id}/revoke")
+    async def revoke_asset(
+        asset_id: str,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        admin = admin_user(x_telegram_init_data, "assets_moderate")
+        now = int(time.time())
+        with marketplace._db() as conn:
+            begin_write(conn, f"admin-revoke-asset:{asset_id}")
+            asset = conn.execute(
+                "SELECT id, owner_telegram_id, status FROM verified_assets WHERE id=?",
+                (asset_id,),
+            ).fetchone()
+            if asset is None:
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Asset not found")
+            if asset["status"] == "revoked":
+                conn.rollback()
+                return {"asset_id": asset_id, "status": "revoked", "cancelled_listings": 0}
+            conn.execute(
+                "UPDATE verified_assets SET status='revoked', revoked_at=? WHERE id=? AND status='verified'",
+                (now, asset_id),
+            )
+            listings = conn.execute(
+                "SELECT id FROM marketplace_orders WHERE asset_id=? AND status='active'",
+                (asset_id,),
+            ).fetchall()
+            listing_ids = [row["id"] for row in listings]
+            for listing_id in listing_ids:
+                conn.execute(
+                    "UPDATE marketplace_orders SET status='cancelled', updated_at=? WHERE id=? AND status='active'",
+                    (now, listing_id),
+                )
+                conn.execute(
+                    """INSERT INTO marketplace_order_events(order_id, actor_user_id, event_type, created_at)
+                       VALUES (?, ?, 'cancelled', ?)""",
+                    (listing_id, str(admin["id"]), now),
+                )
+            if listing_ids:
+                placeholders = ",".join("?" for _ in listing_ids)
+                conn.execute(
+                    f"""UPDATE marketplace_offers SET status='declined', updated_at=?
+                        WHERE order_id IN ({placeholders}) AND status='pending'""",
+                    (now, *listing_ids),
+                )
+            marketplace.insert_security_audit_event(
+                conn, actor_telegram_id=str(admin["id"]),
+                action="admin_asset_revoked", target_type="verified_asset",
+                target_id=asset_id,
+                metadata={"owner_telegram_id": str(asset["owner_telegram_id"]),
+                          "cancelled_listings": len(listing_ids)},
+                now=now,
+            )
+            conn.commit()
+        return {"asset_id": asset_id, "status": "revoked", "cancelled_listings": len(listing_ids)}
 
     @router.get("/reconciliation")
     async def reconciliation(
