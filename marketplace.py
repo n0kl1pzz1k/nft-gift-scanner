@@ -774,7 +774,7 @@ def upsert_telegram_user(user: dict[str, Any]) -> dict[str, Any]:
     if not telegram_id.isdigit():
         raise ValueError("A verified Telegram user ID is required")
     now = int(time.time())
-    values = (telegram_id, str(user.get("username") or "")[:64], str(user.get("first_name") or "")[:128], str(user.get("last_name") or "")[:128], str(user.get("photo_url") or "")[:2048], str(user.get("language_code") or "")[:16], 1 if user.get("is_premium") is True else 0, now, now)
+    values = (telegram_id, str(user.get("username") or "")[:64], str(user.get("first_name") or "")[:128], str(user.get("last_name") or "")[:128], str(user.get("photo_url") or "")[:2048], str(user.get("language_code") or "")[:16], bool(user.get("is_premium") is True), now, now)
     with _db() as conn:
         conn.execute("INSERT INTO telegram_users (telegram_id, username, first_name, last_name, photo_url, language_code, is_premium, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(telegram_id) DO UPDATE SET username=excluded.username, first_name=excluded.first_name, last_name=excluded.last_name, photo_url=excluded.photo_url, language_code=excluded.language_code, is_premium=excluded.is_premium, updated_at=excluded.updated_at", values)
         row = conn.execute("SELECT * FROM telegram_users WHERE telegram_id = ?", (telegram_id,)).fetchone()
