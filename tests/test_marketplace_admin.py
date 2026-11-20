@@ -67,6 +67,16 @@ class MarketplaceAdminConsoleTests(unittest.TestCase):
         response = self.client.get("/api/marketplace/admin/overview", headers=self.headers(self.member_token))
         self.assertEqual(response.status_code, 403)
 
+    def test_admin_role_limits_console_permissions(self):
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_ROLES": "9001:moderator"}):
+            role = self.client.get("/api/marketplace/admin/roles/me", headers=self.headers(self.admin_token))
+            users = self.client.get("/api/marketplace/admin/users", headers=self.headers(self.admin_token))
+            reports = self.client.get("/api/marketplace/admin/reports", headers=self.headers(self.admin_token))
+        self.assertEqual(role.status_code, 200, role.text)
+        self.assertEqual(role.json()["role"], "moderator")
+        self.assertEqual(users.status_code, 403)
+        self.assertEqual(reports.status_code, 200, reports.text)
+
     def test_admin_can_revoke_user_sessions_and_action_is_audited(self):
         target_token = marketplace.create_telegram_session("9002")
         response = self.client.post(
