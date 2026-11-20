@@ -1238,12 +1238,24 @@ def create_marketplace_offers_router(
                 raise HTTPException(status_code=404, detail="Deal not found")
             if deal["status"] == "cancelled":
                 completed = conn.execute(
-                    "SELECT 1 FROM marketplace_escrow_events WHERE deal_id = ? AND event_type = 'refund_confirmed'",
+                    """SELECT event_data FROM marketplace_escrow_events
+                       WHERE deal_id = ? AND event_type = 'refund_confirmed'
+                       ORDER BY created_at DESC LIMIT 1""",
                     (deal_id,),
                 ).fetchone()
-                if completed:
-                    return {"deal_id": deal_id, "status": "cancelled", "refund_status": "refunded", "idempotent_replay": True}
-                raise HTTPException(status_code=409, detail="Deal was cancelled without a recorded refund")
+                if completed is not None:
+                    refund_data = json.loads(completed["event_data"] or "{}")
+                    refunded_intent = conn.execute(
+                        """SELECT status FROM marketplace_payment_intents
+                           WHERE deal_id=? AND provider='telegram_stars'
+                           ORDER BY created_at DESC LIMIT 1""",
+                        (deal_id,),
+                    ).fetchone()
+                    if refund_data.get("provider") == "telegram_stars" and refunded_intent is not None and refunded_intent["status"] == "refunded":
+                        conn.rollback()
+                        return {"deal_id": deal_id, "status": "cancelled", "refund_status": "refunded", "idempotent_replay": True}
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Deal was cancelled without a confirmed Telegram Stars refund")
             if deal["status"] != "disputed":
                 raise HTTPException(status_code=409, detail="Only a disputed deal can execute a resolution")
             approval_rows = conn.execute(
@@ -1423,13 +1435,16 @@ def create_marketplace_offers_router(
                             (deal_id,),
                         ).fetchone()
                         if refunded_intent is not None and refunded_intent["status"] == "refunded":
+                            if refund_data.get("provider_reference") == payload.transaction_hash:
+                                conn.rollback()
+                                return {
+                                    "deal_id": deal_id,
+                                    "status": "cancelled",
+                                    "refund_status": "refunded",
+                                    "idempotent_replay": True,
+                                }
                             conn.rollback()
-                            return {
-                                "deal_id": deal_id,
-                                "status": "cancelled",
-                                "refund_status": "refunded",
-                                "idempotent_replay": True,
-                            }
+                            raise HTTPException(status_code=409, detail="A different TON refund transaction was already recorded")
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Deal was cancelled without a confirmed TON refund")
             if deal["status"] != "disputed":
@@ -1457,8 +1472,17 @@ def create_marketplace_offers_router(
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="A confirmed TON payment is required")
             if intent["status"] == "refunded":
+                refund_event = conn.execute(
+                    """SELECT event_data FROM marketplace_escrow_events
+                       WHERE deal_id=? AND event_type='refund_confirmed' ORDER BY created_at DESC LIMIT 1""",
+                    (deal_id,),
+                ).fetchone()
+                refund_data = json.loads(refund_event["event_data"] or "{}") if refund_event is not None else {}
+                if refund_data.get("provider") == "ton" and refund_data.get("provider_reference") == payload.transaction_hash:
+                    conn.rollback()
+                    return {"deal_id": deal_id, "status": "cancelled", "refund_status": "refunded", "idempotent_replay": True}
                 conn.rollback()
-                return {"deal_id": deal_id, "status": "cancelled", "refund_status": "refunded", "idempotent_replay": True}
+                raise HTTPException(status_code=409, detail="A different refund has already been recorded for this TON payment")
             metadata = json.loads(intent["metadata_json"] or "{}")
             treasury = str(metadata.get("treasury") or "")
             buyer_wallet = str(metadata.get("buyer_wallet") or "")
