@@ -1557,11 +1557,15 @@ def create_marketplace_offers_router(
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Deal not found")
             if deal["status"] == "completed":
-                credited = conn.execute(
-                    "SELECT 1 FROM marketplace_escrow_events WHERE deal_id=? AND event_type='seller_credit_recorded'",
+                credit_events = conn.execute(
+                    "SELECT event_data FROM marketplace_escrow_events WHERE deal_id=? AND event_type='seller_credit_recorded'",
                     (deal_id,),
-                ).fetchone()
-                if credited:
+                ).fetchall()
+                seller_release_was_recorded = any(
+                    json.loads(row["event_data"] or "{}").get("asset_ownership") == "seller_confirmed_on_ton"
+                    for row in credit_events
+                )
+                if seller_release_was_recorded:
                     conn.rollback()
                     return {
                         "deal_id": deal_id,
