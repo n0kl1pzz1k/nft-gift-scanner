@@ -25,7 +25,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     },
     "support": {
         "dashboard.read", "users.read", "reports.read", "disputes.read",
-        "audit.read",
+        "audit.read", "support.tickets.read", "support.tickets.manage",
     },
     "auditor": {
         "dashboard.read", "users.read", "reports.read", "disputes.read",
@@ -118,8 +118,20 @@ class ReconciliationResolutionRequest(BaseModel):
     note: str = Field(min_length=1, max_length=1000)
 
 
+class SupportTicketCreateRequest(BaseModel):
+    ticket_type: Literal["payment", "account", "asset", "other"]
+    subject: str = Field(min_length=3, max_length=120)
+    message: str = Field(min_length=10, max_length=4000)
+
+
+class SupportTicketUpdateRequest(BaseModel):
+    status: Literal["in_progress", "resolved", "closed"]
+    note: str = Field(min_length=1, max_length=1000)
+
+
 def create_marketplace_admin_router(verify_credential: Callable[[str], dict]) -> APIRouter:
     router = APIRouter(prefix="/api/marketplace/admin", tags=["marketplace-admin"])
+    support_router = APIRouter(prefix="/api/marketplace/support", tags=["marketplace-support"])
 
     def require_permission(credential: str | None, permission: str) -> dict:
         if not credential:
@@ -473,6 +485,115 @@ def create_marketplace_admin_router(verify_credential: Callable[[str], dict]) ->
             conn.commit()
         return {"id": item_id, "status": status, "resolved_by": actor, "resolved_at": now}
 
+    @router.get("/support-tickets")
+    async def admin_list_support_tickets(
+        status: Literal["open", "in_progress", "resolved", "closed", "all"] = "open",
+        limit: int = Query(default=50, ge=1, le=100),
+        offset: int = Query(default=0, ge=0, le=100000),
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        require_permission(x_telegram_init_data, "support.tickets.read")
+        where = "" if status == "all" else " WHERE status=?"
+        values: list[Any] = [] if status == "all" else [status]
+        with _db() as conn:
+            rows = conn.execute(
+                f"""SELECT id, telegram_id, username, ticket_type, subject, message,
+                           status, assigned_to, resolution_note, created_at, updated_at, resolved_at
+                    FROM marketplace_support_tickets{where}
+                    ORDER BY CASE status WHEN 'open' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,
+                             created_at ASC LIMIT ? OFFSET ?""",
+                (*values, limit, offset),
+            ).fetchall()
+            total = int(conn.execute(
+                f"SELECT COUNT(*) FROM marketplace_support_tickets{where}", values
+            ).fetchone()[0])
+        return {"items":[dict(row) for row in rows], "total":total, "limit":limit, "offset":offset}
+
+    @router.patch("/support-tickets/{ticket_id}")
+    async def admin_update_support_ticket(
+        ticket_id: str,
+        payload: SupportTicketUpdateRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        admin = require_permission(x_telegram_init_data, "support.tickets.manage")
+        actor = str(admin["id"])
+        now = int(time.time())
+        with _db() as conn:
+            begin_write(conn, f"support-ticket:{ticket_id}")
+            ticket = conn.execute(
+                select_for_update(conn, "SELECT * FROM marketplace_support_tickets WHERE id=?"),
+                (ticket_id,),
+            ).fetchone()
+            if ticket is None:
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Support ticket not found")
+            if ticket["status"] in {"resolved", "closed"}:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Support ticket is already closed")
+            assigned_to = actor if payload.status == "in_progress" else (ticket["assigned_to"] or actor)
+            resolved_at = now if payload.status in {"resolved", "closed"} else None
+            conn.execute(
+                """UPDATE marketplace_support_tickets
+                   SET status=?, assigned_to=?, resolution_note=?, updated_at=?, resolved_at=?
+                   WHERE id=? AND status IN ('open','in_progress')""",
+                (payload.status, assigned_to, payload.note.strip(), now, resolved_at, ticket_id),
+            )
+            action = {
+                "in_progress": "admin_support_ticket_assigned",
+                "resolved": "admin_support_ticket_resolved",
+                "closed": "admin_support_ticket_closed",
+            }[payload.status]
+            insert_security_audit_event(
+                conn, actor_telegram_id=actor, action=action,
+                target_type="support_ticket", target_id=ticket_id,
+                metadata={"status":payload.status,"reason":payload.note.strip()[:200]},
+                now=now,
+            )
+            conn.commit()
+        return {"id":ticket_id,"status":payload.status,"assigned_to":assigned_to,"resolved_at":resolved_at}
+
+    @support_router.post("/tickets", status_code=201)
+    async def create_support_ticket(
+        payload: SupportTicketCreateRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        if not x_telegram_init_data:
+            raise HTTPException(status_code=401, detail="Telegram authentication required")
+        user = verify_credential(x_telegram_init_data)
+        telegram_id = str(user["id"])
+        _enforce_user_rate_limit(telegram_id, "create_support_ticket", 5)
+        now = int(time.time())
+        ticket_id = "spt_" + uuid.uuid4().hex
+        with _db() as conn:
+            conn.execute(
+                """INSERT INTO marketplace_support_tickets
+                   (id, telegram_id, username, ticket_type, subject, message, status,
+                    assigned_to, resolution_note, created_at, updated_at, resolved_at)
+                   VALUES (?, ?, ?, ?, ?, ?, 'open', NULL, '', ?, ?, NULL)""",
+                (ticket_id, telegram_id, str(user.get("username") or "")[:64],
+                 payload.ticket_type, payload.subject.strip(), payload.message.strip(), now, now),
+            )
+            conn.commit()
+        return {"id":ticket_id,"status":"open","created_at":now}
+
+    @support_router.get("/tickets/me")
+    async def list_my_support_tickets(
+        limit: int = Query(default=20, ge=1, le=50),
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        if not x_telegram_init_data:
+            raise HTTPException(status_code=401, detail="Telegram authentication required")
+        user = verify_credential(x_telegram_init_data)
+        with _db() as conn:
+            rows = conn.execute(
+                """SELECT id, ticket_type, subject, message, status, resolution_note,
+                          created_at, updated_at, resolved_at
+                   FROM marketplace_support_tickets
+                   WHERE telegram_id=? ORDER BY created_at DESC LIMIT ?""",
+                (str(user["id"]), limit),
+            ).fetchall()
+        return {"items":[dict(row) for row in rows]}
+
     @router.get("/audit")
     async def admin_audit(
         limit: int = Query(default=100, ge=1, le=200),
@@ -498,4 +619,5 @@ def create_marketplace_admin_router(verify_credential: Callable[[str], dict]) ->
             items.append(item)
         return {"items": items, "total": total}
 
+    router.include_router(support_router)
     return router
