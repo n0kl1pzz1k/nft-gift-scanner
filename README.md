@@ -15,7 +15,8 @@ HASSLE NFT is an independent Telegram Mini App marketplace focused on listings, 
 - `frontend/` - Svelte 5 Telegram Mini App.
 - `bot.py` - Telegram bot entry point and Mini App launcher.
 - `app.py`, `marketplace.py` - backend API and marketplace operations.
-- `marketplace_offers.py` - real user-submitted offer endpoints. Acceptance stays disabled until real escrow and NFT transfer are implemented. No simulated settlement. Legacy marketplace table names are migrated in place at startup without copying or deleting marketplace records.
+- `marketplace_offers.py` - user-submitted offers, deal lifecycle, escrow and verified delivery operations. Unsupported assetless buy-order responses remain disabled. No simulated settlement. Legacy marketplace table names are migrated in place at startup without copying or deleting marketplace records.
+- `marketplace_admin.py` - role-protected operations console APIs for users, verified assets, disputes and manual reconciliation queues.
 - `wrangler.toml` - Cloudflare Worker frontend deployment.
 - Railway hosts the backend API.
 
@@ -25,7 +26,8 @@ Secrets belong only in Railway/Cloudflare environment variables. Never commit bo
 - `BOT_WEBHOOK_SECRET` - Telegram webhook secret.
 - `PUBLIC_APP_URL` - public Mini App URL.
 - `API_BASE_URL` - backend API URL.
-- `ADMIN_TELEGRAM_ID` / `ADMIN_TELEGRAM_IDS` - administrator Telegram IDs.
+- `ADMIN_TELEGRAM_ID` / `ADMIN_TELEGRAM_IDS` - allowlisted administrator Telegram IDs.
+- `ADMIN_TELEGRAM_ROLES` - optional comma-separated `telegram_id:role` assignments. Every assigned ID must also be present in `ADMIN_TELEGRAM_IDS`. Roles: `owner` (all permissions), `moderator` (asset/report moderation), `support` (user lookup/session revocation, reports and deal lookup), `finance` (reconciliation, dispute/settlement actions and security audit). If unset, allowlisted administrators retain the legacy `owner` role.
 - `HASSLE_NFT_DB_PATH` - optional database path; the legacy `GIFT_RADAR_DB_PATH` is still read as a fallback to preserve existing production data.
 - GitHub Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` - optional, free Cloudflare Worker deployment credentials. Without them, the deploy step safely skips.
 
