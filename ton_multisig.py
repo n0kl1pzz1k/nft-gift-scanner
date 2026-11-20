@@ -26,12 +26,17 @@ def is_two_of_three_multisig(config: Any, expected_address: str) -> bool:
         actual = _raw_address(str(config.get("address") or ""))
         threshold = config.get("threshold")
         signers = config.get("signers")
-        if actual != expected or isinstance(threshold, bool) or threshold != 2:
+        if (
+            actual != expected
+            or isinstance(threshold, bool)
+            or not isinstance(threshold, int)
+            or threshold != 2
+        ):
             return False
         if not isinstance(signers, list) or len(signers) != 3:
             return False
         normalised = [_raw_address(str(signer)) for signer in signers]
-        return len(set(normalised)) == 3
+        return len(set(normalised)) == 3 and expected not in set(normalised)
     except Exception:
         return False
 
