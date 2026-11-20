@@ -196,6 +196,56 @@ def test_ton_transaction_hash_cannot_be_reused_across_payment_and_settlement_eve
     conn.close()
 
 
+def test_sqlite_escrow_schema_migrates_old_event_constraint_without_losing_history():
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("CREATE TABLE marketplace_deals (id TEXT PRIMARY KEY, status TEXT NOT NULL)")
+    conn.execute("INSERT INTO marketplace_deals (id, status) VALUES ('deal-1', 'disputed')")
+    conn.execute("""
+        CREATE TABLE marketplace_escrow_events (
+            id TEXT PRIMARY KEY,
+            deal_id TEXT NOT NULL,
+            actor_user_id TEXT NOT NULL,
+            event_type TEXT NOT NULL CHECK(event_type IN (
+                'deal_payment_requested', 'payment_intent_created', 'payment_pending',
+                'payment_confirmed', 'escrow_funded', 'asset_transfer_requested',
+                'asset_transfer_submitted', 'asset_transfer_confirmed', 'deal_completed',
+                'deal_disputed', 'refund_requested', 'refund_confirmed', 'payout_released',
+                'seller_credit_recorded', 'deal_cancelled', 'deal_expired',
+                'dispute_resolution_approved', 'dispute_resolution_ready'
+            )),
+            event_key TEXT NOT NULL UNIQUE,
+            event_data TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY(deal_id) REFERENCES marketplace_deals(id)
+        )
+    """)
+    conn.execute("""
+        INSERT INTO marketplace_escrow_events
+        (id, deal_id, actor_user_id, event_type, event_key, event_data, created_at)
+        VALUES ('event-legacy', 'deal-1', 'admin-1', 'deal_disputed',
+                'deal-1:legacy-dispute', '{}', 1000)
+    """)
+    initialize_sqlite_payment_schema(conn)
+    preserved = conn.execute(
+        "SELECT id, event_type FROM marketplace_escrow_events WHERE event_key='deal-1:legacy-dispute'"
+    ).fetchone()
+    assert tuple(preserved) == ("event-legacy", "deal_disputed")
+    from marketplace_payments import append_escrow_event
+    appended = append_escrow_event(
+        conn, deal_id="deal-1", actor_user_id="seller-1",
+        event_type="asset_transfer_rejected",
+        event_key="deal-1:asset-transfer-rejected:one",
+        event_data={"provider": "telegram_business"}, now=1100,
+    )
+    assert appended["idempotent_replay"] is False
+    assert conn.execute(
+        "SELECT COUNT(*) FROM marketplace_escrow_events"
+    ).fetchone()[0] == 2
+    conn.close()
+
+
 def test_double_entry_ledger_posts_balanced_pair_once_and_is_immutable():
     conn = _connection()
     posted = post_ledger_transaction(
