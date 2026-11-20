@@ -783,6 +783,36 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(len(entries), 2)
         self.assertEqual(funded, 1)
 
+    def test_stars_successful_payment_cannot_revive_deal_outside_payment_pending(self):
+        deal_id, invoice_payload, _intent_id = self._create_stars_deal_with_intent()
+        ok, _ = validate_stars_pre_checkout(
+            invoice_payload=invoice_payload, telegram_user_id="202",
+            currency="XTR", total_amount=9, now=1700000010,
+        )
+        self.assertTrue(ok)
+        with marketplace_offers._db() as conn:
+            conn.execute(
+                "UPDATE marketplace_deals SET status='cancelled' WHERE id=?",
+                (deal_id,),
+            )
+            conn.commit()
+        with self.assertRaises(Exception):
+            confirm_stars_payment(
+                invoice_payload=invoice_payload,
+                telegram_user_id="202",
+                currency="XTR",
+                total_amount=9,
+                telegram_payment_charge_id="tg-charge-after-cancel",
+                provider_payment_charge_id="",
+                now=1700000020,
+            )
+        with marketplace_offers._db() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_ledger_transactions WHERE reference_id=?",
+                (deal_id,),
+            ).fetchone()[0]
+        self.assertEqual(count, 0)
+
     def test_webhook_secret_is_stable_when_derived_from_bot_token(self):
         with patch.dict(os.environ, {}, clear=True):
             first = api._resolve_webhook_secret("test-bot-token")
