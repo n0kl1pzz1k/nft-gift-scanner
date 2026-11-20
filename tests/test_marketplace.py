@@ -775,14 +775,26 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(released.status_code, 200, released.text)
         self.assertEqual(released.json()["seller_credit"], "recorded")
         self.assertEqual(released.json()["settlement_status"], "pending_manual_payout")
+        replay = self.client.post(
+            f"/api/marketplace/admin/deals/{deal_id}/execute-seller-release",
+            headers={"X-Telegram-Init-Data":"user-b"},
+            json={"idempotency_key":"seller-release-execute-replay"},
+        )
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertTrue(replay.json()["idempotent_replay"])
         with marketplace_offers._db() as conn:
             deal = conn.execute("SELECT status FROM marketplace_deals WHERE id=?",(deal_id,)).fetchone()
-            release_count = conn.execute(
-                "SELECT COUNT(*) FROM marketplace_escrow_events WHERE deal_id=? AND event_type='payout_released'",
+            credit_count = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_escrow_events WHERE deal_id=? AND event_type='seller_credit_recorded'",
                 (deal_id,),
             ).fetchone()[0]
-        self.assertEqual(deal["status"], "cancelled")
-        self.assertEqual(release_count, 1)
+            ledger_count = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_ledger_transactions WHERE idempotency_key=?",
+                (f"{deal_id}:seller-release:seller-release-chain-tx",),
+            ).fetchone()[0]
+        self.assertEqual(deal["status"], "completed")
+        self.assertEqual(credit_count, 1)
+        self.assertEqual(ledger_count, 1)
 
     def test_ton_payment_confirms_exact_incoming_transaction_once(self):
         deal_id, seller_wallet, buyer_wallet = self._create_ton_deal_with_verified_wallets()
