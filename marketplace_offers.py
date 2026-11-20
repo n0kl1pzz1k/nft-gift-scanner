@@ -1958,7 +1958,7 @@ def create_marketplace_offers_router(
             ).fetchone()[0]
             rows = conn.execute(
                 f"""SELECT d.*, o.title AS order_title, o.kind AS order_kind,
-                           o.status AS order_status, a.source AS asset_source, f.note AS offer_note
+                           o.status AS order_status, a.source AS asset_source, a.status AS asset_status, f.note AS offer_note
                     FROM marketplace_deals d
                     JOIN marketplace_orders o ON o.id = d.order_id
                     LEFT JOIN verified_assets a ON a.id = o.asset_id
