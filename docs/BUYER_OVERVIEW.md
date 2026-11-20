@@ -41,6 +41,17 @@ The exact assets, account owners, transfer mechanisms, exclusions and acceptance
 | Backend hosting | Railway |
 | CI | GitHub Actions, frontend build and Playwright smoke tests, backend pytest suite |
 
+## 3A. Git branch and production distinction
+
+The repository contains work at different maturity levels. The following distinction is material to due diligence:
+
+- **Block 6:** PR [#214](https://github.com/n0kl1pzz1k/nft-gift-scanner/pull/214) is merged into `main`. Its description states that the implementation was not deployed to production at merge time. Payment feature flags are disabled.
+- **Block 5:** PR [#213](https://github.com/n0kl1pzz1k/nft-gift-scanner/pull/213) remains an open draft based on `main`. Its marketplace trading/offer/reservation work is not merged into `main`.
+- **Block 7:** PR [#216](https://github.com/n0kl1pzz1k/nft-gift-scanner/pull/216) remains an open draft based on the Block 6 branch. Its role-based admin/support implementation is not merged into `main`.
+- Several older draft/open PRs remain in the repository and require a deliberate keep/merge/close decision during cleanup.
+
+A buyer should inspect the main branch and each relevant PR separately. A feature implemented on an unmerged branch must not be represented as part of the currently deployed application.
+
 ## 4. Product functionality represented in the codebase
 
 - Marketplace catalog, search, filters and sorting.
