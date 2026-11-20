@@ -16,7 +16,7 @@ class TelegramBusinessGiftInventoryError(ValueError):
     """Telegram Business returned an unusable or incomplete inventory response."""
 
 
-def normalise_business_owned_gift(raw: Any) -> dict[str, str] | None:
+def normalise_business_owned_gift(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict) or raw.get("type") != "unique":
         return None
     gift = raw.get("gift")
@@ -48,6 +48,12 @@ def normalise_business_owned_gift(raw: Any) -> dict[str, str] | None:
             break
     if len(preview_file_id) > 512:
         preview_file_id = ""
+    transfer_fee = gift.get("transfer_star_count")
+    if isinstance(transfer_fee, bool) or not isinstance(transfer_fee, int) or transfer_fee < 0:
+        transfer_fee = None
+    next_transfer_date = raw.get("next_transfer_date")
+    if isinstance(next_transfer_date, bool) or not isinstance(next_transfer_date, int) or next_transfer_date < 0:
+        next_transfer_date = None
     return {
         "owned_gift_id": owned_gift_id,
         "model_sticker_file_id": preview_file_id,
@@ -55,6 +61,9 @@ def normalise_business_owned_gift(raw: Any) -> dict[str, str] | None:
         "title": f"{base_name} #{number}"[:120],
         "gift_url": f"https://t.me/nft/{quote(slug, safe='')}",
         "send_date": str(raw.get("send_date") or ""),
+        "can_be_transferred": raw.get("can_be_transferred") is True,
+        "transfer_star_count": transfer_fee,
+        "next_transfer_date": next_transfer_date,
     }
 
 
@@ -179,3 +188,59 @@ async def fetch_business_account_gifts(
         "total_count": total_count,
         "supported_unique_count": len(items),
     }
+
+
+
+async def transfer_business_account_gift(
+    business_connection_id: str,
+    owned_gift_id: str,
+    new_owner_chat_id: str | int,
+    *,
+    star_count: int = 0,
+    client: httpx.AsyncClient | None = None,
+) -> None:
+    """Transfer one Business-owned unique gift through Telegram's official Bot API.
+
+    The caller must independently enforce seller ownership, deal state, current
+    Business rights, transfer eligibility, and explicit consent to any Star fee.
+    """
+    connection_id = str(business_connection_id or "").strip()
+    gift_id = str(owned_gift_id or "").strip()
+    recipient = str(new_owner_chat_id or "").strip()
+    if not connection_id or len(connection_id) > 256:
+        raise TelegramBusinessGiftInventoryError("A valid Telegram Business connection is required")
+    if not gift_id or len(gift_id) > 256:
+        raise TelegramBusinessGiftInventoryError("A valid owned gift ID is required")
+    if not recipient.isdigit() or len(recipient) > 20:
+        raise TelegramBusinessGiftInventoryError("A valid recipient Telegram chat ID is required")
+    if isinstance(star_count, bool) or not isinstance(star_count, int) or not 0 <= star_count <= 100000:
+        raise TelegramBusinessGiftInventoryError("A valid Telegram Stars transfer fee is required")
+    token = os.getenv("BOT_TOKEN", "").strip()
+    if not token:
+        raise TelegramBusinessGiftInventoryError("Telegram Bot API is not configured")
+    owns_client = client is None
+    session = client or httpx.AsyncClient(
+        base_url=TELEGRAM_API_BASE,
+        timeout=httpx.Timeout(15.0, connect=5.0),
+        follow_redirects=False,
+    )
+    try:
+        response = await session.post(
+            f"/bot{token}/transferGift",
+            json={
+                "business_connection_id": connection_id,
+                "owned_gift_id": gift_id,
+                "new_owner_chat_id": int(recipient),
+                "star_count": star_count,
+            },
+        )
+        if response.status_code != 200:
+            raise TelegramBusinessGiftInventoryError("Telegram Business gift transfer was rejected")
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("ok") is not True or payload.get("result") is not True:
+            raise TelegramBusinessGiftInventoryError("Telegram did not confirm the Business gift transfer")
+    except httpx.HTTPError as exc:
+        raise TelegramBusinessGiftInventoryError("Telegram Business gift transfer could not be confirmed") from exc
+    finally:
+        if owns_client:
+            await session.aclose()
