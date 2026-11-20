@@ -83,6 +83,7 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
             "signers": SIGNERS,
             "proposers": [],
         }
+        config.update({"code_hash": CODE_HASH, "data_hash": DATA_HASH})
         with patch.dict(os.environ, multisig_env()):
             self.assertTrue(is_two_of_three_multisig(config, TREASURY))
             self.assertFalse(is_two_of_three_multisig({**config, "threshold": 1}, TREASURY))
@@ -117,8 +118,10 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
                     {"type": "null"},
                 ],
             }, TREASURY)
-        with self.assertRaises(ValueError):
-            decode_multisig_v2_getter(getter_payload(proposers=[SIGNERS[0]]), TREASURY)
+        with patch.dict(os.environ, multisig_env()):
+            config = decode_multisig_v2_getter(getter_payload(proposers=[SIGNERS[0]]), TREASURY)
+            config.update({"code_hash": CODE_HASH, "data_hash": DATA_HASH})
+            self.assertFalse(is_two_of_three_multisig(config, TREASURY))
 
     async def test_fetches_multisig_configuration_using_contract_getter(self):
         calls = []
@@ -136,6 +139,8 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, {"TONAPI_TOKEN": "test-token", **multisig_env()}):
             config = await fetch_ton_multisig_config(TREASURY, client=client)
         await client.aclose()
+        self.assertEqual(config["code_hash"], CODE_HASH)
+        self.assertEqual(config["data_hash"], DATA_HASH)
         self.assertTrue(is_two_of_three_multisig(config, TREASURY))
         self.assertEqual(
             calls[0].url.path,
