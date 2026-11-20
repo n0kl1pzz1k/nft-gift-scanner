@@ -1717,7 +1717,7 @@ def create_marketplace_offers_router(
                 conn.rollback()
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             conn.commit()
-        return {"deal_id": deal_id, "status": "cancelled", "seller_credit": "recorded", "settlement_status": "pending_manual_payout"}
+        return {"deal_id": deal_id, "status": "completed", "seller_credit": "recorded", "settlement_status": "pending_manual_payout", "idempotent_replay": False}
 
 
     @router.post("/deals/{deal_id}/telegram-business-gift-delivery/transfer")
