@@ -135,6 +135,7 @@
   let adminOverview = $state<Record<string,number> | null>(null);
   let adminUsers = $state<Array<Record<string,unknown>>>([]);
   let adminAssets = $state<Array<Record<string,unknown>>>([]);
+  let adminDisputes = $state<Array<Record<string,unknown>>>([]);
   let adminReconciliation = $state<{payments:Array<Record<string,unknown>>;transfers:Array<Record<string,unknown>>}>({payments:[],transfers:[]});
   let adminUserSearch = $state('');
   let adminBusy = $state(false);
@@ -1167,17 +1168,19 @@
     if (!isAdmin || adminBusy) return;
     adminBusy = true;
     try {
-      const [overview, reports, users, assets, reconciliation] = await Promise.all([
+      const [overview, reports, users, assets, reconciliation, disputes] = await Promise.all([
         request('/api/marketplace/admin/overview'),
         request('/api/marketplace/admin/reports?status=open&limit=50'),
         request('/api/marketplace/admin/users?limit=25'),
         request('/api/marketplace/admin/assets?status=verified&limit=25'),
         request('/api/marketplace/admin/reconciliation?limit=50'),
+        request('/api/marketplace/admin/deals?status=disputed&limit=50'),
       ]);
       adminOverview = overview as Record<string,number>;
       adminReports = Array.isArray(reports.items) ? reports.items as OrderReport[] : [];
       adminUsers = Array.isArray(users.items) ? users.items as Array<Record<string,unknown>> : [];
       adminAssets = Array.isArray(assets.items) ? assets.items as Array<Record<string,unknown>> : [];
+      adminDisputes = Array.isArray(disputes.items) ? disputes.items as Array<Record<string,unknown>> : [];
       adminReconciliation = {
         payments: Array.isArray(reconciliation.payments) ? reconciliation.payments as Array<Record<string,unknown>> : [],
         transfers: Array.isArray(reconciliation.transfers) ? reconciliation.transfers as Array<Record<string,unknown>> : [],
@@ -1740,6 +1743,10 @@
           <div class="report-actions"><input class="form-input" bind:value={adminUserSearch} placeholder={lang==='ru'?'Telegram ID или @username':'Telegram ID or @username'} /><button class="refresh-button" onclick={searchAdminUsers}>{lang==='ru'?'Найти':'Search'}</button></div>
           {#each adminUsers as user (String(user.telegram_id))}
             <div class="activity-row"><div class="activity-row-main"><strong>{user.first_name || 'Telegram user'} {user.username ? '@'+user.username : ''}</strong><small>ID {user.telegram_id} · {lang==='ru'?'активных сессий':'active sessions'}: {user.active_sessions}</small></div><button class="cancel-button" onclick={()=>revokeAdminUserSessions(String(user.telegram_id))}>{lang==='ru'?'Завершить сессии':'Revoke sessions'}</button></div>
+          {/each}
+          <div class="notification-heading"><h3>{lang==='ru'?'Споры':'Disputes'} · {adminDisputes.length}</h3></div>
+          {#each adminDisputes as dispute (String(dispute.id))}
+            <div class="activity-row"><div class="activity-row-main"><strong>{String(dispute.id)}</strong><small>{lang==='ru'?'Покупатель':'Buyer'} {dispute.buyer_telegram_id} · {lang==='ru'?'Продавец':'Seller'} {dispute.seller_telegram_id} · {dispute.status}</small></div></div>
           {/each}
           <div class="notification-heading"><h3>{lang==='ru'?'Ручная сверка':'Manual reconciliation'}</h3></div>
           <div class="state-panel">{lang==='ru'?'Ожидают проверки платежи':'Payments awaiting review'}: {adminReconciliation.payments.length} · {lang==='ru'?'передачи активов':'asset transfers'}: {adminReconciliation.transfers.length}</div>
