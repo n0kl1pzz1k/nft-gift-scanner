@@ -67,8 +67,8 @@ ipt>
           target.dataset.bootState = 'error';
         };
         window.addEventListener('error', function (event) {
-          if (document.getElementById('app')?.dataset.bootState !== 'ready') {
-            window.__HASSLE_NFT_SHOW_BOOT_ERROR__(event.message || 'JavaScript error');
+          if (event.message && document.getElementById('app')?.dataset.bootState !== 'ready') {
+            window.__HASSLE_NFT_SHOW_BOOT_ERROR__(event.message);
           }
         });
         window.addEventListener('unhandledrejection', function (event) {
@@ -82,7 +82,7 @@ ipt>
           if (target && target.dataset.bootState !== 'ready') {
             window.__HASSLE_NFT_SHOW_BOOT_ERROR__('Приложение не завершило запуск за 15 секунд. Проверьте соединение и повторите попытку.');
           }
-        }, 15000);
+        }, 20000);
       })();
     </scr
     <script type="module" src="/src/main.ts"></script>
