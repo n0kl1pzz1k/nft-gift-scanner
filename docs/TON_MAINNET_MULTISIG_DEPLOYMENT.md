@@ -26,7 +26,7 @@ Signer addresses (canonical user-provided addresses):
 2. Signer 2: `UQDqyqwz6TKotnrjHnEtWnlpZgEwNj5I54n5bAOmFivBR8ys`
 3. Signer 3: `UQCO3ghYMh52rbhO5leQQxu4AAUKz8DuW2wSVeZRN_MiHJyI`
 
-All three addresses were observed as active Wallet V5R1 accounts, and their on-chain `get_public_key` getters returned successfully. The contract-v2 configuration uses signer wallet addresses; the public keys were useful for validating wallet control but are not the signer entries in this contract's config.
+All three addresses were observed as active Wallet V5R1 accounts, and their on-chain `get_public_key` getters returned successfully. The backend verifier now pins this exact ordered signer list rather than accepting any arbitrary three addresses. The contract-v2 configuration uses signer wallet addresses; the public keys were useful for validating wallet control but are not the signer entries in this contract's config.
 
 ## Deployment safety gates
 
@@ -45,7 +45,7 @@ All three addresses were observed as active Wallet V5R1 accounts, and their on-c
 - No deployment transaction has been signed or broadcast.
 - No on-chain multisig configuration has been verified.
 - Real TON and Telegram Stars checkout remain disabled.
-- Backend verification now calls the actual `get_multisig_data` getter through TONAPI, decodes the signer/proposer Hashmap BOCs, and requires exactly 2-of-3 with no proposers. The getter does not expose `allowArbitrarySeqno`; production verification must additionally match the precomputed deterministic contract address and compiled code hash derived from the reviewed StateInit.
+- Backend verification now calls the actual `get_multisig_data` getter through TONAPI, decodes the signer/proposer Hashmap BOCs, and requires exactly 2-of-3 with the three owner-approved signer addresses in the configured order and no proposers. The getter does not expose `allowArbitrarySeqno`; production verification must additionally match the precomputed deterministic contract address and compiled code hash derived from the reviewed StateInit.
 
 ## Funding note
 
