@@ -26,6 +26,15 @@ Prepared: 2026-11-20. This document is intentionally candid and must accompany a
 11. The Telegram bot's live webhook/process status and all Telegram account transfer permissions must be independently checked during handover.
 12. Cloudflare/Railway account ownership and provider transferability must be checked. Service URLs are not the same as ownership of a registered domain.
 
+## Repository branch and deployment caveats
+
+- Block 6 PR #214 is merged into `main`, but its PR description records that it was not production-deployed at merge time. Real TON/Stars feature flags remain disabled.
+- Block 5 PR #213 is still an open draft and is not merged into `main`.
+- Block 7 PR #216 is still an open draft and is not merged into `main`.
+- Railway backend is configured to deploy from `main` in the `iad` (US East) region, with one replica and a 500 MB `/data` volume.
+- Railway's variable-name inventory includes PostgreSQL-related settings and the legacy `PORTALS_API_KEY` name. Values are redacted; active use and whether the variable is still needed must be checked before transfer.
+- The GitHub repository itself still has the legacy `nft-gift-scanner` slug and the repository description still reads "Telegram NFT Gift Scanner". The README and buyer documents now use HASSLE NFT branding. A repository rename/description update remains a cleanup item.
+
 ## Payment and asset safety
 
 - Only TON and Telegram Stars (XTR) are in scope. USDT is excluded.
