@@ -1486,7 +1486,7 @@ def create_marketplace_offers_router(
             expected_nano = int(Decimal(amount) * Decimal(1_000_000_000))
             refunded = False
             for message in transaction.get("out_msgs", []) if isinstance(transaction.get("out_msgs"), list) else []:
-                if not isinstance(message, dict):
+                if not isinstance(message, dict) or message.get("bounced") is True:
                     continue
                 try:
                     destination = normalise_ton_address(str(message.get("destination") or ""))
@@ -1848,7 +1848,7 @@ def create_marketplace_offers_router(
             expected_nano = int(Decimal(payable_amount) * Decimal(1_000_000_000))
             paid = False
             for message in transaction.get("out_msgs", []) if isinstance(transaction.get("out_msgs"), list) else []:
-                if not isinstance(message, dict):
+                if not isinstance(message, dict) or message.get("bounced") is True:
                     continue
                 try:
                     destination = normalise_ton_address(str(message.get("destination") or ""))
