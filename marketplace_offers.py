@@ -1780,6 +1780,24 @@ def create_marketplace_offers_router(
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Only completed TON deals can be paid out")
             seller_id = str(deal["listing_owner_id"])
+            payment_intent = conn.execute(
+                """SELECT * FROM marketplace_payment_intents
+                   WHERE deal_id=? AND provider='ton' AND status='confirmed'
+                   ORDER BY created_at DESC LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            if payment_intent is None or not payment_intent["provider_reference"]:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="A confirmed TON payment intent is required before seller payout")
+            payment_metadata = json.loads(payment_intent["metadata_json"] or "{}")
+            try:
+                payment_treasury = normalise_ton_address(str(payment_metadata.get("treasury") or ""))
+            except Exception as exc:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Original TON payment treasury is missing or invalid") from exc
+            if payment_treasury != treasury_raw or Decimal(str(payment_intent["amount"])) <= 0:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Configured payout treasury does not match the original TON payment treasury")
             seller_wallet = conn.execute(
                 """SELECT address FROM verified_wallets
                    WHERE telegram_id=? AND network='-239' AND revoked_at IS NULL
@@ -1800,6 +1818,9 @@ def create_marketplace_offers_router(
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="A single recorded TON seller payable and an active verified seller wallet are required")
             payable_amount = str(payable[0]["amount"])
+            if Decimal(payable_amount) != Decimal(str(payment_intent["amount"])):
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Seller payable does not match the confirmed TON payment amount")
             if conn.execute(
                 "SELECT 1 FROM marketplace_ledger_transactions WHERE reference_type='withdrawal' AND reference_id=? LIMIT 1",
                 (deal_id,),
