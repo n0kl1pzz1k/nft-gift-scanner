@@ -826,6 +826,75 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(credit_count, 1)
         self.assertEqual(ledger_count, 1)
 
+        treasury = "0:" + "aa" * 32
+        class FakePayoutResponse:
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {
+                    "success": True,
+                    "account": treasury,
+                    "out_msgs": [{"destination": seller_address, "value": "9000000000"}],
+                }
+        class FakePayoutClient:
+            def __init__(self, **kwargs):
+                pass
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return False
+            async def get(self, url, headers):
+                return FakePayoutResponse()
+
+        payout_flags = {
+            "ADMIN_TELEGRAM_IDS":"202,303",
+            "TONAPI_TOKEN":"test-tonapi-token",
+            "HASSLE_TON_CUSTODY_ACKNOWLEDGED":"1",
+            "HASSLE_TON_PAYOUT_MODE":"manual_multisig_2_of_3",
+            "HASSLE_TON_TREASURY_ADDRESS":treasury,
+        }
+        with patch.dict(os.environ, payout_flags), patch("httpx.AsyncClient", FakePayoutClient):
+            payout = self.client.post(
+                f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
+                headers={"X-Telegram-Init-Data":"user-b"},
+                json={"transaction_hash":"cd"*32,"idempotency_key":"seller-payout-001"},
+            )
+            payout_replay = self.client.post(
+                f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
+                headers={"X-Telegram-Init-Data":"user-b"},
+                json={"transaction_hash":"cd"*32,"idempotency_key":"seller-payout-001"},
+            )
+            different_payout = self.client.post(
+                f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
+                headers={"X-Telegram-Init-Data":"user-b"},
+                json={"transaction_hash":"ef"*32,"idempotency_key":"seller-payout-002"},
+            )
+        self.assertEqual(payout.status_code, 200, payout.text)
+        self.assertEqual(payout.json()["payout_status"], "paid")
+        self.assertEqual(payout.json()["amount"], "9")
+        self.assertEqual(payout_replay.status_code, 200, payout_replay.text)
+        self.assertTrue(payout_replay.json()["idempotent_replay"])
+        self.assertEqual(different_payout.status_code, 409, different_payout.text)
+        with marketplace_offers._db() as conn:
+            payout_count = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_escrow_events WHERE deal_id=? AND event_type='payout_released'",
+                (deal_id,),
+            ).fetchone()[0]
+            payout_ledger = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_ledger_transactions WHERE idempotency_key=?",
+                ("ton-seller-payout:" + "cd"*32,),
+            ).fetchone()[0]
+            seller_payable_debits = conn.execute(
+                """SELECT COUNT(*) FROM marketplace_ledger_entries le
+                   JOIN marketplace_ledger_transactions lt ON lt.id=le.transaction_id
+                   WHERE lt.reference_id=? AND lt.reference_type='withdrawal'
+                     AND le.account_type='seller_payable' AND le.direction='debit'""",
+                (deal_id,),
+            ).fetchone()[0]
+        self.assertEqual(payout_count, 1)
+        self.assertEqual(payout_ledger, 1)
+        self.assertEqual(seller_payable_debits, 1)
+
     def test_ton_payment_confirms_exact_incoming_transaction_once(self):
         deal_id, seller_wallet, buyer_wallet = self._create_ton_deal_with_verified_wallets()
         treasury = "0:" + "aa" * 32
