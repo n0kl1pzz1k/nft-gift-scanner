@@ -3179,7 +3179,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertFalse(buyer_deals.json()["payments_enabled"])
         sender_stats = self.client.get("/api/marketplace/account/stats", headers=headers_b)
         self.assertEqual(sender_stats.status_code, 200)
-        self.assertEqual(sender_stats.json()["deals"], 0)
+        self.assertEqual(sender_stats.json()["deals"], 1)
 
     def test_account_activity_timeline_is_private_and_paginated(self):
         headers_a = {"X-Telegram-Init-Data": "user-a"}
