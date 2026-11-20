@@ -1829,10 +1829,12 @@
                     <p>{report.reporter_name} · {new Date(report.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p>
                     {#if report.details}<p>{report.details}</p>{/if}
                   </div>
-                  <div class="order-actions">
-                    <button class="match-button" onclick={()=>moderateOrderReport(report.id,'dismiss')} disabled={adminReportActionBusy===report.id}>{t.dismissReport}</button>
-                    <button class="cancel-button" onclick={()=>moderateOrderReport(report.id,'remove_order')} disabled={adminReportActionBusy===report.id}>{t.removeReportedOrder}</button>
-                  </div>
+                  {#if adminRole==='owner' || adminRole==='moderator'}
+                    <div class="order-actions">
+                      <button class="match-button" onclick={()=>moderateOrderReport(report.id,'dismiss')} disabled={adminReportActionBusy===report.id}>{t.dismissReport}</button>
+                      <button class="cancel-button" onclick={()=>moderateOrderReport(report.id,'remove_order')} disabled={adminReportActionBusy===report.id}>{t.removeReportedOrder}</button>
+                    </div>
+                  {/if}
                 </article>
               {/each}
             </div>
