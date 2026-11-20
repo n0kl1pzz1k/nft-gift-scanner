@@ -1278,6 +1278,7 @@
       telegramPremium = data.user.is_premium === true;
       isAdmin = data.is_admin === true;
       signedIn = true;
+      if (isAdmin) await loadAdminOverview();
       await loadMarketplace();
       await loadFavorites();
       await loadOffersAndDeals();
