@@ -727,7 +727,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(tx_count, 2)
 
     def test_two_admin_approved_seller_release_requires_buyer_to_own_ton_nft(self):
-        deal_id, _, buyer_address = self._create_ton_deal_with_verified_wallets()
+        deal_id, seller_address, buyer_address = self._create_ton_deal_with_verified_wallets()
         now = int(time.time())
         with marketplace_offers._db() as conn:
             transition_deal_status(
@@ -770,6 +770,17 @@ class SharedMarketplaceTests(unittest.TestCase):
                     idempotency_key=f"{deal_id}:seller-release-approval:{admin_id}", now=now,
                 )
             conn.commit()
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS":"202,303"}), patch(
+            "ton_nft_inventory.fetch_nft_owner",
+            new=AsyncMock(return_value={"owner_address":seller_address,"is_scam":False}),
+        ):
+            seller_still_owns = self.client.post(
+                f"/api/marketplace/admin/deals/{deal_id}/execute-seller-release",
+                headers={"X-Telegram-Init-Data":"user-b"},
+                json={"idempotency_key":"seller-release-must-not-pay-without-delivery"},
+            )
+        self.assertEqual(seller_still_owns.status_code, 409, seller_still_owns.text)
+        self.assertIn("buyer owns the NFT", seller_still_owns.text)
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS":"202,303"}), patch(
             "ton_nft_inventory.fetch_nft_owner",
             new=AsyncMock(return_value={"owner_address":buyer_address,"is_scam":False}),
