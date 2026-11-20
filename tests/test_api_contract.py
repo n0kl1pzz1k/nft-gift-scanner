@@ -40,6 +40,7 @@ class ApiContractTests(unittest.TestCase):
                 "/api/marketplace/admin/users",
                 "/api/marketplace/admin/users/{telegram_id}/revoke-sessions",
                 "/api/marketplace/admin/assets",
+                "/api/marketplace/admin/assets/{asset_id}/revoke",
                 "/api/marketplace/admin/reconciliation",
                 "/api/marketplace/admin/deals",
                 "/api/marketplace/admin/deals/{deal_id}/dispute-approvals",
