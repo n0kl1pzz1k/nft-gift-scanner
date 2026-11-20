@@ -19,6 +19,7 @@ SOURCE_FILES = (
     "bot.py",
     "database.py",
     "marketplace.py",
+    "marketplace_admin.py",
     "marketplace_offers.py",
     "telegram_business_gift_inventory.py",
     "telegram_gift_inventory.py",
