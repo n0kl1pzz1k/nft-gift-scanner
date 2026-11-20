@@ -714,6 +714,25 @@ class SharedMarketplaceTests(unittest.TestCase):
             "PAYMENT_SUPPORT_CONTACT": "@hassle_support",
         }
         with patch.dict(os.environ, flags), patch(
+            "marketplace_offers._require_ton_multisig_2_of_3",
+            new=AsyncMock(side_effect=marketplace_offers.HTTPException(
+                status_code=503, detail="Treasury is not a verified 2-of-3 multisig",
+            )),
+        ):
+            rejected_checkout = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/ton-checkout",
+                headers={"X-Telegram-Init-Data": "user-b"},
+                json={"idempotency_key": "ton-invoice-rejected-multisig"},
+            )
+        self.assertEqual(rejected_checkout.status_code, 503, rejected_checkout.text)
+        with marketplace_offers._db() as conn:
+            no_intent = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_payment_intents WHERE deal_id=?",
+                (deal_id,),
+            ).fetchone()[0]
+        self.assertEqual(no_intent, 0)
+
+        with patch.dict(os.environ, flags), patch(
             "marketplace_offers._require_ton_multisig_2_of_3", new=AsyncMock(return_value=None),
         ), patch(
             "ton_nft_inventory.fetch_nft_owner",
