@@ -938,6 +938,20 @@ class SharedMarketplaceTests(unittest.TestCase):
             new=AsyncMock(return_value={"owner_address":buyer_address,"is_scam":False}),
         ), patch(
             "ton_nft_inventory.fetch_wallet_nft_history",
+            new=AsyncMock(return_value=[]),
+        ):
+            missing_history = self.client.post(
+                f"/api/marketplace/admin/deals/{deal_id}/execute-seller-release",
+                headers={"X-Telegram-Init-Data":"user-b"},
+                json={"idempotency_key":"seller-release-must-have-transfer-history"},
+            )
+        self.assertEqual(missing_history.status_code, 409, missing_history.text)
+        self.assertIn("history", missing_history.text.lower())
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS":"202,303"}), patch(
+            "ton_nft_inventory.fetch_nft_owner",
+            new=AsyncMock(return_value={"owner_address":buyer_address,"is_scam":False}),
+        ), patch(
+            "ton_nft_inventory.fetch_wallet_nft_history",
             new=AsyncMock(return_value=transfer_history),
         ):
             released = self.client.post(
