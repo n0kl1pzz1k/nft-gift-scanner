@@ -92,3 +92,5 @@ jobs:
         uses: actions/checkout@v4
       - name: Validate deployment configuration
         run: python -m json.tool railway.json > /dev/null
+      - name: Validate operational shell scripts
+        run: bash -n scripts/postgres_backup.sh scripts/postgres_restore.sh
