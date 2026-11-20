@@ -135,17 +135,26 @@ def decode_multisig_v2_getter(payload: Any, expected_address: str) -> dict[str, 
 
 
 def is_two_of_three_multisig(config: Any, expected_address: str) -> bool:
-    """Accept only exact treasury address, threshold 2, 3 signers, no proposers."""
+    """Accept only the pre-derived treasury, exact code/data hashes and owner signers."""
     if not isinstance(config, dict):
         return False
     try:
         expected = _raw_address(expected_address)
+        configured_address = os.getenv("HASSLE_TON_MULTISIG_EXPECTED_ADDRESS", "").strip()
+        expected_code_hash = os.getenv("HASSLE_TON_MULTISIG_CODE_HASH", "").strip().lower()
+        expected_data_hash = os.getenv("HASSLE_TON_MULTISIG_DATA_HASH", "").strip().lower()
+        if not configured_address or not expected_code_hash or not expected_data_hash:
+            return False
+        if _raw_address(configured_address) != expected:
+            return False
         actual = _raw_address(str(config.get("address") or ""))
         threshold = config.get("threshold")
         signers = config.get("signers")
         proposers = config.get("proposers")
         if (
             actual != expected
+            or config.get("code_hash") != expected_code_hash
+            or config.get("data_hash") != expected_data_hash
             or isinstance(threshold, bool)
             or not isinstance(threshold, int)
             or threshold != 2
@@ -161,6 +170,17 @@ def is_two_of_three_multisig(config: Any, expected_address: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def _cell_hash_from_hex_boc(value: Any) -> str:
+    from tonsdk.boc import Cell
+
+    if not isinstance(value, str) or not value:
+        raise ValueError("TONAPI raw account response is missing contract code/data")
+    try:
+        return Cell.one_from_boc(bytes.fromhex(value)).bytes_hash().hex()
+    except Exception as exc:
+        raise ValueError("TONAPI returned an invalid contract code/data BOC") from exc
 
 
 async def fetch_ton_wallet_public_key(
@@ -239,7 +259,18 @@ async def fetch_ton_multisig_config(
             headers=headers,
         )
         response.raise_for_status()
-        return decode_multisig_v2_getter(response.json(), raw_address)
+        config = decode_multisig_v2_getter(response.json(), raw_address)
+        account_response = await session.get(
+            f"/v2/blockchain/accounts/{raw_address}",
+            headers=headers,
+        )
+        account_response.raise_for_status()
+        account = account_response.json()
+        if not isinstance(account, dict) or account.get("status") != "active":
+            raise ValueError("TONAPI did not return an active multisig account")
+        config["code_hash"] = _cell_hash_from_hex_boc(account.get("code"))
+        config["data_hash"] = _cell_hash_from_hex_boc(account.get("data"))
+        return config
     finally:
         if owns_client:
             await session.aclose()
