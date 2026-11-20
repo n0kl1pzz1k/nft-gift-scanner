@@ -20,7 +20,7 @@ fi
 
 cleanup() {
   rm -f "$temporary" "$manifest_temporary"
-  if [[ "$published" != "1" ]]; then rm -f "$final"; fi
+  if [[ "$published" != "1" ]]; then rm -f "$final" "$manifest"; fi
 }
 trap cleanup EXIT
 
