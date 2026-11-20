@@ -1,6 +1,8 @@
-"""HASSLE NFT marketplace offers.
+"""HASSLE NFT marketplace offers, deal lifecycle, payments and asset delivery.
 
-Offer acceptance stays disabled until production escrow, verified TON/Stars settlement and NFT transfer are implemented. No deal is presented as completed before real settlement.
+Reservations are unpaid until a provider confirms settlement. TON and Telegram
+Stars checkout are feature-gated; escrow accounting, disputes, refunds, timeouts
+and TON NFT ownership verification are recorded independently of wallet keys.
 """
 from __future__ import annotations
 
