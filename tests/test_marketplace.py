@@ -484,16 +484,16 @@ class SharedMarketplaceTests(unittest.TestCase):
                 idempotency_key=f"{deal_id}:ton-refund-test-awaiting",
                 event_type="deal_payment_requested", event_data={}, now=now,
             )
-            transition_deal_status(
-                conn, deal_id=deal_id, new_status="payment_pending", actor_user_id="202",
-                idempotency_key=f"{deal_id}:ton-refund-test-pending",
-                event_type="payment_pending", event_data={}, now=now,
-            )
             intent = create_payment_intent(
                 conn, deal_id=deal_id, provider="ton", currency="TON", amount="9",
                 idempotency_key=f"{deal_id}:ton-refund-test-intent",
                 invoice_payload=f"ton-refund:{deal_id}", expires_at=now+900,
                 metadata={"buyer_telegram_id":"202","buyer_wallet":buyer_wallet,"treasury":treasury}, now=now,
+            )
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="payment_pending", actor_user_id="202",
+                idempotency_key=f"{deal_id}:ton-refund-test-pending",
+                event_type="payment_pending", event_data={}, now=now,
             )
             transition_payment_intent(conn, intent["id"], "pending", now=now)
             transition_payment_intent(conn, intent["id"], "confirmed", provider_reference="ton-payment-tx", now=now)
@@ -571,16 +571,16 @@ class SharedMarketplaceTests(unittest.TestCase):
                 idempotency_key=f"{deal_id}:seller-release-test-awaiting",
                 event_type="deal_payment_requested", event_data={}, now=now,
             )
-            transition_deal_status(
-                conn, deal_id=deal_id, new_status="payment_pending", actor_user_id="202",
-                idempotency_key=f"{deal_id}:seller-release-test-pending",
-                event_type="payment_pending", event_data={}, now=now,
-            )
             intent = create_payment_intent(
                 conn, deal_id=deal_id, provider="ton", currency="TON", amount="9",
                 idempotency_key=f"{deal_id}:seller-release-test-intent",
                 invoice_payload=f"seller-release:{deal_id}", expires_at=now+900,
                 metadata={"buyer_telegram_id":"202"}, now=now,
+            )
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="payment_pending", actor_user_id="202",
+                idempotency_key=f"{deal_id}:seller-release-test-pending",
+                event_type="payment_pending", event_data={}, now=now,
             )
             transition_payment_intent(conn, intent["id"], "pending", now=now)
             transition_payment_intent(conn, intent["id"], "confirmed", provider_reference="seller-release-chain-tx", now=now)
