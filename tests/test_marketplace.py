@@ -3518,6 +3518,48 @@ class SharedMarketplaceTests(unittest.TestCase):
 
 
 
+    def test_account_stats_include_real_deals_and_private_seller_settlement_balances(self):
+        deal_id, _, _ = self._create_stars_deal_with_intent()
+        with marketplace_offers._db() as conn:
+            conn.execute("UPDATE marketplace_deals SET status='completed' WHERE id=?", (deal_id,))
+            post_ledger_transaction(
+                conn,
+                idempotency_key=f"{deal_id}:stats-seller-credit",
+                reference_type="deal",
+                reference_id=deal_id,
+                currency="XTR",
+                debit_account=("escrow", deal_id),
+                credit_account=("seller_payable", "101"),
+                debit_amount="9",
+                credit_amount="9",
+                now=1700000100,
+            )
+            conn.commit()
+
+        seller_stats = self.client.get(
+            "/api/marketplace/account/stats",
+            headers={"X-Telegram-Init-Data":"user-a"},
+        )
+        buyer_stats = self.client.get(
+            "/api/marketplace/account/stats",
+            headers={"X-Telegram-Init-Data":"user-b"},
+        )
+        self.assertEqual(seller_stats.status_code, 200, seller_stats.text)
+        self.assertEqual(seller_stats.json()["deals"], 1)
+        self.assertEqual(seller_stats.json()["completed_orders"], 1)
+        self.assertEqual(
+            seller_stats.json()["seller_pending_settlements"],
+            [{
+                "currency":"XTR",
+                "amount":"9",
+                "status":"internal_xtr_credit",
+                "automatic_withdrawal_available":False,
+            }],
+        )
+        self.assertEqual(buyer_stats.json()["deals"], 1)
+        self.assertEqual(buyer_stats.json()["completed_orders"], 1)
+        self.assertEqual(buyer_stats.json()["seller_pending_settlements"], [])
+
     def test_competing_offer_acceptance_reserves_listing_once_and_declines_competitors(self):
         created = self.client.post(
             "/api/marketplace/orders",
