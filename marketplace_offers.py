@@ -3106,20 +3106,45 @@ def create_marketplace_offers_router(
                    WHERE f.sender_user_id = ? OR o.user_id = ?""",
                 (user_id, user_id, user_id, user_id),
             ).fetchone()
-            # Deal totals remain zero until real escrow and delivery are enabled.
-            deals = 0
+            deal_totals = conn.execute(
+                """SELECT COUNT(*) AS deals,
+                          SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed_deals
+                   FROM marketplace_deals
+                   WHERE listing_owner_id=? OR offer_sender_id=?""",
+                (user_id, user_id),
+            ).fetchone()
+            balance_rows = conn.execute(
+                """SELECT currency,
+                          SUM(CASE WHEN direction='credit' THEN CAST(amount AS NUMERIC)
+                                   ELSE -CAST(amount AS NUMERIC) END) AS balance
+                   FROM marketplace_ledger_entries
+                   WHERE account_type='seller_payable' AND account_id=?
+                   GROUP BY currency ORDER BY currency""",
+                (user_id,),
+            ).fetchall()
+            from decimal import Decimal
+            seller_pending_settlements = []
+            for row in balance_rows:
+                amount = Decimal(str(row["balance"] or 0))
+                seller_pending_settlements.append({
+                    "currency": str(row["currency"]),
+                    "amount": format(amount, "f"),
+                    "status": "pending_manual_payout" if row["currency"] == "TON" else "internal_xtr_credit",
+                    "automatic_withdrawal_available": False,
+                })
             unread = conn.execute(
                 "SELECT COUNT(*) FROM marketplace_notifications WHERE user_id = ? AND read_at IS NULL",
                 (user_id,),
             ).fetchone()[0]
         return {
             "active_orders": orders["active_orders"] or 0,
-            "completed_orders": orders["completed_orders"] or 0,
+            "completed_orders": deal_totals["completed_deals"] or 0,
             "pending_offers_sent": offers["sent_pending"] or 0,
             "pending_offers_received": offers["received_pending"] or 0,
-            "deals": deals,
+            "deals": deal_totals["deals"] or 0,
+            "seller_pending_settlements": seller_pending_settlements,
             "unread_notifications": unread,
-                    }
+        }
 
     @router.get("/activity")
     async def account_activity(
