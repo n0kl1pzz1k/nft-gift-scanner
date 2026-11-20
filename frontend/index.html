@@ -39,13 +39,11 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-ipt>
   </head>
   <body>
     <div id="app"></div>
     <script>
-      // Signal Telegram that the Mini App is ready before loading the application bundle.
-      // Telegram's native loading layer must not depend on Svelte finishing its startup.
+      // Tell Telegram that the Mini App is ready before the application bundle starts.
       (function () {
         var root = document.getElementById('app');
         if (root) {
@@ -80,11 +78,11 @@ ipt>
         window.setTimeout(function () {
           var target = document.getElementById('app');
           if (target && target.dataset.bootState !== 'ready') {
-            window.__HASSLE_NFT_SHOW_BOOT_ERROR__('Приложение не завершило запуск за 15 секунд. Проверьте соединение и повторите попытку.');
+            window.__HASSLE_NFT_SHOW_BOOT_ERROR__('Приложение не завершило запуск за 20 секунд. Проверьте соединение и повторите попытку.');
           }
         }, 20000);
       })();
-    </scr
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
