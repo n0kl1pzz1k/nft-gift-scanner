@@ -1295,6 +1295,135 @@ def create_marketplace_offers_router(
         return {"deal_id": deal_id, "status": "cancelled", "refund_status": "refunded", "currency": "XTR", "amount": amount, "idempotent_replay": False}
 
 
+    @router.post("/admin/deals/{deal_id}/execute-seller-release")
+    async def execute_approved_seller_release(
+        deal_id: str,
+        payload: DisputeResolutionExecuteRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Release escrow to the seller only after two admins approve and TON confirms seller still owns the NFT."""
+        import httpx
+        from ton_nft_inventory import fetch_nft_owner, normalise_ton_address
+
+        admin = _admin_user(x_telegram_init_data)
+        admin_id = str(admin["id"])
+        _enforce_user_rate_limit(admin_id, "seller_release_execution", 5)
+        configured_admins = {
+            part.strip()
+            for part in os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", "")).split(",")
+            if part.strip().isdigit()
+        }
+        if len(configured_admins) < 2:
+            raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
+        with _db() as conn:
+            begin_write(conn, f"deal:{deal_id}")
+            deal = conn.execute(
+                select_for_update(conn, """SELECT d.*, o.asset_id, a.source, a.external_asset_id,
+                    a.owner_telegram_id, a.status AS asset_status
+                    FROM marketplace_deals d
+                    JOIN marketplace_orders o ON o.id = d.order_id
+                    JOIN verified_assets a ON a.id = o.asset_id
+                    WHERE d.id = ?"""),
+                (deal_id,),
+            ).fetchone()
+            if deal is None:
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Deal not found")
+            if deal["status"] == "cancelled":
+                released = conn.execute(
+                    "SELECT 1 FROM marketplace_escrow_events WHERE deal_id=? AND event_type='payout_released'",
+                    (deal_id,),
+                ).fetchone()
+                if released:
+                    conn.rollback()
+                    return {"deal_id": deal_id, "status": "cancelled", "seller_credit": "released", "idempotent_replay": True}
+            if deal["status"] != "disputed":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Only disputed deals can execute a seller release")
+            if deal["source"] != "ton_nft" or deal["asset_status"] != "verified" or str(deal["owner_telegram_id"]) != str(deal["listing_owner_id"]):
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Seller asset is not eligible for independently verified release")
+            approvals = conn.execute(
+                """SELECT admin_user_id FROM marketplace_dispute_resolution_approvals
+                   WHERE deal_id=? AND decision='release_to_seller'""",
+                (deal_id,),
+            ).fetchall()
+            all_count = int(conn.execute(
+                "SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals WHERE deal_id=?",
+                (deal_id,),
+            ).fetchone()[0])
+            approvers = {str(row["admin_user_id"]) for row in approvals}
+            if len(approvals) != 2 or all_count != 2 or len(approvers) != 2 or not approvers.issubset(configured_admins):
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Two matching approvals from distinct configured administrators are required")
+            intent = conn.execute(
+                """SELECT * FROM marketplace_payment_intents
+                   WHERE deal_id=? AND status='confirmed'
+                   ORDER BY created_at DESC LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            if intent is None:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="A confirmed payment is required before seller release")
+            conn.commit()
+        try:
+            owner = await fetch_nft_owner(str(deal["external_asset_id"]))
+            seller_wallet = conn = None
+            with _db() as read_conn:
+                seller_wallet = read_conn.execute(
+                    """SELECT address FROM verified_wallets
+                       WHERE telegram_id=? AND network='-239' AND revoked_at IS NULL
+                       ORDER BY last_verified_at DESC LIMIT 1""",
+                    (str(deal["listing_owner_id"]),),
+                ).fetchone()
+            if seller_wallet is None or owner.get("is_scam") or owner.get("owner_address") != normalise_ton_address(seller_wallet["address"]):
+                raise HTTPException(status_code=409, detail="TON does not confirm that the seller still owns the NFT")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="TON ownership verification is temporarily unavailable") from exc
+        now = int(time.time())
+        with _db() as conn:
+            begin_write(conn, f"deal:{deal_id}")
+            locked = conn.execute(
+                select_for_update(conn, "SELECT * FROM marketplace_deals WHERE id=?"),
+                (deal_id,),
+            ).fetchone()
+            if locked is None or locked["status"] != "disputed":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Deal state changed during seller release")
+            from marketplace_payments import PaymentConflict, PaymentStateError, append_escrow_event, post_ledger_transaction, transition_deal_status
+            try:
+                ledger = post_ledger_transaction(
+                    conn,
+                    idempotency_key=f"{deal_id}:seller-release:{intent['provider_reference']}",
+                    reference_type="deal",
+                    reference_id=deal_id,
+                    currency=str(intent["currency"]),
+                    debit_account=("escrow", deal_id),
+                    credit_account=("seller_payable", str(deal["listing_owner_id"])),
+                    debit_amount=intent["amount"],
+                    credit_amount=intent["amount"],
+                    now=now,
+                )
+                transition_deal_status(
+                    conn, deal_id=deal_id, new_status="cancelled", actor_user_id=admin_id,
+                    idempotency_key=f"{deal_id}:seller-release-confirmed:{payload.idempotency_key}",
+                    event_type="payout_released",
+                    event_data={"payment_intent_id": intent["id"], "ledger_transaction_id": ledger["id"],
+                                "currency": str(intent["currency"]), "amount": str(intent["amount"]),
+                                "seller_telegram_id": str(deal["listing_owner_id"]),
+                                "settlement_status": "pending_manual_payout",
+                                "asset_ownership": "seller_confirmed_on_ton"},
+                    now=now,
+                )
+            except (PaymentConflict, PaymentStateError) as exc:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            conn.commit()
+        return {"deal_id": deal_id, "status": "cancelled", "seller_credit": "recorded", "settlement_status": "pending_manual_payout"}
+
+
     @router.post("/deals/{deal_id}/ton-nft-delivery/prepare")
     async def prepare_ton_nft_delivery(
         deal_id: str,
