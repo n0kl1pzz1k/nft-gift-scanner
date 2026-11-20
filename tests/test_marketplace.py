@@ -294,11 +294,12 @@ class SharedMarketplaceTests(unittest.TestCase):
             )
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual(response.json()["status"], "completed")
-            replay = self.client.post(
-                f"/api/marketplace/deals/{deal_id}/telegram-business-gift-delivery/transfer",
-                headers={"X-Telegram-Init-Data": "user-a"},
-                json={"idempotency_key": "business-transfer-9001"},
-            )
+            with patch("marketplace_offers._enforce_user_rate_limit"):
+                replay = self.client.post(
+                    f"/api/marketplace/deals/{deal_id}/telegram-business-gift-delivery/transfer",
+                    headers={"X-Telegram-Init-Data": "user-a"},
+                    json={"idempotency_key": "business-transfer-9001"},
+                )
             self.assertEqual(replay.status_code, 200, replay.text)
             self.assertTrue(replay.json()["idempotent_replay"])
             transfer.assert_awaited_once()
