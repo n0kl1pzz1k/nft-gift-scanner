@@ -19,6 +19,7 @@
   type ReconciliationItem = {id:string;kind:string;deal_id:string|null;payment_intent_id:string|null;provider_reference:string|null;summary:string;status:'open'|'resolved'|'ignored';created_at:number};
   type AdminAuditItem = {id:string;actor_telegram_id:string;action:string;target_type:string;target_hash:string;outcome:string;metadata:Record<string,unknown>;created_at:number};
   type AdminRoleItem = {telegram_id:string;role:string;permissions:string[];assigned_by:string;created_at:number;updated_at:number;revoked_at:number|null};
+  type SupportTicket = {id:string;ticket_type:'payment'|'account'|'asset'|'other';subject:string;message:string;status:'open'|'in_progress'|'resolved'|'closed';resolution_note:string;created_at:number;updated_at:number;resolved_at:number|null;assigned_to?:string|null};
   type DealTimelineEvent = {id:string;actor_user_id:string;type:string;data:Record<string,unknown>;created_at:number};
   type AccountNotification = { id:string; type:'offer_received'|'offer_accepted'|'offer_declined'|'offer_withdrawn'; offer_id:string; order_id:string; order_title:string; actor_name:string; created_at:number; read_at:number|null };
   type AccountStats = { active_orders:number; completed_orders:number; pending_offers_sent:number; pending_offers_received:number; unread_notifications:number };
@@ -138,7 +139,7 @@
   let adminReports = $state<OrderReport[]>([]);
   let adminReportsBusy = $state(false);
   let adminReportActionBusy = $state('');
-  let adminTab = $state<'overview'|'reports'|'users'|'assets'|'disputes'|'reconciliation'|'audit'|'roles'>('overview');
+  let adminTab = $state<'overview'|'reports'|'users'|'assets'|'disputes'|'reconciliation'|'audit'|'roles'|'support'>('overview');
   let adminOverview = $state<Record<string,number>>({});
   let adminUsers = $state<AdminUser[]>([]);
   let adminAssets = $state<AdminAsset[]>([]);
@@ -160,6 +161,14 @@
   let adminRoleUserId = $state('');
   let adminRoleChoice = $state<'moderator'|'finance'|'support'|'auditor'>('moderator');
   let adminRoleActionBusy = $state('');
+  let supportTicketType = $state<SupportTicket['ticket_type']>('payment');
+  let supportTicketSubject = $state('');
+  let supportTicketMessage = $state('');
+  let supportTickets = $state<SupportTicket[]>([]);
+  let supportTicketBusy = $state(false);
+  let adminSupportTickets = $state<SupportTicket[]>([]);
+  let adminSupportBusy = $state(false);
+  let adminSupportActionBusy = $state('');
 
   let orderStatusFilter = $state<'all' | 'active' | 'matched' | 'cancelled'>('active');
   let orderKindFilter = $state<'all' | 'listing' | 'buy-order'>('all');
@@ -654,16 +663,18 @@
       accountStats = {active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,unread_notifications:0};
       return;
     }
-    const [stats, feed, activity] = await Promise.all([
+    const [stats, feed, activity, support] = await Promise.all([
       request('/api/marketplace/account/stats'),
       request('/api/marketplace/notifications?limit=40&offset=0'),
       request('/api/marketplace/activity?limit=20&offset=0'),
+      request('/api/marketplace/support/tickets/me?limit=20'),
     ]);
     accountStats = stats;
     notifications = Array.isArray(feed.items) ? feed.items : [];
     notificationTotal = Number(feed.total) || notifications.length;
     accountActivity = Array.isArray(activity.items) ? activity.items : [];
     activityTotal = Number(activity.total) || 0;
+    supportTickets = Array.isArray(support.items) ? support.items as SupportTicket[] : [];
   }
 
   async function loadMoreNotifications() {
@@ -1303,6 +1314,60 @@
     finally { adminReconciliationActionBusy = ''; }
   }
 
+  async function loadAdminSupportTickets() {
+    if (!adminPermissions.includes('support.tickets.read') || adminSupportBusy) return;
+    adminSupportBusy = true;
+    try {
+      const data = await request('/api/marketplace/admin/support-tickets?status=open&limit=100');
+      adminSupportTickets = Array.isArray(data.items) ? data.items as SupportTicket[] : [];
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { adminSupportBusy = false; }
+  }
+
+  async function updateAdminSupportTicket(ticketId: string, status: 'in_progress'|'resolved'|'closed') {
+    if (!adminPermissions.includes('support.tickets.manage') || adminSupportActionBusy) return;
+    const note = window.prompt(lang==='ru' ? 'Комментарий для пользователя и журнала поддержки:' : 'Note for the user and support audit log:');
+    if (!note || !note.trim()) return;
+    adminSupportActionBusy = ticketId;
+    try {
+      await request('/api/marketplace/admin/support-tickets/' + encodeURIComponent(ticketId), undefined, {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({status,note:note.trim().slice(0,1000)}),
+      });
+      await loadAdminSupportTickets();
+      notice = lang==='ru' ? 'Обращение обновлено.' : 'Support ticket updated.';
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { adminSupportActionBusy = ''; }
+  }
+
+  async function submitSupportTicket() {
+    if (!signedIn || supportTicketBusy || supportTicketSubject.trim().length < 3 || supportTicketMessage.trim().length < 10) return;
+    supportTicketBusy = true;
+    try {
+      await request('/api/marketplace/support/tickets', undefined, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          ticket_type:supportTicketType,
+          subject:supportTicketSubject.trim().slice(0,120),
+          message:supportTicketMessage.trim().slice(0,4000),
+        }),
+      });
+      supportTicketSubject = '';
+      supportTicketMessage = '';
+      await loadMySupportTickets();
+      notice = lang==='ru' ? 'Обращение отправлено в поддержку.' : 'Support ticket submitted.';
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { supportTicketBusy = false; }
+  }
+
+  async function loadMySupportTickets() {
+    if (!signedIn) return;
+    try {
+      const data = await request('/api/marketplace/support/tickets/me?limit=20');
+      supportTickets = Array.isArray(data.items) ? data.items as SupportTicket[] : [];
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+  }
+
   async function loadAdminAudit() {
     if (!adminPermissions.includes('audit.read') || adminAuditBusy) return;
     adminAuditBusy = true;
@@ -1354,6 +1419,7 @@
     else if (tab==='reconciliation') void loadAdminReconciliation();
     else if (tab==='audit') void loadAdminAudit();
     else if (tab==='roles') void loadAdminRoles();
+    else if (tab==='support') void loadAdminSupportTickets();
     else if (tab==='overview') void loadAdminOverview();
   }
 
@@ -1869,7 +1935,31 @@
           {#if notifications.length < notificationTotal}<button class="refresh-button activity-more" onclick={loadMoreNotifications} disabled={notificationsLoadingMore}>{notificationsLoadingMore?'…':t.loadMoreActivity}</button>{/if}
         {:else}<div class="state-panel">{t.noNotifications}</div>{/if}
       </article>
-      <article class="profile-card preferences-card"><div class="eyebrow">PREFERENCES</div><h2>HASSLE NFT</h2><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang==='ru'?'Язык интерфейса':'Interface language'} · {lang.toUpperCase()}</button></article>{#if isAdmin}
+      <article class="profile-card preferences-card"><div class="eyebrow">PREFERENCES</div><h2>HASSLE NFT</h2><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang==='ru'?'Язык интерфейса':'Interface language'} · {lang.toUpperCase()}</button></article>
+      <article class="profile-card support-card">
+        <div class="notification-heading"><div><div class="eyebrow">SUPPORT</div><h2>{lang==='ru'?'Поддержка':'Support'}</h2></div></div>
+        <div class="admin-role-form">
+          <select class="form-input" bind:value={supportTicketType}>
+            <option value="payment">{lang==='ru'?'Платёж':'Payment'}</option>
+            <option value="account">{lang==='ru'?'Аккаунт':'Account'}</option>
+            <option value="asset">{lang==='ru'?'Актив':'Asset'}</option>
+            <option value="other">{lang==='ru'?'Другое':'Other'}</option>
+          </select>
+          <input class="form-input" bind:value={supportTicketSubject} maxlength="120" placeholder={lang==='ru'?'Тема обращения':'Ticket subject'} />
+          <textarea class="form-input" bind:value={supportTicketMessage} rows="3" maxlength="4000" placeholder={lang==='ru'?'Опиши проблему. Не отправляй seed-фразы или приватные ключи.':'Describe the issue. Never send seed phrases or private keys.'}></textarea>
+          <button class="ton-primary" onclick={submitSupportTicket} disabled={supportTicketBusy || supportTicketSubject.trim().length<3 || supportTicketMessage.trim().length<10}>{supportTicketBusy?'…':(lang==='ru'?'Отправить обращение':'Submit support ticket')}</button>
+        </div>
+        {#if supportTickets.length>0}
+          <div class="orders-list">
+            {#each supportTickets as ticket (ticket.id)}
+              <article class="order-card"><div class="order-main"><h3>{ticket.subject}</h3><p>{ticket.ticket_type} · {ticket.status}</p>{#if ticket.resolution_note}<small>{ticket.resolution_note}</small>{/if}</div></article>
+            {/each}
+          </div>
+        {:else}
+          <div class="state-panel">{lang==='ru'?'Пока нет обращений.':'No support tickets yet.'}</div>
+        {/if}
+      </article>
+      {#if isAdmin}
         <article class="profile-card moderation-card">
           <div class="notification-heading">
             <div><div class="eyebrow">ADMINISTRATION · {adminRole.toUpperCase()}</div><h2>{lang==='ru'?'Панель управления':'Admin control panel'}</h2></div>
@@ -1884,6 +1974,7 @@
             {#if adminPermissions.includes('payments.reconcile.read') || adminPermissions.includes('payments.reconcile')}<button class:active={adminTab==='reconciliation'} class="language" onclick={()=>selectAdminTab('reconciliation')}>{lang==='ru'?'Сверка':'Reconciliation'}</button>{/if}
             {#if adminPermissions.includes('audit.read')}<button class:active={adminTab==='audit'} class="language" onclick={()=>selectAdminTab('audit')}>{lang==='ru'?'Аудит':'Audit'}</button>{/if}
             {#if adminPermissions.includes('roles.manage')}<button class:active={adminTab==='roles'} class="language" onclick={()=>selectAdminTab('roles')}>{lang==='ru'?'Роли':'Roles'}</button>{/if}
+            {#if adminPermissions.includes('support.tickets.read')}<button class:active={adminTab==='support'} class="language" onclick={()=>selectAdminTab('support')}>{lang==='ru'?'Поддержка':'Support'}</button>{/if}
           </div>
           {#if adminTab==='overview'}
             <div class="admin-stats-grid">
@@ -1976,6 +2067,23 @@
             {:else}<div class="orders-list">
               {#each adminAudit as event (event.id)}
                 <article class="order-card"><div class="order-main"><h3>{event.action}</h3><p>{event.actor_telegram_id} · {event.target_type} · {event.target_hash.slice(0,12)}…</p><small>{new Date(event.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</small></div></article>
+              {/each}
+            </div>{/if}
+          {:else if adminTab==='support'}
+            {#if adminSupportBusy}<div class="state-panel">{t.loading}</div>
+            {:else if adminSupportTickets.length===0}<div class="state-panel">{lang==='ru'?'Открытых обращений нет.':'No open support tickets.'}</div>
+            {:else}<div class="orders-list">
+              {#each adminSupportTickets as ticket (ticket.id)}
+                <article class="order-card">
+                  <div class="order-main"><h3>{ticket.subject}</h3><p>{ticket.ticket_type} · {ticket.telegram_id} · {ticket.username||'—'}</p><p>{ticket.message}</p><small>{ticket.id} · {ticket.status} · {ticket.assigned_to||'—'}</small></div>
+                  {#if adminPermissions.includes('support.tickets.manage')}
+                    <div class="order-actions">
+                      {#if ticket.status==='open'}<button class="match-button" onclick={()=>updateAdminSupportTicket(ticket.id,'in_progress')} disabled={adminSupportActionBusy===ticket.id}>{lang==='ru'?'Взять в работу':'Assign to me'}</button>{/if}
+                      <button class="ton-primary" onclick={()=>updateAdminSupportTicket(ticket.id,'resolved')} disabled={adminSupportActionBusy===ticket.id}>{lang==='ru'?'Решено':'Resolve'}</button>
+                      <button class="cancel-button" onclick={()=>updateAdminSupportTicket(ticket.id,'closed')} disabled={adminSupportActionBusy===ticket.id}>{lang==='ru'?'Закрыть':'Close'}</button>
+                    </div>
+                  {/if}
+                </article>
               {/each}
             </div>{/if}
           {:else if adminTab==='roles'}
