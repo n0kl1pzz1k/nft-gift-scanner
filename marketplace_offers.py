@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import json
+import logging
 import sqlite3
 import time
 import uuid
@@ -527,10 +528,13 @@ def escalate_stalled_paid_deals(
 def create_marketplace_offers_router(
     verify_telegram_init_data: Callable[[str], dict],
     require_admin: Callable[[str | None], dict] | None = None,
+    require_admin_permission: Callable[[str | None, str], dict] | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/marketplace", tags=["marketplace-offers"])
 
-    def _admin_user(credential: str | None) -> dict:
+    def _admin_user(credential: str | None, permission: str) -> dict:
+        if require_admin_permission is not None:
+            return require_admin_permission(credential, permission)
         if require_admin is not None:
             return require_admin(credential)
         user = _require_user(credential, verify_telegram_init_data)
@@ -1002,13 +1006,13 @@ def create_marketplace_offers_router(
         payload: DisputeResolutionApprovalRequest,
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        admin = _admin_user(x_telegram_init_data)
+        admin = _admin_user(x_telegram_init_data, "disputes.resolve")
         admin_id = str(admin["id"])
         _enforce_user_rate_limit(admin_id, "dispute_resolution_approval", 10)
-        raw_ids = os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", ""))
-        configured_admins = {part.strip() for part in raw_ids.split(",") if part.strip().isdigit()}
+        from marketplace_admin import get_admin_ids_with_permission
+        configured_admins = get_admin_ids_with_permission("disputes.resolve")
         if len(configured_admins) < 2:
-            raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
+            raise HTTPException(status_code=503, detail="Two distinct dispute-capable administrators must be configured")
         with _db() as conn:
             begin_write(conn, f"deal:{deal_id}")
             deal = conn.execute(
@@ -1209,16 +1213,13 @@ def create_marketplace_offers_router(
     ):
         """Execute a two-admin-approved Telegram Stars refund and reverse the escrow journal."""
         import httpx
-        admin = _admin_user(x_telegram_init_data)
+        admin = _admin_user(x_telegram_init_data, "payments.refund")
         admin_id = str(admin["id"])
         _enforce_user_rate_limit(admin_id, "stars_refund_execution", 5)
-        configured_admins = {
-            part.strip()
-            for part in os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", "")).split(",")
-            if part.strip().isdigit()
-        }
+        from marketplace_admin import get_admin_ids_with_permission
+        configured_admins = get_admin_ids_with_permission("payments.refund")
         if len(configured_admins) < 2:
-            raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
+            raise HTTPException(status_code=503, detail="Two distinct refund-capable administrators must be configured")
         bot_token = os.getenv("BOT_TOKEN", "").strip()
         if not bot_token:
             raise HTTPException(status_code=503, detail="Telegram payment bot is not configured")
@@ -1310,7 +1311,19 @@ def create_marketplace_offers_router(
                     else:
                         raise RuntimeError("Telegram did not confirm the Stars refund")
         except Exception as exc:
-            raise HTTPException(status_code=502, detail="Telegram refund could not be confirmed; the deal remains disputed") from exc
+            try:
+                from marketplace_payments import record_manual_reconciliation_item
+                record_manual_reconciliation_item(
+                    idempotency_key=f"stars-refund-mismatch:{deal_id}:{charge_id}",
+                    kind="refund_mismatch",
+                    deal_id=deal_id,
+                    payment_intent_id=str(intent["id"]),
+                    provider_reference=charge_id,
+                    summary="Telegram Stars refund execution returned an ambiguous or failed provider response; verify provider state before retrying.",
+                )
+            except Exception:
+                logging.getLogger("hassle_nft.payments").exception("Could not persist refund reconciliation case")
+            raise HTTPException(status_code=502, detail="Telegram refund could not be confirmed; the deal remains disputed and is queued for reconciliation") from exc
         now = int(time.time())
         with _db() as conn:
             begin_write(conn, f"deal:{deal_id}", f"payment-intent:{intent['id']}")
