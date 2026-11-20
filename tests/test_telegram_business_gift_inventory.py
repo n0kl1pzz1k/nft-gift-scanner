@@ -12,6 +12,7 @@ from telegram_business_gift_inventory import (
     fetch_business_account_gifts,
     fetch_sticker_preview,
     normalise_business_owned_gift,
+    transfer_business_account_gift,
 )
 
 
@@ -59,6 +60,72 @@ class TelegramBusinessGiftInventoryTests(unittest.IsolatedAsyncioTestCase):
             "type": "unique", "owned_gift_id": "id",
             "gift": {"name": "Gift-1", "number": 1, "is_from_blockchain": True},
         }))
+
+    def test_normalises_business_transfer_eligibility_and_fee(self):
+        item = normalise_business_owned_gift({
+            "type": "unique",
+            "owned_gift_id": "owned-transfer-1",
+            "can_be_transferred": True,
+            "next_transfer_date": 1760000000,
+            "gift": {
+                "name": "Gift-Transfer-1",
+                "number": 1,
+                "transfer_star_count": 17,
+            },
+        })
+        self.assertTrue(item["can_be_transferred"])
+        self.assertEqual(item["transfer_star_count"], 17)
+        self.assertEqual(item["next_transfer_date"], 1760000000)
+
+    def test_normalises_invalid_transfer_metadata_as_unavailable(self):
+        item = normalise_business_owned_gift({
+            "type": "unique",
+            "owned_gift_id": "owned-transfer-2",
+            "can_be_transferred": "true",
+            "next_transfer_date": True,
+            "gift": {
+                "name": "Gift-Transfer-2",
+                "number": 2,
+                "transfer_star_count": True,
+            },
+        })
+        self.assertFalse(item["can_be_transferred"])
+        self.assertIsNone(item["transfer_star_count"])
+        self.assertIsNone(item["next_transfer_date"])
+
+    async def test_transfers_business_gift_using_official_api_and_exact_fee(self):
+        calls = []
+        def handler(request):
+            calls.append(request)
+            return httpx.Response(200, json={"ok": True, "result": True})
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://api.telegram.org",
+        )
+        with patch.dict(os.environ, {"BOT_TOKEN": "123456:test-token"}):
+            await transfer_business_account_gift(
+                "business-101", "owned-gift-9", "202", star_count=17, client=client,
+            )
+        await client.aclose()
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0].url.path.endswith("/transferGift"))
+        payload = __import__("json").loads(calls[0].content)
+        self.assertEqual(payload, {
+            "business_connection_id": "business-101",
+            "owned_gift_id": "owned-gift-9",
+            "new_owner_chat_id": 202,
+            "star_count": 17,
+        })
+
+    async def test_transfer_rejects_invalid_recipient_before_api_call(self):
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"ok": True, "result": True})),
+            base_url="https://api.telegram.org",
+        )
+        with patch.dict(os.environ, {"BOT_TOKEN": "123456:test-token"}):
+            with self.assertRaises(ValueError):
+                await transfer_business_account_gift("business-101", "owned-gift-9", "not-a-chat", client=client)
+        await client.aclose()
 
     async def test_downloads_only_small_static_image_previews(self):
         image_bytes = b"RIFF" + bytes.fromhex("04000000") + b"WEBP"
