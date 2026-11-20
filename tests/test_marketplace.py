@@ -439,6 +439,8 @@ class SharedMarketplaceTests(unittest.TestCase):
         deal_id, seller_wallet, buyer_wallet = self._create_ton_deal_with_verified_wallets()
         flags = {
             "HASSLE_TON_CHECKOUT_ENABLED": "1",
+            "HASSLE_TON_CUSTODY_ACKNOWLEDGED": "1",
+            "HASSLE_TON_PAYOUT_MODE": "manual_multisig_2_of_3",
             "HASSLE_TON_TREASURY_ADDRESS": "0:" + "aa" * 32,
             "TONAPI_TOKEN": "test-tonapi-token",
             "PAYMENT_SUPPORT_CONTACT": "@hassle_support",
