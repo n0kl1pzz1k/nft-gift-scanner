@@ -551,14 +551,18 @@ def create_marketplace_offers_router(
 
     def _admin_user(credential: str | None) -> dict:
         if require_admin is not None:
-            return require_admin(credential)
-        user = _require_user(credential, verify_telegram_init_data)
-        raw_ids = os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", ""))
-        admin_ids = {part.strip() for part in raw_ids.split(",") if part.strip().isdigit()}
-        if str(user["id"]) not in admin_ids:
-            raise HTTPException(status_code=403, detail="Administrator access only")
-        if len(admin_ids) < 2:
-            raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
+            user = require_admin(credential)
+        else:
+            user = _require_user(credential, verify_telegram_init_data)
+            raw_ids = os.getenv("ADMIN_TELEGRAM_IDS", os.getenv("ADMIN_TELEGRAM_ID", ""))
+            admin_ids = {part.strip() for part in raw_ids.split(",") if part.strip().isdigit()}
+            if str(user["id"]) not in admin_ids:
+                raise HTTPException(status_code=403, detail="Administrator access only")
+            if len(admin_ids) < 2:
+                raise HTTPException(status_code=503, detail="Two distinct dispute administrators must be configured")
+            user = {**user, "admin_role": "owner"}
+        if user.get("admin_role", "owner") not in {"owner", "finance"}:
+            raise HTTPException(status_code=403, detail="Administrator role does not grant financial or dispute permissions")
         return user
 
     @router.post("/offers", status_code=201)
