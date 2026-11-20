@@ -568,21 +568,11 @@ def create_marketplace_offers_router(
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Unsupported marketplace order type")
             if order["kind"] == "buy-order":
-                if not payload.note:
-                    conn.rollback()
-                    raise HTTPException(status_code=422, detail="A seller response must describe the offered asset")
-                if order["user_id"] == actor_id:
-                    conn.rollback()
-                    raise HTTPException(status_code=403, detail="You cannot respond to your own buy request")
-                seller_listing = conn.execute(
-                    """SELECT id, asset_id FROM marketplace_orders
-                       WHERE user_id = ? AND kind = 'listing' AND status = 'active' AND currency = ?
-                       ORDER BY created_at DESC LIMIT 1""",
-                    (actor_id, order["currency"]),
-                ).fetchone()
-                if seller_listing is None:
-                    conn.rollback()
-                    raise HTTPException(status_code=409, detail="A seller response requires an active listing in the same currency")
+                conn.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail="Seller responses to buy requests are temporarily unavailable until a specific verified asset can be bound to the protected deal",
+                )
             elif order["user_id"] == actor_id:
                 conn.rollback()
                 raise HTTPException(status_code=403, detail="You cannot make an offer on your own order")
