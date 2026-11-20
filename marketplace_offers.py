@@ -2017,7 +2017,8 @@ def create_marketplace_offers_router(
                    ORDER BY created_at ASC, id ASC""",
                 (deal_id,),
             ).fetchall()
-            pending_attempts: set[str] = set()
+            submitted_attempts: set[str] = set()
+            rejected_attempts: set[str] = set()
             provider_confirmed = False
             confirmed_event_key = ""
             for event in existing_events:
@@ -2029,15 +2030,21 @@ def create_marketplace_offers_router(
                     continue
                 attempt_digest = str(event_data.get("attempt_digest") or "")
                 if event["event_type"] == "asset_transfer_submitted" and attempt_digest:
-                    pending_attempts.add(attempt_digest)
+                    submitted_attempts.add(attempt_digest)
                 elif event["event_type"] == "asset_transfer_rejected" and attempt_digest:
-                    pending_attempts.discard(attempt_digest)
+                    rejected_attempts.add(attempt_digest)
                 if (
                     event["event_type"] == "asset_transfer_confirmed"
                     and str(event_data.get("buyer_telegram_id") or "") == buyer_id
                 ):
                     provider_confirmed = True
                     confirmed_event_key = str(event["event_key"])
+            pending_attempts = submitted_attempts - rejected_attempts
+            if request_digest in rejected_attempts:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This idempotency key already received a definitive Telegram rejection; retry with a new key",
+                )
             attempt_exists = bool(pending_attempts)
             if provider_confirmed and confirmed_event_key:
                 # A provider-confirmed transfer can resume finalization even if the
@@ -2120,16 +2127,24 @@ def create_marketplace_offers_router(
                        ORDER BY created_at ASC, id ASC""",
                     (deal_id,),
                 ).fetchall()
-                pending_digests: set[str] = set()
+                submitted_digests: set[str] = set()
+                rejected_digests: set[str] = set()
                 for row in previous:
                     previous_data = json.loads(row["event_data"] or "{}")
                     if previous_data.get("provider") != "telegram_business":
                         continue
                     previous_digest = str(previous_data.get("attempt_digest") or "")
                     if row["event_type"] == "asset_transfer_submitted" and previous_digest:
-                        pending_digests.add(previous_digest)
+                        submitted_digests.add(previous_digest)
                     elif row["event_type"] == "asset_transfer_rejected" and previous_digest:
-                        pending_digests.discard(previous_digest)
+                        rejected_digests.add(previous_digest)
+                pending_digests = submitted_digests - rejected_digests
+                if request_digest in rejected_digests:
+                    conn.rollback()
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Use a new idempotency key after a definitive Telegram rejection",
+                    )
                 if pending_digests:
                     conn.rollback()
                     raise HTTPException(status_code=409, detail="A Telegram gift transfer attempt is awaiting provider reconciliation")
