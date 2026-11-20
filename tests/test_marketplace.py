@@ -408,6 +408,19 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(prepared.json()["transaction"]["messages"][0]["address"], asset["external_asset_id"])
 
         with patch("ton_nft_inventory.fetch_nft_owner", new=AsyncMock(return_value=seller_owner)):
+            prepared_again = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/ton-nft-delivery/prepare",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"idempotency_key": "prepare-ton-transfer-002"},
+            )
+        self.assertEqual(prepared_again.status_code, 200, prepared_again.text)
+        self.assertTrue(prepared_again.json()["idempotent_replay"])
+        self.assertEqual(
+            prepared_again.json()["transaction"]["messages"][0]["payload"],
+            prepared.json()["transaction"]["messages"][0]["payload"],
+        )
+
+        with patch("ton_nft_inventory.fetch_nft_owner", new=AsyncMock(return_value=seller_owner)):
             not_yet = self.client.post(
                 f"/api/marketplace/deals/{deal_id}/ton-nft-delivery/confirm",
                 headers={"X-Telegram-Init-Data": "user-b"},
