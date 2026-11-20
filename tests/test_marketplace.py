@@ -245,6 +245,21 @@ class SharedMarketplaceTests(unittest.TestCase):
             self.assertIn("rejected", rejected.text.lower())
             rejected_transfer.assert_awaited_once()
 
+        with patch(
+            "telegram_business_gift_inventory.fetch_business_account_gifts",
+            new=AsyncMock(return_value=live_inventory),
+        ), patch(
+            "telegram_business_gift_inventory.transfer_business_account_gift",
+            new=AsyncMock(return_value=None),
+        ) as same_key_retry_transfer:
+            same_key_retry = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/telegram-business-gift-delivery/transfer",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"idempotency_key": "business-transfer-rejected-9000"},
+            )
+            self.assertEqual(same_key_retry.status_code, 409, same_key_retry.text)
+            same_key_retry_transfer.assert_not_awaited()
+
         original_transition = transition_deal_status
         fail_completion_once = {"pending": True}
         def injected_finalization_failure(conn, **kwargs):
