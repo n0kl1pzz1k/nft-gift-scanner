@@ -257,6 +257,20 @@ def _admin_ids() -> set[str]:
     return {part.strip() for part in raw.split(",") if part.strip().isdigit()}
 
 
+def _admin_roles() -> dict[str, str]:
+    """Map allowlisted Telegram IDs to least-privilege admin roles."""
+    raw = os.getenv("ADMIN_TELEGRAM_ROLES", "").strip()
+    if not raw:
+        return {user_id: "owner" for user_id in _admin_ids()}
+    roles: dict[str, str] = {}
+    allowed = {"owner", "moderator", "support", "finance"}
+    for item in raw.split(","):
+        user_id, separator, role = item.strip().partition(":")
+        if separator and user_id.isdigit() and role in allowed and user_id in _admin_ids():
+            roles[user_id] = role
+    return roles
+
+
 def _verify_telegram_init_data(init_data: str) -> dict:
     """Verify raw Telegram WebApp initData using Telegram's documented HMAC scheme.
 
@@ -319,9 +333,13 @@ def _require_admin(credential: str | None) -> dict:
     if not credential:
         raise HTTPException(status_code=401, detail="Telegram Mini App authentication required")
     user = _authenticate_telegram_credential(credential)
-    if str(user["id"]) not in _admin_ids():
+    user_id = str(user["id"])
+    if user_id not in _admin_ids():
         raise HTTPException(status_code=403, detail="Administrator access only")
-    return user
+    role = _admin_roles().get(user_id)
+    if role is None:
+        raise HTTPException(status_code=403, detail="No administrator role is assigned")
+    return {**user, "admin_role": role}
 
 
 @app.post("/api/auth/telegram")
