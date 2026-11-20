@@ -1513,6 +1513,9 @@
                         <p class="safety-note">{lang==='ru'?'Событий пока нет.':'No events recorded yet.'}</p>
                       {/if}
                     {/if}
+                    {#if (deal.status==='paid' || deal.status==='delivery_pending') && deal.is_seller && deal.asset_source==='telegram_gift'}
+                      <button class="asset-offer-button" onclick={()=>transferTelegramBusinessGift(deal.id)} disabled={businessGiftDeliveryBusy===deal.id}>{businessGiftDeliveryBusy===deal.id?'…':(lang==='ru'?'Передать подарок через Telegram':'Transfer gift via Telegram')}</button>
+                    {/if}
                     {#if deal.status==='paid' && deal.is_seller && deal.asset_source==='ton_nft'}
                       <button class="asset-offer-button" onclick={()=>prepareTonNftDelivery(deal.id)} disabled={tonDeliveryBusy===deal.id}>{tonDeliveryBusy===deal.id?'…':(lang==='ru'?'Подготовить передачу NFT':'Prepare NFT delivery')}</button>
                     {:else if deal.status==='delivery_pending' && !deal.is_seller && deal.asset_source==='ton_nft'}
@@ -1567,7 +1570,7 @@
               <span class:granted={telegramBusinessStatus.can_transfer_stars}>{lang==='ru'?'Комиссия в Stars':'Stars transfer fee'}</span>
             </div>
             {#if !telegramBusinessStatus.gift_import_ready}<small>{lang==='ru'?'Выдай боту право просмотра подарков в настройках Telegram Business.':'Grant the bot permission to view gifts in Telegram Business settings.'}</small>{/if}
-            <p>{lang==='ru'?'Подключение и разрешения проверены. Автоматическая передача подарков в сделках пока закрыта: сначала завершаем и тестируем безопасный механизм оплаты и передачи.':'Connection and permissions are verified. Automatic gift delivery in marketplace deals remains disabled until the secure payment and transfer flow is implemented and tested.'}</p>
+            <p>{lang==='ru'?'После оплаты продавец может передать подарок покупателю через Telegram Business. Если Telegram требует комиссию в Stars, приложение отдельно запросит твоё согласие до передачи.':'After payment, the seller can transfer the gift to the buyer through Telegram Business. If Telegram requires a Stars fee, the app asks for your consent before the transfer.'}</p>
           {:else}
             <p>{lang==='ru'?'Это дополнительный способ импорта Telegram-подарков. Подключённые бизнес-боты доступны и без Premium. Покупателям подключать Telegram Business вообще не нужно; NFT из TON можно добавлять через кошелёк.':'This is an optional way to import Telegram gifts. The Telegram Business account owner needs Premium to connect it. Without it, users can still browse and buy, and import TON NFTs through a wallet.'}</p>
           {/if}
