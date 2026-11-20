@@ -94,3 +94,27 @@ jobs:
         run: python -m json.tool railway.json > /dev/null
       - name: Validate operational shell scripts
         run: bash -n scripts/postgres_backup.sh scripts/postgres_restore.sh
+
+  ton-multisig-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout HASSLE NFT
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Fetch pinned TON Core multisig-v2 source
+        run: |
+          git clone https://github.com/ton-blockchain/multisig-contract-v2.git /tmp/ton-multisig
+          cd /tmp/ton-multisig
+          git checkout 9a4b13df6345c9c4068ca725e434b40f9ea5ca28
+      - name: Install pinned upstream dependencies
+        working-directory: /tmp/ton-multisig
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run upstream multisig contract tests
+        working-directory: /tmp/ton-multisig
+        run: npm test -- --runInBand
+      - name: Compile upstream multisig contract
+        working-directory: /tmp/ton-multisig
+        run: npx blueprint build Multisig
