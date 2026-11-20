@@ -2558,6 +2558,12 @@ class SharedMarketplaceTests(unittest.TestCase):
         marketplace.upsert_telegram_user({"id": "202", "first_name": "Suspended", "username": "suspended"})
         session = marketplace.create_telegram_session("202")
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS": "101"}):
+            role_response = self.client.put(
+                "/api/marketplace/admin/roles/202",
+                headers={"X-Telegram-Init-Data":"user-a"},
+                json={"role":"finance","active":True},
+            )
+            self.assertEqual(role_response.status_code, 200, role_response.text)
             response = self.client.patch(
                 "/api/marketplace/admin/users/202",
                 headers={"X-Telegram-Init-Data": "user-a"},
@@ -2565,6 +2571,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertTrue(marketplace_admin.user_is_suspended("202"))
+        self.assertNotIn("202", marketplace_admin.get_admin_ids_with_permission("payments.refund"))
         with marketplace._db() as conn:
             revoked = conn.execute(
                 "SELECT revoked_at FROM telegram_sessions WHERE token_hash=?",
