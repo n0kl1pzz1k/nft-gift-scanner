@@ -1,7 +1,9 @@
-"""Read-only verification of a TON treasury's on-chain multisig configuration."""
+"""Read-only verification of a TON Core multisig-contract-v2 treasury."""
 from __future__ import annotations
 
 import asyncio
+import base64
+import math
 import os
 from typing import Any
 
@@ -17,8 +19,118 @@ def _raw_address(value: str) -> str:
     return f"{int(address.wc)}:{bytes(address.hash_part).hex()}"
 
 
+def _parse_stack_number(item: Any) -> int:
+    if not isinstance(item, dict) or item.get("type") != "num":
+        raise ValueError("TONAPI multisig getter returned a non-numeric stack item")
+    value = item.get("num")
+    if not isinstance(value, str):
+        raise ValueError("TONAPI multisig getter returned an invalid numeric value")
+    try:
+        return int(value, 16) if value.lower().startswith("0x") else int(value, 10)
+    except ValueError as exc:
+        raise ValueError("TONAPI multisig getter returned an invalid numeric value") from exc
+
+
+def _read_hashmap_addresses(boc_base64: str, *, key_bits: int = 8) -> list[str]:
+    """Decode the contract's Hashmap(key_bits, MsgAddressInt) root cell."""
+    from tonsdk.boc import Cell
+    from tonsdk.utils import Address
+
+    if not isinstance(boc_base64, str) or not boc_base64:
+        raise ValueError("TONAPI returned an empty multisig dictionary cell")
+    try:
+        root = Cell.one_from_boc(base64.b64decode(boc_base64, validate=True))
+    except Exception as exc:
+        raise ValueError("TONAPI returned an invalid dictionary BOC") from exc
+
+    def read_label(slice_, remaining: int) -> list[int]:
+        first = slice_.read_bit()
+        if first == 0:
+            length = 0
+            while slice_.read_bit() == 1:
+                length += 1
+            if length > remaining:
+                raise ValueError("Invalid TON dictionary label length")
+            return list(slice_.read_bits(length))
+        second = slice_.read_bit()
+        length_width = math.ceil(math.log2(remaining + 1))
+        if second == 0:
+            length = slice_.read_uint(length_width) if length_width else 0
+            if length > remaining:
+                raise ValueError("Invalid TON dictionary label length")
+            return list(slice_.read_bits(length))
+        repeated_bit = slice_.read_bit()
+        length = slice_.read_uint(length_width) if length_width else 0
+        if length > remaining:
+            raise ValueError("Invalid TON dictionary label length")
+        return [repeated_bit] * length
+
+    entries: list[tuple[int, str]] = []
+
+    def walk(cell, remaining: int, prefix: list[int]) -> None:
+        slice_ = cell.begin_parse()
+        label = read_label(slice_, remaining)
+        prefix = prefix + label
+        remaining -= len(label)
+        if remaining == 0:
+            # The contract stores standard internal addresses without anycast.
+            if slice_.read_uint(2) != 2 or slice_.read_bit() != 0:
+                raise ValueError("Multisig signer is not a standard non-anycast address")
+            workchain = slice_.read_int(8)
+            hash_part = slice_.read_bytes(32).hex()
+            slice_.end_parse()
+            key = int("".join(str(bit) for bit in prefix), 2) if prefix else 0
+            entries.append((key, f"{workchain}:{hash_part}"))
+            return
+        if slice_.bits or slice_.ref_offset:
+            raise ValueError("Malformed TON dictionary fork node")
+        if len(cell.refs) != 2:
+            raise ValueError("Malformed TON dictionary fork references")
+        walk(cell.refs[0], remaining - 1, prefix + [0])
+        walk(cell.refs[1], remaining - 1, prefix + [1])
+
+    walk(root, key_bits, [])
+    entries.sort(key=lambda item: item[0])
+    keys = [key for key, _ in entries]
+    if keys != list(range(len(keys))):
+        raise ValueError("TON multisig signer dictionary has non-sequential indexes")
+    return [address for _, address in entries]
+
+
+def decode_multisig_v2_getter(payload: Any, expected_address: str) -> dict[str, Any]:
+    """Decode TON Core multisig-v2 get_multisig_data response from TONAPI."""
+    if not isinstance(payload, dict) or payload.get("success") is not True:
+        raise ValueError("TONAPI could not execute get_multisig_data")
+    if payload.get("exit_code") != 0:
+        raise ValueError("TON multisig get_multisig_data getter failed")
+    stack = payload.get("stack")
+    if not isinstance(stack, list) or len(stack) != 4:
+        raise ValueError("TONAPI returned an unexpected multisig getter stack")
+    next_order_seqno = _parse_stack_number(stack[0])
+    threshold = _parse_stack_number(stack[1])
+    signers_item = stack[2]
+    if not isinstance(signers_item, dict) or signers_item.get("type") != "cell":
+        raise ValueError("TONAPI returned no signer dictionary cell")
+    signers_boc = signers_item.get("cell")
+    signers = _read_hashmap_addresses(signers_boc)
+    proposers_item = stack[3]
+    if isinstance(proposers_item, dict) and proposers_item.get("type") == "null":
+        proposers: list[str] = []
+    elif isinstance(proposers_item, dict) and proposers_item.get("type") == "cell":
+        proposers = _read_hashmap_addresses(proposers_item.get("cell"))
+    else:
+        raise ValueError("TONAPI returned an unexpected proposer dictionary")
+    return {
+        "address": _raw_address(expected_address),
+        "next_order_seqno": next_order_seqno,
+        "threshold": threshold,
+        "signers": signers,
+        "proposers": proposers,
+    }
+
+
 def is_two_of_three_multisig(config: Any, expected_address: str) -> bool:
-    """Accept only the exact treasury address with 2-of-3 distinct signers."""
+    """Accept only exact treasury address, threshold 2, 3 signers, no proposers."""
     if not isinstance(config, dict):
         return False
     try:
@@ -26,6 +138,7 @@ def is_two_of_three_multisig(config: Any, expected_address: str) -> bool:
         actual = _raw_address(str(config.get("address") or ""))
         threshold = config.get("threshold")
         signers = config.get("signers")
+        proposers = config.get("proposers")
         if (
             actual != expected
             or isinstance(threshold, bool)
@@ -36,7 +149,11 @@ def is_two_of_three_multisig(config: Any, expected_address: str) -> bool:
         if not isinstance(signers, list) or len(signers) != 3:
             return False
         normalised = [_raw_address(str(signer)) for signer in signers]
-        return len(set(normalised)) == 3 and expected not in set(normalised)
+        if len(set(normalised)) != 3 or expected in set(normalised):
+            return False
+        if not isinstance(proposers, list) or proposers:
+            return False
+        return True
     except Exception:
         return False
 
@@ -91,12 +208,13 @@ async def fetch_ton_wallet_public_key(
         if owns_client:
             await session.aclose()
 
+
 async def fetch_ton_multisig_config(
     address: str,
     *,
     client: httpx.AsyncClient | None = None,
 ) -> dict[str, Any]:
-    """Fetch TonAPI's indexed multisig account configuration for an address."""
+    """Fetch and decode TON Core multisig-v2's on-chain get_multisig_data."""
     raw_address = _raw_address(address)
     token = os.getenv("TONAPI_TOKEN", "").strip()
     headers = {"Accept": "application/json"}
@@ -111,12 +229,12 @@ async def fetch_ton_multisig_config(
     try:
         if not token:
             await asyncio.sleep(4.1)
-        response = await session.get(f"/v2/multisig/{raw_address}", headers=headers)
+        response = await session.get(
+            f"/v2/blockchain/accounts/{raw_address}/methods/get_multisig_data",
+            headers=headers,
+        )
         response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise ValueError("TONAPI returned an invalid multisig response")
-        return payload
+        return decode_multisig_v2_getter(response.json(), raw_address)
     finally:
         if owns_client:
             await session.aclose()
