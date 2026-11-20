@@ -17,17 +17,70 @@
     <title>HASSLE NFT — Telegram NFT Gift Marketplace</title>
     <style>
       html, body { min-height: 100%; margin: 0; background: #090b18; color: #f5f7ff; }
-      #app:empty::before {
-        content: "HASSLE NFT\A Загружаем интерфейс…\A Если экран не изменится, закрой Mini App и открой снова.";
-        display: grid; min-height: 70vh; place-content: center; padding: 28px;
-        text-align: center; white-space: pre-line;
-        font: 600 15px/1.8 -apple-system, BlinkMacSystemFont, sans-serif;
+      #app { min-height: 100vh; }
+      #boot-fallback {
+        display: grid; min-height: 100vh; place-content: center; gap: 12px;
+        padding: 28px; text-align: center; color: #f5f7ff;
+        font: 600 15px/1.7 -apple-system, BlinkMacSystemFont, sans-serif;
       }
+      #boot-fallback small { color: #9aa7bd; font-size: 12px; font-weight: 400; }
+      #boot-fallback .boot-mark {
+        width: 48px; height: 48px; margin: 0 auto 8px; display: grid; place-items: center;
+        border-radius: 15px; background: linear-gradient(135deg,#9b6cff,#36c7d2);
+        color: #fff; font-size: 25px; font-weight: 900;
+      }
+      #boot-fallback .boot-spinner {
+        width: 22px; height: 22px; margin: 6px auto 0; border: 2px solid #ffffff25;
+        border-top-color: #a98aff; border-radius: 50%; animation: boot-spin .8s linear infinite;
+      }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script>
+      // Signal Telegram that the Mini App is ready before loading the application bundle.
+      // Telegram's native loading layer must not depend on Svelte finishing its startup.
+      (function () {
+        var root = document.getElementById('app');
+        if (root) {
+          root.innerHTML = '<main id="boot-fallback" role="status" aria-live="polite"><span class="boot-mark">H</span><strong>HASSLE NFT</strong><span>Запускаем маркетплейс…</span><small>Подготавливаем каталог и профиль</small><i class="boot-spinner" aria-hidden="true"></i></main>';
+        }
+        try {
+          var webApp = window.Telegram && window.Telegram.WebApp;
+          if (webApp && typeof webApp.ready === 'function') webApp.ready();
+          if (webApp && typeof webApp.expand === 'function') webApp.expand();
+        } catch (error) {
+          console.error('HASSLE NFT Telegram bootstrap failed', error);
+        }
+        window.__HASSLE_NFT_SHOW_BOOT_ERROR__ = function (message) {
+          var target = document.getElementById('app');
+          if (!target || target.dataset.bootState === 'ready') return;
+          target.innerHTML = '<main id="boot-fallback" role="alert"><span class="boot-mark">H</span><strong>Не удалось открыть HASSLE NFT</strong><span>Интерфейс не запустился.</span><small></small><button type="button" style="margin:12px auto 0;padding:12px 18px;border:1px solid #9b7bff66;border-radius:10px;background:#9b7bff22;color:#fff" onclick="location.reload()">Повторить запуск</button></main>';
+          var detail = target.querySelector('small');
+          if (detail) detail.textContent = String(message || 'Unknown startup error').slice(0, 180);
+          target.dataset.bootState = 'error';
+        };
+        window.addEventListener('error', function (event) {
+          if (document.getElementById('app')?.dataset.bootState !== 'ready') {
+            window.__HASSLE_NFT_SHOW_BOOT_ERROR__(event.message || 'JavaScript error');
+          }
+        });
+        window.addEventListener('unhandledrejection', function (event) {
+          if (document.getElementById('app')?.dataset.bootState !== 'ready') {
+            var reason = event.reason;
+            window.__HASSLE_NFT_SHOW_BOOT_ERROR__(reason && reason.message ? reason.message : reason);
+          }
+        });
+        window.setTimeout(function () {
+          var target = document.getElementById('app');
+          if (target && target.dataset.bootState !== 'ready') {
+            window.__HASSLE_NFT_SHOW_BOOT_ERROR__('Приложение не завершило запуск за 15 секунд. Проверьте соединение и повторите попытку.');
+          }
+        }, 15000);
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>
