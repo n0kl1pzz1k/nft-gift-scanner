@@ -1,55 +1,86 @@
-# Production launch readiness
+# HASSLE NFT production release gate
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-20
 
-## Current release truth
+## Release state
 
-The deployed service is a read-only Telegram gift catalogue plus a simulated marketplace workflow. Orders, offers and deals are records in the application database; they do not represent settled purchases. Payment adapters, refunds, seller payouts, wallet transactions and NFT transfers are not live.
+The feature branch contains the marketplace, payment/escrow, delivery and admin implementation. The latest verified CI run before Block 8 changes passed backend, frontend and deployment-config jobs. This branch is still a draft pull request and is not the production release.
 
-A Railway persistent volume is mounted at `/data`. This protects the SQLite file from ordinary container replacement when `GIFT_RADAR_DB_PATH` points into that mount. It does not provide multi-writer PostgreSQL semantics, automatic point-in-time recovery, or safe horizontal scaling. The current service has one replica in one region.
+A green CI run proves repository checks only. It does not prove live Telegram, TON, Cloudflare, Railway, PostgreSQL, backups or provider credentials are configured correctly.
 
-## P0 — before accepting real money
+## Required release sequence
 
-- [ ] Product and legal review: seller identity/eligibility, marketplace role, terms, prohibited listings, refunds, disputes, sanctions/AML obligations where applicable, privacy retention, tax and Kazakhstan operating requirements.
-- [ ] Managed PostgreSQL provisioned; schema migration and data reconciliation tested against a production-like copy; rollback plan documented.
-- [ ] All application instances use the same transactional database; no SQLite file shared across replicas.
-- [ ] Payment model approved. Telegram Stars for digital goods/services must use XTR and the platform/bot receives the payment; it is not a direct peer-to-peer seller payout. Seller settlement, fees, reserves and payout timing must be explicitly designed and approved.
-- [ ] Payment intent creation is server-side and tied to immutable order amount/currency/participants/expiry.
-- [ ] Pre-checkout validation checks user, payload, amount, currency, expiry and current order state.
-- [ ] Successful payment is accepted only from authenticated provider evidence; charge IDs and provider event IDs have database uniqueness constraints and idempotent processing.
-- [ ] Refund, chargeback/reversal handling, reconciliation and operator audit trail implemented and tested.
-- [ ] TON Connect uses user-approved wallet transactions; server validates signed proof and independently verifies the expected on-chain transaction. No server-held user keys or seed phrases.
-- [ ] Asset ownership and delivery are independently verified; delivery is idempotent and cannot be triggered by a browser-only callback.
-- [ ] Dispute, cancellation and timeout state transitions are role-checked, atomic and covered by race tests.
-- [ ] Independent security review and incident-response contact/escalation procedure completed.
+1. Review and merge the release PR into `main` after owner approval.
+2. Confirm the Cloudflare Pages/Worker deployment from `main` completed and the Mini App asset version is current.
+3. Confirm the Railway backend deployment is healthy and `/health` returns HTTP 200.
+4. Confirm `/ready` returns HTTP 200 and reports database plus required schema as ready. This probe includes identity, listings, offers, payment intents/events, ledger, escrow, dispute approvals, admin audit and TON wallet tables.
+5. Confirm production uses managed PostgreSQL, not a shared SQLite file, before enabling concurrent production writes or scaling beyond one instance.
+6. Confirm database backup retention and complete a restore drill into a separate empty database/path. Record backup hash, schema hash, row counts and foreign-key/integrity results.
+7. Confirm logs, error alerts, latency alerts, database saturation alerts, webhook/payment reconciliation alerts and an incident contact are active.
+8. Run the safe read-only smoke/load script against the deployed API. Run authenticated buyer/seller/admin flows only in a dedicated staging environment with test accounts and provider test fixtures.
+9. Review the legal/compliance checklist and explicitly approve the marketplace/payment model.
+10. Keep TON and Telegram Stars payment flags disabled until all P0 evidence is signed off. Enable each provider separately, first with a controlled canary and verified rollback.
 
-## P0 — reliability and abuse controls
+## Database backup and restore
 
-- [ ] Database backups configured with retention and a successful restore drill recorded.
-- [ ] Migration tested on a copy of the live SQLite volume; row counts, foreign keys, indexes and immutable event histories reconciled.
-- [ ] Load tests cover browse/search, login/session refresh, order creation, offer races, payment callbacks and webhook retries at expected peak plus safety margin.
-- [ ] Per-account, per-IP and global rate limits are enforced at the edge/API; abuse and spam alerts are monitored.
-- [ ] Request body limits, strict input validation, secure headers, CORS allowlist, webhook secret rotation and secret scanning verified.
-- [ ] Structured logs contain correlation IDs but never tokens, initData, payment secrets, private keys or personal payment credentials.
-- [ ] Metrics and alerts cover error rate, latency, database pool saturation, lock waits, queue age, webhook retries, payment reconciliation gaps and deployment health.
-- [ ] A tested rollback and degraded-mode plan exists; feature flags can disable new order/payment creation without blocking account access or support.
+The repository provides `db_backup.py` and `db_restore.py` for SQLite snapshots. A snapshot is integrity-checked, foreign-key-checked, hashed and accompanied by a manifest containing schema/row-count metadata. Restore validates the hash and metadata, restores to a new destination and verifies the restored copy.
 
-## P1 — marketplace operations
+Example rehearsal (use a maintenance window and a separate destination; never overwrite the live DB):
 
-- [ ] Seller profile pages and listing ownership are public-safe; no numeric Telegram IDs, session data or private fields leak.
-- [ ] Moderation queue, reports, seller restrictions, evidence retention and appeal/support workflows staffed.
-- [ ] Reputation derives only from verified completed transactions, never simulated deals.
-- [ ] Notifications use an outbox/queue with retry and idempotency rather than relying on in-process tasks.
-- [ ] Search/catalogue cache is shared or safely partitioned; upstream providers have independent quotas, timeouts, circuit breakers and stale-data labels.
-- [ ] Admin actions require least privilege, strong audit records and break-glass access controls.
+```bash
+python db_backup.py --source /data/hassle.sqlite3 --output /data/backups/hassle-<timestamp>.sqlite3
+python db_restore.py --backup /data/backups/hassle-<timestamp>.sqlite3 --manifest /data/backups/hassle-<timestamp>.sqlite3.manifest.json --output /tmp/hassle-restore-check.sqlite3
+```
 
-## Current architecture constraints to resolve
+For PostgreSQL, use the custom-format archive scripts (the runner must have PostgreSQL client tools installed):
 
-- SQLite and a mounted Railway volume are suitable only for the current single-instance low-concurrency baseline.
-- Process-local caches and refresh tasks are not shared across replicas and can duplicate upstream polling.
-- The webhook inbox is transport-level Telegram update deduplication; it is not a payment ledger or fulfillment engine.
-- Existing CI previously filtered pull requests to a feature branch rather than `main`. The release-readiness branch corrects this and separates backend, frontend and deployment-config checks.
+```bash
+DATABASE_URL="$HASSLE_POSTGRES_DSN" BACKUP_DIR="/secure-backup-target" scripts/postgres_backup.sh
+TARGET_DATABASE_URL="$HASSLE_POSTGRES_RESTORE_TEST_DSN" BACKUP_FILE="/secure-backup-target/hassle-postgres-<timestamp>.dump" scripts/postgres_restore.sh
+```
 
-## Go / no-go rule
+The restore script verifies the SHA256 manifest and refuses a target containing user tables. Keep backup files off the application container's ephemeral filesystem; use a protected backup volume or object storage with encryption and restricted credentials. These scripts provide manual backup/restore operations, not an automated schedule. Production PostgreSQL still requires managed-provider automated backups/PITR, retention, access controls and a successful restore drill. Those provider-side settings cannot be inferred from repository CI.
 
-Do not enable real payment, payout or NFT-transfer flags until every P0 item is checked with evidence, a production-like end-to-end test has passed, and the responsible operator explicitly approves launch. A green CI run or healthy HTTP endpoint alone is not a launch approval.
+## Smoke/load test
+
+`scripts/smoke_load.py` performs concurrent, read-only GET requests to `/health`, `/ready` and the public marketplace stats endpoint. It reports status counts, failures and p50/p95/max latency. It does not create users, listings, orders, payments or transfers. Run it first against staging; do not use it to generate uncontrolled traffic against production.
+
+Authenticated E2E coverage remains in the pytest suite and uses test fixtures/mocked provider responses. No live payment, real NFT transfer, Telegram Business gift transfer or real-money settlement is performed by CI.
+
+## Operational monitoring and response
+
+Monitor at minimum:
+- HTTP 5xx rate and p95/p99 latency for API and Mini App.
+- `/health` liveness and `/ready` readiness failures.
+- PostgreSQL connection-pool exhaustion, slow queries, lock waits, storage and backup age.
+- Telegram webhook failures/retries and update inbox age.
+- Payment intents stuck in created/pending, provider event deduplication conflicts and reconciliation queue age.
+- Escrow deals stalled in payment/delivery/dispute states.
+- TONAPI/Telegram provider timeouts, rate limits and circuit-breaker state.
+- Deployment failures and frontend/backend version mismatch.
+
+On incident: disable new checkout via feature flags, preserve account access and support, do not manually edit balances or ledger rows, capture correlation IDs and provider transaction references, reconcile from provider evidence, restore only to a separate target, and use the documented rollback procedure.
+
+## P0 go/no-go checklist
+
+- [ ] Product/legal review for Kazakhstan operations, terms, seller eligibility, prohibited assets, refunds/disputes, tax, privacy and applicable AML/sanctions obligations.
+- [ ] Release PR reviewed and merged by the owner; deployment from `main` verified.
+- [ ] Production managed PostgreSQL provisioned, migration reconciled and rollback rehearsed; no SQLite shared between replicas.
+- [ ] Backup retention/PITR configured at the database provider and a restore drill recorded.
+- [ ] Telegram bot token, webhook secret, TONAPI credentials and admin allowlist stored only as platform secrets and rotated/verified.
+- [ ] CORS origins, Telegram Mini App URL, API base URL, health/readiness URLs and webhook URL match the deployed domains.
+- [ ] Provider-backed test scenarios passed in staging: checkout, callback replay, refund, delivery verification, dispute approval, seller payout reconciliation and failure recovery.
+- [ ] Independent security review, incident contact and operator runbook signed off.
+- [ ] Monitoring and alerts verified with a controlled test alert.
+- [ ] Safe smoke/load test passed at the agreed staging target and capacity.
+- [ ] Explicit operator approval recorded before any live payment flag is enabled.
+
+## Hard safety boundaries
+
+- Supported payment currencies: TON and Telegram Stars (XTR) only. No USDT.
+- No seed phrases or private keys are collected.
+- TON seller payout is a manual multisig operation; the app verifies and records provider evidence.
+- Telegram Stars seller credit is an internal ledger balance, not an automatic withdrawal.
+- No arbitrary fee/commission is enabled.
+- CI never makes real payments or transfers.
+- A green build or healthy endpoint is not a production launch approval.

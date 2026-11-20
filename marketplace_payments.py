@@ -1,9 +1,8 @@
-"""Disabled-by-default payment persistence primitives for HASSLE NFT.
+"""Payment persistence primitives for HASSLE NFT.
 
-This module records intents, provider events and balanced accounting entries.
-It deliberately does not create invoices, submit TON transactions, or enable
-deal acceptance. Provider integrations must call these primitives only after
-the escrow and asset-delivery state machine is ready.
+This module records idempotent provider intents/events, immutable balanced
+ledger entries, escrow timelines and two-person dispute approvals. Provider
+adapters live at the marketplace API boundary and remain feature-gated.
 """
 from __future__ import annotations
 
@@ -88,6 +87,59 @@ def initialize_sqlite_payment_schema(conn: Any) -> None:
     CREATE INDEX IF NOT EXISTS idx_marketplace_ledger_transactions_reference
         ON marketplace_ledger_transactions(reference_type, reference_id, created_at ASC);
 
+    CREATE TABLE IF NOT EXISTS marketplace_escrow_events (
+        id TEXT PRIMARY KEY,
+        deal_id TEXT NOT NULL,
+        actor_user_id TEXT NOT NULL,
+        event_type TEXT NOT NULL CHECK(event_type IN (
+            'deal_payment_requested', 'payment_intent_created', 'payment_pending',
+            'payment_confirmed', 'escrow_funded', 'asset_transfer_requested',
+            'asset_transfer_submitted', 'asset_transfer_confirmed', 'asset_transfer_rejected', 'deal_completed',
+            'deal_disputed', 'refund_requested', 'refund_confirmed', 'payout_released', 'seller_credit_recorded',
+            'deal_cancelled', 'deal_expired', 'dispute_resolution_approved',
+            'dispute_resolution_ready'
+        )),
+        event_key TEXT NOT NULL UNIQUE,
+        event_data TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY(deal_id) REFERENCES marketplace_deals(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_marketplace_escrow_events_deal_created
+        ON marketplace_escrow_events(deal_id, created_at ASC, id ASC);
+    CREATE TRIGGER IF NOT EXISTS trg_marketplace_escrow_events_no_update
+    BEFORE UPDATE ON marketplace_escrow_events
+    BEGIN
+        SELECT RAISE(ABORT, 'escrow events are immutable');
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_marketplace_escrow_events_no_delete
+    BEFORE DELETE ON marketplace_escrow_events
+    BEGIN
+        SELECT RAISE(ABORT, 'escrow events are immutable');
+    END;
+
+    CREATE TABLE IF NOT EXISTS marketplace_dispute_resolution_approvals (
+        id TEXT PRIMARY KEY,
+        deal_id TEXT NOT NULL,
+        admin_user_id TEXT NOT NULL,
+        decision TEXT NOT NULL CHECK(decision IN ('refund_buyer', 'release_to_seller')),
+        idempotency_key TEXT NOT NULL UNIQUE,
+        created_at INTEGER NOT NULL,
+        UNIQUE(deal_id, admin_user_id),
+        FOREIGN KEY(deal_id) REFERENCES marketplace_deals(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_marketplace_dispute_approvals_deal
+        ON marketplace_dispute_resolution_approvals(deal_id, created_at ASC);
+    CREATE TRIGGER IF NOT EXISTS trg_marketplace_dispute_approvals_no_update
+    BEFORE UPDATE ON marketplace_dispute_resolution_approvals
+    BEGIN
+        SELECT RAISE(ABORT, 'dispute approvals are immutable');
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_marketplace_dispute_approvals_no_delete
+    BEFORE DELETE ON marketplace_dispute_resolution_approvals
+    BEGIN
+        SELECT RAISE(ABORT, 'dispute approvals are immutable');
+    END;
+
     CREATE TABLE IF NOT EXISTS marketplace_ledger_entries (
         id TEXT PRIMARY KEY,
         transaction_id TEXT NOT NULL,
@@ -133,6 +185,57 @@ def initialize_sqlite_payment_schema(conn: Any) -> None:
         SELECT RAISE(ABORT, 'ledger entries are immutable');
     END;
     """)
+    # Existing installations created the escrow journal with a CHECK constraint
+    # that predates explicit provider-rejection events. Rebuild only this table,
+    # preserving every immutable journal row and its uniqueness guarantees.
+    escrow_schema = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='marketplace_escrow_events'"
+    ).fetchone()
+    if escrow_schema is not None and "asset_transfer_rejected" not in str(escrow_schema["sql"] or ""):
+        conn.execute("DROP TRIGGER IF EXISTS trg_marketplace_escrow_events_no_update")
+        conn.execute("DROP TRIGGER IF EXISTS trg_marketplace_escrow_events_no_delete")
+        conn.execute("ALTER TABLE marketplace_escrow_events RENAME TO marketplace_escrow_events_legacy")
+        conn.execute("DROP INDEX IF EXISTS idx_marketplace_escrow_events_deal_created")
+        conn.execute("""
+            CREATE TABLE marketplace_escrow_events (
+                id TEXT PRIMARY KEY,
+                deal_id TEXT NOT NULL,
+                actor_user_id TEXT NOT NULL,
+                event_type TEXT NOT NULL CHECK(event_type IN (
+                    'deal_payment_requested', 'payment_intent_created', 'payment_pending',
+                    'payment_confirmed', 'escrow_funded', 'asset_transfer_requested',
+                    'asset_transfer_submitted', 'asset_transfer_confirmed', 'asset_transfer_rejected',
+                    'deal_completed', 'deal_disputed', 'refund_requested', 'refund_confirmed',
+                    'payout_released', 'seller_credit_recorded', 'deal_cancelled', 'deal_expired',
+                    'dispute_resolution_approved', 'dispute_resolution_ready'
+                )),
+                event_key TEXT NOT NULL UNIQUE,
+                event_data TEXT NOT NULL DEFAULT '{}',
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY(deal_id) REFERENCES marketplace_deals(id)
+            )
+        """)
+        conn.execute("""
+            INSERT INTO marketplace_escrow_events
+                (id, deal_id, actor_user_id, event_type, event_key, event_data, created_at)
+            SELECT id, deal_id, actor_user_id, event_type, event_key, event_data, created_at
+            FROM marketplace_escrow_events_legacy
+        """)
+        conn.execute("DROP TABLE marketplace_escrow_events_legacy")
+        conn.execute("""
+            CREATE INDEX idx_marketplace_escrow_events_deal_created
+            ON marketplace_escrow_events(deal_id, created_at ASC, id ASC)
+        """)
+        conn.execute("""
+            CREATE TRIGGER trg_marketplace_escrow_events_no_update
+            BEFORE UPDATE ON marketplace_escrow_events
+            BEGIN SELECT RAISE(ABORT, 'escrow events are immutable'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER trg_marketplace_escrow_events_no_delete
+            BEFORE DELETE ON marketplace_escrow_events
+            BEGIN SELECT RAISE(ABORT, 'escrow events are immutable'); END
+        """)
 
 
 def _amount_text(value: Any, currency: str) -> str:
@@ -169,6 +272,7 @@ def create_payment_intent(
     idempotency_key: str,
     expires_at: int,
     metadata: dict[str, Any] | None = None,
+    invoice_payload: str | None = None,
     now: int | None = None,
 ) -> dict[str, Any]:
     if provider not in PAYMENT_PROVIDERS:
@@ -190,16 +294,19 @@ def create_payment_intent(
     if expiry <= timestamp:
         raise ValueError("Payment intent expiry must be in the future")
     metadata_json = json.dumps(metadata or {}, sort_keys=True, separators=(",", ":"))
+    payload_value = str(invoice_payload or "").strip() or None
+    if payload_value is not None and len(payload_value.encode("utf-8")) > 128:
+        raise ValueError("Invoice payload must contain 1-128 UTF-8 bytes")
     existing = conn.execute(
         "SELECT * FROM marketplace_payment_intents WHERE idempotency_key = ?",
         (key,),
     ).fetchone()
     if existing is not None:
         row = _intent_dict(existing)
-        expected = (deal_id, provider, currency, amount_value, expiry, metadata_json)
+        expected = (deal_id, provider, currency, amount_value, expiry, metadata_json, payload_value)
         actual = (
             row["deal_id"], row["provider"], row["currency"], row["amount"],
-            row["expires_at"], row["metadata_json"],
+            row["expires_at"], row["metadata_json"], row["invoice_payload"],
         )
         if actual != expected:
             raise PaymentConflict("Payment idempotency key was reused with different parameters")
@@ -215,13 +322,32 @@ def create_payment_intent(
     conn.execute(
         """INSERT INTO marketplace_payment_intents
            (id, deal_id, provider, currency, amount, status, idempotency_key,
-            expires_at, created_at, updated_at, metadata_json)
-           VALUES (?, ?, ?, ?, ?, 'created', ?, ?, ?, ?, ?)""",
-        (intent_id, deal_id, provider, currency, amount_value, key, expiry,
+            invoice_payload, expires_at, created_at, updated_at, metadata_json)
+           VALUES (?, ?, ?, ?, ?, 'created', ?, ?, ?, ?, ?, ?)""",
+        (intent_id, deal_id, provider, currency, amount_value, key, payload_value, expiry,
          timestamp, timestamp, metadata_json),
     )
     row = conn.execute(
         "SELECT * FROM marketplace_payment_intents WHERE id = ?", (intent_id,)
+    ).fetchone()
+    return _intent_dict(row)
+
+
+def get_payment_intent(conn: Any, intent_id: str) -> dict[str, Any]:
+    row = conn.execute(
+        "SELECT * FROM marketplace_payment_intents WHERE id = ?",
+        (str(intent_id or "").strip(),),
+    ).fetchone()
+    return _intent_dict(row)
+
+
+def get_payment_intent_by_invoice_payload(conn: Any, invoice_payload: str) -> dict[str, Any]:
+    payload = str(invoice_payload or "").strip()
+    if not payload:
+        raise PaymentStateError("Invoice payload is required")
+    row = conn.execute(
+        "SELECT * FROM marketplace_payment_intents WHERE invoice_payload = ?",
+        (payload,),
     ).fetchone()
     return _intent_dict(row)
 
@@ -400,6 +526,259 @@ def post_ledger_transaction(
         raise
     conn.execute("RELEASE SAVEPOINT hassle_ledger_post")
     return {"id": transaction_id, "idempotent_replay": False, "entries": 2}
+
+
+ESCROW_EVENT_TYPES = {
+    "deal_payment_requested", "payment_intent_created", "payment_pending",
+    "payment_confirmed", "escrow_funded", "asset_transfer_requested",
+    "asset_transfer_submitted", "asset_transfer_confirmed", "asset_transfer_rejected", "deal_completed",
+    "deal_disputed", "refund_requested", "refund_confirmed", "payout_released", "seller_credit_recorded",
+    "deal_cancelled", "deal_expired", "dispute_resolution_approved",
+    "dispute_resolution_ready",
+}
+
+
+def append_escrow_event(
+    conn: Any,
+    *,
+    deal_id: str,
+    actor_user_id: str,
+    event_type: str,
+    event_key: str,
+    event_data: dict[str, Any] | None = None,
+    now: int | None = None,
+) -> dict[str, Any]:
+    deal = str(deal_id or "").strip()
+    actor = str(actor_user_id or "").strip()
+    kind = str(event_type or "").strip()
+    key = str(event_key or "").strip()
+    if not deal or not actor or not key or len(key) > 128:
+        raise ValueError("Deal, actor and 1-128 character event key are required")
+    if kind not in ESCROW_EVENT_TYPES:
+        raise ValueError("Unsupported escrow event type")
+    payload = json.dumps(event_data or {}, sort_keys=True, separators=(",", ":"))
+    existing = conn.execute(
+        "SELECT * FROM marketplace_escrow_events WHERE event_key = ?",
+        (key,),
+    ).fetchone()
+    if existing is not None:
+        actual = (
+            existing["deal_id"], existing["actor_user_id"],
+            existing["event_type"], existing["event_data"],
+        )
+        expected = (deal, actor, kind, payload)
+        if actual != expected:
+            raise PaymentConflict("Escrow event key was reused with different data")
+        return {"id": existing["id"], "idempotent_replay": True}
+    if conn.execute("SELECT 1 FROM marketplace_deals WHERE id = ?", (deal,)).fetchone() is None:
+        raise PaymentStateError("Deal not found")
+    timestamp = int(now if now is not None else __import__("time").time())
+    event_id = "ee-" + uuid.uuid4().hex[:24]
+    conn.execute(
+        """INSERT INTO marketplace_escrow_events
+           (id, deal_id, actor_user_id, event_type, event_key, event_data, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (event_id, deal, actor, kind, key, payload, timestamp),
+    )
+    return {"id": event_id, "idempotent_replay": False}
+
+
+def record_dispute_resolution_approval(
+    conn: Any,
+    *,
+    deal_id: str,
+    admin_user_id: str,
+    decision: str,
+    idempotency_key: str,
+    now: int | None = None,
+) -> dict[str, Any]:
+    deal = str(deal_id or "").strip()
+    admin = str(admin_user_id or "").strip()
+    choice = str(decision or "").strip()
+    key = str(idempotency_key or "").strip()
+    if not deal or not admin or not key or len(key) > 128:
+        raise ValueError("Deal, administrator and 1-128 character idempotency key are required")
+    if choice not in {"refund_buyer", "release_to_seller"}:
+        raise ValueError("Unsupported dispute resolution decision")
+    deal_row = conn.execute(
+        "SELECT status FROM marketplace_deals WHERE id = ?",
+        (deal,),
+    ).fetchone()
+    if deal_row is None:
+        raise PaymentStateError("Deal not found")
+    if deal_row["status"] != "disputed":
+        raise PaymentStateError("Dispute resolution approvals require a disputed deal")
+    prior_key = conn.execute(
+        "SELECT * FROM marketplace_dispute_resolution_approvals WHERE idempotency_key = ?",
+        (key,),
+    ).fetchone()
+    if prior_key is not None:
+        if (
+            prior_key["deal_id"] != deal
+            or prior_key["admin_user_id"] != admin
+            or prior_key["decision"] != choice
+        ):
+            raise PaymentConflict("Dispute approval idempotency key was reused with different data")
+        count = conn.execute(
+            "SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals WHERE deal_id = ? AND decision = ?",
+            (deal, choice),
+        ).fetchone()[0]
+        return {"approval_id": prior_key["id"], "approvals": int(count), "required": 2, "ready_for_execution": int(count) >= 2, "execution_enabled": False, "idempotent_replay": True}
+    existing_admin = conn.execute(
+        "SELECT * FROM marketplace_dispute_resolution_approvals WHERE deal_id = ? AND admin_user_id = ?",
+        (deal, admin),
+    ).fetchone()
+    if existing_admin is not None:
+        if existing_admin["decision"] == choice:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals WHERE deal_id = ? AND decision = ?",
+                (deal, choice),
+            ).fetchone()[0]
+            return {"approval_id": existing_admin["id"], "approvals": int(count), "required": 2, "ready_for_execution": int(count) >= 2, "execution_enabled": False, "idempotent_replay": True}
+        raise PaymentConflict("An administrator cannot approve conflicting dispute outcomes")
+    existing_decision = conn.execute(
+        "SELECT decision FROM marketplace_dispute_resolution_approvals WHERE deal_id = ? LIMIT 1",
+        (deal,),
+    ).fetchone()
+    if existing_decision is not None and existing_decision["decision"] != choice:
+        raise PaymentConflict("Dispute resolution approvals must agree on one outcome")
+    existing_count = int(conn.execute(
+        "SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals WHERE deal_id = ?",
+        (deal,),
+    ).fetchone()[0])
+    if existing_count >= 2:
+        raise PaymentConflict("The two-administrator approval threshold has already been reached")
+    timestamp = int(now if now is not None else __import__("time").time())
+    approval_id = "dra-" + uuid.uuid4().hex[:24]
+    conn.execute(
+        """INSERT INTO marketplace_dispute_resolution_approvals
+           (id, deal_id, admin_user_id, decision, idempotency_key, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (approval_id, deal, admin, choice, key, timestamp),
+    )
+    count = int(conn.execute(
+        "SELECT COUNT(*) FROM marketplace_dispute_resolution_approvals WHERE deal_id = ? AND decision = ?",
+        (deal, choice),
+    ).fetchone()[0])
+    append_escrow_event(
+        conn, deal_id=deal, actor_user_id=admin,
+        event_type="dispute_resolution_approved", event_key=key,
+        event_data={"decision": choice, "approval_count": count, "approvals_required": 2},
+        now=timestamp,
+    )
+    ready = count >= 2
+    if ready:
+        append_escrow_event(
+            conn, deal_id=deal, actor_user_id=admin,
+            event_type="dispute_resolution_ready",
+            event_key=f"{deal}:dispute-resolution-ready:{choice}",
+            event_data={"decision": choice, "approval_count": count, "execution_enabled": False},
+            now=timestamp,
+        )
+    return {"approval_id": approval_id, "approvals": count, "required": 2, "ready_for_execution": ready, "execution_enabled": False, "idempotent_replay": False}
+
+
+def list_escrow_events(conn: Any, deal_id: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """SELECT id, deal_id, actor_user_id, event_type, event_key, event_data, created_at
+           FROM marketplace_escrow_events
+           WHERE deal_id = ? ORDER BY created_at ASC, id ASC""",
+        (str(deal_id or "").strip(),),
+    ).fetchall()
+    items = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["event_data"] = json.loads(item["event_data"] or "{}")
+        except (TypeError, ValueError):
+            item["event_data"] = {}
+        items.append(item)
+    return items
+
+
+DEAL_STATUS_TRANSITIONS = {
+    "payment_not_enabled": {"awaiting_payment", "cancelled", "expired"},
+    "awaiting_payment": {"payment_pending", "cancelled", "expired"},
+    "payment_pending": {"paid", "awaiting_payment", "expired"},
+    "paid": {"delivery_pending", "disputed"},
+    "delivery_pending": {"completed", "disputed"},
+    "disputed": {"delivery_pending", "completed", "cancelled"},
+    "completed": set(),
+    "cancelled": set(),
+    "expired": set(),
+}
+
+
+def transition_deal_status(
+    conn: Any,
+    *,
+    deal_id: str,
+    new_status: str,
+    actor_user_id: str,
+    idempotency_key: str,
+    event_type: str,
+    event_data: dict[str, Any] | None = None,
+    now: int | None = None,
+) -> dict[str, Any]:
+    deal = str(deal_id or "").strip()
+    target = str(new_status or "").strip()
+    actor = str(actor_user_id or "").strip()
+    key = str(idempotency_key or "").strip()
+    if not deal or not actor or not key:
+        raise ValueError("Deal, actor and idempotency key are required")
+    row = conn.execute(
+        "SELECT status FROM marketplace_deals WHERE id = ?",
+        (deal,),
+    ).fetchone()
+    if row is None:
+        raise PaymentStateError("Deal not found")
+    current = str(row["status"])
+    if target == current:
+        replay = conn.execute(
+            "SELECT * FROM marketplace_escrow_events WHERE event_key = ?",
+            (key,),
+        ).fetchone()
+        if replay is not None:
+            try:
+                recorded_data = json.loads(replay["event_data"] or "{}")
+            except (TypeError, ValueError):
+                recorded_data = {}
+            expected_data = dict(event_data or {})
+            recorded_extra = {name: value for name, value in recorded_data.items() if name not in {"from", "to"}}
+            if (
+                replay["deal_id"] == deal
+                and replay["actor_user_id"] == actor
+                and replay["event_type"] == event_type
+                and recorded_data.get("to") == target
+                and recorded_extra == expected_data
+            ):
+                return {"deal_id": deal, "status": current, "idempotent_replay": True, "event_id": replay["id"]}
+            raise PaymentConflict("Deal transition idempotency key was reused with different data")
+        raise PaymentConflict("Deal is already in the requested state under a different operation")
+    if target not in DEAL_STATUS_TRANSITIONS.get(current, set()):
+        raise PaymentStateError(f"Invalid deal transition: {current} -> {target}")
+    timestamp = int(now if now is not None else __import__("time").time())
+    event = append_escrow_event(
+        conn,
+        deal_id=deal,
+        actor_user_id=actor,
+        event_type=event_type,
+        event_key=key,
+        event_data={**(event_data or {}), "from": current, "to": target},
+        now=timestamp,
+    )
+    changed = conn.execute(
+        "UPDATE marketplace_deals SET status = ? WHERE id = ? AND status = ?",
+        (target, deal, current),
+    )
+    if changed.rowcount != 1:
+        raise PaymentConflict("Deal state changed concurrently")
+    return {
+        "deal_id": deal,
+        "status": target,
+        "idempotent_replay": event["idempotent_replay"],
+        "event_id": event["id"],
+    }
 
 
 def verify_ledger_transaction(conn: Any, transaction_id: str) -> dict[str, Any]:

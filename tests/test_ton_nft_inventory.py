@@ -5,7 +5,10 @@ from unittest.mock import patch
 
 import httpx
 
-from ton_nft_inventory import fetch_wallet_nfts, fetch_nft_owner, _normalise_nft, fragment_asset_type
+from ton_nft_inventory import (
+    fetch_wallet_nfts, fetch_nft_owner, fetch_wallet_nft_history,
+    find_confirmed_nft_transfer, _normalise_nft, fragment_asset_type,
+)
 
 
 WALLET = "0:" + "a" * 64
@@ -41,6 +44,56 @@ class TonNftInventoryProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["items"][0]["image_url"], "https://cdn.example/preview.png")
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0].url.params.get("indirect_ownership"), "false")
+
+    async def test_fetches_wallet_nft_transfer_history(self):
+        calls = []
+        def handler(request):
+            calls.append(request)
+            return httpx.Response(200, json={"operations": [{
+                "operation": "transfer",
+                "utime": 1700000100,
+                "lt": 123456,
+                "transaction_hash": "ab" * 32,
+                "item": {"address": NFT},
+                "source": {"address": WALLET},
+                "destination": {"address": "0:" + "c" * 64},
+            }]})
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://tonapi.io")
+        with patch.dict(os.environ, {"TONAPI_TOKEN": "test-token"}):
+            history = await fetch_wallet_nft_history(WALLET, client=client)
+        await client.aclose()
+        self.assertEqual(len(history), 1)
+        self.assertEqual(calls[0].url.path, f"/v2/accounts/{WALLET}/nfts/history")
+        self.assertEqual(calls[0].url.params.get("limit"), "1000")
+
+    async def test_nft_transfer_match_requires_exact_item_wallets_and_time(self):
+        destination = "0:" + "c" * 64
+        operation = {
+            "operation": "transfer",
+            "utime": 1700000100,
+            "lt": 123456,
+            "transaction_hash": "ab" * 32,
+            "item": {"address": NFT},
+            "source": {"address": WALLET},
+            "destination": {"address": destination},
+        }
+        found = find_confirmed_nft_transfer(
+            [operation], item_address=NFT, source_address=WALLET,
+            destination_address=destination, not_before=1700000000,
+        )
+        self.assertEqual(found["transaction_hash"], "ab" * 32)
+        self.assertIsNone(find_confirmed_nft_transfer(
+            [operation], item_address=NFT, source_address="0:" + "d" * 64,
+            destination_address=destination, not_before=1700000000,
+        ))
+        self.assertIsNone(find_confirmed_nft_transfer(
+            [operation], item_address=NFT, source_address=WALLET,
+            destination_address=destination, not_before=1700000200,
+        ))
+        self.assertIsNone(find_confirmed_nft_transfer(
+            [{**operation, "transaction_hash": ""}], item_address=NFT,
+            source_address=WALLET, destination_address=destination, not_before=1700000000,
+        ))
 
     async def test_rejects_items_not_owned_by_connected_wallet(self):
         item = {

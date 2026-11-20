@@ -7,15 +7,28 @@
     authToken: string;
     lang: 'ru' | 'en';
     onVerified: (address: string) => void;
+    deliveryRequest?: {
+      dealId: string;
+      sellerWallet: string;
+      transaction: { validUntil: number; network: string; messages: Array<{ address: string; amount: string; payload?: string }> };
+    } | null;
+    onDeliverySent?: (dealId: string, boc: string) => Promise<void> | void;
+    paymentRequest?: { dealId: string; buyerWallet: string; transaction: { validUntil: number; network: string; messages: Array<{ address: string; amount: string; payload?: string }> } } | null;
+    onPaymentSent?: (dealId: string) => Promise<void> | void;
   };
 
-  let { api, authToken, lang, onVerified }: Props = $props();
+  let { api, authToken, lang, onVerified, deliveryRequest = null, onDeliverySent = () => {}, paymentRequest = null, onPaymentSent = () => {} }: Props = $props();
   let tonConnect = $state<TonConnectUIInstance | null>(null);
   let busy = $state(false);
   let address = $state('');
   let network = $state('');
   let status = $state<'idle' | 'connected' | 'verified' | 'error'>('idle');
   let message = $state('');
+  let paymentSubmitted = $state(false);
+
+  $effect(() => {
+    if (!paymentRequest) paymentSubmitted = false;
+  });
 
   const copy = $derived({
     connect: lang === 'ru' ? 'Подключить TON-кошелёк' : 'Connect TON wallet',
@@ -168,6 +181,68 @@
     }
   }
 
+  async function sendTonPayment() {
+    if (!tonConnect || !paymentRequest || busy || status !== 'verified') return;
+    if (tonConnect.wallet?.account.address !== paymentRequest.buyerWallet) {
+      message = lang === 'ru'
+        ? 'Подключённый кошелёк не совпадает с кошельком покупателя. Переподключи подтверждённый адрес.'
+        : 'The connected wallet does not match the verified buyer wallet. Reconnect the verified address.';
+      status = 'error';
+      return;
+    }
+    busy = true;
+    message = '';
+    try {
+      await tonConnect.sendTransaction(paymentRequest.transaction);
+      paymentSubmitted = true;
+      await onPaymentSent(paymentRequest.dealId);
+      message = lang === 'ru'
+        ? 'Перевод отправлен. Не отправляй его повторно. Если блокчейн ещё не обновился, нажми «Проверить оплату».'
+        : 'Transfer submitted. Do not send it again. If the chain has not updated yet, select “Verify payment”.';
+    } catch (error) {
+      message = error instanceof Error ? error.message : (lang === 'ru' ? 'Кошелёк отклонил или не отправил перевод.' : 'Wallet rejected or failed to submit the transfer.');
+      status = 'error';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function verifyTonPayment() {
+    if (!paymentRequest || busy) return;
+    busy = true;
+    message = '';
+    try {
+      await onPaymentSent(paymentRequest.dealId);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function sendNftDelivery() {
+    if (!tonConnect || !deliveryRequest || busy || status !== 'verified') return;
+    if (tonConnect.wallet?.account.address !== deliveryRequest.sellerWallet) {
+      message = lang === 'ru'
+        ? 'Подключённый кошелёк не совпадает с кошельком продавца. Переподключи правильный адрес.'
+        : 'The connected wallet is not the seller wallet. Connect the correct address.';
+      status = 'error';
+      return;
+    }
+    busy = true;
+    message = '';
+    try {
+      const result = await tonConnect.sendTransaction(deliveryRequest.transaction);
+      await onDeliverySent(deliveryRequest.dealId, result.boc);
+      message = lang === 'ru'
+        ? 'Транзакция отправлена. Покупатель сможет подтвердить передачу после обновления TON.'
+        : 'Transaction submitted. The buyer can verify delivery once TON updates.';
+    } catch (error) {
+      message = error instanceof Error ? error.message : (lang === 'ru' ? 'Кошелёк отклонил или не отправил транзакцию.' : 'Wallet rejected or failed to submit the transaction.');
+      status = 'error';
+    } finally {
+      busy = false;
+    }
+  }
+
   async function connectWallet() {
     if (!authToken) {
       message = copy.signIn;
@@ -216,6 +291,34 @@
       <span class="ton-wallet-symbol">◈</span>
       {busy ? (tonConnect ? copy.waiting : copy.loading) : (status === 'connected' ? copy.waiting : copy.connect)}
     </button>
+  {/if}
+  {#if paymentRequest && status === 'verified' && address === paymentRequest.buyerWallet}
+    {#if paymentSubmitted}
+      <button class="ton-wallet-button inventory-import-button" type="button" onclick={verifyTonPayment} disabled={busy}>
+        {busy ? '…' : (lang === 'ru' ? 'Проверить оплату TON' : 'Verify TON payment')}
+      </button>
+    {:else if tonConnect?.wallet}
+      <button class="ton-wallet-button inventory-import-button" type="button" onclick={sendTonPayment} disabled={busy}>
+        {busy ? '…' : (lang === 'ru' ? 'Оплатить TON из кошелька' : 'Pay with TON wallet')}
+      </button>
+    {:else}
+      <button class="ton-wallet-button inventory-import-button" type="button" onclick={connectWallet} disabled={busy}>
+        {lang === 'ru' ? 'Подключить кошелёк для оплаты' : 'Reconnect wallet to pay'}
+      </button>
+    {/if}
+    <p class="ton-wallet-message">{lang === 'ru' ? 'Проверь адрес и сумму в кошельке. HASSLE NFT не получает доступ к ключам.' : 'Check the destination and amount in your wallet. HASSLE NFT never receives your keys.'}</p>
+  {/if}
+  {#if deliveryRequest && status === 'verified' && address === deliveryRequest.sellerWallet}
+    {#if tonConnect?.wallet}
+      <button class="ton-wallet-button inventory-import-button" type="button" onclick={sendNftDelivery} disabled={busy}>
+        {busy ? '…' : (lang === 'ru' ? 'Передать NFT покупателю' : 'Transfer NFT to buyer')}
+      </button>
+    {:else}
+      <button class="ton-wallet-button inventory-import-button" type="button" onclick={connectWallet} disabled={busy}>
+        {lang === 'ru' ? 'Подключить кошелёк для подписи' : 'Reconnect wallet to sign transfer'}
+      </button>
+    {/if}
+    <p class="ton-wallet-message">{lang === 'ru' ? 'Подтверди перевод NFT в своём TON-кошельке. HASSLE NFT не получает доступ к ключам.' : 'Approve the NFT transfer in your TON wallet. HASSLE NFT never receives your keys.'}</p>
   {/if}
   {#if message}
     <p class:ton-wallet-error={status === 'error'} class="ton-wallet-message">{message}</p>

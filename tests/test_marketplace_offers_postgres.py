@@ -53,6 +53,19 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
             """)
             pg.execute("CREATE TABLE marketplace_payment_events (id TEXT PRIMARY KEY)")
             pg.execute("""
+                CREATE TABLE marketplace_escrow_events (
+                    id TEXT PRIMARY KEY, deal_id TEXT NOT NULL, actor_user_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL, event_key TEXT NOT NULL, event_data TEXT NOT NULL,
+                    created_at BIGINT NOT NULL
+                )
+            """)
+            pg.execute("""
+                CREATE TABLE marketplace_dispute_resolution_approvals (
+                    id TEXT PRIMARY KEY, deal_id TEXT NOT NULL, admin_user_id TEXT NOT NULL,
+                    decision TEXT NOT NULL, idempotency_key TEXT NOT NULL, created_at BIGINT NOT NULL
+                )
+            """)
+            pg.execute("""
                 CREATE TABLE marketplace_ledger_transactions (
                     id TEXT PRIMARY KEY, amount TEXT NOT NULL, currency TEXT NOT NULL
                 )
@@ -67,7 +80,7 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
 
             installed = install_postgres_offer_triggers(pg)
             assert installed["verified"] is True
-            assert installed["triggers_installed"] == 20
+            assert installed["triggers_installed"] == 26
 
             pg.execute(
                 "INSERT INTO marketplace_orders VALUES (%s,%s,%s,%s,%s,%s)",
@@ -110,6 +123,27 @@ def test_postgres_offer_triggers_preserve_notifications_and_immutability():
                 pg.execute("DELETE FROM marketplace_deal_lifecycle_events WHERE id='life-1'")
             with pytest.raises(psycopg.Error, match="immutable"):
                 pg.execute("TRUNCATE TABLE marketplace_deal_lifecycle_events")
+
+            pg.execute(
+                "INSERT INTO marketplace_escrow_events VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                ("escrow-event-1", "deal-1", "buyer-1", "payment_pending", "deal-1:pending", "{}", 110),
+            )
+            with pytest.raises(psycopg.Error):
+                pg.execute("UPDATE marketplace_escrow_events SET event_type='deal_completed' WHERE id='escrow-event-1'")
+            with pytest.raises(psycopg.Error):
+                pg.execute("DELETE FROM marketplace_escrow_events WHERE id='escrow-event-1'")
+            with pytest.raises(psycopg.Error, match="immutable"):
+                pg.execute("TRUNCATE TABLE marketplace_escrow_events")
+            pg.execute(
+                "INSERT INTO marketplace_dispute_resolution_approvals VALUES (%s,%s,%s,%s,%s,%s)",
+                ("approval-1", "deal-1", "admin-1", "refund_buyer", "approval-key-1", 111),
+            )
+            with pytest.raises(psycopg.Error):
+                pg.execute("UPDATE marketplace_dispute_resolution_approvals SET decision='release_to_seller' WHERE id='approval-1'")
+            with pytest.raises(psycopg.Error):
+                pg.execute("DELETE FROM marketplace_dispute_resolution_approvals WHERE id='approval-1'")
+            with pytest.raises(psycopg.Error, match="immutable"):
+                pg.execute("TRUNCATE TABLE marketplace_dispute_resolution_approvals")
 
             pg.execute("INSERT INTO marketplace_payment_events(id) VALUES (%s)", ("pay-event-1",))
             with pytest.raises(psycopg.Error):
@@ -193,10 +227,10 @@ def test_postgres_offer_schema_bootstrap_is_idempotent_and_creates_all_objects()
             second = initialize_postgres_offer_schema(adapter)
             assert first["verified"] is True
             assert second["verified"] is True
-            assert first["verification"]["triggers_verified"] == 20
-            assert first["verification"]["tables_verified"] == 9
-            assert first["verification"]["columns_verified"] == 79
-            assert first["verification"]["indexes_verified"] == 20
+            assert first["verification"]["triggers_verified"] == 26
+            assert first["verification"]["tables_verified"] == 11
+            assert first["verification"]["columns_verified"] == 92
+            assert first["verification"]["indexes_verified"] == 25
 
             tables = {
                 row["table_name"]
@@ -210,7 +244,7 @@ def test_postgres_offer_schema_bootstrap_is_idempotent_and_creates_all_objects()
                 "marketplace_deal_events", "marketplace_deal_lifecycle_events",
                 "marketplace_notifications", "marketplace_payment_intents",
                 "marketplace_payment_events", "marketplace_ledger_transactions",
-                "marketplace_ledger_entries",
+                "marketplace_ledger_entries", "marketplace_escrow_events", "marketplace_dispute_resolution_approvals",
             } <= tables
 
             indexes = {
@@ -220,6 +254,30 @@ def test_postgres_offer_schema_bootstrap_is_idempotent_and_creates_all_objects()
                 ).fetchall()
             }
             assert "idx_marketplace_deals_one_open_reservation" in indexes
+
+            # Simulate an installation whose escrow CHECK constraint predates
+            # definitive Telegram Business transfer-rejection events.
+            pg.execute("ALTER TABLE marketplace_escrow_events DROP CONSTRAINT marketplace_escrow_events_event_type_check")
+            pg.execute("""
+                ALTER TABLE marketplace_escrow_events
+                ADD CONSTRAINT marketplace_escrow_events_event_type_check
+                CHECK (event_type IN (
+                    'deal_payment_requested', 'payment_intent_created', 'payment_pending',
+                    'payment_confirmed', 'escrow_funded', 'asset_transfer_requested',
+                    'asset_transfer_submitted', 'asset_transfer_confirmed', 'deal_completed',
+                    'deal_disputed', 'refund_requested', 'refund_confirmed', 'payout_released',
+                    'seller_credit_recorded', 'deal_cancelled', 'deal_expired',
+                    'dispute_resolution_approved', 'dispute_resolution_ready'
+                ))
+            """)
+            migrated = initialize_postgres_offer_schema(adapter)
+            assert migrated["verified"] is True
+            definition = pg.execute(
+                """SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+                   WHERE conrelid='marketplace_escrow_events'::regclass
+                     AND conname='marketplace_escrow_events_event_type_check'"""
+            ).fetchone()["definition"]
+            assert "asset_transfer_rejected" in definition
 
             pg.execute("ALTER TABLE marketplace_offers DROP COLUMN sender_name")
             with pytest.raises(RuntimeError, match="missing columns in marketplace_offers: sender_name"):

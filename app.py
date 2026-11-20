@@ -30,19 +30,25 @@ from ton_nft_chain import verify_nft_collection_membership, verify_nft_owner_onc
 from telegram_gift_inventory import fetch_user_telegram_gifts
 from telegram_business_gift_inventory import fetch_business_account_gifts, fetch_sticker_preview
 import httpx
-from marketplace_offers import create_marketplace_offers_router, init_marketplace_offers_db
+from marketplace_offers import create_marketplace_offers_router, init_marketplace_offers_db, expire_unpaid_marketplace_deals, escalate_stalled_paid_deals
+from marketplace_admin import create_marketplace_admin_router
 
 app = FastAPI(title="HASSLE NFT Market API", version="1.0.0")
 app.include_router(create_marketplace_router(
     lambda value: _authenticate_telegram_credential(value),
     lambda value: _require_admin(value),
 ))
-app.include_router(create_marketplace_offers_router(lambda value: _authenticate_telegram_credential(value)))
+app.include_router(create_marketplace_offers_router(
+    lambda value: _authenticate_telegram_credential(value),
+    lambda value: _require_admin(value),
+))
+app.include_router(create_marketplace_admin_router(lambda value: _require_admin(value)))
 
 _telegram_bot = None
 _telegram_dispatcher = None
 _telegram_webhook_secret = None
 _shadow_migration_task = None
+_deal_expiry_task = None
 
 
 
@@ -251,6 +257,20 @@ def _admin_ids() -> set[str]:
     return {part.strip() for part in raw.split(",") if part.strip().isdigit()}
 
 
+def _admin_roles() -> dict[str, str]:
+    """Map allowlisted Telegram IDs to least-privilege admin roles."""
+    raw = os.getenv("ADMIN_TELEGRAM_ROLES", "").strip()
+    if not raw:
+        return {user_id: "owner" for user_id in _admin_ids()}
+    roles: dict[str, str] = {}
+    allowed = {"owner", "moderator", "support", "finance"}
+    for item in raw.split(","):
+        user_id, separator, role = item.strip().partition(":")
+        if separator and user_id.isdigit() and role in allowed and user_id in _admin_ids():
+            roles[user_id] = role
+    return roles
+
+
 def _verify_telegram_init_data(init_data: str) -> dict:
     """Verify raw Telegram WebApp initData using Telegram's documented HMAC scheme.
 
@@ -313,9 +333,13 @@ def _require_admin(credential: str | None) -> dict:
     if not credential:
         raise HTTPException(status_code=401, detail="Telegram Mini App authentication required")
     user = _authenticate_telegram_credential(credential)
-    if str(user["id"]) not in _admin_ids():
+    user_id = str(user["id"])
+    if user_id not in _admin_ids():
         raise HTTPException(status_code=403, detail="Administrator access only")
-    return user
+    role = _admin_roles().get(user_id)
+    if role is None:
+        raise HTTPException(status_code=403, detail="No administrator role is assigned")
+    return {**user, "admin_role": role}
 
 
 @app.post("/api/auth/telegram")
@@ -794,6 +818,13 @@ _READINESS_TABLES = (
     # TON Connect proof and verified wallet bindings.
     "ton_proof_challenges",
     "verified_wallets",
+    # Payment intents, provider evidence, immutable ledger and escrow approvals.
+    "marketplace_payment_intents",
+    "marketplace_payment_events",
+    "marketplace_ledger_transactions",
+    "marketplace_ledger_entries",
+    "marketplace_escrow_events",
+    "marketplace_dispute_resolution_approvals",
 )
 
 # Required columns are checked separately from table presence so an incomplete
@@ -814,6 +845,12 @@ _READINESS_COLUMNS = {
     "ton_proof_challenges": {"payload_hash", "telegram_id", "session_hash", "expires_at"},
     "verified_wallets": {"network", "address", "telegram_id", "state_init_hash", "revoked_at"},
     "security_audit_events": {"id", "actor_telegram_id", "action", "target_type", "target_hash", "outcome", "created_at"},
+    "marketplace_payment_intents": {"id", "deal_id", "provider", "currency", "amount", "status", "idempotency_key", "expires_at", "created_at", "updated_at"},
+    "marketplace_payment_events": {"id", "provider", "provider_event_id", "payment_intent_id", "event_type", "payload_hash", "created_at"},
+    "marketplace_ledger_transactions": {"id", "idempotency_key", "reference_type", "reference_id", "currency", "amount", "created_at"},
+    "marketplace_ledger_entries": {"id", "transaction_id", "account_type", "account_id", "direction", "currency", "amount", "created_at"},
+    "marketplace_escrow_events": {"id", "deal_id", "actor_user_id", "event_type", "event_key", "event_data", "created_at"},
+    "marketplace_dispute_resolution_approvals": {"id", "deal_id", "admin_user_id", "decision", "idempotency_key", "created_at"},
 }
 
 
@@ -857,12 +894,32 @@ async def readiness():
     }
 
 
+async def _run_marketplace_expiry_sweeper():
+    """Expire stale unpaid reservations; every mutation is serialized in the database."""
+    while True:
+        try:
+            result = await asyncio.to_thread(expire_unpaid_marketplace_deals)
+            delivery_result = await asyncio.to_thread(escalate_stalled_paid_deals)
+            result.update(delivery_result)
+            if result.get("expired_deals") or result.get("stalled_deliveries_disputed"):
+                logging.getLogger("hassle_nft.escrow").info(
+                    "reservation_timeout_sweep=%s",
+                    json.dumps(result, sort_keys=True),
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logging.getLogger("hassle_nft.escrow").exception("Reservation timeout sweep failed")
+        await asyncio.sleep(60)
+
+
 @app.on_event("startup")
 async def start_services():
-    global _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret
+    global _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret, _deal_expiry_task
     init_marketplace_db()
     init_marketplace_offers_db()
     init_ton_connect_db()
+    _deal_expiry_task = asyncio.create_task(_run_marketplace_expiry_sweeper())
     # Emit a privacy-safe inventory of the actual mounted SQLite database.
     # This records schema metadata and row counts only, never row contents.
     with marketplace._db() as connection:
@@ -907,7 +964,14 @@ async def start_services():
 
 @app.on_event("shutdown")
 async def stop_services():
-    global _telegram_bot
+    global _telegram_bot, _deal_expiry_task
+    if _deal_expiry_task is not None:
+        _deal_expiry_task.cancel()
+        try:
+            await _deal_expiry_task
+        except asyncio.CancelledError:
+            pass
+        _deal_expiry_task = None
     if _telegram_bot is not None:
         await _telegram_bot.session.close()
         _telegram_bot = None

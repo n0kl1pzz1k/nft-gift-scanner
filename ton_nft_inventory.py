@@ -25,6 +25,32 @@ FRAGMENT_COLLECTIONS = {
 }
 
 
+def build_nft_transfer_payload(
+    *,
+    new_owner_address: str,
+    response_destination: str,
+    query_id: int,
+) -> str:
+    """Build the standard TON NFT transfer body (TEP-62) for wallet signing."""
+    import base64
+    from tonsdk.boc import Cell
+    from tonsdk.utils import Address
+
+    recipient = Address(new_owner_address)
+    response = Address(response_destination)
+    if int(query_id) < 0 or int(query_id) >= 2**64:
+        raise ValueError("TON NFT transfer query ID must fit uint64")
+    body = Cell()
+    body.bits.write_uint(0x5FCC3D14, 32)
+    body.bits.write_uint(int(query_id), 64)
+    body.bits.write_address(recipient)
+    body.bits.write_address(response)
+    body.bits.write_bit(0)  # custom_payload: none
+    body.bits.write_coins(1)  # forward_amount: 1 nanoton
+    body.bits.write_bit(0)  # forward_payload: empty
+    return base64.b64encode(body.to_boc(False)).decode("ascii")
+
+
 def normalise_ton_address(value: str) -> str:
     """Return a canonical raw TON address for trusted on-chain comparisons."""
     return _raw_address(value)
@@ -166,6 +192,87 @@ async def fetch_nft_owner(item_address: str, *, client: httpx.AsyncClient | None
     finally:
         if owns_client:
             await session.aclose()
+
+
+async def fetch_wallet_nft_history(
+    address: str,
+    *,
+    limit: int = 1000,
+    client: httpx.AsyncClient | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch recent NFT transfer operations for a wallet from TonAPI."""
+    wallet_address = _raw_address(address)
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+        raise ValueError("TON NFT history limit must be between 1 and 1000")
+    token = os.getenv("TONAPI_TOKEN", "").strip()
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    owns_client = client is None
+    session = client or httpx.AsyncClient(
+        base_url=TONAPI_BASE_URL,
+        timeout=httpx.Timeout(12.0, connect=5.0),
+        follow_redirects=False,
+    )
+    try:
+        if not token:
+            await asyncio.sleep(4.1)
+        response = await session.get(
+            f"/v2/accounts/{wallet_address}/nfts/history",
+            params={"limit": limit},
+            headers=headers,
+        )
+        response.raise_for_status()
+        body = response.json()
+        operations = body.get("operations") if isinstance(body, dict) else None
+        if not isinstance(operations, list) or any(not isinstance(item, dict) for item in operations):
+            raise ValueError("TON NFT history provider returned an invalid response")
+        return operations
+    finally:
+        if owns_client:
+            await session.aclose()
+
+
+def find_confirmed_nft_transfer(
+    operations: list[dict[str, Any]],
+    *,
+    item_address: str,
+    source_address: str,
+    destination_address: str,
+    not_before: int,
+) -> dict[str, Any] | None:
+    """Find an indexed transfer matching the exact NFT, wallets and delivery window."""
+    item_raw = _raw_address(item_address)
+    source_raw = _raw_address(source_address)
+    destination_raw = _raw_address(destination_address)
+    cutoff = int(not_before)
+    for operation in operations:
+        if not isinstance(operation, dict) or operation.get("operation") != "transfer":
+            continue
+        item = operation.get("item") if isinstance(operation.get("item"), dict) else {}
+        source = operation.get("source") if isinstance(operation.get("source"), dict) else {}
+        destination = operation.get("destination") if isinstance(operation.get("destination"), dict) else {}
+        try:
+            if _raw_address(str(item.get("address") or "")) != item_raw:
+                continue
+            if _raw_address(str(source.get("address") or "")) != source_raw:
+                continue
+            if _raw_address(str(destination.get("address") or "")) != destination_raw:
+                continue
+        except Exception:
+            continue
+        timestamp = operation.get("utime")
+        transaction_hash = str(operation.get("transaction_hash") or "").strip()
+        if isinstance(timestamp, bool) or not isinstance(timestamp, int) or timestamp < cutoff:
+            continue
+        if not transaction_hash or len(transaction_hash) > 256:
+            continue
+        return {
+            "transaction_hash": transaction_hash,
+            "utime": timestamp,
+            "lt": operation.get("lt"),
+        }
+    return None
 
 
 async def fetch_wallet_nfts(address: str, *, client: httpx.AsyncClient | None = None) -> dict[str, Any]:

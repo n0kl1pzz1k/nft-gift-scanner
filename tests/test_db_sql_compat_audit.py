@@ -124,7 +124,7 @@ def test_repository_sqlite_only_code_is_confined_to_explicit_fallback_functions(
     repository_root = Path(__file__).resolve().parents[1]
     report = audit_source_tree(repository_root)
 
-    assert report["blocker_count"] == 0
+    assert report["blocker_count"] == 0, report["findings"]
     assert report["static_blockers_clear"] is True
     assert report["sqlite_fallback_count"] >= 34
     assert report["postgres_adapter_count"] >= 327

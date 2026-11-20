@@ -10,10 +10,13 @@
     price: string | number; currency: 'TON' | 'XTR'; status: 'active' | 'matched' | 'cancelled';
     createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; seller_profile_id?: string | null; events?: {type:string;createdAt:number}[];
   };
-  type MarketplaceOffer = { id:string; order_id:string; sender_name:string; amount:string; currency:'TON'|'XTR'; note:string; status:'pending'|'accepted'|'declined'|'withdrawn'; created_at:number; is_mine:boolean; order_title:string; order_owner_id:string; order_owner_name:string; order_status:string };
+  type MarketplaceOffer = { id:string; order_id:string; sender_name:string; amount:string; currency:'TON'|'XTR'; note:string; status:'pending'|'accepted'|'declined'|'withdrawn'; created_at:number; is_mine:boolean; order_title:string; order_owner_id:string; order_owner_name:string; order_status:string; order_kind:'listing'|'buy-order' };
+  type MarketplaceDeal = { id:string; order_id:string; offer_id:string; is_seller:boolean; order_title:string; agreed_amount:string; currency:'TON'|'XTR'; status:'payment_not_enabled'|'awaiting_payment'|'payment_pending'|'paid'|'delivery_pending'|'completed'|'disputed'|'cancelled'|'expired'; order_status:string; created_at:number; reservation_active:boolean; payments_enabled:boolean; delivery_completed:boolean; asset_source?:string|null };
   
+  type DealTimelineEvent = {id:string;actor_user_id:string;type:string;data:Record<string,unknown>;created_at:number};
   type AccountNotification = { id:string; type:'offer_received'|'offer_accepted'|'offer_declined'|'offer_withdrawn'; offer_id:string; order_id:string; order_title:string; actor_name:string; created_at:number; read_at:number|null };
-  type AccountStats = { active_orders:number; completed_orders:number; pending_offers_sent:number; pending_offers_received:number; unread_notifications:number };
+  type SellerPendingSettlement = { currency:'TON'|'XTR'; amount:string; status:'pending_manual_payout'|'internal_xtr_credit'; automatic_withdrawal_available:boolean };
+  type AccountStats = { active_orders:number; completed_orders:number; pending_offers_sent:number; pending_offers_received:number; unread_notifications:number; deals:number; seller_pending_settlements:SellerPendingSettlement[] };
   type AccountActivity = { id:string; type:string; order_id:string; title:string; actor_name:string; created_at:number; amount:string; currency:'TON'|'XTR'; };
   type OrderReport = { id:string; order_id:string; reporter_name:string; reason:'scam'|'misleading'|'inappropriate'|'spam'|'other'; details:string; status:'open'|'dismissed'|'removed'; created_at:number; order_title:string; order_status:string; order_owner:string };
   type SellerProfile = { profile_id:string; display_name:string; bio:string; created_at:number; updated_at:number; username:string };
@@ -41,6 +44,7 @@
   let marketMinPrice = $state('');
   let marketMaxPrice = $state('');
   let showSellModal = $state(false);
+  let showBuyRequestModal = $state(false);
   let createOrderBusy = $state(false);
   let showOfferModal = $state(false);
   let selectedOfferOrder = $state<MarketplaceOrder | null>(null);
@@ -67,14 +71,19 @@
   let ordersLoadingMore = $state(false);
   let offers = $state<MarketplaceOffer[]>([]);
   let offersTotal = $state(0);
+  let deals = $state<MarketplaceDeal[]>([]);
   let offersLoadingMore = $state(false);
+  let editingOfferId = $state('');
+  let editOfferAmount = $state('');
+  let editOfferNote = $state('');
+  let offerEditBusy = $state(false);
   let notifications = $state<AccountNotification[]>([]);
   let notificationTotal = $state(0);
   let notificationsLoadingMore = $state(false);
   let accountActivity = $state<AccountActivity[]>([]);
   let activityTotal = $state(0);
   let activityBusy = $state(false);
-  let accountStats = $state<AccountStats>({active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,unread_notifications:0});
+  let accountStats = $state<AccountStats>({active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,unread_notifications:0,deals:0,seller_pending_settlements:[]});
   let marketplaceStats = $state<MarketplaceStats>({active_listings:0,active_buy_requests:0,matched_orders:0,volume_ton:0,volume_stars:0,floor_ton:null,floor_stars:null,total_orders:0});
   let sellerProfile = $state<SellerProfile | null>(null);
   let sellerDisplayName = $state('');
@@ -86,6 +95,15 @@
   let offerNote = $state('');
   let offersBusy = $state(false);
   let offerActionBusy = $state('');
+  let starsCheckoutBusy = $state('');
+  let tonDeliveryRequest = $state<{dealId:string;sellerWallet:string;transaction:{validUntil:number;network:string;messages:Array<{address:string;amount:string;payload?:string}>}}|null>(null);
+  let tonPaymentRequest = $state<{ dealId:string; buyerWallet:string; transaction:{ validUntil:number; network:string; messages:Array<{ address:string; amount:string; payload?:string }> } } | null>(null);
+  let tonDeliveryBusy = $state('');
+  let businessGiftDeliveryBusy = $state('');
+  let expandedDealTimeline = $state('');
+  let dealTimelineItems = $state<Record<string,DealTimelineEvent[]>>({});
+  let dealTimelineBusy = $state('');
+  let disputeBusy = $state('');
   let offerStatusFilter = $state<'all'|'pending'|'accepted'|'declined'|'withdrawn'>('all');
   let telegramUser = $state('');
   let telegramPhoto = $state('');
@@ -114,6 +132,16 @@
   let adminReports = $state<OrderReport[]>([]);
   let adminReportsBusy = $state(false);
   let adminReportActionBusy = $state('');
+  let adminOverview = $state<Record<string,number> | null>(null);
+  let adminUsers = $state<Array<Record<string,unknown>>>([]);
+  let adminAssets = $state<Array<Record<string,unknown>>>([]);
+  let adminDisputes = $state<Array<Record<string,unknown>>>([]);
+  let adminAudit = $state<Array<Record<string,unknown>>>([]);
+  let adminReconciliation = $state<{payments:Array<Record<string,unknown>>;transfers:Array<Record<string,unknown>>}>({payments:[],transfers:[]});
+  let adminUserSearch = $state('');
+  let adminBusy = $state(false);
+  let adminRole = $state('owner');
+  let adminPermissions = $state<string[]>([]);
   let orderStatusFilter = $state<'all' | 'active' | 'matched' | 'cancelled'>('active');
   let orderKindFilter = $state<'all' | 'listing' | 'buy-order'>('all');
 
@@ -168,6 +196,8 @@
     (orderKindFilter === 'all' || order.kind === orderKindFilter)
   ));
   const visibleOffers = $derived(offers.filter(offer => offerStatusFilter === 'all' || offer.status === offerStatusFilter));
+  const publicBuyRequests = $derived(orders.filter(order => order.kind === 'buy-order' && order.status === 'active').sort((a,b) => b.createdAt-a.createdAt));
+  const myListings = $derived(orders.filter(order => order.isMine).sort((a, b) => b.createdAt - a.createdAt));
   const invalidPriceRange = $derived(marketCurrency !== 'all' && ((marketMinPrice !== '' && (!Number.isFinite(Number(marketMinPrice)) || Number(marketMinPrice) < 0)) || (marketMaxPrice !== '' && (!Number.isFinite(Number(marketMaxPrice)) || Number(marketMaxPrice) < 0)) || (marketMinPrice !== '' && marketMaxPrice !== '' && Number(marketMinPrice) > Number(marketMaxPrice))));
   const hasMarketFilters = $derived(Boolean(marketSearch.trim() || marketCollectionSearch.trim() || marketNftIdSearch.trim() || assetTypeFilter !== 'all' || marketCurrency !== 'all' || marketMinPrice !== '' || marketMaxPrice !== ''));
   function resetMarketFilters() {
@@ -240,6 +270,21 @@
     return status === 'pending' ? t.offerPending : status === 'accepted' ? t.offerAccepted : status === 'declined' ? t.offerDeclined : t.offerWithdrawn;
   }
 
+  function dealStatusLabel(status: MarketplaceDeal['status']) {
+    const labels: Record<MarketplaceDeal['status'], string> = {
+      payment_not_enabled: lang === 'ru' ? 'Резерв · оплата не подключена' : 'Reserved · payment unavailable',
+      awaiting_payment: lang === 'ru' ? 'Ожидает оплаты' : 'Awaiting payment',
+      payment_pending: lang === 'ru' ? 'Проверка оплаты' : 'Payment pending',
+      paid: lang === 'ru' ? 'Оплачено' : 'Paid',
+      delivery_pending: lang === 'ru' ? 'Ожидает передачи' : 'Awaiting delivery',
+      completed: lang === 'ru' ? 'Завершена' : 'Completed',
+      disputed: lang === 'ru' ? 'Спор' : 'Disputed',
+      cancelled: lang === 'ru' ? 'Отменена' : 'Cancelled',
+      expired: lang === 'ru' ? 'Истекла' : 'Expired',
+    };
+    return labels[status];
+  }
+
   const authHeaders = (): Record<string, string> => {
     const headers: Record<string, string> = {};
     if (authToken) headers['X-Telegram-Init-Data'] = authToken;
@@ -251,7 +296,12 @@
     new Headers(init.headers || {}).forEach((value, key) => headers.set(key, value));
     const response = await fetch(API + path, { ...init, signal, headers });
     const data = await response.json().catch(() => ({ detail: 'Invalid server response' }));
-    if (!response.ok) throw new Error(data.detail || 'Request failed');
+    if (!response.ok) {
+      const detail = data.detail;
+      const error = new Error(typeof detail === 'string' ? detail : (detail ? JSON.stringify(detail) : 'Request failed')) as Error & { detail?: unknown };
+      error.detail = detail;
+      throw error;
+    }
     return data;
   }
 
@@ -468,6 +518,48 @@
     }
   }
 
+  function startBuyRequest() {
+    if (!signedIn) {
+      notice = lang === 'ru' ? 'Войди через Telegram, чтобы создать заявку на покупку.' : 'Sign in with Telegram to create a buy request.';
+      return;
+    }
+    createTitle = '';
+    createPrice = '';
+    createCurrency = 'TON';
+    createNote = '';
+    showBuyRequestModal = true;
+  }
+
+  async function submitBuyRequest() {
+    const title = createTitle.trim();
+    const price = Number(createPrice);
+    if (!signedIn || !title || !Number.isFinite(price) || price <= 0 || (createCurrency === 'XTR' && !Number.isInteger(price)) || createOrderBusy) {
+      notice = lang === 'ru'
+        ? (createCurrency === 'XTR' ? 'Укажи название и целую сумму в Stars.' : 'Укажи название актива и корректную цену.')
+        : (createCurrency === 'XTR' ? 'Enter an asset name and a whole-number Stars amount.' : 'Enter an asset name and a valid price.');
+      return;
+    }
+    createOrderBusy = true;
+    try {
+      await request('/api/marketplace/orders', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'buy-order', title, price, currency: createCurrency, note: createNote.trim() }),
+      });
+      showBuyRequestModal = false;
+      notice = lang === 'ru'
+        ? 'Заявка на покупку опубликована. Это запрос, а не оплаченный заказ.'
+        : 'Buy request published. This is a request, not a paid order.';
+      haptic('success');
+      await loadMarketplace();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+      haptic('error');
+    } finally {
+      createOrderBusy = false;
+    }
+  }
+
   async function changeOrderFilters() {
     await loadMarketplace();
   }
@@ -545,7 +637,7 @@
     if (!window.Telegram?.WebApp?.initData) {
       notifications = [];
       notificationTotal = 0;
-      accountStats = {active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,unread_notifications:0};
+      accountStats = {active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,unread_notifications:0,deals:0,seller_pending_settlements:[]};
       return;
     }
     const [stats, feed, activity] = await Promise.all([
@@ -587,15 +679,256 @@
   }
 
   async function loadOffersAndDeals() {
-    if (!window.Telegram?.WebApp?.initData) { offers = []; await loadAccountOverview(); return; }
+    if (!window.Telegram?.WebApp?.initData) { offers = []; deals = []; await loadAccountOverview(); return; }
     offersBusy = true;
     try {
       const offerStatusQuery = offerStatusFilter === 'all' ? '' : '&status=' + encodeURIComponent(offerStatusFilter);
-      const results = await Promise.all([request('/api/marketplace/offers?limit=100&offset=0' + offerStatusQuery), loadAccountOverview()]);
+      const results = await Promise.all([
+        request('/api/marketplace/offers?limit=100&offset=0' + offerStatusQuery),
+        loadAccountOverview(),
+        request('/api/marketplace/deals?limit=100&offset=0'),
+      ]);
       offers = Array.isArray(results[0].items) ? results[0].items : [];
       offersTotal = Number(results[0].total) || offers.length;
+      deals = Array.isArray(results[2].items) ? results[2].items as MarketplaceDeal[] : [];
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
     finally { offersBusy = false; }
+  }
+
+  function dealEventLabel(event: DealTimelineEvent) {
+    const labels: Record<string,string> = {
+      deal_created: lang==='ru'?'Создана сделка':'Deal created',
+      listing_reserved: lang==='ru'?'Актив зарезервирован':'Listing reserved',
+      deal_payment_requested: lang==='ru'?'Запрошена оплата':'Payment requested',
+      payment_intent_created: lang==='ru'?'Создан платёжный счёт':'Payment invoice created',
+      payment_pending: lang==='ru'?'Проверка платежа':'Payment pending',
+      payment_confirmed: lang==='ru'?'Платёж подтверждён':'Payment confirmed',
+      escrow_funded: lang==='ru'?'Средства учтены в эскроу-журнале':'Escrow journal funded',
+      asset_transfer_requested: lang==='ru'?'Подготовлена передача актива':'Asset transfer requested',
+      asset_transfer_submitted: lang==='ru'?'Кошелёк отправил транзакцию':'Wallet transaction submitted',
+      asset_transfer_confirmed: lang==='ru'?'Новый владелец подтверждён в TON':'New owner verified on TON',
+      deal_completed: lang==='ru'?'Сделка завершена':'Deal completed',
+      deal_disputed: lang==='ru'?'Открыт спор':'Dispute opened',
+      deal_cancelled: lang==='ru'?'Сделка отменена':'Deal cancelled',
+      deal_expired: lang==='ru'?'Резерв истёк':'Reservation expired',
+      dispute_resolution_approved: lang==='ru'?'Администратор одобрил решение':'Admin approved resolution',
+      dispute_resolution_ready: lang==='ru'?'Набран порог одобрений':'Approval threshold reached',
+    };
+    return labels[event.type] || event.type.replaceAll('_',' ');
+  }
+
+  async function toggleDealTimeline(dealId: string) {
+    if (expandedDealTimeline === dealId) {
+      expandedDealTimeline = '';
+      return;
+    }
+    expandedDealTimeline = dealId;
+    if (dealTimelineItems[dealId]) return;
+    dealTimelineBusy = dealId;
+    try {
+      const data = await request('/api/marketplace/deals/' + encodeURIComponent(dealId) + '/events');
+      dealTimelineItems = { ...dealTimelineItems, [dealId]: Array.isArray(data.items) ? data.items as DealTimelineEvent[] : [] };
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      dealTimelineBusy = '';
+    }
+  }
+
+  async function openDealDispute(dealId: string) {
+    if (!dealId || disputeBusy) return;
+    const reason = window.prompt(lang==='ru' ? 'Опиши проблему по сделке:' : 'Describe the issue with this deal:');
+    if (!reason || !reason.trim()) return;
+    disputeBusy = dealId;
+    try {
+      await request('/api/marketplace/deals/' + encodeURIComponent(dealId) + '/disputes', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason.trim().slice(0,1000), idempotency_key: crypto.randomUUID() }),
+      });
+      notice = lang==='ru' ? 'Спор открыт. Сделка заблокирована для обычного завершения до решения.' : 'Dispute opened. Normal completion is blocked pending resolution.';
+      await loadOffersAndDeals();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      disputeBusy = '';
+    }
+  }
+
+  async function prepareTonNftDelivery(dealId: string) {
+    if (!dealId || tonDeliveryBusy) return;
+    tonDeliveryBusy = dealId;
+    try {
+      const data = await request('/api/marketplace/deals/' + encodeURIComponent(dealId) + '/ton-nft-delivery/prepare', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idempotency_key: crypto.randomUUID() }),
+      });
+      if (!data.transaction || !data.seller_wallet) throw new Error(lang === 'ru' ? 'Сервер не вернул запрос перевода NFT.' : 'The server did not return an NFT transfer request.');
+      tonDeliveryRequest = { dealId, sellerWallet: String(data.seller_wallet), transaction: data.transaction };
+      view = 'create';
+      notice = lang === 'ru'
+        ? 'Запрос передачи подготовлен. Подключи кошелёк продавца и подтверди перевод.'
+        : 'Delivery request prepared. Connect the seller wallet and approve the transfer.';
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      tonDeliveryBusy = '';
+    }
+  }
+
+  async function verifyTonNftDelivery(dealId: string) {
+    if (!dealId || tonDeliveryBusy) return;
+    tonDeliveryBusy = dealId;
+    try {
+      await request('/api/marketplace/deals/' + encodeURIComponent(dealId) + '/ton-nft-delivery/confirm', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idempotency_key: crypto.randomUUID() }),
+      });
+      notice = lang === 'ru'
+        ? 'TON подтвердил нового владельца. Сделка завершена, NFT добавлен в инвентарь покупателя.'
+        : 'TON confirmed the new owner. The deal is complete and the NFT is in the buyer inventory.';
+      await Promise.all([loadOffersAndDeals(), loadMarketplace(), loadVerifiedInventory()]);
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      tonDeliveryBusy = '';
+    }
+  }
+
+  async function transferTelegramBusinessGift(dealId: string) {
+    if (!dealId || businessGiftDeliveryBusy) return;
+    businessGiftDeliveryBusy = dealId;
+    const idempotencyKey = crypto.randomUUID();
+    const sendTransfer = (acceptTransferFee: boolean) => request(
+      '/api/marketplace/deals/' + encodeURIComponent(dealId) + '/telegram-business-gift-delivery/transfer',
+      undefined,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idempotency_key: idempotencyKey, accept_transfer_fee: acceptTransferFee }),
+      },
+    );
+    try {
+      try {
+        await sendTransfer(false);
+      } catch (error) {
+        const detail = (error as Error & { detail?: { code?: string; transfer_star_count?: number } }).detail;
+        if (detail?.code !== 'seller_fee_consent_required') throw error;
+        const fee = Number(detail.transfer_star_count) || 0;
+        const message = lang === 'ru'
+          ? `Telegram требует комиссию ${fee} Stars за передачу подарка. Разрешить списание этой комиссии с подключённого Business-аккаунта?`
+          : `Telegram requires a ${fee} Stars transfer fee. Allow this fee to be charged to the connected Business account?`;
+        const webApp = (window as any).Telegram?.WebApp;
+        const accepted = await new Promise<boolean>((resolve) => {
+          if (typeof webApp?.showConfirm === 'function') {
+            webApp.showConfirm(message, (confirmed: boolean) => resolve(Boolean(confirmed)));
+          } else {
+            resolve(window.confirm(message));
+          }
+        });
+        if (!accepted) {
+          notice = lang === 'ru' ? 'Передача отменена. Комиссия не списывалась.' : 'Transfer cancelled. No fee was charged.';
+          return;
+        }
+        await sendTransfer(true);
+      }
+      haptic('success');
+      notice = lang === 'ru'
+        ? 'Telegram подтвердил передачу подарка. Сделка завершена, начисление продавцу записано.'
+        : 'Telegram confirmed the gift transfer. The deal is complete and the seller credit is recorded.';
+      await Promise.all([loadOffersAndDeals(), loadMarketplace(), loadVerifiedInventory(), loadAccountOverview()]);
+    } catch (error) {
+      haptic('error');
+      notice = error instanceof Error ? error.message : String(error);
+    } finally {
+      businessGiftDeliveryBusy = '';
+    }
+  }
+
+  async function startTonCheckout(dealId: string) {
+    if (!dealId || tonDeliveryBusy) return;
+    tonDeliveryBusy = dealId;
+    try {
+      const data = await request('/api/marketplace/deals/' + encodeURIComponent(dealId) + '/ton-checkout', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idempotency_key: crypto.randomUUID() }),
+      });
+      if (!data.transaction || !data.buyer_wallet) throw new Error(lang === 'ru' ? 'Сервер не подготовил TON-платёж.' : 'The server did not prepare the TON payment.');
+      tonPaymentRequest = { dealId, buyerWallet: String(data.buyer_wallet), transaction: data.transaction };
+      view = 'create';
+      notice = lang === 'ru'
+        ? 'Проверь сумму и адрес в TON-кошельке. После подписи маркетплейс проверит транзакцию в блокчейне.'
+        : 'Check the amount and address in your TON wallet. After signing, the marketplace will verify the on-chain transaction.';
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      tonDeliveryBusy = '';
+    }
+  }
+
+  async function confirmTonPayment(dealId: string) {
+    try {
+      await request('/api/marketplace/deals/' + encodeURIComponent(dealId) + '/ton-payment/confirm', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idempotency_key: crypto.randomUUID() }),
+      });
+      tonPaymentRequest = null;
+      notice = lang === 'ru'
+        ? 'TON подтвердил оплату. Средства учтены в эскроу сделки.'
+        : 'TON confirmed the payment. Funds are recorded in deal escrow.';
+      await loadOffersAndDeals();
+    } catch (e) {
+      notice = lang === 'ru'
+        ? (e instanceof Error ? e.message : 'TON ещё не подтвердил перевод. Обнови статус позже, не отправляй деньги повторно.')
+        : (e instanceof Error ? e.message : 'TON has not confirmed the transfer yet. Check again later; do not pay twice.');
+      await loadOffersAndDeals();
+    }
+  }
+
+  async function startStarsCheckout(dealId: string) {
+    if (!dealId || starsCheckoutBusy) return;
+    if (!window.Telegram?.WebApp?.initData) {
+      notice = lang === 'ru' ? 'Открой маркетплейс через Telegram.' : 'Open the marketplace inside Telegram.';
+      return;
+    }
+    starsCheckoutBusy = dealId;
+    try {
+      const data = await request('/api/marketplace/deals/' + encodeURIComponent(dealId) + '/stars-checkout', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idempotency_key: crypto.randomUUID() }),
+      });
+      const invoiceUrl = String(data.invoice_url || '');
+      if (!invoiceUrl.startsWith('https://')) throw new Error(lang === 'ru' ? 'Telegram не вернул ссылку на оплату.' : 'Telegram did not return a payment link.');
+      const webApp = window.Telegram?.WebApp as any;
+      if (webApp?.openLink) webApp.openLink(invoiceUrl);
+      else window.open(invoiceUrl, '_blank', 'noopener,noreferrer');
+      notice = lang === 'ru'
+        ? 'Счёт Stars создан. После оплаты Telegram подтвердит платёж в боте.'
+        : 'Stars invoice created. Telegram will confirm payment in the bot after checkout.';
+      await loadOffersAndDeals();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      starsCheckoutBusy = '';
+    }
+  }
+
+  async function cancelDealReservation(dealId: string) {
+    if (!dealId || offerActionBusy) return;
+    offerActionBusy = dealId;
+    try {
+      await request('/api/marketplace/deals/' + encodeURIComponent(dealId) + '/actions', undefined, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cancel' }),
+      });
+      notice = lang === 'ru' ? 'Резерв снят. Объявление снова доступно.' : 'Reservation released. The listing is available again.';
+      await Promise.all([loadOffersAndDeals(), loadMarketplace()]);
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { offerActionBusy = ''; }
   }
 
   async function changeOfferStatus(event: Event) {
@@ -634,9 +967,13 @@
 
   function activityLabel(item: AccountActivity) {
     const labels: Record<string,string> = {
-      order_created:t.orderCreatedActivity, order_updated:t.orderUpdatedActivity, order_simulated_fill:t.orderFilledActivity,
+      order_created:t.orderCreatedActivity, order_updated:t.orderUpdatedActivity, order_filled:t.orderFilledActivity,
       order_cancelled:t.orderCancelledActivity, offer_received:t.offerReceivedActivity,
-      offer_accepted:t.offerAcceptedActivity, offer_declined:t.offerDeclinedActivity,      offer_withdrawn:t.offerWithdrawnActivity, demo_deal_created:t.dealCreatedActivity,
+      offer_accepted:t.offerAcceptedActivity, offer_declined:t.offerDeclinedActivity, offer_withdrawn:t.offerWithdrawnActivity,
+      deal_created:lang==='ru'?'Сделка создана':'Deal created',
+      listing_reserved:lang==='ru'?'Объявление зарезервировано':'Listing reserved',
+      payment_not_enabled:lang==='ru'?'Оплата пока недоступна':'Payment not enabled',
+      deal_cancelled:lang==='ru'?'Резерв отменён':'Reservation cancelled',
     };
     return labels[item.type] || item.type;
   }
@@ -659,20 +996,62 @@
   }
 
   async function createOffer(orderId: string): Promise<boolean> {
-    if (!walletConnected) {
-      notice = lang === 'ru' ? 'Офферы откроются после подключения TON-кошелька и подтверждения актива в инвентаре.' : 'Offers unlock after TON Connect and verified asset ownership in your inventory.';
+    if (!signedIn || !authToken) {
+      notice = lang === 'ru' ? 'Войди через Telegram, чтобы отправить оффер.' : 'Sign in with Telegram to send an offer.';
       return false;
     }
     const amount = Number(offerAmount);
-    if (!Number.isFinite(amount) || amount <= 0 || (selectedOfferOrder?.currency === 'XTR' && !Number.isInteger(amount))) { notice = selectedOfferOrder?.currency === 'XTR' ? (lang === 'ru' ? 'Сумма оффера в Stars должна быть целым числом.' : 'Star offers must be a whole number.') : (lang === 'ru' ? 'Укажи положительную сумму оффера.' : 'Enter a positive offer amount.'); return false; }
+    if (!Number.isFinite(amount) || amount <= 0 || (selectedOfferOrder?.currency === 'XTR' && !Number.isInteger(amount)) || (selectedOfferOrder?.kind === 'buy-order' && !offerNote.trim())) {
+      notice = selectedOfferOrder?.kind === 'buy-order'
+        ? (lang === 'ru' ? 'Опиши актив, который предлагаешь покупателю.' : 'Describe the asset you are offering to the buyer.')
+        : selectedOfferOrder?.currency === 'XTR'
+          ? (lang === 'ru' ? 'Сумма оффера в Stars должна быть целым числом.' : 'Star offers must be a whole number.')
+          : (lang === 'ru' ? 'Укажи положительную сумму оффера.' : 'Enter a positive offer amount.');
+      return false;
+    }
     try {
       await request('/api/marketplace/offers', undefined, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order_id:orderId,amount,note:offerNote.trim()}) });
       offerAmount = ''; offerNote = '';
       haptic('success');
-      notice = lang === 'ru' ? 'Оффер отправлен владельцу актива.' : 'Offer sent to the asset owner.';
+      notice = selectedOfferOrder?.kind === 'buy-order'
+        ? (lang === 'ru' ? 'Ответное предложение отправлено покупателю. Это ещё не резерв и не сделка.' : 'Your seller response was sent. It is not a reservation or a completed trade.')
+        : (lang === 'ru' ? 'Оффер отправлен владельцу актива.' : 'Offer sent to the asset owner.');
       await loadOffersAndDeals();
       return true;
     } catch (e) { notice = e instanceof Error ? e.message : String(e); haptic('error'); return false; }
+  }
+
+  function startEditOffer(offer: MarketplaceOffer) {
+    editingOfferId = offer.id;
+    editOfferAmount = String(offer.amount);
+    editOfferNote = offer.note || '';
+  }
+
+  async function saveOfferEdit() {
+    const offer = offers.find(item => item.id === editingOfferId);
+    const amount = Number(editOfferAmount);
+    if (!offer || !Number.isFinite(amount) || amount <= 0 || (offer.currency === 'XTR' && !Number.isInteger(amount))) {
+      notice = lang === 'ru'
+        ? (offer?.currency === 'XTR' ? 'Сумма оффера в Stars должна быть целым числом.' : 'Укажи корректную положительную сумму.')
+        : (offer?.currency === 'XTR' ? 'Star offers must be a whole number.' : 'Enter a valid positive amount.');
+      return;
+    }
+    if (offerEditBusy) return;
+    offerEditBusy = true;
+    try {
+      await request('/api/marketplace/offers/' + encodeURIComponent(editingOfferId), undefined, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'edit', amount, note: editOfferNote.trim() }),
+      });
+      editingOfferId = '';
+      notice = lang === 'ru' ? 'Оффер обновлён.' : 'Offer updated.';
+      await loadOffersAndDeals();
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      offerEditBusy = false;
+    }
   }
 
   async function respondToOffer(offerId: string, action: 'accept'|'decline'|'withdraw') {
@@ -685,12 +1064,52 @@
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
     finally { offerActionBusy = ''; }
   }
-  function toggleFavoriteOrder(order: MarketplaceOrder) {
+  async function loadFavorites() {
+    if (!signedIn || !authToken) return;
+    try {
+      const data = await request('/api/marketplace/favorites');
+      const ids: string[] = Array.isArray(data.items)
+        ? (data.items as Array<{id?: unknown}>)
+            .map(item => typeof item?.id === 'string' ? item.id : '')
+            .filter((id): id is string => id.length > 0)
+        : [];
+      favoriteOrderIds = Array.from(new Set<string>(ids)).slice(0, 300);
+      try { localStorage.setItem('hassle-nft-favorite-orders-v1', JSON.stringify(favoriteOrderIds)); } catch {}
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function toggleFavoriteOrder(order: MarketplaceOrder) {
     haptic('light');
-    favoriteOrderIds = favoriteOrderIds.includes(order.id)
+    const wasSaved = favoriteOrderIds.includes(order.id);
+    const previous = favoriteOrderIds;
+    favoriteOrderIds = wasSaved
       ? favoriteOrderIds.filter(id => id !== order.id)
       : [...favoriteOrderIds, order.id];
     try { localStorage.setItem('hassle-nft-favorite-orders-v1', JSON.stringify(favoriteOrderIds)); } catch {}
+    if (!signedIn || !authToken) return;
+    try {
+      if (wasSaved) {
+        await request('/api/marketplace/favorites/' + encodeURIComponent(order.id), undefined, { method: 'DELETE' });
+      } else {
+        await request('/api/marketplace/favorites/' + encodeURIComponent(order.id), undefined, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gift: {
+            id: order.id, title: order.title, price: order.price, currency: order.currency,
+            kind: order.kind, status: order.status, createdAt: order.createdAt,
+            owner: order.owner, note: order.note || '', image_url: order.image_url || '',
+            asset_type: order.asset_type || null,
+          } }),
+        });
+      }
+    } catch (e) {
+      favoriteOrderIds = previous;
+      try { localStorage.setItem('hassle-nft-favorite-orders-v1', JSON.stringify(favoriteOrderIds)); } catch {}
+      notice = e instanceof Error ? e.message : String(e);
+      haptic('error');
+    }
   }
 
   function startEditOrder(order: MarketplaceOrder) {
@@ -702,8 +1121,11 @@
 
   async function saveOrderEdit(id: string) {
     const price = Number(editPrice);
-    if (!editTitle.trim() || !Number.isFinite(price) || price <= 0) {
-      notice = lang === 'ru' ? 'Проверь название и положительную цену.' : 'Enter a title and a positive price.';
+    const order = orders.find(item => item.id === id);
+    if (!Number.isFinite(price) || price <= 0 || (order?.currency === 'XTR' && !Number.isInteger(price))) {
+      notice = lang === 'ru'
+        ? (order?.currency === 'XTR' ? 'Цена в Stars должна быть целым числом.' : 'Укажи корректную положительную цену.')
+        : (order?.currency === 'XTR' ? 'Star prices must be whole numbers.' : 'Enter a valid positive price.');
       return;
     }
     if (orderEditBusy) return;
@@ -712,11 +1134,16 @@
       await request('/api/marketplace/orders/' + encodeURIComponent(id), undefined, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: editTitle.trim(), price, note: editNote.trim() }),
+        body: JSON.stringify({
+          ...(order?.kind === 'buy-order' ? { title: editTitle.trim() } : {}),
+          price,
+          note: editNote.trim(),
+        }),
       });
       editingOrderId = '';
       notice = t.orderUpdated;
       await loadMarketplace();
+      if (selectedAsset?.id === id) selectedAsset = orders.find(item => item.id === id) || selectedAsset;
     } catch (e) {
       notice = e instanceof Error ? e.message : String(e);
     } finally {
@@ -725,16 +1152,97 @@
   }
 
   async function cancelOrder(id: string) {
+    if (orderEditBusy) return;
+    const order = orders.find(item => item.id === id);
+    orderEditBusy = true;
     try {
       await request('/api/marketplace/orders/' + encodeURIComponent(id), undefined, {method:'DELETE'});
-      notice = lang === 'ru' ? 'Заявка снята.' : 'Order cancelled.';
-      await loadMarketplace();
-      await loadOffersAndDeals();
+      editingOrderId = '';
+      if (selectedAsset?.id === id) showAssetDetails = false;
+      notice = order?.kind === 'buy-order'
+        ? (lang === 'ru' ? 'Заявка на покупку отменена.' : 'Buy request cancelled.')
+        : (lang === 'ru' ? 'Объявление снято с продажи.' : 'Listing removed from sale.');
+      await Promise.all([loadMarketplace(), loadOffersAndDeals(), loadVerifiedInventory()]);
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+    finally { orderEditBusy = false; }
   }
 
   async function loadAdminOverview() {
-    if (isAdmin) await loadAdminReports();
+    if (!isAdmin || adminBusy) return;
+    adminBusy = true;
+    try {
+      const roleData = await request('/api/marketplace/admin/roles/me');
+      adminRole = String(roleData.role || 'owner');
+      adminPermissions = Array.isArray(roleData.permissions) ? roleData.permissions as string[] : [];
+      const can = (permission: string) => adminPermissions.includes(permission);
+      const [overview, reports, users, assets, reconciliation, disputes, audit] = await Promise.all([
+        request('/api/marketplace/admin/overview'),
+        can('reports') ? request('/api/marketplace/admin/reports?status=open&limit=50') : Promise.resolve({items:[]}),
+        can('users_read') ? request('/api/marketplace/admin/users?limit=25') : Promise.resolve({items:[]}),
+        can('assets_read') ? request('/api/marketplace/admin/assets?status=verified&limit=25') : Promise.resolve({items:[]}),
+        can('reconciliation_read') ? request('/api/marketplace/admin/reconciliation?limit=50') : Promise.resolve({payments:[],transfers:[]}),
+        can('deals_read') ? request('/api/marketplace/admin/deals?status=disputed&limit=50') : Promise.resolve({items:[]}),
+        (adminRole==='owner' || adminRole==='finance') ? request('/api/marketplace/admin/security-audit?limit=25') : Promise.resolve({items:[]}),
+      ]);
+      adminOverview = overview as Record<string,number>;
+      adminReports = Array.isArray(reports.items) ? reports.items as OrderReport[] : [];
+      adminUsers = Array.isArray(users.items) ? users.items as Array<Record<string,unknown>> : [];
+      adminAssets = Array.isArray(assets.items) ? assets.items as Array<Record<string,unknown>> : [];
+      adminDisputes = Array.isArray(disputes.items) ? disputes.items as Array<Record<string,unknown>> : [];
+      adminAudit = Array.isArray(audit.items) ? audit.items as Array<Record<string,unknown>> : [];
+      adminReconciliation = {
+        payments: Array.isArray(reconciliation.payments) ? reconciliation.payments as Array<Record<string,unknown>> : [],
+        transfers: Array.isArray(reconciliation.transfers) ? reconciliation.transfers as Array<Record<string,unknown>> : [],
+      };
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      adminBusy = false;
+    }
+  }
+
+  async function searchAdminUsers() {
+    if (!isAdmin || !adminPermissions.includes('users_read')) return;
+    try {
+      const suffix = adminUserSearch.trim() ? '&q=' + encodeURIComponent(adminUserSearch.trim()) : '';
+      const data = await request('/api/marketplace/admin/users?limit=25' + suffix);
+      adminUsers = Array.isArray(data.items) ? data.items as Array<Record<string,unknown>> : [];
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+  }
+
+  async function revokeAdminUserSessions(telegramId: string) {
+    if (!isAdmin || !adminPermissions.includes('users_manage') || !/^\\d+$/.test(telegramId)) return;
+    try {
+      await request('/api/marketplace/admin/users/' + encodeURIComponent(telegramId) + '/revoke-sessions', undefined, {method:'POST'});
+      notice = lang==='ru' ? 'Активные сессии пользователя отозваны.' : 'User sessions revoked.';
+      await searchAdminUsers();
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+  }
+
+  async function revokeAdminAsset(assetId: string) {
+    if (!isAdmin || !adminPermissions.includes('assets_moderate') || !assetId) return;
+    if (!window.confirm(lang==='ru' ? 'Отозвать подтверждение владения? Активные объявления будут сняты.' : 'Revoke asset verification? Active listings will be removed.')) return;
+    try {
+      await request('/api/marketplace/admin/assets/' + encodeURIComponent(assetId) + '/revoke', undefined, {method:'POST'});
+      notice = lang==='ru' ? 'Актив отозван, активные объявления сняты.' : 'Asset revoked and active listings removed.';
+      await loadAdminOverview();
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
+  }
+
+  async function approveAdminDispute(dealId: string, decision: 'refund_buyer'|'release_to_seller') {
+    if (!isAdmin || (adminRole!=='owner' && adminRole!=='finance')) return;
+    try {
+      const idempotencyKey = 'admin-dispute:' + dealId + ':' + decision + ':' + crypto.randomUUID();
+      const result = await request('/api/marketplace/admin/deals/' + encodeURIComponent(dealId) + '/dispute-approvals', undefined, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({decision,idempotency_key:idempotencyKey}),
+      });
+      notice = lang==='ru'
+        ? 'Согласование записано: ' + result.approvals + ' / ' + result.required + '. Исполнение не запускается автоматически.'
+        : 'Approval recorded: ' + result.approvals + ' / ' + result.required + '. Execution is not automatic.';
+      await loadAdminOverview();
+    } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
   async function loadAdminReports() {
@@ -805,7 +1313,9 @@
       telegramPremium = data.user.is_premium === true;
       isAdmin = data.is_admin === true;
       signedIn = true;
+      if (isAdmin) await loadAdminOverview();
       await loadMarketplace();
+      await loadFavorites();
       await loadOffersAndDeals();
       await loadSellerProfile();
       await loadVerifiedInventory();
@@ -850,6 +1360,7 @@
       signedIn = true;
       if (isAdmin) await loadAdminOverview();
       await loadMarketplace();
+      await loadFavorites();
       await loadOffersAndDeals();
       await loadSellerProfile();
       await loadVerifiedInventory();
@@ -949,7 +1460,7 @@
       {:else}<div class="state-panel">{lang==='ru'?'Профиль не найден.':'Seller profile not found.'}</div>{/if}
     {:else if view==='orders'}
       <section class="market-overview catalog-first" id="asset-feed">
-        <div class="market-heading-row catalog-heading"><div><div class="eyebrow">HASSLE NFT MARKET</div><h2>{lang==='ru'?'Каталог NFT-подарков':'NFT Gift Catalogue'}</h2></div></div>
+        <div class="market-heading-row catalog-heading"><div><div class="eyebrow">HASSLE NFT MARKET</div><h2>{lang==='ru'?'Каталог NFT-подарков':'NFT Gift Catalogue'}</h2></div><button class="refresh-button" type="button" onclick={startBuyRequest}>{lang==='ru'?'＋ Хочу купить':'＋ Post buy request'}</button></div>
         <div class="market-toolbar">
           <label class="market-search"><span>⌕</span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label={lang==='ru'?'Поиск активов':'Search assets'}/></label>
           <label class="market-search"><span>▤</span><input bind:value={marketCollectionSearch} placeholder={lang==='ru'?'Коллекция':'Collection'} aria-label={lang==='ru'?'Фильтр по коллекции':'Filter by collection or collection name'}/></label>
@@ -972,12 +1483,34 @@
         {:else}
           <div class="asset-grid">
             {#each marketAssets as order (order.id)}
-              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} backgroundColor={nftBackground} {lang} sellerProfileId={order.seller_profile_id || null} onSeller={()=>openSellerProfile(order.seller_profile_id || '')} onFavorite={()=>toggleFavoriteOrder(order)} canOffer={walletConnected} onOffer={()=>{notice=lang==='ru'?'Офферы откроются после подключения TON-кошелька и подтверждения актива в инвентаре.':'Offers unlock after TON Connect and verified inventory ownership.';haptic('error');}} onOpen={()=>{selectedAsset=order;showAssetDetails=true;haptic();}} />
+              <AssetCard order={order} favorite={favoriteOrderIds.includes(order.id)} backgroundColor={nftBackground} {lang} sellerProfileId={order.seller_profile_id || null} onSeller={()=>openSellerProfile(order.seller_profile_id || '')} onFavorite={()=>toggleFavoriteOrder(order)} canOffer={signedIn && !order.isMine} isMine={order.isMine} onManage={()=>{selectedAsset=order;startEditOrder(order);}} onOffer={()=>{selectedOfferOrder=order;offerAmount=String(order.price);offerNote='';showOfferModal=true;haptic();}} onOpen={()=>{selectedAsset=order;showAssetDetails=true;haptic();}} />
             {/each}
           </div>
           {#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}
         {/if}
       </section>
+       <section class="activity-history-panel">
+         <div class="section-title"><div><div class="eyebrow">COMMUNITY WANTED</div><h2>{lang==='ru'?'Заявки покупателей':'Buyer requests'}</h2></div><span>{publicBuyRequests.length}</span></div>
+         {#if publicBuyRequests.length}
+           <div class="orders-list">
+             {#each publicBuyRequests as request (request.id)}
+               <article class="order-card">
+                 <div class="order-icon">⌕</div>
+                 <div class="order-main">
+                   <div class="order-kind">{lang==='ru'?'ИЩЕТ ПОКУПАТЕЛЬ':'BUY REQUEST'}</div>
+                   <h3>{request.title}</h3>
+                   <p>{request.owner}{request.note ? ' · '+request.note : ''}</p>
+                 </div>
+                 <div class="order-price"><strong>{request.price} {request.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class="status-active">{lang==='ru'?'БЮДЖЕТ':'BUDGET'}</span></div>
+                 {#if !request.isMine}<div class="order-actions"><button class="asset-offer-button" disabled={!signedIn} onclick={()=>{selectedOfferOrder=request;offerAmount=String(request.price);offerNote='';showOfferModal=true;}}>{lang==='ru'?'Предложить свой актив':'Respond with an asset'}</button></div>{/if}
+               </article>
+             {/each}
+           </div>
+         {:else}
+           <div class="state-panel">{lang==='ru'?'Пока никто не опубликовал заявку на покупку.':'No community buy requests yet.'}</div>
+         {/if}
+         <small class="sell-modal-hint">{lang==='ru'?'Заявки показывают интерес и бюджет покупателей. Встречные предложения и автоматическое исполнение заявок ещё не включены.':'Requests show buyer interest and budget. Seller counteroffers and automatic order matching are not enabled yet.'}</small>
+       </section>
      {:else if view==='offers'}
        <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.offersTitle}</h1></section>
       <section class="market-section account-offers">
@@ -986,9 +1519,116 @@
         {#if offersBusy}<div class="state-panel">{t.loading}</div>{:else if offers.length===0}<div class="state-panel">{t.noOffers}</div>{:else if visibleOffers.length===0}<div class="state-panel">{lang==='ru'?'Нет офферов с таким статусом.':'No offers with this status.'}</div>{:else}
           <div class="orders-list">{#each visibleOffers as offer (offer.id)}
             <article class="order-card"><div class="order-icon">↗</div><div class="order-main"><div class="order-kind">{offer.is_mine?t.outgoing:t.incoming} · {offer.order_title}</div><h3>{offer.amount} {offer.currency==='XTR'?'⭐ Stars':'TON'}</h3><p>{offer.note || offer.sender_name} · {new Date(offer.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p></div><div class="order-price"><span class={'status-'+(offer.status==='pending'?'active':offer.status==='accepted'?'matched':'cancelled')}>{offerStatusLabel(offer.status)}</span></div>
-            {#if offer.status==='pending' && offer.is_mine}<div class="order-actions"><button class="cancel-button" onclick={()=>respondToOffer(offer.id,'withdraw')} disabled={offerActionBusy===offer.id}>{offerActionBusy===offer.id?'…':t.withdrawOffer}</button></div>{:else if offer.status==='pending' && !offer.is_mine}<div class="order-actions"><button class="cancel-button" onclick={()=>respondToOffer(offer.id,'decline')} disabled={offerActionBusy===offer.id}>{t.declineOffer}</button></div><p class="safety-note">{lang==='ru'?'Принятие оффера станет доступно после подключения эскроу TON/Stars и реальной передачи NFT.':'Offer acceptance will be enabled after TON/Stars escrow and real NFT transfer are connected.'}</p>{/if}</article>
+            {#if offer.status==='pending' && offer.is_mine}<div class="order-actions"><button class="asset-offer-button" onclick={()=>startEditOffer(offer)} disabled={offerEditBusy}>{lang==='ru'?'Изменить':'Edit offer'}</button><button class="cancel-button" onclick={()=>respondToOffer(offer.id,'withdraw')} disabled={offerActionBusy===offer.id || offerEditBusy}>{offerActionBusy===offer.id?'…':t.withdrawOffer}</button></div>{:else if offer.status==='pending' && !offer.is_mine}<div class="order-actions">{#if offer.order_kind==='buy-order'}<button class="asset-offer-button" disabled title={lang==='ru'?'Ответы на buy-заявки пока не поддерживают защищённое исполнение':'Seller responses to buy requests are not yet supported by protected settlement'}>{lang==='ru'?'Пока недоступно':'Not available yet'}</button>{:else}<button class="asset-offer-button" onclick={()=>respondToOffer(offer.id,'accept')} disabled={offerActionBusy===offer.id}>{offerActionBusy===offer.id?'…':(lang==='ru'?'Принять и зарезервировать':'Accept & reserve')}</button>{/if}<button class="cancel-button" onclick={()=>respondToOffer(offer.id,'decline')} disabled={offerActionBusy===offer.id}>{t.declineOffer}</button></div><p class="safety-note">{offer.order_kind==='buy-order'?(lang==='ru'?'Это ответ продавца на buy-заявку. Такой тип сделки пока не поддерживает безопасное резервирование и передачу актива.':'This is a seller response to a buy request. This deal type does not yet support safe reservation and asset delivery.'):(lang==='ru'?'Принятие создаёт резерв объявления. Оплата и передача NFT пока не выполняются, поэтому сделка не считается завершённой.':'Accepting creates a listing reservation. Payment and NFT delivery are not active, so the trade is not completed.')}</p>{/if}</article>
           {/each}</div>{/if}
         {#if offers.length < offersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOffers} disabled={offersLoadingMore}>{offersLoadingMore?'…':t.loadMore}</button></div>{/if}
+
+        <div class="activity-history-panel">
+          <div class="section-title"><div><div class="eyebrow">YOUR MARKET</div><h2>{lang==='ru'?'Мои объявления':'My listings'}</h2></div><span>{myListings.length}</span></div>
+          {#if myListings.length}
+            <div class="orders-list">
+              {#each myListings as listing (listing.id)}
+                <article class="order-card">
+                  <div class="order-icon">{listing.kind==='listing'?'◇':'⌕'}</div>
+                  <div class="order-main">
+                    <div class="order-kind">{listing.kind==='listing'?(lang==='ru'?'ТВОЯ ПРОДАЖА':'YOUR LISTING'):(lang==='ru'?'ЗАЯВКА НА ПОКУПКУ':'YOUR BUY REQUEST')}</div>
+                    <h3>{listing.title}</h3>
+                    <p>{listing.price} {listing.currency==='XTR'?'⭐ Stars':'TON'} · {new Date(listing.createdAt*1000).toLocaleDateString(lang==='ru'?'ru-RU':'en-US')}</p>
+                  </div>
+                  <div class="order-price">
+                    <span class={'status-'+(listing.status==='active'?'active':listing.status==='matched'?'matched':'cancelled')}>{listing.status==='active'?(lang==='ru'?'АКТИВНО':'ACTIVE'):listing.status==='matched'?(lang==='ru'?'ЗАРЕЗЕРВИРОВАНО':'RESERVED'):(lang==='ru'?'СНЯТО':'CANCELLED')}</span>
+                    {#if listing.status==='active'}
+                      <button class="cancel-button" onclick={()=>startEditOrder(listing)}>{lang==='ru'?'Управлять':'Manage'}</button>
+                    {/if}
+                  </div>
+                </article>
+              {/each}
+            </div>
+          {:else}
+            <div class="state-panel">{lang==='ru'?'У тебя пока нет объявлений. Выставь подтверждённый актив из инвентаря.':'You have no listings yet. List a verified asset from your inventory.'}</div>
+          {/if}
+        </div>
+
+        <div class="activity-history-panel">
+          <div class="section-title"><div><div class="eyebrow">RESERVATIONS</div><h2>{lang==='ru'?'Резервы и сделки':'Reservations and deals'}</h2></div><span>{deals.length}</span></div>
+          {#if deals.length}
+            <div class="orders-list">
+              {#each deals as deal (deal.id)}
+                <article class="order-card">
+                  <div class="order-icon">◇</div>
+                  <div class="order-main">
+                    <div class="order-kind">{deal.is_seller ? (lang==='ru'?'Ты продавец':'You are the seller') : (lang==='ru'?'Ты покупатель':'You are the buyer')}</div>
+                    <h3>{deal.order_title}</h3>
+                    <p>{deal.agreed_amount} {deal.currency==='XTR'?'⭐ Stars':'TON'} · {new Date(deal.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p>
+                    <small>{dealStatusLabel(deal.status)}</small>
+                    {#if deal.status==='payment_not_enabled'}
+                      <p class="safety-note">{lang==='ru'?'Резерв удерживает объявление, но деньги не списаны, NFT не передан.':'The listing is reserved, but no funds were charged and no NFT was transferred.'}</p>
+                    {:else if deal.status==='awaiting_payment'}
+                      <p class="safety-note">{lang==='ru'?'Ожидается подтверждение оплаты. Не отправляй деньги напрямую продавцу.':'Waiting for payment confirmation. Do not send funds directly to the seller.'}</p>
+                    {:else if deal.status==='payment_pending'}
+                      <p class="safety-note">{lang==='ru'?'Проверяем подтверждение в платёжной сети. Не отправляй оплату повторно.':'Waiting for network confirmation. Do not submit another payment.'}</p>
+                    {/if}
+                  </div>
+                  <div class="order-price">
+                    <span class={'status-'+(deal.reservation_active?'matched':'cancelled')}>{deal.reservation_active?(lang==='ru'?'РЕЗЕРВ':'RESERVED'):(lang==='ru'?'ЗАКРЫТА':'CLOSED')}</span>
+                    <div class="order-actions">
+                      <button class="cancel-button" onclick={()=>toggleDealTimeline(deal.id)}>{expandedDealTimeline===deal.id?(lang==='ru'?'Скрыть журнал':'Hide timeline'):(lang==='ru'?'Журнал сделки':'Deal timeline')}</button>
+                      {#if deal.status==='paid' || deal.status==='delivery_pending'}
+                        <button class="cancel-button" onclick={()=>openDealDispute(deal.id)} disabled={disputeBusy===deal.id}>{disputeBusy===deal.id?'…':(lang==='ru'?'Открыть спор':'Open dispute')}</button>
+                      {:else if deal.status==='disputed'}
+                        <span class="status-cancelled">{lang==='ru'?'СПОР ОТКРЫТ':'DISPUTED'}</span>
+                      {/if}
+                    </div>
+                    {#if expandedDealTimeline===deal.id}
+                      {#if dealTimelineBusy===deal.id}
+                        <p class="safety-note">{lang==='ru'?'Загружаем журнал…':'Loading timeline…'}</p>
+                      {:else if (dealTimelineItems[deal.id]||[]).length}
+                        <div class="activity-timeline deal-timeline">
+                          {#each dealTimelineItems[deal.id] as event (event.id)}
+                            <div class="activity-row">
+                              <span class="activity-marker"></span>
+                              <div class="activity-row-main">
+                                <strong>{dealEventLabel(event)}</strong>
+                                <small>{event.actor_user_id} · {new Date(event.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</small>
+                              </div>
+                            </div>
+                          {/each}
+                        </div>
+                      {:else}
+                        <p class="safety-note">{lang==='ru'?'Событий пока нет.':'No events recorded yet.'}</p>
+                      {/if}
+                    {/if}
+                    {#if (deal.status==='paid' || deal.status==='delivery_pending') && deal.is_seller && deal.asset_source==='telegram_gift'}
+                      <button class="asset-offer-button" onclick={()=>transferTelegramBusinessGift(deal.id)} disabled={businessGiftDeliveryBusy===deal.id}>{businessGiftDeliveryBusy===deal.id?'…':(lang==='ru'?'Передать подарок через Telegram':'Transfer gift via Telegram')}</button>
+                    {/if}
+                    {#if deal.status==='paid' && deal.is_seller && deal.asset_source==='ton_nft'}
+                      <button class="asset-offer-button" onclick={()=>prepareTonNftDelivery(deal.id)} disabled={tonDeliveryBusy===deal.id}>{tonDeliveryBusy===deal.id?'…':(lang==='ru'?'Подготовить передачу NFT':'Prepare NFT delivery')}</button>
+                    {:else if deal.status==='delivery_pending' && !deal.is_seller && deal.asset_source==='ton_nft'}
+                      <button class="asset-offer-button" onclick={()=>verifyTonNftDelivery(deal.id)} disabled={tonDeliveryBusy===deal.id}>{tonDeliveryBusy===deal.id?'…':(lang==='ru'?'Проверить владельца в TON':'Verify TON ownership')}</button>
+                    {/if}
+                    {#if deal.status==='payment_not_enabled'}
+                      {#if !deal.is_seller && deal.payments_enabled && deal.currency==='TON'}
+                        <button class="asset-offer-button" onclick={()=>startTonCheckout(deal.id)} disabled={tonDeliveryBusy===deal.id}>{tonDeliveryBusy===deal.id?'…':(lang==='ru'?'Оплатить TON':'Pay with TON')}</button>
+                      {/if}
+                      {#if !deal.is_seller && deal.payments_enabled && deal.currency==='XTR'}
+                        <button class="asset-offer-button" onclick={()=>startStarsCheckout(deal.id)} disabled={starsCheckoutBusy===deal.id}>{starsCheckoutBusy===deal.id?'…':(lang==='ru'?'Оплатить Stars':'Pay with Stars')}</button>
+                      {/if}
+                      <button class="cancel-button" onclick={()=>cancelDealReservation(deal.id)} disabled={offerActionBusy===deal.id || starsCheckoutBusy===deal.id || tonDeliveryBusy===deal.id}>{offerActionBusy===deal.id?'…':(lang==='ru'?'Снять резерв':'Release reservation')}</button>
+                    {:else if deal.status==='awaiting_payment' && !deal.is_seller && deal.payments_enabled && deal.currency==='TON'}
+                      <button class="asset-offer-button" onclick={()=>startTonCheckout(deal.id)} disabled={tonDeliveryBusy===deal.id}>{tonDeliveryBusy===deal.id?'…':(lang==='ru'?'Продолжить оплату TON':'Continue TON payment')}</button>
+                    {:else if deal.status==='payment_pending' && !deal.is_seller && deal.currency==='TON'}
+                      <button class="asset-offer-button" onclick={()=>confirmTonPayment(deal.id)} disabled={tonDeliveryBusy===deal.id}>{tonDeliveryBusy===deal.id?'…':(lang==='ru'?'Проверить оплату TON':'Verify TON payment')}</button>
+                    {:else if deal.status==='awaiting_payment' && !deal.is_seller && deal.payments_enabled && deal.currency==='XTR'}
+                      <button class="asset-offer-button" onclick={()=>startStarsCheckout(deal.id)} disabled={starsCheckoutBusy===deal.id}>{starsCheckoutBusy===deal.id?'…':(lang==='ru'?'Создать счёт Stars':'Create Stars invoice')}</button>
+                    {/if}
+                  </div>
+                </article>
+              {/each}
+            </div>
+          {:else}
+            <div class="state-panel">{lang==='ru'?'Пока нет зарезервированных объявлений.':'No reserved listings yet.'}</div>
+          {/if}
+        </div>
 
         <div class="activity-history-panel">
           <div class="section-title"><div><div class="eyebrow">TRADE JOURNAL</div><h2>{lang==='ru'?'История операций':'Recent activity'}</h2></div><span>{accountActivity.length} / {activityTotal}</span></div>
@@ -1015,13 +1655,13 @@
               <span class:granted={telegramBusinessStatus.can_transfer_stars}>{lang==='ru'?'Комиссия в Stars':'Stars transfer fee'}</span>
             </div>
             {#if !telegramBusinessStatus.gift_import_ready}<small>{lang==='ru'?'Выдай боту право просмотра подарков в настройках Telegram Business.':'Grant the bot permission to view gifts in Telegram Business settings.'}</small>{/if}
-            <p>{lang==='ru'?'Подключение и разрешения проверены. Автоматическая передача подарков в сделках пока закрыта: сначала завершаем и тестируем безопасный механизм оплаты и передачи.':'Connection and permissions are verified. Automatic gift delivery in marketplace deals remains disabled until the secure payment and transfer flow is implemented and tested.'}</p>
+            <p>{lang==='ru'?'После оплаты продавец может передать подарок покупателю через Telegram Business. Если Telegram требует комиссию в Stars, приложение отдельно запросит твоё согласие до передачи.':'After payment, the seller can transfer the gift to the buyer through Telegram Business. If Telegram requires a Stars fee, the app asks for your consent before the transfer.'}</p>
           {:else}
             <p>{lang==='ru'?'Это дополнительный способ импорта Telegram-подарков. Подключённые бизнес-боты доступны и без Premium. Покупателям подключать Telegram Business вообще не нужно; NFT из TON можно добавлять через кошелёк.':'This is an optional way to import Telegram gifts. The Telegram Business account owner needs Premium to connect it. Without it, users can still browse and buy, and import TON NFTs through a wallet.'}</p>
           {/if}
           <button class="refresh-button" type="button" onclick={loadTelegramBusinessStatus}>{lang==='ru'?'Проверить подключение':'Check connection'} ↻</button>
         </div>
-        <TonWalletConnect api={API} authToken={authToken} {lang} onVerified={(address)=>{walletConnected=Boolean(address);}} />{#if walletConnected}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTonWalletAssets} disabled={tonNftImportBusy}>{tonNftImportBusy?(lang==='ru'?'Сканируем блокчейн…':'Scanning the blockchain…'):(lang==='ru'?'↓ Загрузить NFT из TON':'↓ Import NFTs from TON')}</button>{/if}{#if tonNftImportMessage}<p class="ton-wallet-message">{tonNftImportMessage}</p>{/if}</div></div>
+        <TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления TON и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for TON to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletConnected=Boolean(address);}} />{#if walletConnected}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTonWalletAssets} disabled={tonNftImportBusy}>{tonNftImportBusy?(lang==='ru'?'Сканируем блокчейн…':'Scanning the blockchain…'):(lang==='ru'?'↓ Загрузить NFT из TON':'↓ Import NFTs from TON')}</button>{/if}{#if tonNftImportMessage}<p class="ton-wallet-message">{tonNftImportMessage}</p>{/if}</div></div>
        {#if verifiedAssetsLoading}
          <div class="inventory-empty-state"><span class="state-icon">◌</span><strong>{lang==='ru'?'Проверяем инвентарь…':'Checking inventory…'}</strong></div>
        {:else if verifiedAssets.length}
@@ -1066,8 +1706,25 @@
       <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.profile}</h1></section>
       <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div>{#if !signedIn}<button class="publish-button" onclick={()=>telegramLogin()} disabled={authBusy}>{authBusy?(lang==='ru'?'Подтверждаем…':'Verifying…'):t.signIn+' →'}</button>{:else}<span class="telegram-verified-state">✓ {lang==='ru'?'Подтверждено':'Verified'}</span>{/if}</article>
       <article class="profile-card wallet-card">
-        <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">TON CONNECT · PROOF</div><h2>{lang==='ru'?'TON-кошелёк':'TON wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} onVerified={(address)=>{walletConnected=Boolean(address);}} /></div>
+        <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">TON CONNECT · PROOF</div><h2>{lang==='ru'?'TON-кошелёк':'TON wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления TON и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for TON to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletConnected=Boolean(address);}} /></div>
       </article>
+       {#if signedIn && accountStats.seller_pending_settlements.length}
+         <article class="profile-card activity-card">
+           <div class="notification-heading"><div><div class="eyebrow">SELLER SETTLEMENT</div><strong>{lang==='ru'?'Начисления продавцу':'Seller earnings'}</strong></div><span>{accountStats.seller_pending_settlements.length}</span></div>
+           <div class="activity-timeline">
+             {#each accountStats.seller_pending_settlements as settlement (settlement.currency)}
+               <div class="activity-row">
+                 <span class="activity-marker"></span>
+                 <div class="activity-row-main">
+                   <strong>{settlement.currency==='XTR'?'⭐ Telegram Stars':'TON'}</strong>
+                   <small>{settlement.status==='pending_manual_payout'?(lang==='ru'?'Ожидает ручной выплаты через мультиподпись 2 из 3':'Awaiting manual 2-of-3 multisig payout'):(lang==='ru'?'Внутреннее начисление Stars. Автоматический вывод недоступен.':'Internal Stars credit. Automatic withdrawal is unavailable.')}</small>
+                 </div>
+                 <div class="activity-row-value"><strong>{settlement.amount} {settlement.currency==='XTR'?'⭐':'TON'}</strong></div>
+               </div>
+             {/each}
+           </div>
+         </article>
+       {/if}
       {#if signedIn}
          <article class="profile-card seller-profile-editor">
            <div class="eyebrow">{t.sellerCardTitle}</div>
@@ -1110,6 +1767,60 @@
       </article>
       <article class="profile-card preferences-card"><div class="eyebrow">PREFERENCES</div><h2>HASSLE NFT</h2><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang==='ru'?'Язык интерфейса':'Interface language'} · {lang.toUpperCase()}</button></article>{#if isAdmin}
         <article class="profile-card moderation-card">
+          <div class="notification-heading"><div><div class="eyebrow">HASSLE NFT · ADMIN</div><h2>{lang==='ru'?'Операционный центр':'Operations center'}</h2></div><button class="refresh-button" onclick={loadAdminOverview} disabled={adminBusy}>{adminBusy?'…':t.refresh}</button></div>
+          {#if adminOverview}
+            <div class="account-stats-grid">
+              {#each [{label:lang==='ru'?'Пользователи':'Users',value:adminOverview.users},{label:lang==='ru'?'Проверенные активы':'Verified assets',value:adminOverview.verified_assets},{label:lang==='ru'?'Объявления':'Active listings',value:adminOverview.active_listings},{label:lang==='ru'?'Жалобы':'Open reports',value:adminOverview.open_reports},{label:lang==='ru'?'Споры':'Open disputes',value:adminOverview.open_disputes},{label:lang==='ru'?'Платежи на проверке':'Pending payments',value:adminOverview.pending_payments}] as metric}
+                <div class="account-stat"><small>{metric.label}</small><strong>{metric.value}</strong></div>
+              {/each}
+            </div>
+          {/if}
+          {#if adminPermissions.includes('users_read')}
+          <div class="notification-heading"><h3>{lang==='ru'?'Пользователи':'Users'}</h3></div>
+          <div class="report-actions"><input class="form-input" bind:value={adminUserSearch} placeholder={lang==='ru'?'Telegram ID или @username':'Telegram ID or @username'} /><button class="refresh-button" onclick={searchAdminUsers}>{lang==='ru'?'Найти':'Search'}</button></div>
+          {#each adminUsers as user (String(user.telegram_id))}
+            <div class="activity-row"><div class="activity-row-main"><strong>{user.first_name || 'Telegram user'} {user.username ? '@'+user.username : ''}</strong><small>ID {user.telegram_id} · {lang==='ru'?'активных сессий':'active sessions'}: {user.active_sessions}</small></div><button class="cancel-button" onclick={()=>revokeAdminUserSessions(String(user.telegram_id))}>{lang==='ru'?'Завершить сессии':'Revoke sessions'}</button></div>
+          {/each}
+          {/if}
+          {#if adminPermissions.includes('deals_read')}
+          <div class="notification-heading"><h3>{lang==='ru'?'Споры':'Disputes'} · {adminDisputes.length}</h3></div>
+          {#each adminDisputes as dispute (String(dispute.id))}
+            <div class="activity-row">
+              <div class="activity-row-main"><strong>{String(dispute.id)}</strong><small>{lang==='ru'?'Покупатель':'Buyer'} {dispute.buyer_telegram_id} · {lang==='ru'?'Продавец':'Seller'} {dispute.seller_telegram_id} · {dispute.status}</small><small>{lang==='ru'?'Подтверждения':'Approvals'}: {dispute.approval_count || 0} / 2 · {dispute.approved_decision || (lang==='ru'?'нет решения':'no decision')}</small></div>
+              {#if adminRole==='owner' || adminRole==='finance'}
+                <div class="order-actions">
+                  <button class="match-button" onclick={()=>approveAdminDispute(String(dispute.id),'refund_buyer')}>{lang==='ru'?'За возврат':'Approve refund'}</button>
+                  <button class="match-button" onclick={()=>approveAdminDispute(String(dispute.id),'release_to_seller')}>{lang==='ru'?'За продавца':'Approve seller'}</button>
+                </div>
+              {/if}
+            </div>
+          {/each}
+          {/if}
+          {#if adminPermissions.includes('reconciliation_read')}
+          <div class="notification-heading"><h3>{lang==='ru'?'Ручная сверка':'Manual reconciliation'}</h3></div>
+          <div class="state-panel">{lang==='ru'?'Ожидают проверки платежи':'Payments awaiting review'}: {adminReconciliation.payments.length} · {lang==='ru'?'передачи активов':'asset transfers'}: {adminReconciliation.transfers.length}</div>
+          {#each adminReconciliation.payments as item (String(item.id))}
+            <div class="activity-row"><div class="activity-row-main"><strong>{item.provider} · {item.amount} {item.currency}</strong><small>{item.deal_id} · {item.status}</small></div></div>
+          {/each}
+          {#each adminReconciliation.transfers as item (String(item.id))}
+            <div class="activity-row"><div class="activity-row-main"><strong>{lang==='ru'?'Передача актива ожидает сверки':'Asset transfer needs reconciliation'}</strong><small>{item.deal_id} · {item.event_type}</small></div></div>
+          {/each}
+          {/if}
+          {#if adminRole==='owner' || adminRole==='finance'}
+          <div class="notification-heading"><h3>{lang==='ru'?'Журнал операций':'Operations journal'}</h3></div>
+          {#each adminAudit as event (String(event.id))}
+            <div class="activity-row"><div class="activity-row-main"><strong>{event.action} · {event.outcome}</strong><small>{lang==='ru'?'Администратор':'Admin'} {event.actor_telegram_id} · {new Date(Number(event.created_at)*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} · {String(event.target_hash).slice(0,12)}…</small></div></div>
+          {/each}
+          {/if}
+          {#if adminPermissions.includes('assets_read')}
+          <div class="notification-heading"><h3>{lang==='ru'?'Проверенные активы':'Verified assets'}</h3></div>
+          {#each adminAssets as asset (String(asset.id))}
+            <div class="activity-row"><div class="activity-row-main"><strong>{asset.title}</strong><small>{asset.source} · owner {asset.owner_telegram_id} · {lang==='ru'?'активных объявлений':'active listings'}: {asset.active_listings}</small></div>{#if adminPermissions.includes('assets_moderate')}<button class="cancel-button" onclick={()=>revokeAdminAsset(String(asset.id))}>{lang==='ru'?'Отозвать':'Revoke'}</button>{/if}</div>
+          {/each}
+          {/if}
+        </article>
+        {#if adminPermissions.includes('reports')}
+        <article class="profile-card moderation-card">
           <div class="notification-heading">
             <div><div class="eyebrow">MODERATION</div><h2>{t.adminReports}</h2></div>
             <button class="refresh-button" onclick={loadAdminReports} disabled={adminReportsBusy}>{adminReportsBusy?'…':t.refresh}</button>
@@ -1128,15 +1839,18 @@
                     <p>{report.reporter_name} · {new Date(report.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</p>
                     {#if report.details}<p>{report.details}</p>{/if}
                   </div>
-                  <div class="order-actions">
-                    <button class="match-button" onclick={()=>moderateOrderReport(report.id,'dismiss')} disabled={adminReportActionBusy===report.id}>{t.dismissReport}</button>
-                    <button class="cancel-button" onclick={()=>moderateOrderReport(report.id,'remove_order')} disabled={adminReportActionBusy===report.id}>{t.removeReportedOrder}</button>
-                  </div>
+                  {#if adminRole==='owner' || adminRole==='moderator'}
+                    <div class="order-actions">
+                      <button class="match-button" onclick={()=>moderateOrderReport(report.id,'dismiss')} disabled={adminReportActionBusy===report.id}>{t.dismissReport}</button>
+                      <button class="cancel-button" onclick={()=>moderateOrderReport(report.id,'remove_order')} disabled={adminReportActionBusy===report.id}>{t.removeReportedOrder}</button>
+                    </div>
+                  {/if}
                 </article>
               {/each}
             </div>
           {/if}
         </article>
+        {/if}
       {/if}</section>
     {/if}
 
@@ -1155,9 +1869,28 @@
             <div class="asset-detail-price"><small>{lang==='ru'?'Цена продавца':'Seller price'}</small><strong>{selectedAsset.price} {selectedAsset.currency==='XTR'?'⭐ Stars':'TON'}</strong></div>
             {#if selectedAsset.note}<p class="asset-detail-note">{selectedAsset.note}</p>{/if}
             <div class="asset-detail-unavailable"><strong>{lang==='ru'?'Характеристики актива':'Asset traits'}</strong><span>{lang==='ru'?'Метаданные и traits появятся после подключения источника NFT-метаданных.':'Metadata and traits will appear after an NFT metadata source is connected.'}</span></div>
-            <button class="ton-primary offer-submit" disabled={!walletConnected} title={lang==='ru'?'Сначала подключи кошелёк и подтверди владение активом':'Connect a wallet and verify asset ownership first'}>{lang==='ru'?'Офферы после TON Connect':'Offers after TON Connect'}</button>
-            {#if selectedAsset && !selectedAsset.isMine}<button class="report-asset-button" onclick={()=>{const asset=selectedAsset;if(!asset)return;if(!signedIn){notice=t.authHint;haptic('error');return;}startOrderReport(asset.id);}}>{t.reportOrder}</button>{/if}
-            <button class="asset-buy-disabled" disabled title={lang==='ru'?'Покупка включится после запуска защищённой оплаты и escrow':'Buying will be enabled after secure payments and escrow are live'}>{lang==='ru'?'Покупка скоро':'Buy · Coming soon'}</button>
+            {#if selectedAsset.isMine}
+              <button class="ton-primary offer-submit" onclick={()=>{startEditOrder(selectedAsset!);showAssetDetails=false;}}>{lang==='ru'?'Управлять объявлением':'Manage listing'}</button>
+            {:else}
+              <button class="ton-primary offer-submit" disabled={!signedIn} title={!signedIn?(lang==='ru'?'Войди через Telegram, чтобы отправить оффер':'Sign in with Telegram to make an offer'):undefined} onclick={()=>{if(!selectedAsset)return;selectedOfferOrder=selectedAsset;offerAmount=String(selectedAsset.price);offerNote='';showOfferModal=true;showAssetDetails=false;}}>{lang==='ru'?'Сделать оффер':'Make an offer'}</button>
+              <button class="report-asset-button" onclick={()=>{const asset=selectedAsset;if(!asset)return;if(!signedIn){notice=t.authHint;haptic('error');return;}startOrderReport(asset.id);}}>{t.reportOrder}</button>
+              <button class="asset-buy-disabled" disabled title={lang==='ru'?'Покупка включится после запуска защищённой оплаты и escrow':'Buying will be enabled after secure payments and escrow are live'}>{lang==='ru'?'Покупка скоро':'Buy · Coming soon'}</button>
+            {/if}
+          </div>
+        </div>
+      {/if}
+      {#if showBuyRequestModal}
+        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !createOrderBusy)showBuyRequestModal=false;}}>
+          <div class="sell-modal offer-modal" role="dialog" aria-modal="true" aria-labelledby="buy-request-title">
+            <button class="modal-close" onclick={()=>showBuyRequestModal=false} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={createOrderBusy}>×</button>
+            <div class="eyebrow">HASSLE NFT · BUY REQUEST</div>
+            <h2 id="buy-request-title">{lang==='ru'?'Создать заявку на покупку':'Create a buy request'}</h2>
+            <label>{lang==='ru'?'Какой актив ищешь?':'What asset are you looking for?'}<input class="form-input" bind:value={createTitle} maxlength="120" placeholder={lang==='ru'?'Например, Plush Pepe #123':'For example, Plush Pepe #123'} /></label>
+            <label>{lang==='ru'?'Бюджет':'Budget'}<input class="form-input" type="number" min="0.01" step={createCurrency==='XTR'?'1':'0.01'} bind:value={createPrice} inputmode="decimal" /></label>
+            <label>{lang==='ru'?'Валюта':'Currency'}<select class="form-input" bind:value={createCurrency}><option value="TON">TON</option><option value="XTR">⭐ Telegram Stars</option></select></label>
+            <label>{lang==='ru'?'Условия (необязательно)':'Details (optional)'}<textarea class="form-input note-input" bind:value={createNote} maxlength="300" placeholder={lang==='ru'?'Опиши нужную коллекцию или состояние':'Describe the collection or condition you want'}></textarea></label>
+            <button class="ton-primary offer-submit" onclick={submitBuyRequest} disabled={createOrderBusy}>{createOrderBusy?(lang==='ru'?'Публикуем…':'Publishing…'):(lang==='ru'?'Опубликовать заявку →':'Publish buy request →')}</button>
+            <small class="sell-modal-hint">{lang==='ru'?'Заявка показывает продавцам твой запрос и бюджет. Деньги не резервируются и покупка не происходит автоматически.':'The request shows sellers what you want and your budget. No funds are reserved and no purchase happens automatically.'}</small>
           </div>
         </div>
       {/if}
@@ -1200,17 +1933,45 @@
           </div>
         </div>
       {/if}
+      {#if editingOfferId}
+        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !offerEditBusy)editingOfferId='';}}>
+          <div class="sell-modal offer-modal" role="dialog" aria-modal="true" aria-labelledby="edit-offer-title">
+            <button class="modal-close" onclick={()=>editingOfferId=''} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={offerEditBusy}>×</button>
+            <div class="eyebrow">HASSLE NFT · OFFER</div>
+            <h2 id="edit-offer-title">{lang==='ru'?'Изменить оффер':'Edit offer'}</h2>
+            <label>{lang==='ru'?'Новая сумма':'New amount'}<input class="form-input" type="number" min="0.01" step={offers.find(item=>item.id===editingOfferId)?.currency==='XTR'?'1':'0.01'} bind:value={editOfferAmount}/></label>
+            <label>{lang==='ru'?'Сообщение продавцу':'Message to seller'}<textarea class="form-input note-input" bind:value={editOfferNote} maxlength="300"></textarea></label>
+            <button class="ton-primary offer-submit" onclick={saveOfferEdit} disabled={offerEditBusy}>{offerEditBusy?(lang==='ru'?'Сохраняем…':'Saving…'):(lang==='ru'?'Сохранить оффер':'Save offer')}</button>
+            <small class="sell-modal-hint">{lang==='ru'?'Изменить можно только свой ожидающий оффер. После ответа продавца редактирование закрывается.':'Only your pending offer can be edited. Editing closes once the seller responds.'}</small>
+          </div>
+        </div>
+      {/if}
+      {#if editingOrderId}
+        <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !orderEditBusy)editingOrderId='';}}>
+          <div class="sell-modal offer-modal" role="dialog" aria-modal="true" aria-labelledby="edit-listing-title">
+            <button class="modal-close" onclick={()=>editingOrderId=''} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={orderEditBusy}>×</button>
+            <div class="eyebrow">HASSLE NFT · LISTING</div>
+            <h2 id="edit-listing-title">{orders.find(item=>item.id===editingOrderId)?.kind==='buy-order'?(lang==='ru'?'Изменить заявку на покупку':'Edit buy request'):(lang==='ru'?'Управление объявлением':'Manage listing')}</h2>
+            {#if orders.find(item=>item.id===editingOrderId)?.kind==='buy-order'}<label>{lang==='ru'?'Название искомого актива':'Wanted asset'}<input class="form-input" bind:value={editTitle} maxlength="120" /></label>{/if}
+            <label>{lang==='ru'?'Цена / бюджет':'Price / budget'}<input class="form-input" type="number" min="0.01" step={orders.find(item=>item.id===editingOrderId)?.currency==='XTR'?'1':'0.01'} bind:value={editPrice} /></label>
+            <label>{lang==='ru'?'Комментарий':'Description'}<textarea class="form-input note-input" bind:value={editNote} maxlength="300"></textarea></label>
+            <button class="ton-primary offer-submit" onclick={()=>saveOrderEdit(editingOrderId)} disabled={orderEditBusy}>{orderEditBusy?(lang==='ru'?'Сохраняем…':'Saving…'):(lang==='ru'?'Сохранить изменения':'Save changes')}</button>
+            <button class="report-asset-button" onclick={()=>cancelOrder(editingOrderId)} disabled={orderEditBusy}>{orders.find(item=>item.id===editingOrderId)?.kind==='buy-order'?(lang==='ru'?'Отменить заявку':'Cancel buy request'):(lang==='ru'?'Снять объявление с продажи':'Remove listing from sale')}</button>
+            <small class="sell-modal-hint">{orders.find(item=>item.id===editingOrderId)?.kind==='buy-order'?(lang==='ru'?'Заявка показывает твой интерес и бюджет. Отмена не списывает деньги.':'A buy request shows your interest and budget. Cancelling it does not charge funds.'):(lang==='ru'?'Название и данные NFT защищены проверкой владения. Можно изменить цену и комментарий. Снятие объявления не передаёт актив и не списывает средства.':'NFT name and metadata are locked to verified ownership. You can change the price and note. Removing a listing does not transfer the asset or charge funds.')}</small>
+          </div>
+        </div>
+      {/if}
       {#if showOfferModal && selectedOfferOrder}
         <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !offerSubmitBusy)showOfferModal=false;}}>
           <div class="sell-modal offer-modal" role="dialog" aria-modal="true" aria-labelledby="offer-title">
             <button class="modal-close" onclick={()=>showOfferModal=false} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={offerSubmitBusy}>×</button>
             <div class="eyebrow">HASSLE NFT · OFFER</div>
-            <h2 id="offer-title">{lang==='ru'?'Предложить цену':'Make an offer'}</h2>
-            <div class="offer-asset-preview"><span>{assetTypeOf(selectedOfferOrder)==='username'?'＠':assetTypeOf(selectedOfferOrder)==='number'?'888':assetTypeOf(selectedOfferOrder)==='gift'?'NFT':'ASSET'}</span><div><strong>{selectedOfferOrder.title}</strong><small>{lang==='ru'?'Цена продавца':'Seller price'}: {selectedOfferOrder.price} {selectedOfferOrder.currency==='XTR'?'⭐':'TON'}</small></div></div>
-            <label>{lang==='ru'?'Твоё предложение':'Your offer'}<input class="form-input" type="number" min="0.01" step={selectedOfferOrder.currency==='XTR'?'1':'0.01'} bind:value={offerAmount} placeholder={selectedOfferOrder.currency==='XTR'?'100':'1.25'}/></label>
-            <label>{lang==='ru'?'Сообщение продавцу':'Message to seller'}<textarea class="form-input note-input" bind:value={offerNote} maxlength="500" placeholder={lang==='ru'?'Необязательно':'Optional'}></textarea></label>
-            <button class="ton-primary offer-submit" disabled={offerSubmitBusy} onclick={async()=>{if(!selectedOfferOrder)return;offerSubmitBusy=true;try{const sent=await createOffer(selectedOfferOrder.id);if(sent){showOfferModal=false;selectedOfferOrder=null;}}finally{offerSubmitBusy=false;}}}>{offerSubmitBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendOffer+' →'}</button>
-            <small class="sell-modal-hint">{lang==='ru'?'Оффер отправится владельцу актива. Это не перевод средств и не завершение сделки.':'The offer goes to the asset owner. It does not transfer funds or complete a trade.'}</small>
+            <h2 id="offer-title">{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Ответить покупателю':'Respond to buyer'):(lang==='ru'?'Предложить цену':'Make an offer')}</h2>
+            <div class="offer-asset-preview"><span>{assetTypeOf(selectedOfferOrder)==='username'?'＠':assetTypeOf(selectedOfferOrder)==='number'?'888':assetTypeOf(selectedOfferOrder)==='gift'?'NFT':'ASSET'}</span><div><strong>{selectedOfferOrder.title}</strong><small>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Бюджет покупателя':'Buyer budget'):(lang==='ru'?'Цена продавца':'Seller price')}: {selectedOfferOrder.price} {selectedOfferOrder.currency==='XTR'?'⭐':'TON'}</small></div></div>
+            <label>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Твоя цена покупателю':'Your price to buyer'):(lang==='ru'?'Твоё предложение':'Your offer')}<input class="form-input" type="number" min="0.01" step={selectedOfferOrder.currency==='XTR'?'1':'0.01'} bind:value={offerAmount} placeholder={selectedOfferOrder.currency==='XTR'?'100':'1.25'}/></label>
+            <label>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Опиши предлагаемый актив':'Describe the asset you offer'):(lang==='ru'?'Сообщение продавцу':'Message to seller')}<textarea class="form-input note-input" bind:value={offerNote} maxlength="300" placeholder={selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Название, коллекция и детали актива (обязательно)':'Asset name, collection and details (required)'):(lang==='ru'?'Необязательно':'Optional')}></textarea></label>
+            <button class="ton-primary offer-submit" disabled={offerSubmitBusy || selectedOfferOrder.kind==='buy-order'} onclick={async()=>{if(!selectedOfferOrder || selectedOfferOrder.kind==='buy-order')return;offerSubmitBusy=true;try{const sent=await createOffer(selectedOfferOrder.id);if(sent){showOfferModal=false;selectedOfferOrder=null;}}finally{offerSubmitBusy=false;}}}>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Ответы временно отключены':'Responses unavailable'):offerSubmitBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendOffer+' →'}</button>
+            <small class="sell-modal-hint">{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Ответы на заявки покупателей временно отключены. Сначала подключим привязку конкретного проверенного актива и безопасное резервирование.':'Seller responses to buy requests are temporarily unavailable until a specific verified asset can be bound and safely reserved.'):(lang==='ru'?'Оффер отправится владельцу актива. Это не перевод средств и не завершение сделки.':'The offer goes to the asset owner. It does not transfer funds or complete a trade.')}</small>
           </div>
         </div>
       {/if}

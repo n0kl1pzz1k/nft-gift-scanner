@@ -32,9 +32,10 @@ _SECURITY_AUDIT_ACTIONS = {
     "ton_wallet_revoked",
     "admin_report_dismissed",
     "admin_order_removed",
+    "admin_asset_revoked",
 }
-_SECURITY_AUDIT_TARGET_TYPES = {"session", "account", "wallet", "order_report", "order"}
-_SECURITY_AUDIT_METADATA_KEYS = {"network", "report_id", "order_id", "revoked_count", "reason"}
+_SECURITY_AUDIT_TARGET_TYPES = {"session", "account", "wallet", "order_report", "order", "verified_asset"}
+_SECURITY_AUDIT_METADATA_KEYS = {"network", "report_id", "order_id", "revoked_count", "cancelled_listings", "reason"}
 
 
 def insert_security_audit_event(
@@ -67,9 +68,9 @@ def insert_security_audit_event(
         elif key in {"report_id", "order_id"} and isinstance(value, str) and 1 <= len(value) <= 128:
             if all(character.isalnum() or character in "_-" for character in value):
                 safe_metadata[key] = value
-        elif key == "revoked_count" and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 1000:
+        elif key in {"revoked_count", "cancelled_listings"} and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 1000:
             safe_metadata[key] = value
-        elif key == "reason" and value == "self_logout":
+        elif key == "reason" and value in {"self_logout", "asset_moderation"}:
             safe_metadata[key] = value
     target_hash = hashlib.sha256(f"{target_type}:{target}".encode("utf-8")).hexdigest()
     event_id = "sa_" + uuid.uuid4().hex[:24]
@@ -193,6 +194,62 @@ def _migrate_legacy_order_event_types(conn: sqlite3.Connection) -> None:
     except Exception:
         conn.rollback()
         raise
+
+
+
+
+
+def _migrate_security_audit_schema(conn: sqlite3.Connection) -> None:
+    """Expand the append-only audit allow-list without losing historical events."""
+    require_sqlite_connection(conn, "Security audit schema migration")
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='security_audit_events'"
+    ).fetchone()
+    schema_sql = (row["sql"] or "") if row else ""
+    if "admin_asset_revoked" in schema_sql and "verified_asset" in schema_sql:
+        return
+    conn.execute("DROP TRIGGER IF EXISTS security_audit_events_no_update")
+    conn.execute("DROP TRIGGER IF EXISTS security_audit_events_no_delete")
+    conn.execute("DROP INDEX IF EXISTS idx_security_audit_actor_created")
+    conn.execute("DROP INDEX IF EXISTS idx_security_audit_action_created")
+    conn.execute("ALTER TABLE security_audit_events RENAME TO security_audit_events_legacy_admin_v1")
+    conn.execute("""
+        CREATE TABLE security_audit_events (
+            id TEXT PRIMARY KEY,
+            actor_telegram_id TEXT NOT NULL,
+            action TEXT NOT NULL CHECK(action IN (
+                'telegram_session_revoked', 'telegram_sessions_revoked_all',
+                'ton_wallet_linked', 'ton_wallet_revoked',
+                'admin_report_dismissed', 'admin_order_removed', 'admin_asset_revoked'
+            )),
+            target_type TEXT NOT NULL CHECK(target_type IN (
+                'session', 'account', 'wallet', 'order_report', 'order', 'verified_asset'
+            )),
+            target_hash TEXT NOT NULL CHECK(length(target_hash) = 64),
+            outcome TEXT NOT NULL CHECK(outcome IN ('success', 'denied')),
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL
+        )
+    """)
+    conn.execute("""
+        INSERT INTO security_audit_events
+        (id, actor_telegram_id, action, target_type, target_hash, outcome, metadata_json, created_at)
+        SELECT id, actor_telegram_id, action, target_type, target_hash, outcome, metadata_json, created_at
+        FROM security_audit_events_legacy_admin_v1
+    """)
+    conn.execute("DROP TABLE security_audit_events_legacy_admin_v1")
+    conn.execute("CREATE INDEX idx_security_audit_actor_created ON security_audit_events(actor_telegram_id, created_at DESC)")
+    conn.execute("CREATE INDEX idx_security_audit_action_created ON security_audit_events(action, created_at DESC)")
+    conn.execute("""
+        CREATE TRIGGER security_audit_events_no_update
+        BEFORE UPDATE ON security_audit_events
+        BEGIN SELECT RAISE(ABORT, 'security audit events are immutable'); END
+    """)
+    conn.execute("""
+        CREATE TRIGGER security_audit_events_no_delete
+        BEFORE DELETE ON security_audit_events
+        BEGIN SELECT RAISE(ABORT, 'security audit events are immutable'); END
+    """)
 
 
 def init_marketplace_db() -> None:
@@ -358,9 +415,9 @@ def init_marketplace_db() -> None:
             action TEXT NOT NULL CHECK(action IN (
                 'telegram_session_revoked', 'telegram_sessions_revoked_all',
                 'ton_wallet_linked', 'ton_wallet_revoked',
-                'admin_report_dismissed', 'admin_order_removed'
+                'admin_report_dismissed', 'admin_order_removed', 'admin_asset_revoked'
             )),
-            target_type TEXT NOT NULL CHECK(target_type IN ('session', 'account', 'wallet', 'order_report', 'order')),
+            target_type TEXT NOT NULL CHECK(target_type IN ('session', 'account', 'wallet', 'order_report', 'order', 'verified_asset')),
             target_hash TEXT NOT NULL CHECK(length(target_hash) = 64),
             outcome TEXT NOT NULL CHECK(outcome IN ('success', 'denied')),
             metadata_json TEXT NOT NULL DEFAULT '{}',
@@ -413,6 +470,7 @@ def init_marketplace_db() -> None:
 
 
         """)
+        _migrate_security_audit_schema(conn)
         gift_ref_columns = {row["name"] for row in conn.execute("PRAGMA table_info(telegram_business_gift_refs)").fetchall()}
         if "model_sticker_file_id" not in gift_ref_columns:
             conn.execute("ALTER TABLE telegram_business_gift_refs ADD COLUMN model_sticker_file_id TEXT NOT NULL DEFAULT ''")
@@ -1464,6 +1522,11 @@ def create_marketplace_router(
 ) -> APIRouter:
     router = APIRouter(prefix="/api/marketplace", tags=["marketplace"])
 
+    def require_admin_role(admin: dict, allowed_roles: set[str]) -> None:
+        role = admin.get("admin_role", "owner")
+        if role not in allowed_roles:
+            raise HTTPException(status_code=403, detail="Administrator role does not grant this permission")
+
     @router.get("/assets/me")
     async def list_my_verified_assets(
         x_telegram_init_data: str | None = Header(default=None),
@@ -1651,6 +1714,7 @@ def create_marketplace_router(
         if verify_admin is None:
             raise HTTPException(status_code=503, detail="Admin moderation is not configured")
         admin = verify_admin(x_telegram_init_data)
+        require_admin_role(admin, {"owner", "moderator", "support"})
         _enforce_user_rate_limit(str(admin["id"]), "list_order_reports", 60)
         where = ""
         values: list[object] = []
@@ -1680,6 +1744,7 @@ def create_marketplace_router(
         if verify_admin is None:
             raise HTTPException(status_code=503, detail="Admin audit is not configured")
         admin = verify_admin(x_telegram_init_data)
+        require_admin_role(admin, {"owner", "finance"})
         _enforce_user_rate_limit(str(admin["id"]), "list_security_audit", 30)
         with _db() as conn:
             rows = conn.execute(
@@ -1709,6 +1774,7 @@ def create_marketplace_router(
         if verify_admin is None:
             raise HTTPException(status_code=503, detail="Admin moderation is not configured")
         admin = verify_admin(x_telegram_init_data)
+        require_admin_role(admin, {"owner", "moderator"})
         admin_id = str(admin["id"])
         _enforce_user_rate_limit(admin_id, "moderate_order_report", 30)
         now = int(time.time())
@@ -1859,8 +1925,7 @@ def create_marketplace_router(
         offset: int = Query(default=0, ge=0, le=10000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        if not _verified_asset_actions_enabled():
-            return {"items": [], "total": 0}
+        verified_actions_enabled = _verified_asset_actions_enabled()
         user_id = None
         if x_telegram_init_data:
             try:
@@ -1874,6 +1939,9 @@ def create_marketplace_router(
         if kind:
             clauses.append("kind = ?")
             values.append(kind)
+        if not verified_actions_enabled:
+            clauses.append("kind = ?")
+            values.append("buy-order")
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         with _db() as conn:
             qualified_where = where.replace("status", "o.status").replace("kind", "o.kind")
@@ -1907,13 +1975,13 @@ def create_marketplace_router(
 
     @router.get("/mine")
     async def my_orders(x_telegram_init_data: str | None = Header(default=None)):
-        if not _verified_asset_actions_enabled():
-            _user(x_telegram_init_data, verify_telegram_init_data)
-            return {"items": []}
+        verified_actions_enabled = _verified_asset_actions_enabled()
         user = _user(x_telegram_init_data, verify_telegram_init_data)
         _enforce_user_rate_limit(str(user["id"]), "list_my_orders", 60)
         with _db() as conn:
             verified_filter = "" if _test_unverified_assets_allowed() else " AND (o.kind != 'listing' OR a.id IS NOT NULL)"
+            if not verified_actions_enabled:
+                verified_filter += " AND o.kind = 'buy-order'"
             rows = conn.execute(
                 f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url
                     FROM marketplace_orders o
@@ -1929,7 +1997,11 @@ def create_marketplace_router(
     @router.get("/stats")
     async def marketplace_stats():
         if not _verified_asset_actions_enabled():
-            return {"active_listings": 0, "active_buy_requests": 0, "matched_orders": 0, "volume_ton": 0, "volume_stars": 0, "floor_ton": None, "floor_stars": None, "total_orders": 0}
+            with _db() as conn:
+                active_buy_requests = conn.execute(
+                    "SELECT COUNT(*) FROM marketplace_orders WHERE kind='buy-order' AND status='active'"
+                ).fetchone()[0]
+            return {"active_listings": 0, "active_buy_requests": active_buy_requests, "matched_orders": 0, "volume_ton": 0, "volume_stars": 0, "floor_ton": None, "floor_stars": None, "total_orders": active_buy_requests}
         with _db() as conn:
             counts = conn.execute("""
                 SELECT
@@ -1951,12 +2023,14 @@ def create_marketplace_router(
         x_telegram_init_data: str | None = Header(default=None),
     ):
         user = _user(x_telegram_init_data, verify_telegram_init_data)
-        if not _verified_asset_actions_enabled():
+        if payload.kind == "listing" and not _verified_asset_actions_enabled():
             raise HTTPException(
                 status_code=409,
                 detail="Listing is unavailable until TON Connect ownership verification and real asset import are enabled",
             )
         _enforce_user_rate_limit(str(user["id"]), "create_order", 8)
+        if payload.currency == "XTR" and payload.price != payload.price.to_integral_value():
+            raise HTTPException(status_code=422, detail="Star listing prices must be whole numbers")
         now = int(time.time())
         order_id = "gr-" + uuid.uuid4().hex[:16]
         owner_id = str(user["id"])
@@ -1975,10 +2049,14 @@ def create_marketplace_router(
             if preflight_asset["owner_telegram_id"] != owner_id:
                 raise HTTPException(status_code=403, detail="Only the verified asset owner can list it")
             if preflight_asset["source"] == "telegram_gift":
-                raise HTTPException(
-                    status_code=409,
-                    detail="Telegram gift listings are locked until a safe gift transfer flow is implemented",
-                )
+                business_gift_ref = get_telegram_business_gift_ref(payload.asset_id, owner_id)
+                if business_gift_ref is None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="A verified Telegram Business gift with transfer permission is required",
+                    )
+                # Only gifts linked to an active Business connection with transfer
+                # rights can be listed. Delivery is gated by transferGift per deal.
             if preflight_asset["source"] == "ton_nft" and not _test_ton_owner_recheck_skipped():
                 from ton_connect import list_verified_wallets
                 from ton_nft_inventory import fetch_nft_owner, fragment_collection_address
@@ -2140,7 +2218,10 @@ def create_marketplace_router(
             if row["status"] != "active":
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Only active orders can be edited")
-            if "title" in changes:
+            if row["currency"] == "XTR" and "price" in changes and changes["price"] != changes["price"].to_integral_value():
+                conn.rollback()
+                raise HTTPException(status_code=422, detail="Star listing prices must be whole numbers")
+            if "title" in changes and row["kind"] == "listing":
                 conn.rollback()
                 raise HTTPException(status_code=422, detail="Asset metadata is immutable and comes from the verified Telegram gift")
             conn.execute(

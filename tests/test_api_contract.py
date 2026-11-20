@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from app import app, _validate_cors_origins
+from app import app, _validate_cors_origins, _READINESS_TABLES, _READINESS_COLUMNS
 
 
 class ApiContractTests(unittest.TestCase):
@@ -13,6 +13,9 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("/api/auth/telegram", paths)
         self.assertIn("/api/marketplace/orders", paths)
         self.assertIn("/api/marketplace/stats", paths)
+        self.assertIn("/api/marketplace/deals/{deal_id}/ton-nft-delivery/prepare", paths)
+        self.assertIn("/api/marketplace/deals/{deal_id}/ton-nft-delivery/confirm", paths)
+        self.assertIn("/api/marketplace/deals/{deal_id}/ton-nft-delivery/submitted", paths)
         self.assertIn("/api/telegram/webhook", paths)
         self.assertNotIn("/api/status", paths)
         self.assertNotIn("/api/collections", paths)
@@ -21,7 +24,7 @@ class ApiContractTests(unittest.TestCase):
         self.assertNotIn("/api/reference/gift-changes", paths)
         self.assertNotIn("/api/reference/daily-floors", paths)
 
-    def test_administrator_api_surface_is_limited_to_moderation_and_audit(self):
+    def test_administrator_api_surface_is_limited_to_moderation_disputes_and_settlement(self):
         admin_paths = {
             path for path in app.openapi()["paths"]
             if "/admin/" in path
@@ -32,10 +35,70 @@ class ApiContractTests(unittest.TestCase):
                 "/api/marketplace/admin/reports",
                 "/api/marketplace/admin/reports/{report_id}",
                 "/api/marketplace/admin/security-audit",
+                "/api/marketplace/admin/overview",
+                "/api/marketplace/admin/roles/me",
+                "/api/marketplace/admin/users",
+                "/api/marketplace/admin/users/{telegram_id}/revoke-sessions",
+                "/api/marketplace/admin/assets",
+                "/api/marketplace/admin/assets/{asset_id}/revoke",
+                "/api/marketplace/admin/reconciliation",
+                "/api/marketplace/admin/deals",
+                "/api/marketplace/admin/deals/{deal_id}/dispute-approvals",
+                "/api/marketplace/admin/deals/{deal_id}/execute-refund",
+                "/api/marketplace/admin/deals/{deal_id}/execute-ton-refund",
+                "/api/marketplace/admin/deals/{deal_id}/execute-seller-release",
+                "/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
             },
         )
         self.assertFalse(any("balance" in path or "withdraw" in path for path in admin_paths))
         self.assertFalse(any("wallet" in path for path in admin_paths))
+
+    def test_readiness_requires_payment_ledger_escrow_and_dispute_schema(self):
+        required_tables = {
+            "marketplace_payment_intents",
+            "marketplace_payment_events",
+            "marketplace_ledger_transactions",
+            "marketplace_ledger_entries",
+            "marketplace_escrow_events",
+            "marketplace_dispute_resolution_approvals",
+        }
+        self.assertTrue(required_tables.issubset(set(_READINESS_TABLES)))
+        required_columns = {
+            "marketplace_payment_intents": {
+                "id", "deal_id", "provider", "currency", "amount", "status",
+                "idempotency_key", "expires_at", "created_at", "updated_at",
+            },
+            "marketplace_payment_events": {
+                "id", "provider", "provider_event_id", "payment_intent_id",
+                "event_type", "payload_hash", "created_at",
+            },
+            "marketplace_ledger_transactions": {
+                "id", "idempotency_key", "reference_type", "reference_id",
+                "currency", "amount", "created_at",
+            },
+            "marketplace_ledger_entries": {
+                "id", "transaction_id", "account_type", "account_id",
+                "direction", "currency", "amount", "created_at",
+            },
+            "marketplace_escrow_events": {
+                "id", "deal_id", "actor_user_id", "event_type", "event_key",
+                "event_data", "created_at",
+            },
+            "marketplace_dispute_resolution_approvals": {
+                "id", "deal_id", "admin_user_id", "decision",
+                "idempotency_key", "created_at",
+            },
+        }
+        for table, columns in required_columns.items():
+            with self.subTest(table=table):
+                self.assertTrue(columns.issubset(_READINESS_COLUMNS[table]))
+
+    def test_liveness_and_readiness_routes_are_registered_separately(self):
+        paths = set(app.openapi()["paths"])
+        self.assertIn("/health", paths)
+        self.assertIn("/ready", paths)
+        self.assertNotEqual(app.openapi()["paths"]["/health"]["get"]["summary"],
+                            app.openapi()["paths"]["/ready"]["get"]["summary"])
 
     def test_maintenance_mode_rejects_writes_but_keeps_health_available(self):
         client = TestClient(app)

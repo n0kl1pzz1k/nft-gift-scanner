@@ -73,6 +73,10 @@ def _trigger_ddl(item: dict[str, Any]) -> list[str] | None:
         return [prefix + body + suffix, trigger]
     immutable_tables = {
         "trg_marketplace_payment_events_no_update": ("marketplace_payment_events", "UPDATE", "payment events are immutable"),
+        "trg_marketplace_escrow_events_no_update": ("marketplace_escrow_events", "UPDATE", "escrow events are immutable"),
+        "trg_marketplace_dispute_approvals_no_update": ("marketplace_dispute_resolution_approvals", "UPDATE", "dispute approvals are immutable"),
+        "trg_marketplace_dispute_approvals_no_delete": ("marketplace_dispute_resolution_approvals", "DELETE", "dispute approvals are immutable"),
+        "trg_marketplace_escrow_events_no_delete": ("marketplace_escrow_events", "DELETE", "escrow events are immutable"),
         "trg_marketplace_payment_events_no_delete": ("marketplace_payment_events", "DELETE", "payment events are immutable"),
         "trg_marketplace_ledger_transactions_no_update": ("marketplace_ledger_transactions", "UPDATE", "ledger transactions are immutable"),
         "trg_marketplace_ledger_transactions_no_delete": ("marketplace_ledger_transactions", "DELETE", "ledger transactions are immutable"),
