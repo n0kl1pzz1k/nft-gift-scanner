@@ -473,6 +473,94 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(intent["currency"], "TON")
         self.assertEqual(deal["status"], "payment_pending")
 
+    def test_two_admin_approved_ton_refund_requires_matching_outgoing_chain_transaction(self):
+        deal_id, _, buyer_wallet = self._create_ton_deal_with_verified_wallets()
+        treasury = "0:" + "aa" * 32
+        now = int(time.time())
+        with marketplace_offers._db() as conn:
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="awaiting_payment", actor_user_id="202",
+                idempotency_key=f"{deal_id}:ton-refund-test-awaiting",
+                event_type="deal_payment_requested", event_data={}, now=now,
+            )
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="payment_pending", actor_user_id="202",
+                idempotency_key=f"{deal_id}:ton-refund-test-pending",
+                event_type="payment_pending", event_data={}, now=now,
+            )
+            intent = create_payment_intent(
+                conn, deal_id=deal_id, provider="ton", currency="TON", amount="9",
+                idempotency_key=f"{deal_id}:ton-refund-test-intent",
+                invoice_payload=f"ton-refund:{deal_id}", expires_at=now+900,
+                metadata={"buyer_telegram_id":"202","buyer_wallet":buyer_wallet,"treasury":treasury}, now=now,
+            )
+            transition_payment_intent(conn, intent["id"], "pending", now=now)
+            transition_payment_intent(conn, intent["id"], "confirmed", provider_reference="ton-payment-tx", now=now)
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="paid", actor_user_id="202",
+                idempotency_key=f"{deal_id}:ton-refund-test-paid",
+                event_type="payment_confirmed", event_data={}, now=now,
+            )
+            post_ledger_transaction(
+                conn, idempotency_key=f"{deal_id}:ton-refund-test-escrow",
+                reference_type="deal", reference_id=deal_id, currency="TON",
+                debit_account=("ton_treasury_clearing","ton-payment-tx"),
+                credit_account=("escrow",deal_id), debit_amount="9", credit_amount="9", now=now,
+            )
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="disputed", actor_user_id="202",
+                idempotency_key=f"{deal_id}:ton-refund-test-disputed",
+                event_type="deal_disputed", event_data={"reason":"Refund requested"}, now=now,
+            )
+            for admin_id in ("202","303"):
+                record_dispute_resolution_approval(
+                    conn, deal_id=deal_id, admin_user_id=admin_id, decision="refund_buyer",
+                    idempotency_key=f"{deal_id}:ton-refund-approval:{admin_id}", now=now,
+                )
+            conn.commit()
+
+        class FakeTonResponse:
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {
+                    "success": True,
+                    "account": treasury,
+                    "out_msgs": [{"destination":buyer_wallet,"value":"9000000000"}],
+                }
+
+        class FakeTonClient:
+            def __init__(self, **kwargs):
+                pass
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return False
+            async def get(self, url, headers):
+                self.url = url
+                return FakeTonResponse()
+
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS":"202,303","TONAPI_TOKEN":"test-tonapi-token"}), patch(
+            "httpx.AsyncClient", FakeTonClient
+        ):
+            refunded = self.client.post(
+                f"/api/marketplace/admin/deals/{deal_id}/execute-ton-refund",
+                headers={"X-Telegram-Init-Data":"user-b"},
+                json={"transaction_hash":"ab"*32,"idempotency_key":"ton-refund-execute-001"},
+            )
+        self.assertEqual(refunded.status_code, 200, refunded.text)
+        self.assertEqual(refunded.json()["refund_status"], "refunded")
+        with marketplace_offers._db() as conn:
+            deal = conn.execute("SELECT status FROM marketplace_deals WHERE id=?",(deal_id,)).fetchone()
+            intent = conn.execute("SELECT status FROM marketplace_payment_intents WHERE id=?",(intent["id"],)).fetchone()
+            tx_count = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_ledger_transactions WHERE reference_id=?",
+                (deal_id,),
+            ).fetchone()[0]
+        self.assertEqual(deal["status"], "cancelled")
+        self.assertEqual(intent["status"], "refunded")
+        self.assertEqual(tx_count, 2)
+
     def test_two_admin_approved_seller_release_requires_seller_to_still_own_ton_nft(self):
         deal_id, seller_address, _ = self._create_ton_deal_with_verified_wallets()
         now = int(time.time())
