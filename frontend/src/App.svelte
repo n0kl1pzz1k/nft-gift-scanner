@@ -140,6 +140,8 @@
   let adminReconciliation = $state<{payments:Array<Record<string,unknown>>;transfers:Array<Record<string,unknown>>}>({payments:[],transfers:[]});
   let adminUserSearch = $state('');
   let adminBusy = $state(false);
+  let adminRole = $state('owner');
+  let adminPermissions = $state<string[]>([]);
   let orderStatusFilter = $state<'all' | 'active' | 'matched' | 'cancelled'>('active');
   let orderKindFilter = $state<'all' | 'listing' | 'buy-order'>('all');
 
@@ -1169,14 +1171,18 @@
     if (!isAdmin || adminBusy) return;
     adminBusy = true;
     try {
+      const roleData = await request('/api/marketplace/admin/roles/me');
+      adminRole = String(roleData.role || 'owner');
+      adminPermissions = Array.isArray(roleData.permissions) ? roleData.permissions as string[] : [];
+      const can = (permission: string) => adminPermissions.includes(permission);
       const [overview, reports, users, assets, reconciliation, disputes, audit] = await Promise.all([
         request('/api/marketplace/admin/overview'),
-        request('/api/marketplace/admin/reports?status=open&limit=50'),
-        request('/api/marketplace/admin/users?limit=25'),
-        request('/api/marketplace/admin/assets?status=verified&limit=25'),
-        request('/api/marketplace/admin/reconciliation?limit=50'),
-        request('/api/marketplace/admin/deals?status=disputed&limit=50'),
-        request('/api/marketplace/admin/security-audit?limit=25'),
+        can('reports') ? request('/api/marketplace/admin/reports?status=open&limit=50') : Promise.resolve({items:[]}),
+        can('users_read') ? request('/api/marketplace/admin/users?limit=25') : Promise.resolve({items:[]}),
+        can('assets_read') ? request('/api/marketplace/admin/assets?status=verified&limit=25') : Promise.resolve({items:[]}),
+        can('reconciliation_read') ? request('/api/marketplace/admin/reconciliation?limit=50') : Promise.resolve({payments:[],transfers:[]}),
+        can('deals_read') ? request('/api/marketplace/admin/deals?status=disputed&limit=50') : Promise.resolve({items:[]}),
+        (adminRole==='owner' || adminRole==='finance') ? request('/api/marketplace/admin/security-audit?limit=25') : Promise.resolve({items:[]}),
       ]);
       adminOverview = overview as Record<string,number>;
       adminReports = Array.isArray(reports.items) ? reports.items as OrderReport[] : [];
@@ -1196,7 +1202,7 @@
   }
 
   async function searchAdminUsers() {
-    if (!isAdmin) return;
+    if (!isAdmin || !adminPermissions.includes('users_read')) return;
     try {
       const suffix = adminUserSearch.trim() ? '&q=' + encodeURIComponent(adminUserSearch.trim()) : '';
       const data = await request('/api/marketplace/admin/users?limit=25' + suffix);
@@ -1205,7 +1211,7 @@
   }
 
   async function revokeAdminUserSessions(telegramId: string) {
-    if (!isAdmin || !/^\\d+$/.test(telegramId)) return;
+    if (!isAdmin || !adminPermissions.includes('users_manage') || !/^\\d+$/.test(telegramId)) return;
     try {
       await request('/api/marketplace/admin/users/' + encodeURIComponent(telegramId) + '/revoke-sessions', undefined, {method:'POST'});
       notice = lang==='ru' ? 'Активные сессии пользователя отозваны.' : 'User sessions revoked.';
@@ -1214,7 +1220,7 @@
   }
 
   async function approveAdminDispute(dealId: string, decision: 'refund_buyer'|'release_to_seller') {
-    if (!isAdmin) return;
+    if (!isAdmin || (adminRole!=='owner' && adminRole!=='finance')) return;
     try {
       const idempotencyKey = 'admin-dispute:' + dealId + ':' + decision + ':' + crypto.randomUUID();
       const result = await request('/api/marketplace/admin/deals/' + encodeURIComponent(dealId) + '/dispute-approvals', undefined, {
@@ -1759,11 +1765,14 @@
               {/each}
             </div>
           {/if}
+          {#if adminPermissions.includes('users_read')}
           <div class="notification-heading"><h3>{lang==='ru'?'Пользователи':'Users'}</h3></div>
           <div class="report-actions"><input class="form-input" bind:value={adminUserSearch} placeholder={lang==='ru'?'Telegram ID или @username':'Telegram ID or @username'} /><button class="refresh-button" onclick={searchAdminUsers}>{lang==='ru'?'Найти':'Search'}</button></div>
           {#each adminUsers as user (String(user.telegram_id))}
             <div class="activity-row"><div class="activity-row-main"><strong>{user.first_name || 'Telegram user'} {user.username ? '@'+user.username : ''}</strong><small>ID {user.telegram_id} · {lang==='ru'?'активных сессий':'active sessions'}: {user.active_sessions}</small></div><button class="cancel-button" onclick={()=>revokeAdminUserSessions(String(user.telegram_id))}>{lang==='ru'?'Завершить сессии':'Revoke sessions'}</button></div>
           {/each}
+          {/if}
+          {#if adminPermissions.includes('deals_read')}
           <div class="notification-heading"><h3>{lang==='ru'?'Споры':'Disputes'} · {adminDisputes.length}</h3></div>
           {#each adminDisputes as dispute (String(dispute.id))}
             <div class="activity-row">
@@ -1774,6 +1783,8 @@
               </div>
             </div>
           {/each}
+          {/if}
+          {#if adminPermissions.includes('reconciliation_read')}
           <div class="notification-heading"><h3>{lang==='ru'?'Ручная сверка':'Manual reconciliation'}</h3></div>
           <div class="state-panel">{lang==='ru'?'Ожидают проверки платежи':'Payments awaiting review'}: {adminReconciliation.payments.length} · {lang==='ru'?'передачи активов':'asset transfers'}: {adminReconciliation.transfers.length}</div>
           {#each adminReconciliation.payments as item (String(item.id))}
@@ -1782,15 +1793,21 @@
           {#each adminReconciliation.transfers as item (String(item.id))}
             <div class="activity-row"><div class="activity-row-main"><strong>{lang==='ru'?'Передача актива ожидает сверки':'Asset transfer needs reconciliation'}</strong><small>{item.deal_id} · {item.event_type}</small></div></div>
           {/each}
+          {/if}
+          {#if adminRole==='owner' || adminRole==='finance'}
           <div class="notification-heading"><h3>{lang==='ru'?'Журнал операций':'Operations journal'}</h3></div>
           {#each adminAudit as event (String(event.id))}
             <div class="activity-row"><div class="activity-row-main"><strong>{event.action} · {event.outcome}</strong><small>{lang==='ru'?'Администратор':'Admin'} {event.actor_telegram_id} · {new Date(Number(event.created_at)*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')} · {String(event.target_hash).slice(0,12)}…</small></div></div>
           {/each}
+          {/if}
+          {#if adminPermissions.includes('assets_read')}
           <div class="notification-heading"><h3>{lang==='ru'?'Проверенные активы':'Verified assets'}</h3></div>
           {#each adminAssets as asset (String(asset.id))}
             <div class="activity-row"><div class="activity-row-main"><strong>{asset.title}</strong><small>{asset.source} · owner {asset.owner_telegram_id} · {lang==='ru'?'активных объявлений':'active listings'}: {asset.active_listings}</small></div></div>
           {/each}
+          {/if}
         </article>
+        {#if adminPermissions.includes('reports')}
         <article class="profile-card moderation-card">
           <div class="notification-heading">
             <div><div class="eyebrow">MODERATION</div><h2>{t.adminReports}</h2></div>
@@ -1819,6 +1836,7 @@
             </div>
           {/if}
         </article>
+        {/if}
       {/if}</section>
     {/if}
 
