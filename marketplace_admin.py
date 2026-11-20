@@ -10,7 +10,7 @@ from typing import Any, Callable, Literal
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from marketplace import _db, insert_security_audit_event
+from marketplace import _db, insert_security_audit_event, _enforce_user_rate_limit
 from database import begin_write, select_for_update
 
 
