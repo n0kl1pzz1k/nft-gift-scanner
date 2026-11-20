@@ -791,6 +791,7 @@ class SharedMarketplaceTests(unittest.TestCase):
                 json={"idempotency_key":"seller-release-execute-001"},
             )
         self.assertEqual(released.status_code, 200, released.text)
+        self.assertEqual(released.json()["status"], "completed")
         self.assertEqual(released.json()["seller_credit"], "recorded")
         self.assertEqual(released.json()["settlement_status"], "pending_manual_payout")
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS":"202,303"}):
