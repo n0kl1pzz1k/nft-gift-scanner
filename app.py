@@ -31,6 +31,7 @@ from telegram_gift_inventory import fetch_user_telegram_gifts
 from telegram_business_gift_inventory import fetch_business_account_gifts, fetch_sticker_preview
 import httpx
 from marketplace_offers import create_marketplace_offers_router, init_marketplace_offers_db, expire_unpaid_marketplace_deals, escalate_stalled_paid_deals
+from marketplace_admin import create_marketplace_admin_router
 
 app = FastAPI(title="HASSLE NFT Market API", version="1.0.0")
 app.include_router(create_marketplace_router(
@@ -41,6 +42,7 @@ app.include_router(create_marketplace_offers_router(
     lambda value: _authenticate_telegram_credential(value),
     lambda value: _require_admin(value),
 ))
+app.include_router(create_marketplace_admin_router(lambda value: _require_admin(value)))
 
 _telegram_bot = None
 _telegram_dispatcher = None
