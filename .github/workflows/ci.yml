@@ -111,7 +111,7 @@ jobs:
           git checkout 9a4b13df6345c9c4068ca725e434b40f9ea5ca28
       - name: Install pinned upstream dependencies
         working-directory: /tmp/ton-multisig
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Run upstream multisig contract tests
         working-directory: /tmp/ton-multisig
         run: npm test -- --runInBand
