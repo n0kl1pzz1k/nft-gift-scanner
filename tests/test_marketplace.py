@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 import app as api
 import marketplace
 import marketplace_offers
-from marketplace_payments import create_payment_intent, post_ledger_transaction, record_dispute_resolution_approval, transition_deal_status
+from marketplace_payments import create_payment_intent, post_ledger_transaction, record_dispute_resolution_approval, transition_deal_status, transition_payment_intent
 from marketplace_stars import confirm_stars_payment, validate_stars_pre_checkout
 from ton_nft_inventory import build_nft_transfer_payload, normalise_ton_address
 
@@ -472,6 +472,71 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(intent["provider"], "ton")
         self.assertEqual(intent["currency"], "TON")
         self.assertEqual(deal["status"], "payment_pending")
+
+    def test_two_admin_approved_seller_release_requires_seller_to_still_own_ton_nft(self):
+        deal_id, seller_address, _ = self._create_ton_deal_with_verified_wallets()
+        now = int(time.time())
+        with marketplace_offers._db() as conn:
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="awaiting_payment", actor_user_id="202",
+                idempotency_key=f"{deal_id}:seller-release-test-awaiting",
+                event_type="deal_payment_requested", event_data={}, now=now,
+            )
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="payment_pending", actor_user_id="202",
+                idempotency_key=f"{deal_id}:seller-release-test-pending",
+                event_type="payment_pending", event_data={}, now=now,
+            )
+            intent = create_payment_intent(
+                conn, deal_id=deal_id, provider="ton", currency="TON", amount="9",
+                idempotency_key=f"{deal_id}:seller-release-test-intent",
+                invoice_payload=f"seller-release:{deal_id}", expires_at=now+900,
+                metadata={"buyer_telegram_id":"202"}, now=now,
+            )
+            transition_payment_intent(conn, intent["id"], "pending", now=now)
+            transition_payment_intent(conn, intent["id"], "confirmed", provider_reference="seller-release-chain-tx", now=now)
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="paid", actor_user_id="202",
+                idempotency_key=f"{deal_id}:seller-release-test-paid",
+                event_type="payment_confirmed", event_data={}, now=now,
+            )
+            post_ledger_transaction(
+                conn, idempotency_key=f"{deal_id}:seller-release-test-escrow",
+                reference_type="deal", reference_id=deal_id, currency="TON",
+                debit_account=("ton_treasury_clearing","seller-release-chain-tx"),
+                credit_account=("escrow",deal_id), debit_amount="9", credit_amount="9", now=now,
+            )
+            transition_deal_status(
+                conn, deal_id=deal_id, new_status="disputed", actor_user_id="202",
+                idempotency_key=f"{deal_id}:seller-release-test-disputed",
+                event_type="deal_disputed", event_data={"reason":"Seller retained the verified NFT"}, now=now,
+            )
+            for admin_id in ("202","303"):
+                record_dispute_resolution_approval(
+                    conn, deal_id=deal_id, admin_user_id=admin_id, decision="release_to_seller",
+                    idempotency_key=f"{deal_id}:seller-release-approval:{admin_id}", now=now,
+                )
+            conn.commit()
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS":"202,303"}), patch(
+            "ton_nft_inventory.fetch_nft_owner",
+            new=AsyncMock(return_value={"owner_address":seller_address,"is_scam":False}),
+        ):
+            released = self.client.post(
+                f"/api/marketplace/admin/deals/{deal_id}/execute-seller-release",
+                headers={"X-Telegram-Init-Data":"user-b"},
+                json={"idempotency_key":"seller-release-execute-001"},
+            )
+        self.assertEqual(released.status_code, 200, released.text)
+        self.assertEqual(released.json()["seller_credit"], "recorded")
+        self.assertEqual(released.json()["settlement_status"], "pending_manual_payout")
+        with marketplace_offers._db() as conn:
+            deal = conn.execute("SELECT status FROM marketplace_deals WHERE id=?",(deal_id,)).fetchone()
+            release_count = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_escrow_events WHERE deal_id=? AND event_type='payout_released'",
+                (deal_id,),
+            ).fetchone()[0]
+        self.assertEqual(deal["status"], "cancelled")
+        self.assertEqual(release_count, 1)
 
     def test_ton_payment_confirms_exact_incoming_transaction_once(self):
         deal_id, _, buyer_wallet = self._create_ton_deal_with_verified_wallets()
