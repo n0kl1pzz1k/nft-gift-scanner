@@ -494,7 +494,8 @@ def create_marketplace_admin_router(verify_credential: Callable[[str], dict]) ->
         offset: int = Query(default=0, ge=0, le=100000),
         x_telegram_init_data: str | None = Header(default=None),
     ):
-        require_permission(x_telegram_init_data, "support.tickets.read")
+        admin = require_permission(x_telegram_init_data, "support.tickets.read")
+        _enforce_user_rate_limit(str(admin["id"]), "list_support_tickets", 30)
         where = "" if status == "all" else " WHERE status=?"
         values: list[Any] = [] if status == "all" else [status]
         with _db() as conn:
@@ -519,6 +520,7 @@ def create_marketplace_admin_router(verify_credential: Callable[[str], dict]) ->
     ):
         admin = require_permission(x_telegram_init_data, "support.tickets.manage")
         actor = str(admin["id"])
+        _enforce_user_rate_limit(actor, "update_support_ticket", 30)
         now = int(time.time())
         with _db() as conn:
             begin_write(conn, f"support-ticket:{ticket_id}")
@@ -586,6 +588,7 @@ def create_marketplace_admin_router(verify_credential: Callable[[str], dict]) ->
         if not x_telegram_init_data:
             raise HTTPException(status_code=401, detail="Telegram authentication required")
         user = verify_credential(x_telegram_init_data)
+        _enforce_user_rate_limit(str(user["id"]), "list_my_support_tickets", 30)
         with _db() as conn:
             rows = conn.execute(
                 """SELECT id, ticket_type, subject, message, status, resolution_note,
