@@ -1984,6 +1984,11 @@ def create_marketplace_offers_router(
         support_contact = os.getenv("PAYMENT_SUPPORT_CONTACT", "").strip()
         if not treasury or not support_contact:
             raise HTTPException(status_code=503, detail="TON treasury or payment support is not configured")
+        if (
+            os.getenv("HASSLE_TON_CUSTODY_ACKNOWLEDGED", "0") != "1"
+            or os.getenv("HASSLE_TON_PAYOUT_MODE", "") != "manual_multisig_2_of_3"
+        ):
+            raise HTTPException(status_code=503, detail="TON multisig custody and manual payout policy must be explicitly acknowledged")
         try:
             treasury_raw = normalise_ton_address(treasury)
         except Exception as exc:
@@ -2379,6 +2384,8 @@ def create_marketplace_offers_router(
                 or (
                     row["currency"] == "TON"
                     and os.getenv("HASSLE_TON_CHECKOUT_ENABLED", "0") == "1"
+                    and os.getenv("HASSLE_TON_CUSTODY_ACKNOWLEDGED", "0") == "1"
+                    and os.getenv("HASSLE_TON_PAYOUT_MODE", "") == "manual_multisig_2_of_3"
                     and bool(os.getenv("HASSLE_TON_TREASURY_ADDRESS", "").strip())
                     and bool(os.getenv("TONAPI_TOKEN", "").strip())
                     and bool(os.getenv("PAYMENT_SUPPORT_CONTACT", "").strip())
