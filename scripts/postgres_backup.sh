@@ -10,20 +10,26 @@ timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 final="$BACKUP_DIR/hassle-postgres-$timestamp.dump"
 temporary="$final.tmp"
 manifest="$final.sha256"
+manifest_temporary="$manifest.tmp"
+published=0
 
-if [[ -e "$final" || -e "$manifest" || -e "$temporary" ]]; then
+if [[ -e "$final" || -e "$manifest" || -e "$temporary" || -e "$manifest_temporary" ]]; then
   echo "Backup destination already exists; refusing to overwrite." >&2
   exit 1
 fi
 
-cleanup() { rm -f "$temporary"; }
+cleanup() {
+  rm -f "$temporary" "$manifest_temporary"
+  if [[ "$published" != "1" ]]; then rm -f "$final"; fi
+}
 trap cleanup EXIT
 
 pg_dump --format=custom --no-owner --no-privileges --file "$temporary" "$DATABASE_URL"
 pg_restore --list "$temporary" >/dev/null
-sha256sum "$temporary" | sed "s#  .*#  $(basename "$final")#" > "$manifest.tmp"
+sha256sum "$temporary" | sed "s#  .*#  $(basename "$final")#" > "$manifest_temporary"
 ln "$temporary" "$final"
-mv "$manifest.tmp" "$manifest"
+mv "$manifest_temporary" "$manifest"
+published=1
 rm -f "$temporary"
 trap - EXIT
 
