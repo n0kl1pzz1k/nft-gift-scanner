@@ -1467,7 +1467,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
 </svelte:head>
 
-<div class="market-app" data-auth-state={signedIn ? "authenticated" : authBusy ? "authenticating" : "guest"} data-active-view={view}>
+<div class="market-app" data-auth-state={authBusy ? "authenticating" : signedIn ? "authenticated" : "guest"} data-active-view={view}>
   <aside class="sidebar">
     <a class="brand" href="#marketplace"><span class="brand-symbol"><img src="/brand/hassle-mark.webp?v=224" alt=""/></span><span>HASSLE NFT<small>DIGITAL COLLECTIBLES</small></span></a>
     <div class="nav-caption">{lang === 'ru' ? 'МЕНЮ' : 'MENU'}</div>
