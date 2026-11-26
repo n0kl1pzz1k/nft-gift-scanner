@@ -73,8 +73,12 @@ jobs:
       - name: Run browser E2E smoke tests
         working-directory: frontend
         run: npm run test:e2e
+      - name: Validate Cloudflare Worker bundle
+        working-directory: frontend
+        run: npx wrangler deploy --dry-run --config ../wrangler.toml
       - name: Deploy HASSLE NFT Worker
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        working-directory: frontend
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -83,7 +87,7 @@ jobs:
             echo "::error::Required GitHub Actions secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are missing."
             exit 1
           fi
-          npx wrangler deploy
+          npx wrangler deploy --config ../wrangler.toml
 
   deployment-config:
     runs-on: ubuntu-latest
