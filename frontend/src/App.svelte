@@ -1749,6 +1749,52 @@
           <div class="profile-inventory-empty"><strong>{lang==='ru'?'Инвентарь пока пуст':'Your inventory is empty'}</strong><small>{lang==='ru'?'Импортируй коллекционные подарки Telegram или NFT из подключённого TON-кошелька.':'Import collectible Telegram gifts or NFTs from your connected TON wallet.'}</small></div>
         {/if}
       </article>
+      <details class="profile-trades-details">
+        <summary><span><strong>{lang==='ru'?'Мои офферы и сделки':'My offers & deals'}</strong><small>{lang==='ru'?'Личные операции доступны только здесь, в профиле':'Private account operations stay inside your profile'}</small></span><b>{offers.length} / {deals.length}</b></summary>
+        <div class="profile-trades-content">
+          <div class="profile-trades-heading"><h3>{lang==='ru'?'Офферы':'Offers'}</h3><button class="refresh-button" type="button" onclick={loadOffersAndDeals} disabled={offersBusy}>↻</button></div>
+          {#if offers.length}
+            {#each visibleOffers.slice(0,12) as offer (offer.id)}
+              <article class="profile-trade-row">
+                <div><strong>{offer.order_title}</strong><small>{offer.is_mine?(lang==='ru'?'Мой оффер':'Sent by me'):(lang==='ru'?'Входящий оффер':'Received offer')} · {offer.amount} {offer.currency==='XTR'?'⭐ Stars':'TON'} · {offerStatusLabel(offer.status)}</small></div>
+                {#if offer.status==='pending' && offer.is_mine}
+                  <div class="profile-trade-actions"><button type="button" onclick={()=>startEditOffer(offer)}>{lang==='ru'?'Изменить':'Edit'}</button><button type="button" onclick={()=>respondToOffer(offer.id,'withdraw')} disabled={offerActionBusy===offer.id}>{lang==='ru'?'Отозвать':'Withdraw'}</button></div>
+                {:else if offer.status==='pending' && !offer.is_mine && offer.order_kind==='listing'}
+                  <div class="profile-trade-actions"><button type="button" onclick={()=>respondToOffer(offer.id,'accept')} disabled={offerActionBusy===offer.id}>{lang==='ru'?'Принять':'Accept'}</button><button type="button" onclick={()=>respondToOffer(offer.id,'decline')} disabled={offerActionBusy===offer.id}>{lang==='ru'?'Отклонить':'Decline'}</button></div>
+                {:else if offer.status==='pending' && !offer.is_mine}
+                  <span class="profile-asset-listed">{lang==='ru'?'Ответ пока недоступен':'Response unavailable'}</span>
+                {/if}
+              </article>
+            {/each}
+          {:else}<div class="profile-inventory-empty">{lang==='ru'?'Офферов пока нет':'No offers yet'}</div>{/if}
+
+          <div class="profile-trades-heading"><h3>{lang==='ru'?'Сделки и резервы':'Deals & reservations'}</h3><span>{deals.length}</span></div>
+          {#if deals.length}
+            {#each deals.slice(0,12) as deal (deal.id)}
+              <article class="profile-deal-row">
+                <div class="profile-deal-main"><strong>{deal.order_title}</strong><small>{deal.is_seller?(lang==='ru'?'Ты продавец':'You are the seller'):(lang==='ru'?'Ты покупатель':'You are the buyer')} · {deal.agreed_amount} {deal.currency==='XTR'?'⭐ Stars':'TON'}</small><span>{dealStatusLabel(deal.status)}</span></div>
+                <div class="profile-deal-actions">
+                  <button type="button" onclick={()=>toggleDealTimeline(deal.id)}>{expandedDealTimeline===deal.id?(lang==='ru'?'Скрыть журнал':'Hide log'):(lang==='ru'?'Журнал':'Timeline')}</button>
+                  {#if deal.status==='paid' || deal.status==='delivery_pending'}<button type="button" onclick={()=>openDealDispute(deal.id)} disabled={disputeBusy===deal.id}>{lang==='ru'?'Спор':'Dispute'}</button>{/if}
+                  {#if (deal.status==='paid' || deal.status==='delivery_pending') && deal.is_seller && deal.asset_source==='telegram_gift'}<button type="button" onclick={()=>transferTelegramBusinessGift(deal.id)} disabled={businessGiftDeliveryBusy===deal.id}>{lang==='ru'?'Передать подарок':'Transfer gift'}</button>{/if}
+                  {#if deal.status==='paid' && deal.is_seller && deal.asset_source==='ton_nft'}<button type="button" onclick={()=>prepareTonNftDelivery(deal.id)} disabled={tonDeliveryBusy===deal.id}>{lang==='ru'?'Подготовить передачу':'Prepare transfer'}</button>{:else if deal.status==='delivery_pending' && !deal.is_seller && deal.asset_source==='ton_nft'}<button type="button" onclick={()=>verifyTonNftDelivery(deal.id)} disabled={tonDeliveryBusy===deal.id}>{lang==='ru'?'Проверить TON':'Verify TON'}</button>{/if}
+                  {#if deal.status==='payment_not_enabled' && !deal.is_seller && deal.payments_enabled && deal.currency==='TON'}<button type="button" onclick={()=>startTonCheckout(deal.id)} disabled={tonDeliveryBusy===deal.id}>{lang==='ru'?'Оплатить TON':'Pay TON'}</button>{/if}
+                  {#if deal.status==='payment_not_enabled' && !deal.is_seller && deal.payments_enabled && deal.currency==='XTR'}<button type="button" onclick={()=>startStarsCheckout(deal.id)} disabled={starsCheckoutBusy===deal.id}>{lang==='ru'?'Оплатить Stars':'Pay Stars'}</button>{/if}
+                  {#if deal.status==='awaiting_payment' && !deal.is_seller && deal.payments_enabled && deal.currency==='TON'}<button type="button" onclick={()=>startTonCheckout(deal.id)} disabled={tonDeliveryBusy===deal.id}>{lang==='ru'?'Продолжить оплату':'Continue payment'}</button>{/if}
+                  {#if deal.status==='awaiting_payment' && !deal.is_seller && deal.payments_enabled && deal.currency==='XTR'}<button type="button" onclick={()=>startStarsCheckout(deal.id)} disabled={starsCheckoutBusy===deal.id}>{lang==='ru'?'Создать счёт':'Create invoice'}</button>{/if}
+                  {#if deal.reservation_active && deal.status!=='paid' && deal.status!=='delivery_pending'}<button type="button" onclick={()=>cancelDealReservation(deal.id)} disabled={offerActionBusy===deal.id}>{lang==='ru'?'Снять резерв':'Release'}</button>{/if}
+                </div>
+                {#if expandedDealTimeline===deal.id}
+                  {#if dealTimelineBusy===deal.id}<small>{lang==='ru'?'Загружаем журнал…':'Loading timeline…'}</small>
+                  {:else if (dealTimelineItems[deal.id]||[]).length}
+                    <div class="profile-deal-timeline">{#each dealTimelineItems[deal.id] as event (event.id)}<div><strong>{dealEventLabel(event)}</strong><small>{new Date(event.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</small></div>{/each}</div>
+                  {:else}<small>{lang==='ru'?'Событий пока нет':'No events yet'}</small>{/if}
+                {/if}
+              </article>
+            {/each}
+          {:else}<div class="profile-inventory-empty">{lang==='ru'?'Сделок пока нет':'No deals yet'}</div>{/if}
+        </div>
+      </details>
        {#if signedIn && accountStats.seller_pending_settlements.length}
          <article class="profile-card activity-card">
            <div class="notification-heading"><div><div class="eyebrow">SELLER SETTLEMENT</div><strong>{lang==='ru'?'Начисления продавцу':'Seller earnings'}</strong></div><span>{accountStats.seller_pending_settlements.length}</span></div>
