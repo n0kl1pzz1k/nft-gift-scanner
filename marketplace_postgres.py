@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 _TABLES = (
-"""CREATE TABLE IF NOT EXISTS telegram_users (telegram_id TEXT PRIMARY KEY, username TEXT NOT NULL DEFAULT '', first_name TEXT NOT NULL DEFAULT '', last_name TEXT NOT NULL DEFAULT '', photo_url TEXT NOT NULL DEFAULT '', language_code TEXT NOT NULL DEFAULT '', is_premium INTEGER NOT NULL DEFAULT 0, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)""",
+"""CREATE TABLE IF NOT EXISTS telegram_users (telegram_id TEXT PRIMARY KEY, username TEXT NOT NULL DEFAULT '', first_name TEXT NOT NULL DEFAULT '', last_name TEXT NOT NULL DEFAULT '', photo_url TEXT NOT NULL DEFAULT '', language_code TEXT NOT NULL DEFAULT '', is_premium BOOLEAN NOT NULL DEFAULT FALSE, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)""",
 """CREATE TABLE IF NOT EXISTS user_profiles (profile_id TEXT PRIMARY KEY, telegram_id TEXT NOT NULL UNIQUE REFERENCES telegram_users(telegram_id), display_name TEXT NOT NULL, bio TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)""",
 """CREATE TABLE IF NOT EXISTS telegram_sessions (token_hash TEXT PRIMARY KEY, telegram_id TEXT NOT NULL REFERENCES telegram_users(telegram_id), created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, revoked_at BIGINT)""",
 """CREATE TABLE IF NOT EXISTS telegram_initdata_uses (initdata_hash TEXT PRIMARY KEY, telegram_id TEXT NOT NULL, consumed_at BIGINT NOT NULL, expires_at BIGINT NOT NULL)""",
