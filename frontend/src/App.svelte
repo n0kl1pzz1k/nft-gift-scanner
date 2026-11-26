@@ -44,7 +44,6 @@
   let gramAction = $state<'deposit'|'withdraw'|null>(null);
   let showAboutModal = $state(false);
   let view = $state<View>('orders');
-  $effect(() => { console.log('[HASSLE VIEW CHANGE]', view); });
   let marketSearch = $state('');
   let marketplaceLoading = $state(true);
   let marketError = $state('');
@@ -277,7 +276,6 @@
   }
 
   function openProfile() {
-    console.log('[HASSLE OPEN PROFILE]', { signedIn, authBusy, view });
     haptic('light');
     // Switch the route synchronously. Never let scrolling or a network request
     // prevent the profile screen from rendering inside Telegram's iOS WebView.
@@ -636,7 +634,6 @@
       publicSellerProfile = data.profile as PublicSellerProfile;
     } catch (e) {
       notice = e instanceof Error ? e.message : String(e);
-      console.log('[HASSLE RESET ORDERS]', new Error().stack);
       view = 'orders';
     } finally {
       publicSellerBusy = false;
@@ -688,7 +685,15 @@
       request('/api/marketplace/notifications?limit=40&offset=0'),
       request('/api/marketplace/activity?limit=20&offset=0'),
     ]);
-    accountStats = stats;
+    accountStats = {
+      active_orders: Number(stats.active_orders) || 0,
+      completed_orders: Number(stats.completed_orders) || 0,
+      pending_offers_sent: Number(stats.pending_offers_sent) || 0,
+      pending_offers_received: Number(stats.pending_offers_received) || 0,
+      unread_notifications: Number(stats.unread_notifications) || 0,
+      deals: Number(stats.deals) || 0,
+      seller_pending_settlements: Array.isArray(stats.seller_pending_settlements) ? stats.seller_pending_settlements : [],
+    };
     notifications = Array.isArray(feed.items) ? feed.items : [];
     notificationTotal = Number(feed.total) || notifications.length;
     accountActivity = Array.isArray(activity.items) ? activity.items : [];
@@ -1428,21 +1433,6 @@
     // Telegram iOS WebView can swallow the delegated child-button handler after
     // auth state changes. Capture the profile pointer gesture at document level
     // and fall back only if the normal button callback did not change the route.
-    (window as any).__profileNavFallbackMounted = true;
-    (window as any).__profileNavFallbackCalls = 0;
-    const handleProfileNavigation = (event: Event) => {
-      (window as any).__profileNavFallbackCalls += 1;
-      const target = event.target as Element | null;
-      const profileButton = target?.closest?.('button[data-nav-id="profile"]');
-      ((window as any).__profileNavMatches ||= []).push({ target: target?.outerHTML?.slice(0, 240) || String(target), matched: Boolean(profileButton) });
-      if (!profileButton) return;
-      const viewBeforeEvent = view;
-      Promise.resolve().then(() => {
-        if (view === viewBeforeEvent && view !== 'profile') openProfile();
-      });
-    };
-    document.addEventListener('pointerdown', handleProfileNavigation, true);
-    document.addEventListener('click', handleProfileNavigation, true);
     const webApp = (window as any).Telegram?.WebApp;
     webApp?.ready?.();
     webApp?.expand?.();
@@ -1478,7 +1468,7 @@
     }).catch(() => {
       // Public browsing remains available even when Telegram authentication fails.
     });
-    return () => { window.clearTimeout(splashTimer); document.removeEventListener('pointerdown', handleProfileNavigation, true); document.removeEventListener('click', handleProfileNavigation, true); webApp?.offEvent?.('themeChanged', syncTelegramTheme); };
+    return () => { window.clearTimeout(splashTimer); webApp?.offEvent?.('themeChanged', syncTelegramTheme); };
   });
 </script>
 
