@@ -95,27 +95,13 @@ test('HASSLE brand artwork is loaded in the Mini App', async ({ page }) => {
 
 
 test('authenticated profile opens from the mobile tab without waiting on navigation side effects', async ({ page }) => {
-  page.on('console', message => console.log('BROWSER CONSOLE:', message.text()));
-  page.on('pageerror', error => console.log('BROWSER PAGE ERROR:', error.message));
   await page.setViewportSize({ width: 390, height: 844 });
   await stubTelegramAndApi(page, true);
   await page.goto('/');
   await expect(page.locator('.market-app')).toHaveAttribute('data-auth-state', 'authenticated', { timeout: 15000 });
   const profileTab = page.locator('.mobile-nav button').filter({ hasText: 'Профиль' });
   await expect(profileTab).toBeVisible();
-  const navHitTarget = await profileTab.evaluate((el) => {
-    const rect = el.getBoundingClientRect();
-    return document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.outerHTML.slice(0, 500) || 'none';
-  });
-  console.log('AUTH PROFILE NAV HIT TARGET:', navHitTarget);
-  await page.evaluate(() => {
-    (window as any).__navEvents = [];
-    document.addEventListener('pointerdown', event => (window as any).__navEvents.push('pointerdown:' + (event.target as Element).tagName), true);
-    document.addEventListener('click', event => (window as any).__navEvents.push('click:' + (event.target as Element).tagName), true);
-  });
   await profileTab.click();
-  console.log('AUTH PROFILE NAV EVENTS:', await page.evaluate(() => (window as any).__navEvents));
-  console.log('PROFILE FALLBACK:', await page.evaluate(() => ({ mounted: (window as any).__profileNavFallbackMounted, calls: (window as any).__profileNavFallbackCalls, matches: (window as any).__profileNavMatches })));
   await expect(page.locator('.market-app')).toHaveAttribute('data-active-view', 'profile');
   await expect(profileTab).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-profile-view]')).toBeVisible();
