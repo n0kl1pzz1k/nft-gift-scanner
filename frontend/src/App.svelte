@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { fade } from 'svelte/transition';
   import AssetCard from './lib/AssetCard.svelte';
   import BottomNav from './lib/BottomNav.svelte';
   import TonWalletConnect from './lib/TonWalletConnect.svelte';
@@ -25,11 +26,16 @@
     active_listings: number; active_buy_requests: number; matched_orders: number;
     volume_ton: number; volume_stars: number; floor_ton: number | null; floor_stars: number | null; total_orders: number;
   };
-  type View = 'orders' | 'offers' | 'create' | 'favorites' | 'profile' | 'seller';
+  type View = 'orders' | 'auctions' | 'offers' | 'create' | 'favorites' | 'profile' | 'seller';
   type AssetTypeFilter = 'all' | 'gift' | 'username' | 'number';
 
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://hassle-nft-market.up.railway.app').replace(/\/$/, '');
   let lang = $state<'ru' | 'en'>('ru');
+  let showSplash = $state(true);
+  let showGramInfo = $state(false);
+  let showFilterSheet = $state(false);
+  let gramAction = $state<'deposit'|'withdraw'|null>(null);
+  let showAboutModal = $state(false);
   let view = $state<View>('orders');
   let marketSearch = $state('');
   let marketplaceLoading = $state(true);
@@ -56,6 +62,7 @@
   let giftPreviewUrls = $state<Record<string,string>>({});
   let verifiedAssetsLoading = $state(false);
   let inventoryFilter = $state<'all'|'telegram_gift'|'ton_nft'>('all');
+  let inventoryListingFilter = $state<'all'|'listed'|'unlisted'>('all');
   let assetListingEnabled = $state(false);
   let selectedInventoryAsset = $state<VerifiedAsset | null>(null);
   let tonNftImportBusy = $state(false);
@@ -1391,6 +1398,7 @@
   }
 
   onMount(() => {
+    const splashTimer = window.setTimeout(() => { showSplash = false; }, 1050);
     const webApp = (window as any).Telegram?.WebApp;
     webApp?.ready?.();
     webApp?.expand?.();
@@ -1426,7 +1434,7 @@
     }).catch(() => {
       // Public browsing remains available even when Telegram authentication fails.
     });
-    return () => webApp?.offEvent?.('themeChanged', syncTelegramTheme);
+    return () => { window.clearTimeout(splashTimer); webApp?.offEvent?.('themeChanged', syncTelegramTheme); };
   });
 </script>
 
@@ -1441,7 +1449,7 @@
     <a class="brand" href="#marketplace"><span class="brand-symbol">H</span><span>HASSLE NFT<small>THE GIFT MARKET</small></span></a>
     <div class="nav-caption">{lang === 'ru' ? 'МЕНЮ' : 'MENU'}</div>
     <nav class="side-nav">
-      {#each [{id:'orders',label:lang==='ru'?'Маркет':'Market',icon:'▦'},{id:'create',label:lang==='ru'?'Инвентарь':'Inventory',icon:'◈'},{id:'offers',label:lang==='ru'?'Активность':'Activity',icon:'↗'},{id:'profile',label:lang==='ru'?'Профиль':'Profile',icon:'◉'}] as item}
+      {#each [{id:'orders',label:lang==='ru'?'Маркет':'Market',icon:'▦'},{id:'auctions',label:lang==='ru'?'Аукционы':'Auctions',icon:'♢'},{id:'create',label:lang==='ru'?'Мои подарки':'My Gifts',icon:'◈'},{id:'offers',label:lang==='ru'?'Активность':'Activity',icon:'↗'},{id:'profile',label:lang==='ru'?'Профиль':'Profile',icon:'◉'}] as item}
         <button class:active={view===item.id || (view==='favorites' && item.id==='orders') || (view==='seller' && item.id==='profile')} class="nav-item" onclick={()=>{haptic();view=item.id as View;notice='';if(item.id==='profile')void loadSellerProfile();}}><span>{item.icon}</span>{item.label}</button>
       {/each}
     </nav>
@@ -1450,11 +1458,11 @@
 
   <main class="main-content">
     <header class="topbar">
-      <div class="crumb"><span>HASSLE NFT</span><b>/</b><span>{view==='orders'?(lang==='ru'?'Маркет':'Market'):view==='offers'?(lang==='ru'?'Активность':'Activity'):view==='create'?(lang==='ru'?'Инвентарь':'Inventory'):view==='favorites'?(lang==='ru'?'Избранное':'Saved'):view==='seller'?(lang==='ru'?'Продавец':'Seller'):t.profile}</span></div>
-      <div class="top-actions"><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>{view='profile';void loadSellerProfile();}}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
+      <button class="gram-balance-trigger" type="button" onclick={()=>showGramInfo=true} aria-label={lang==='ru'?'Информация о балансе GRAM':'GRAM balance information'}><span class="gram-coin">G</span><span class="gram-balance-copy"><strong>GRAM</strong><small>{lang==='ru'?'Баланс не подключён':'Balance unavailable'}</small></span><span class="gram-chevron">⌄</span></button>
+      <div class="top-actions"><button class="wallet-header-button" type="button" onclick={()=>{view='profile';void loadSellerProfile();}}><span>◈</span>{lang==='ru'?(walletConnected?'Кошелёк подключён':'Подключить кошелёк'):(walletConnected?'Wallet connected':'Connect wallet')}</button><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>{view='profile';void loadSellerProfile();}}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
     </header>
 
-    {#if view==='profile'}
+    {#if view==='profile' && !signedIn}
       <section class="page-heading compact-heading">
         <div class="eyebrow">HASSLE NFT · ACCOUNT</div>
         <h1>{t.profile}</h1>
@@ -1516,17 +1524,30 @@
     {:else if view==='orders'}
       <section class="market-overview catalog-first" id="asset-feed">
         <div class="market-heading-row catalog-heading"><div><div class="eyebrow">HASSLE NFT MARKET</div><h2>{lang==='ru'?'Каталог NFT-подарков':'NFT Gift Catalogue'}</h2></div><button class="refresh-button" type="button" onclick={startBuyRequest}>{lang==='ru'?'＋ Хочу купить':'＋ Post buy request'}</button></div>
+        <div class="market-category-rail" aria-label={lang==='ru'?'Категории':'Categories'}><button class:chosen={assetTypeFilter==='all'} onclick={()=>assetTypeFilter='all'}>{lang==='ru'?'Все':'All'}</button><button class:chosen={assetTypeFilter==='gift'} onclick={()=>assetTypeFilter='gift'}>{lang==='ru'?'Подарки':'Gifts'}</button><button class:chosen={assetTypeFilter==='username'} onclick={()=>assetTypeFilter='username'}>Username</button><button class:chosen={assetTypeFilter==='number'} onclick={()=>assetTypeFilter='number'}>+888</button></div>
         <div class="market-toolbar">
-          <label class="market-search"><span>⌕</span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label={lang==='ru'?'Поиск активов':'Search assets'}/></label>
-          <label class="market-search"><span>▤</span><input bind:value={marketCollectionSearch} placeholder={lang==='ru'?'Коллекция':'Collection'} aria-label={lang==='ru'?'Фильтр по коллекции':'Filter by collection or collection name'}/></label>
-          <label class="market-search"><span>#</span><input bind:value={marketNftIdSearch} placeholder={lang==='ru'?'NFT ID':'NFT ID'} aria-label="NFT ID"/></label>
-          <select class="market-select" bind:value={nftBackground} aria-label={lang==='ru'?'Цвет фона NFT':'NFT background color'}><option value="midnight">{lang==='ru'?'Фон: графит':'Background: graphite'}</option><option value="violet">{lang==='ru'?'Фон: фиолетовый':'Background: violet'}</option><option value="blue">{lang==='ru'?'Фон: синий':'Background: blue'}</option><option value="emerald">{lang==='ru'?'Фон: изумрудный':'Background: emerald'}</option><option value="rose">{lang==='ru'?'Фон: розовый':'Background: rose'}</option><option value="gold">{lang==='ru'?'Фон: золотой':'Background: gold'}</option></select>
-          <select class="market-select" bind:value={assetTypeFilter} aria-label={lang==='ru'?'Тип актива':'Asset type'}><option value="all">{lang==='ru'?'Все активы':'All assets'}</option><option value="gift">{lang==='ru'?'NFT-подарки':'NFT Gifts'}</option><option value="username">Username</option><option value="number">{lang==='ru'?'Номера 888':'Anonymous numbers'}</option></select>
-          <select class="market-select" bind:value={marketCurrency} aria-label={lang==='ru'?'Валюта цены':'Price currency'}><option value="all">{lang==='ru'?'Любая валюта':'Any currency'}</option><option value="TON">TON</option><option value="XTR">⭐ Stars</option></select>
-          <select class="market-select" bind:value={marketSort} aria-label={lang==='ru'?'Сортировка активов':'Sort assets'}><option value="recent">{lang==='ru'?'Сначала новые':'Recently listed'}</option><option value="price-low">{lang==='ru'?'Сначала дешевле':'Price: low to high'}</option><option value="price-high">{lang==='ru'?'Сначала дороже':'Price: high to low'}</option><option value="id-low">{lang==='ru'?'NFT ID: по возрастанию':'NFT ID: ascending'}</option><option value="id-high">{lang==='ru'?'NFT ID: по убыванию':'NFT ID: descending'}</option></select>
-          <label class="price-filter"><span>{lang==='ru'?'От':'Min'}</span><input type="number" min="0" step="any" bind:value={marketMinPrice} disabled={marketCurrency==='all'} placeholder="0" aria-label={lang==='ru'?'Минимальная цена':'Minimum price'} inputmode="decimal"/></label>
-          <label class="price-filter"><span>{lang==='ru'?'До':'Max'}</span><input type="number" min="0" step="any" bind:value={marketMaxPrice} disabled={marketCurrency==='all'} placeholder="∞" aria-label={lang==='ru'?'Максимальная цена':'Maximum price'} inputmode="decimal"/></label>
+          <label class="market-search market-search-primary"><span>⌕</span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label={lang==='ru'?'Поиск активов':'Search assets'}/></label>
+          <button class="filter-open-button" type="button" onclick={()=>showFilterSheet=true}><span>☷</span>{lang==='ru'?'Фильтры':'Filters'}{#if hasMarketFilters}<i>•</i>{/if}</button>
         </div>
+        {#if showFilterSheet}
+          <div class="modal-backdrop filter-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showFilterSheet=false;}}>
+            <section class="sell-modal market-filter-sheet" role="dialog" aria-modal="true" aria-labelledby="market-filter-title">
+              <button class="modal-close" type="button" onclick={()=>showFilterSheet=false} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button>
+              <div class="eyebrow">HASSLE NFT · DISCOVERY</div><h2 id="market-filter-title">{lang==='ru'?'Фильтры каталога':'Marketplace filters'}</h2>
+              <div class="filter-sheet-grid">
+                <label class="filter-sheet-wide">{lang==='ru'?'Коллекция':'Collection'}<input class="form-input" bind:value={marketCollectionSearch} placeholder={lang==='ru'?'Название коллекции':'Collection name'}/></label>
+                <label class="filter-sheet-wide">NFT ID<input class="form-input" bind:value={marketNftIdSearch} placeholder="12345"/></label>
+                <label>{lang==='ru'?'Тип актива':'Asset type'}<select class="form-input" bind:value={assetTypeFilter}><option value="all">{lang==='ru'?'Все активы':'All assets'}</option><option value="gift">{lang==='ru'?'NFT-подарки':'NFT Gifts'}</option><option value="username">Username</option><option value="number">{lang==='ru'?'Номера 888':'Anonymous numbers'}</option></select></label>
+                <label>{lang==='ru'?'Валюта цены':'Price currency'}<select class="form-input" bind:value={marketCurrency}><option value="all">{lang==='ru'?'Любая валюта':'Any currency'}</option><option value="TON">TON</option><option value="XTR">⭐ Stars</option></select></label>
+                <label class="filter-sheet-wide">{lang==='ru'?'Сортировка':'Sort by'}<select class="form-input" bind:value={marketSort}><option value="recent">{lang==='ru'?'Сначала новые':'Recently listed'}</option><option value="price-low">{lang==='ru'?'Сначала дешевле':'Price: low to high'}</option><option value="price-high">{lang==='ru'?'Сначала дороже':'Price: high to low'}</option><option value="id-low">{lang==='ru'?'NFT ID: по возрастанию':'NFT ID: ascending'}</option><option value="id-high">{lang==='ru'?'NFT ID: по убыванию':'NFT ID: descending'}</option></select></label>
+                <label>{lang==='ru'?'Цена от':'Min price'}<input class="form-input" type="number" min="0" step="any" bind:value={marketMinPrice} disabled={marketCurrency==='all'} placeholder="0" inputmode="decimal"/></label>
+                <label>{lang==='ru'?'Цена до':'Max price'}<input class="form-input" type="number" min="0" step="any" bind:value={marketMaxPrice} disabled={marketCurrency==='all'} placeholder="∞" inputmode="decimal"/></label>
+                <label class="filter-sheet-wide">{lang==='ru'?'Цвет карточек':'Card appearance'}<select class="form-input" bind:value={nftBackground}><option value="midnight">{lang==='ru'?'Графит':'Graphite'}</option><option value="violet">{lang==='ru'?'Фиолетовый':'Violet'}</option><option value="blue">{lang==='ru'?'Синий':'Blue'}</option><option value="emerald">{lang==='ru'?'Изумрудный':'Emerald'}</option><option value="rose">{lang==='ru'?'Розовый':'Rose'}</option><option value="gold">{lang==='ru'?'Золотой':'Gold'}</option></select></label>
+              </div>
+              <div class="filter-sheet-actions"><button class="filter-reset-button" type="button" onclick={()=>{resetMarketFilters();showFilterSheet=false;}}>{lang==='ru'?'Сбросить':'Reset'}</button><button class="ton-primary" type="button" onclick={()=>showFilterSheet=false}>{lang==='ru'?'Показать результаты':'Show results'}</button></div>
+            </section>
+          </div>
+        {/if}
         {#if invalidPriceRange}<div class="state-panel filter-error" role="alert">{t.invalidPrice}</div>{/if}
         <div class="market-meta"><span>{marketAssets.length} {lang==='ru'?'активов в каталоге':'assets in market'}</span><span>{lang==='ru'?'Сделки в TON и Stars':'TON & Stars'}</span>{#if hasMarketFilters}<button class="market-reset-filters" onclick={resetMarketFilters}>{lang==='ru'?'Сбросить фильтры':'Clear filters'} ×</button>{/if}</div>
         {#if marketplaceLoading && orders.length===0}
@@ -1566,6 +1587,9 @@
          {/if}
          <small class="sell-modal-hint">{lang==='ru'?'Заявки показывают интерес и бюджет покупателей. Встречные предложения и автоматическое исполнение заявок ещё не включены.':'Requests show buyer interest and budget. Seller counteroffers and automatic order matching are not enabled yet.'}</small>
        </section>
+     {:else if view==='auctions'}
+       <section class="page-heading compact-heading"><div class="eyebrow">HASSLE NFT · LIVE BIDDING</div><h1>{lang==='ru'?'Аукционы':'Auctions'}</h1><p>{lang==='ru'?'Торги появятся после подключения серверной логики аукционов.':'Auctions will appear when the server-side bidding engine is connected.'}</p></section>
+       <section class="auction-intro-card"><div class="auction-emblem">♢</div><div><span class="eyebrow">{lang==='ru'?'СЛЕДУЮЩИЙ ЭТАП':'COMING NEXT'}</span><h2>{lang==='ru'?'Торги без фальшивых лотов':'Real bidding, no placeholder lots'}</h2><p>{lang==='ru'?'Здесь будут реальные NFT-подарки с таймером, текущей ставкой и историей торгов. Пока backend-аукционы не включены, каталог остаётся пустым.':'Real NFT gifts, countdowns, live bids and bidding history will live here. No demo listings are shown while the auction backend is unavailable.'}</p></div><span class="auction-status">{lang==='ru'?'СКОРО':'SOON'}</span></section>
      {:else if view==='offers'}
        <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.offersTitle}</h1></section>
       <section class="market-section account-offers">
@@ -1695,7 +1719,7 @@
        </section>
     
      {:else if view==='create'}
-       <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{lang==='ru'?'Инвентарь':'Inventory'}</h1><p>{lang==='ru'?'Подтверждённые подарки Telegram и NFT из твоего TON-кошелька':'Verified Telegram gifts and NFTs from your TON wallet'}</p></section>
+       <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{lang==='ru'?'Мои подарки':'My Gifts'}</h1><p>{lang==='ru'?'Твои подтверждённые подарки Telegram и NFT из TON-кошелька':'Your verified Telegram gifts and NFTs from your TON wallet'}</p></section>
        <div class="inventory-connect-panel"><div class="inventory-connect-icon">◈</div><div class="inventory-connect-copy"><span class="eyebrow">YOUR ASSETS · TON CONNECT</span><h2>{lang==='ru'?'Твои активы':'Your assets'}</h2><p>{lang==='ru'?'Telegram Business нужен только для импорта подарков из Telegram и не обязателен для покупателей. NFT из TON можно добавить через TON Connect и TON Proof. Мы никогда не запрашиваем seed-фразу или приватный ключ.':'Telegram Business is only needed to import gifts from Telegram and is not required for buyers. TON NFTs can be imported with TON Connect and TON Proof. We never ask for your seed phrase or private key.'}</p>{#if signedIn}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTelegramGifts} disabled={telegramGiftImportBusy}>{telegramGiftImportBusy?(lang==='ru'?'Проверяем подарки…':'Checking gifts…'):(lang==='ru'?'↓ Загрузить подарки Telegram':'↓ Import Telegram gifts')}</button>{/if}{#if telegramGiftImportMessage}<p class="ton-wallet-message">{telegramGiftImportMessage}</p>{/if}
         {#if telegramBusinessStatus.gift_import_ready}
           <button class="ton-wallet-button inventory-import-button" type="button" onclick={importBusinessGifts} disabled={businessGiftImportBusy}>{businessGiftImportBusy?(lang==='ru'?'Загружаем бизнес-подарки…':'Importing business gifts…'):(lang==='ru'?'↓ Импортировать подарки Business':'↓ Import Business gifts')}</button>
@@ -1721,16 +1745,23 @@
          <div class="inventory-empty-state"><span class="state-icon">◌</span><strong>{lang==='ru'?'Проверяем инвентарь…':'Checking inventory…'}</strong></div>
        {:else if verifiedAssets.length}
          <div class="inventory-toolbar">
-           <div class="inventory-filter-group" role="group" aria-label={lang==='ru'?'Фильтр инвентаря':'Inventory filter'}>
-             <button class:active={inventoryFilter==='all'} type="button" onclick={()=>inventoryFilter='all'}>{lang==='ru'?'Все':'All'} <span>{verifiedAssets.length}</span></button>
-             <button class:active={inventoryFilter==='telegram_gift'} type="button" onclick={()=>inventoryFilter='telegram_gift'}>Telegram <span>{verifiedAssets.filter(asset=>asset.source==='telegram_gift').length}</span></button>
-             <button class:active={inventoryFilter==='ton_nft'} type="button" onclick={()=>inventoryFilter='ton_nft'}>TON NFT <span>{verifiedAssets.filter(asset=>asset.source==='ton_nft').length}</span></button>
+             <div class="inventory-toolbar-groups">
+               <div class="inventory-filter-group" role="group" aria-label={lang==='ru'?'Источник активов':'Asset source'}>
+                 <button class:active={inventoryFilter==='all'} type="button" onclick={()=>inventoryFilter='all'}>{lang==='ru'?'Все источники':'All sources'} <span>{verifiedAssets.length}</span></button>
+                 <button class:active={inventoryFilter==='telegram_gift'} type="button" onclick={()=>inventoryFilter='telegram_gift'}>Telegram <span>{verifiedAssets.filter(asset=>asset.source==='telegram_gift').length}</span></button>
+                 <button class:active={inventoryFilter==='ton_nft'} type="button" onclick={()=>inventoryFilter='ton_nft'}>TON NFT <span>{verifiedAssets.filter(asset=>asset.source==='ton_nft').length}</span></button>
+               </div>
+               <div class="inventory-filter-group inventory-status-tabs" role="group" aria-label={lang==='ru'?'Статус объявления':'Listing status'}>
+                 <button class:active={inventoryListingFilter==='all'} type="button" onclick={()=>inventoryListingFilter='all'}>{lang==='ru'?'Все':'All'}</button>
+                 <button class:active={inventoryListingFilter==='listed'} type="button" onclick={()=>inventoryListingFilter='listed'}>{lang==='ru'?'Выставленные':'Listed'} <span>{verifiedAssets.filter(asset=>Boolean(asset.active_listing_id)).length}</span></button>
+                 <button class:active={inventoryListingFilter==='unlisted'} type="button" onclick={()=>inventoryListingFilter='unlisted'}>{lang==='ru'?'Не выставленные':'Unlisted'} <span>{verifiedAssets.filter(asset=>!asset.active_listing_id).length}</span></button>
+               </div>
+             </div>
+             <button class="refresh-button" type="button" onclick={loadVerifiedInventory} disabled={verifiedAssetsLoading}>{lang==='ru'?'Обновить':'Refresh'} ↻</button>
            </div>
-           <button class="refresh-button" type="button" onclick={loadVerifiedInventory} disabled={verifiedAssetsLoading}>{lang==='ru'?'Обновить':'Refresh'} ↻</button>
-         </div>
-         {#if verifiedAssets.filter(asset=>inventoryFilter==='all'||asset.source===inventoryFilter).length}
+         {#if verifiedAssets.filter(asset=>(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))).length}
          <div class="verified-inventory-list">
-           {#each verifiedAssets.filter(asset=>inventoryFilter==='all'||asset.source===inventoryFilter) as asset (asset.id)}
+           {#each verifiedAssets.filter(asset=>(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))) as asset (asset.id)}
              <article class="verified-inventory-item">
                {#if assetPreviewUrl(asset)}<img src={assetPreviewUrl(asset)} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder"><span>HASSLE</span><small>{asset.source==='telegram_gift'?(lang==='ru'?'КОЛЛЕКЦИОННЫЙ ПОДАРОК':'COLLECTIBLE GIFT'):asset.asset_type==='username'?'TELEGRAM USERNAME':asset.asset_type==='number'?'ANONYMOUS NUMBER':'VERIFIED ASSET'}</small></div>{/if}
                <div class="verified-inventory-details">
@@ -1760,6 +1791,11 @@
     {:else}
       <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.profile}</h1></section>
       <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div>{#if !signedIn}<button class="publish-button" onclick={()=>telegramLogin()} disabled={authBusy}>{authBusy?(lang==='ru'?'Подтверждаем…':'Verifying…'):t.signIn+' →'}</button>{:else}<span class="telegram-verified-state">✓ {lang==='ru'?'Подтверждено':'Verified'}</span>{/if}</article>
+      <div class="account-stats-grid profile-stats-grid">
+        {#each [{label:lang==='ru'?'Активные объявления':'Active listings',value:accountStats.active_orders},{label:lang==='ru'?'Завершённые сделки':'Completed trades',value:accountStats.completed_orders},{label:lang==='ru'?'Отправлено офферов':'Offers sent',value:accountStats.pending_offers_sent},{label:lang==='ru'?'Входящие офферы':'Incoming offers',value:accountStats.pending_offers_received}] as metric}
+          <div class="account-stat"><small>{metric.label}</small><strong>{metric.value}</strong></div>
+        {/each}
+      </div>
       <article class="profile-card wallet-card">
         <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">TON CONNECT · PROOF</div><h2>{lang==='ru'?'TON-кошелёк':'TON wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления TON и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for TON to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletConnected=Boolean(address);}} /></div>
       </article>
@@ -1820,7 +1856,7 @@
           {#if notifications.length < notificationTotal}<button class="refresh-button activity-more" onclick={loadMoreNotifications} disabled={notificationsLoadingMore}>{notificationsLoadingMore?'…':t.loadMoreActivity}</button>{/if}
         {:else}<div class="state-panel">{t.noNotifications}</div>{/if}
       </article>
-      <article class="profile-card preferences-card"><div class="eyebrow">PREFERENCES</div><h2>HASSLE NFT</h2><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang==='ru'?'Язык интерфейса':'Interface language'} · {lang.toUpperCase()}</button></article>{#if isAdmin}
+      <article class="profile-card preferences-card"><div class="eyebrow">PREFERENCES</div><h2>HASSLE NFT</h2><button class="language wide" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang==='ru'?'Язык интерфейса':'Interface language'} · {lang.toUpperCase()}</button><div class="profile-quick-actions"><button type="button" disabled title={lang==='ru'?'Контакт поддержки ещё не настроен':'Support contact is not configured yet'}>{lang==='ru'?'Поддержка · скоро':'Support · soon'}</button><button type="button" onclick={()=>showAboutModal=true}>{lang==='ru'?'О проекте':'About HASSLE'}</button></div></article>{#if isAdmin}
         <article class="profile-card moderation-card">
           <div class="notification-heading"><div><div class="eyebrow">HASSLE NFT · ADMIN</div><h2>{lang==='ru'?'Операционный центр':'Operations center'}</h2></div><button class="refresh-button" onclick={loadAdminOverview} disabled={adminBusy}>{adminBusy?'…':t.refresh}</button></div>
           {#if adminOverview}
@@ -2037,4 +2073,9 @@
   </main>
 </div>
 
-<BottomNav lang={lang} active={view==='favorites'?'orders':view==='seller'?'profile':view as 'orders'|'create'|'offers'|'profile'} onNavigate={(target)=>{haptic();view=target;notice='';if(target==='profile')void loadSellerProfile();}} />
+<BottomNav lang={lang} active={view==='favorites'?'orders':view==='seller'?'profile':view as 'orders'|'auctions'|'create'|'offers'|'profile'} onNavigate={(target)=>{haptic();view=target;notice='';if(target==='profile')void loadSellerProfile();}} />
+
+{#if showGramInfo}<div class="hassle-sheet-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showGramInfo=false;}}><section class="hassle-info-sheet" role="dialog" aria-modal="true" aria-labelledby="gram-info-title"><button class="sheet-close" type="button" onclick={()=>showGramInfo=false} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button><div class="gram-sheet-icon">G</div><span class="eyebrow">HASSLE INTERNAL CURRENCY</span><h2 id="gram-info-title">GRAM</h2><p>{lang==='ru'?'Внутренний баланс GRAM ещё не подключён к серверному учёту. Сейчас реальные расчёты и балансы остаются в существующих платёжных механизмах. Мы не показываем выдуманную сумму и не конвертируем TON или Stars автоматически.':'The internal GRAM ledger is not connected yet. Existing payment rails and balances remain unchanged. No fabricated balance or automatic TON/Stars conversion is displayed.'}</p><div class="gram-sheet-note"><span>●</span>{lang==='ru'?'Баланс появится после интеграции и проверки ledger.':'Balance will appear after ledger integration and verification.'}</div><div class="gram-action-row"><button type="button" onclick={()=>{showGramInfo=false;gramAction='deposit';}}>{lang==='ru'?'Пополнить':'Deposit'}</button><button type="button" onclick={()=>{showGramInfo=false;gramAction='withdraw';}}>{lang==='ru'?'Вывести':'Withdraw'}</button></div><button class="sheet-primary" type="button" onclick={()=>{showGramInfo=false;view='profile';void loadSellerProfile();}}>{lang==='ru'?'Открыть профиль':'Open profile'}</button></section></div>{/if}
+{#if gramAction}<div class="hassle-sheet-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)gramAction=null;}}><section class="hassle-info-sheet gram-action-sheet" role="dialog" aria-modal="true" aria-labelledby="gram-action-title"><button class="sheet-close" type="button" onclick={()=>gramAction=null} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button><div class="gram-sheet-icon">G</div><span class="eyebrow">GRAM · WALLET</span><h2 id="gram-action-title">{gramAction==='deposit'?(lang==='ru'?'Пополнение GRAM':'Deposit GRAM'):(lang==='ru'?'Вывод GRAM':'Withdraw GRAM')}</h2><p>{lang==='ru'?'Операции с внутренним балансом пока недоступны: серверный GRAM ledger и проверка транзакций ещё не подключены. Никакие средства не будут списаны или зачислены.':'Internal balance operations are not available yet. The GRAM ledger and transaction verification are not connected. No funds will be charged or credited.'}</p><div class="gram-sheet-note"><span>●</span>{lang==='ru'?'Функция появится после завершения платёжной интеграции и аудита.':'This feature will be enabled after payment integration and audit.'}</div><button class="sheet-primary" type="button" onclick={()=>gramAction=null}>{lang==='ru'?'Понятно':'Got it'}</button></section></div>{/if}
+{#if showAboutModal}<div class="hassle-sheet-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showAboutModal=false;}}><section class="hassle-info-sheet" role="dialog" aria-modal="true" aria-labelledby="about-hassle-title"><button class="sheet-close" type="button" onclick={()=>showAboutModal=false} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button><div class="gram-sheet-icon">H</div><span class="eyebrow">TELEGRAM NFT MARKETPLACE</span><h2 id="about-hassle-title">HASSLE NFT</h2><p>{lang==='ru'?'Независимый маркетплейс Telegram NFT-подарков, коллекционных имён и номеров. Платформа показывает только подтверждённые активы и не подменяет реальные балансы демонстрационными цифрами.':'An independent marketplace for Telegram NFT gifts, collectible usernames and numbers. The platform displays verified assets and never substitutes real balances with demo values.'}</p><button class="sheet-primary" type="button" onclick={()=>showAboutModal=false}>{lang==='ru'?'Закрыть':'Close'}</button></section></div>{/if}
+{#if showSplash}<div class="hassle-splash" out:fade={{duration:260}} aria-label="HASSLE NFT loading"><div class="splash-content"><div class="splash-mark">H</div><div class="splash-wordmark">HASSLE <span>NFT</span></div><div class="splash-progress"><i></i></div><small>{lang==='ru'?'Загрузка…':'Loading…'}</small></div></div>{/if}

@@ -62,7 +62,10 @@
       {#if isMine}
         <button class="asset-offer-button" onclick={onManage}>{lang === 'ru' ? 'Управлять' : 'Manage listing'}</button>
       {:else}
-        <button class="asset-offer-button" onclick={onOffer} disabled={!canOffer} title={!canOffer ? (lang === 'ru' ? 'Войди через Telegram, чтобы отправить оффер' : 'Sign in with Telegram to make an offer') : undefined}>{canOffer ? (lang === 'ru' ? 'Сделать оффер' : 'Make offer') : (lang === 'ru' ? 'Войти для оффера' : 'Sign in to offer')}</button>
+        <div class="asset-card-actions">
+          <button class="asset-buy-disabled" disabled title={lang==='ru'?'Покупка включится после запуска защищённой оплаты':'Buying will be enabled after secure payments launch'}>{lang==='ru'?'Купить':'Buy'}</button>
+          <button class="asset-offer-button" onclick={onOffer} disabled={!canOffer} title={!canOffer ? (lang === 'ru' ? 'Войди через Telegram, чтобы отправить оффер' : 'Sign in with Telegram to make an offer') : undefined}>{canOffer ? (lang === 'ru' ? 'Оффер' : 'Offer') : (lang === 'ru' ? 'Войти' : 'Sign in')}</button>
+        </div>
       {/if}
     </div>
   </div>
