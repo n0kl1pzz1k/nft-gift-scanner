@@ -1151,3 +1151,7 @@ button,a,input,select,textarea,[role=button]{touch-action:manipulation!important
 .profile-auth-panel{background:#111418!important;border:1px solid rgba(220,226,232,.12)!important}
 @media(max-width:900px){.topbar-brand-mobile{display:flex!important}.mobile-nav{grid-template-columns:repeat(4,minmax(0,1fr))!important}.main-content{padding-bottom:calc(104px + env(safe-area-inset-bottom))!important}}
 @media(max-width:560px){.main-content{padding-left:14px!important;padding-right:14px!important}.market-heading-row{margin:16px 0 12px!important}.market-category-rail{margin:10px 0!important}.market-toolbar{display:grid!important;grid-template-columns:minmax(0,1fr) auto!important}.market-toolbar .market-search{grid-column:1!important}.filter-open-button{min-height:43px!important;padding:0 12px!important}.market-meta{margin:10px 2px 14px!important}.market-empty{min-height:230px!important}.state-brand-art{width:78px;height:100px}.profile-layout{grid-template-columns:minmax(0,1fr)!important}.profile-main{grid-column:1!important}.mobile-nav{padding-bottom:calc(8px + env(safe-area-inset-bottom))!important}}
+
+.asset-favorite svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;display:block}
+.asset-favorite.is-favorite svg{fill:#dfe4e9;stroke:#dfe4e9}
+.profile-asset-placeholder{display:block;object-fit:contain}
