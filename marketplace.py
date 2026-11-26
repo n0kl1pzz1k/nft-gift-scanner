@@ -273,7 +273,7 @@ def init_marketplace_db() -> None:
             last_name TEXT NOT NULL DEFAULT '',
             photo_url TEXT NOT NULL DEFAULT '',
             language_code TEXT NOT NULL DEFAULT '',
-            is_premium BOOLEAN NOT NULL DEFAULT FALSE,
+            is_premium INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
