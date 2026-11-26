@@ -95,6 +95,8 @@ test('HASSLE brand artwork is loaded in the Mini App', async ({ page }) => {
 
 
 test('authenticated profile opens from the mobile tab without waiting on navigation side effects', async ({ page }) => {
+  page.on('console', message => console.log('BROWSER CONSOLE:', message.text()));
+  page.on('pageerror', error => console.log('BROWSER PAGE ERROR:', error.message));
   await page.setViewportSize({ width: 390, height: 844 });
   await stubTelegramAndApi(page, true);
   await page.goto('/');
