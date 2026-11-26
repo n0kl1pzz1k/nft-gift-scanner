@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { fade } from 'svelte/transition';
   import AssetCard from './lib/AssetCard.svelte';
   import BottomNav from './lib/BottomNav.svelte';
   import TonWalletConnect from './lib/TonWalletConnect.svelte';
@@ -25,11 +26,13 @@
     active_listings: number; active_buy_requests: number; matched_orders: number;
     volume_ton: number; volume_stars: number; floor_ton: number | null; floor_stars: number | null; total_orders: number;
   };
-  type View = 'orders' | 'offers' | 'create' | 'favorites' | 'profile' | 'seller';
+  type View = 'orders' | 'auctions' | 'offers' | 'create' | 'favorites' | 'profile' | 'seller';
   type AssetTypeFilter = 'all' | 'gift' | 'username' | 'number';
 
   const API = (import.meta.env.VITE_API_BASE_URL || window.API_BASE || 'https://hassle-nft-market.up.railway.app').replace(/\/$/, '');
   let lang = $state<'ru' | 'en'>('ru');
+  let showSplash = $state(true);
+  let showGramInfo = $state(false);
   let view = $state<View>('orders');
   let marketSearch = $state('');
   let marketplaceLoading = $state(true);
@@ -830,7 +833,8 @@
         const message = lang === 'ru'
           ? `Telegram требует комиссию ${fee} Stars за передачу подарка. Разрешить списание этой комиссии с подключённого Business-аккаунта?`
           : `Telegram requires a ${fee} Stars transfer fee. Allow this fee to be charged to the connected Business account?`;
-        const webApp = (window as any).Telegram?.WebApp;
+        const splashTimer = window.setTimeout(() => { showSplash = false; }, 1050);
+    const webApp = (window as any).Telegram?.WebApp;
         const accepted = await new Promise<boolean>((resolve) => {
           if (typeof webApp?.showConfirm === 'function') {
             webApp.showConfirm(message, (confirmed: boolean) => resolve(Boolean(confirmed)));
@@ -1426,7 +1430,7 @@
     }).catch(() => {
       // Public browsing remains available even when Telegram authentication fails.
     });
-    return () => webApp?.offEvent?.('themeChanged', syncTelegramTheme);
+    return () => { window.clearTimeout(splashTimer); webApp?.offEvent?.('themeChanged', syncTelegramTheme); };
   });
 </script>
 
@@ -1441,7 +1445,7 @@
     <a class="brand" href="#marketplace"><span class="brand-symbol">H</span><span>HASSLE NFT<small>THE GIFT MARKET</small></span></a>
     <div class="nav-caption">{lang === 'ru' ? 'МЕНЮ' : 'MENU'}</div>
     <nav class="side-nav">
-      {#each [{id:'orders',label:lang==='ru'?'Маркет':'Market',icon:'▦'},{id:'create',label:lang==='ru'?'Инвентарь':'Inventory',icon:'◈'},{id:'offers',label:lang==='ru'?'Активность':'Activity',icon:'↗'},{id:'profile',label:lang==='ru'?'Профиль':'Profile',icon:'◉'}] as item}
+      {#each [{id:'orders',label:lang==='ru'?'Маркет':'Market',icon:'▦'},{id:'auctions',label:lang==='ru'?'Аукционы':'Auctions',icon:'♢'},{id:'create',label:lang==='ru'?'Мои подарки':'My Gifts',icon:'◈'},{id:'offers',label:lang==='ru'?'Активность':'Activity',icon:'↗'},{id:'profile',label:lang==='ru'?'Профиль':'Profile',icon:'◉'}] as item}
         <button class:active={view===item.id || (view==='favorites' && item.id==='orders') || (view==='seller' && item.id==='profile')} class="nav-item" onclick={()=>{haptic();view=item.id as View;notice='';if(item.id==='profile')void loadSellerProfile();}}><span>{item.icon}</span>{item.label}</button>
       {/each}
     </nav>
@@ -1450,8 +1454,8 @@
 
   <main class="main-content">
     <header class="topbar">
-      <div class="crumb"><span>HASSLE NFT</span><b>/</b><span>{view==='orders'?(lang==='ru'?'Маркет':'Market'):view==='offers'?(lang==='ru'?'Активность':'Activity'):view==='create'?(lang==='ru'?'Инвентарь':'Inventory'):view==='favorites'?(lang==='ru'?'Избранное':'Saved'):view==='seller'?(lang==='ru'?'Продавец':'Seller'):t.profile}</span></div>
-      <div class="top-actions"><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>{view='profile';void loadSellerProfile();}}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
+      <button class="gram-balance-trigger" type="button" onclick={()=>showGramInfo=true" aria-label={lang==='ru'?'Информация о балансе GRAM':'GRAM balance information'}><span class="gram-coin">G</span><span class="gram-balance-copy"><strong>GRAM</strong><small>{lang==='ru'?'Баланс не подключён':'Balance unavailable'}</small></span><span class="gram-chevron">⌄</span></button>
+      <div class="top-actions"><button class="wallet-header-button" type="button" onclick={()=>{view='profile';void loadSellerProfile();}}><span>◈</span>{lang==='ru'?(walletConnected?'Кошелёк подключён':'Подключить кошелёк'):(walletConnected?'Wallet connected':'Connect wallet')}</button><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>{view='profile';void loadSellerProfile();}}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
     </header>
 
     {#if view==='profile'}
@@ -1516,6 +1520,7 @@
     {:else if view==='orders'}
       <section class="market-overview catalog-first" id="asset-feed">
         <div class="market-heading-row catalog-heading"><div><div class="eyebrow">HASSLE NFT MARKET</div><h2>{lang==='ru'?'Каталог NFT-подарков':'NFT Gift Catalogue'}</h2></div><button class="refresh-button" type="button" onclick={startBuyRequest}>{lang==='ru'?'＋ Хочу купить':'＋ Post buy request'}</button></div>
+        <div class="market-category-rail" aria-label={lang==='ru'?'Категории':'Categories'}><button class:chosen={assetTypeFilter==='all'} onclick={()=>assetTypeFilter='all'}>{lang==='ru'?'Все':'All'}</button><button class:chosen={assetTypeFilter==='gift'} onclick={()=>assetTypeFilter='gift'}>{lang==='ru'?'Подарки':'Gifts'}</button><button class:chosen={assetTypeFilter==='username'} onclick={()=>assetTypeFilter='username'}>Username</button><button class:chosen={assetTypeFilter==='number'} onclick={()=>assetTypeFilter='number'}>+888</button></div>
         <div class="market-toolbar">
           <label class="market-search"><span>⌕</span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label={lang==='ru'?'Поиск активов':'Search assets'}/></label>
           <label class="market-search"><span>▤</span><input bind:value={marketCollectionSearch} placeholder={lang==='ru'?'Коллекция':'Collection'} aria-label={lang==='ru'?'Фильтр по коллекции':'Filter by collection or collection name'}/></label>
@@ -1566,6 +1571,9 @@
          {/if}
          <small class="sell-modal-hint">{lang==='ru'?'Заявки показывают интерес и бюджет покупателей. Встречные предложения и автоматическое исполнение заявок ещё не включены.':'Requests show buyer interest and budget. Seller counteroffers and automatic order matching are not enabled yet.'}</small>
        </section>
+     {:else if view==='auctions'}
+       <section class="page-heading compact-heading"><div class="eyebrow">HASSLE NFT · LIVE BIDDING</div><h1>{lang==='ru'?'Аукционы':'Auctions'}</h1><p>{lang==='ru'?'Торги появятся после подключения серверной логики аукционов.':'Auctions will appear when the server-side bidding engine is connected.'}</p></section>
+       <section class="auction-intro-card"><div class="auction-emblem">♢</div><div><span class="eyebrow">{lang==='ru'?'СЛЕДУЮЩИЙ ЭТАП':'COMING NEXT'}</span><h2>{lang==='ru'?'Торги без фальшивых лотов':'Real bidding, no placeholder lots'}</h2><p>{lang==='ru'?'Здесь будут реальные NFT-подарки с таймером, текущей ставкой и историей торгов. Пока backend-аукционы не включены, каталог остаётся пустым.':'Real NFT gifts, countdowns, live bids and bidding history will live here. No demo listings are shown while the auction backend is unavailable.'}</p></div><span class="auction-status">{lang==='ru'?'СКОРО':'SOON'}</span></section>
      {:else if view==='offers'}
        <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.offersTitle}</h1></section>
       <section class="market-section account-offers">
@@ -2037,4 +2045,7 @@
   </main>
 </div>
 
-<BottomNav lang={lang} active={view==='favorites'?'orders':view==='seller'?'profile':view as 'orders'|'create'|'offers'|'profile'} onNavigate={(target)=>{haptic();view=target;notice='';if(target==='profile')void loadSellerProfile();}} />
+<BottomNav lang={lang} active={view==='favorites'?'orders':view==='seller'?'profile':view as 'orders'|'auctions'|'create'|'offers'|'profile'} onNavigate={(target)=>{haptic();view=target;notice='';if(target==='profile')void loadSellerProfile();}} />
+
+{#if showGramInfo}<div class="hassle-sheet-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showGramInfo=false;}}><section class="hassle-info-sheet" role="dialog" aria-modal="true" aria-labelledby="gram-info-title"><button class="sheet-close" type="button" onclick={()=>showGramInfo=false} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button><div class="gram-sheet-icon">G</div><span class="eyebrow">HASSLE INTERNAL CURRENCY</span><h2 id="gram-info-title">GRAM</h2><p>{lang==='ru'?'Внутренний баланс GRAM ещё не подключён к серверному учёту. Сейчас реальные расчёты и балансы остаются в существующих платёжных механизмах. Мы не показываем выдуманную сумму и не конвертируем TON или Stars автоматически.':'The internal GRAM ledger is not connected yet. Existing payment rails and balances remain unchanged. No fabricated balance or automatic TON/Stars conversion is displayed.'}</p><div class="gram-sheet-note"><span>●</span>{lang==='ru'?'Баланс появится после интеграции и проверки ledger.':'Balance will appear after ledger integration and verification.'}</div><button class="sheet-primary" type="button" onclick={()=>{showGramInfo=false;view='profile';void loadSellerProfile();}}>{lang==='ru'?'Открыть профиль':'Open profile'}</button></section></div>{/if}
+{#if showSplash}<div class="hassle-splash" out:fade={{duration:260}} aria-label="HASSLE NFT loading"><div class="splash-content"><div class="splash-mark">H</div><div class="splash-wordmark">HASSLE <span>NFT</span></div><div class="splash-progress"><i></i></div><small>{lang==='ru'?'Загрузка…':'Loading…'}</small></div></div>{/if}
