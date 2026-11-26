@@ -1425,15 +1425,17 @@
     // Telegram iOS WebView can swallow the delegated child-button handler after
     // auth state changes. Capture the profile pointer gesture at document level
     // and fall back only if the normal button callback did not change the route.
-    const handleProfilePointer = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Element) || !target.closest('button[data-nav-id="profile"]')) return;
-      const viewBeforePointer = view;
+    const handleProfileNavigation = (event: Event) => {
+      const target = event.target as Element | null;
+      const profileButton = target?.closest?.('button[data-nav-id="profile"]');
+      if (!profileButton) return;
+      const viewBeforeEvent = view;
       Promise.resolve().then(() => {
-        if (view === viewBeforePointer && view !== 'profile') openProfile();
+        if (view === viewBeforeEvent && view !== 'profile') openProfile();
       });
     };
-    document.addEventListener('pointerdown', handleProfilePointer, true);
+    document.addEventListener('pointerdown', handleProfileNavigation, true);
+    document.addEventListener('click', handleProfileNavigation, true);
     const webApp = (window as any).Telegram?.WebApp;
     webApp?.ready?.();
     webApp?.expand?.();
@@ -1469,7 +1471,7 @@
     }).catch(() => {
       // Public browsing remains available even when Telegram authentication fails.
     });
-    return () => { window.clearTimeout(splashTimer); document.removeEventListener('pointerdown', handleProfilePointer, true); webApp?.offEvent?.('themeChanged', syncTelegramTheme); };
+    return () => { window.clearTimeout(splashTimer); document.removeEventListener('pointerdown', handleProfileNavigation, true); document.removeEventListener('click', handleProfileNavigation, true); webApp?.offEvent?.('themeChanged', syncTelegramTheme); };
   });
 </script>
 
