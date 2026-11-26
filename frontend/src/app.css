@@ -939,3 +939,21 @@ html,body{background:var(--h-bg)!important;color:var(--h-text);overscroll-behavi
 .filter-sheet-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:20px;padding-top:17px;border-top:1px solid var(--h-line)}.filter-reset-button{min-height:40px;padding:0 14px;border:1px solid var(--h-line);border-radius:11px;background:#202027;color:#c1c1cc;font:650 10px Inter,sans-serif}.filter-sheet-actions .ton-primary{min-width:170px;min-height:42px}
 .asset-card-actions{display:flex;align-items:center;gap:6px;max-width:100%}.asset-card-actions .asset-buy-disabled{width:auto;min-width:54px;min-height:34px;margin:0;padding:0 10px;border:1px solid rgba(255,255,255,.09);border-radius:9px;background:#24242b;color:#858591;font:650 8px Inter,sans-serif;opacity:.72}.asset-card-actions .asset-offer-button{min-width:62px;min-height:34px;padding:0 10px}
 @media(max-width:480px){.market-toolbar{grid-template-columns:minmax(0,1fr) auto;gap:7px;padding:8px}.filter-open-button{min-height:42px;padding:0 11px;font-size:9px}.market-filter-sheet{padding:22px 17px}.filter-sheet-grid{gap:10px}.filter-sheet-grid label{font-size:9px}.filter-sheet-actions .ton-primary{min-width:0;flex:1}.asset-card-actions{width:100%}.asset-card-actions .asset-buy-disabled,.asset-card-actions .asset-offer-button{flex:1;min-width:0;padding:0 6px}}
+
+
+/* Final profile and collection polish */
+.inventory-toolbar-groups{display:grid;gap:9px;min-width:0;flex:1}
+.inventory-status-tabs{padding-top:7px;border-top:1px solid var(--h-line)}
+.inventory-status-tabs button{background:#17171d;color:#8d8d9b}
+.inventory-status-tabs button.active{background:rgba(105,126,255,.16);color:#dce3ff;border-color:rgba(125,145,255,.28)}
+.profile-stats-grid{grid-column:1/-1;grid-template-columns:repeat(4,minmax(0,1fr));margin:0}
+.profile-quick-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:12px}
+.profile-quick-actions button{min-height:40px;padding:0 12px;border:1px solid var(--h-line);border-radius:11px;background:#1b1b22;color:#d2d2dd;font:650 10px Inter,sans-serif}
+.profile-quick-actions button:disabled{opacity:.48;cursor:not-allowed}
+.gram-action-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:20px 0 9px}
+.gram-action-row button{min-height:43px;border:1px solid rgba(122,145,255,.3);border-radius:12px;background:rgba(99,121,255,.13);color:#dce3ff;font:700 11px Inter,sans-serif;transition:transform .18s var(--h-ease),background .18s var(--h-ease)}
+.gram-action-row button:active{transform:scale(.97)}
+.gram-action-sheet .sheet-primary{margin-top:14px}
+@media(max-width:900px){.inventory-toolbar{align-items:stretch}.inventory-toolbar-groups{width:100%}.inventory-toolbar>.refresh-button{align-self:flex-start}}
+@media(max-width:620px){.profile-stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.inventory-toolbar{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}.inventory-toolbar>.refresh-button{justify-self:start}.inventory-filter-group{max-width:100%}.inventory-filter-group button{white-space:nowrap}}
+@media(prefers-reduced-motion:reduce){.gram-action-row button{transition:none}}
