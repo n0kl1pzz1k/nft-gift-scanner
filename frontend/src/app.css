@@ -1155,3 +1155,6 @@ button,a,input,select,textarea,[role=button]{touch-action:manipulation!important
 .asset-favorite svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;display:block}
 .asset-favorite.is-favorite svg{fill:#dfe4e9;stroke:#dfe4e9}
 .profile-asset-placeholder{display:block;object-fit:contain}
+
+.market-search-icon,.filter-icon{display:grid;place-items:center;flex:0 0 18px;width:18px;height:18px;color:#aeb6bf}
+.market-search-icon svg,.filter-icon svg{width:18px;height:18px;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
