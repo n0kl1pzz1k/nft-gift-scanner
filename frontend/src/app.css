@@ -1163,50 +1163,54 @@ button,a,input,select,textarea,[role=button]{touch-action:manipulation!important
 /* HASSLE mark: crop the source artwork's black canvas instead of shrinking the
    actual emblem inside an oversized portrait image. */
 .brand-symbol {
-  width: 48px !important;
-  height: 48px !important;
-  flex: 0 0 48px !important;
-  border-radius: 12px !important;
-  background: #08090b !important;
-  border: 1px solid rgba(220,226,232,.16) !important;
+  width: 42px !important;
+  height: 60px !important;
+  flex: 0 0 42px !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  border: 0 !important;
   box-shadow: none !important;
 }
 .brand-symbol img {
+  display: block;
   width: 100% !important;
   height: 100% !important;
-  object-fit: cover !important;
-  object-position: center 48% !important;
-  transform: scale(1.06);
+  object-fit: contain !important;
+  object-position: center !important;
+  transform: none !important;
 }
 .topbar-brand-mobile .brand-symbol {
-  width: 44px !important;
-  height: 44px !important;
-  flex-basis: 44px !important;
+  width: 36px !important;
+  height: 52px !important;
+  flex-basis: 36px !important;
 }
 .topbar-brand-mobile .brand-symbol img {
-  object-fit: cover !important;
-  object-position: center 48% !important;
+  object-fit: contain !important;
+  object-position: center !important;
 }
 .state-brand-art {
-  width: 132px !important;
-  height: 132px !important;
-  object-fit: cover !important;
-  object-position: center 48% !important;
-  border-radius: 14px;
-  background: #08090b;
+  width: 110px !important;
+  height: 158px !important;
+  object-fit: contain !important;
+  object-position: center !important;
+  border-radius: 0;
+  background: transparent;
 }
 .collection-monogram {
-  object-fit: cover !important;
-  object-position: center 48% !important;
-  overflow: hidden;
-  background: #08090b !important;
-  border: 1px solid rgba(220,226,232,.14);
+  width: 35px !important;
+  height: 50px !important;
+  flex: 0 0 35px !important;
+  object-fit: contain !important;
+  object-position: center !important;
+  overflow: visible;
+  background: transparent !important;
+  border: 0 !important;
 }
 .profile-asset-placeholder {
-  width: 42px;
-  height: 42px;
-  object-fit: cover;
-  object-position: center 48%;
-  border-radius: 10px;
-  background: #08090b;
+  width: 30px;
+  height: 44px;
+  object-fit: contain;
+  object-position: center;
+  border-radius: 0;
+  background: transparent;
 }
