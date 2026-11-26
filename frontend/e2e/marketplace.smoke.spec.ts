@@ -61,3 +61,24 @@ test('Telegram Mini App shell fits a narrow iPhone viewport and remains visible'
   expect(metrics.appHeight).toBeGreaterThan(500);
   expect(pageErrors).toEqual([]);
 });
+
+
+test('profile tab is clickable on iPhone and opens the account screen', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await stubTelegramAndApi(page);
+  await page.goto('/');
+  const profileTab = page.locator('.mobile-nav button').filter({ hasText: 'Профиль' });
+  await expect(profileTab).toBeVisible();
+  await profileTab.click();
+  await expect(profileTab).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('.profile-auth-panel')).toBeVisible();
+  await expect(page.locator('.profile-auth-panel')).toContainText('Гость');
+});
+
+test('HASSLE brand artwork is loaded in the Mini App', async ({ page }) => {
+  await stubTelegramAndApi(page);
+  await page.goto('/');
+  const mark = page.locator('.topbar-brand-mobile img');
+  await expect(mark).toBeVisible();
+  await expect.poll(() => mark.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+});
