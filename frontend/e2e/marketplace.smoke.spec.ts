@@ -98,9 +98,11 @@ test('authenticated profile opens from the mobile tab without waiting on navigat
   await page.setViewportSize({ width: 390, height: 844 });
   await stubTelegramAndApi(page, true);
   await page.goto('/');
+  await expect(page.locator('.market-app')).toHaveAttribute('data-auth-state', 'authenticated', { timeout: 15000 });
   const profileTab = page.locator('.mobile-nav button').filter({ hasText: 'Профиль' });
   await expect(profileTab).toBeVisible();
   await profileTab.click();
+  await expect(page.locator('.market-app')).toHaveAttribute('data-active-view', 'profile');
   await expect(profileTab).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-profile-view]')).toBeVisible();
   await expect(page.locator('.profile-main')).toContainText('Test User');
