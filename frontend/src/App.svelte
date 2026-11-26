@@ -1534,7 +1534,7 @@
           <div class="section-title"><div><div class="eyebrow">MARKETPLACE</div><h2>{lang==='ru'?'Активы продавца':'Seller assets'}</h2></div><button class="refresh-button" onclick={()=>view='orders'}>{lang==='ru'?'Назад':'Back'}</button></div>
           {#if publicSellerProfile.listings.length}
             <div class="orders-list">{#each publicSellerProfile.listings as listing (listing.id)}
-              <article class="order-card"><div class="order-icon">↗</div><div class="order-main"><div class="order-kind">{lang==='ru'?'Предложение':'Listing'}</div><h3>{listing.title}</h3><p>{listing.note || (lang==='ru'?'Без комментария':'No note')} · {new Date(listing.createdAt*1000).toLocaleDateString(lang==='ru'?'ru-RU':'en-US')}</p></div><div class="order-price"><strong>{listing.price} {listing.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class="status-active">{t.active}</span></div></article>
+              <article class="order-card"><div class="order-icon">↗</div><div class="order-main"><div class="order-kind">{lang==='ru'?'Предложение':'Listing'}</div><h3>{listing.title}</h3><p>{listing.note || (lang==='ru'?'Без комментария':'No note')} · {new Date(listing.createdAt*1000).toLocaleDateString(lang==='ru'?'ru-RU':'en-US')}</p></div><div class="order-price"><strong>{listing.price} {listing.currency==='XTR'?'Stars':'TON'}</strong><span class="status-active">{t.active}</span></div></article>
             {/each}</div>
           {:else}<div class="state-panel">{lang==='ru'?'У продавца пока нет активов на продаже.':'This seller has no active assets for sale yet.'}</div>{/if}
         </section>
@@ -1544,8 +1544,8 @@
         <div class="market-heading-row catalog-heading"><div><div class="eyebrow">HASSLE NFT MARKET</div><h2>{lang==='ru'?'Каталог NFT-подарков':'NFT Gift Catalogue'}</h2></div><button class="refresh-button" type="button" onclick={startBuyRequest}>{lang==='ru'?'＋ Хочу купить':'＋ Post buy request'}</button></div>
         <div class="market-category-rail" aria-label={lang==='ru'?'Категории':'Categories'}><button class:chosen={assetTypeFilter==='all'} onclick={()=>assetTypeFilter='all'}>{lang==='ru'?'Все':'All'}</button><button class:chosen={assetTypeFilter==='gift'} onclick={()=>assetTypeFilter='gift'}>{lang==='ru'?'Подарки':'Gifts'}</button><button class:chosen={assetTypeFilter==='username'} onclick={()=>assetTypeFilter='username'}>Username</button><button class:chosen={assetTypeFilter==='number'} onclick={()=>assetTypeFilter='number'}>+888</button></div>
         <div class="market-toolbar">
-          <label class="market-search market-search-primary"><span>⌕</span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label={lang==='ru'?'Поиск активов':'Search assets'}/></label>
-          <button class="filter-open-button" type="button" onclick={()=>showFilterSheet=true}><span>☷</span>{lang==='ru'?'Фильтры':'Filters'}{#if hasMarketFilters}<i>•</i>{/if}</button>
+          <label class="market-search market-search-primary"><span class="market-search-icon"><svg viewBox="0 0 24 24" fill="none"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg></span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label={lang==='ru'?'Поиск активов':'Search assets'}/></label>
+          <button class="filter-open-button" type="button" onclick={()=>showFilterSheet=true}><span class="filter-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M7 12h10M10 17h4"/></svg></span>{lang==='ru'?'Фильтры':'Filters'}{#if hasMarketFilters}<i>•</i>{/if}</button>
         </div>
         {#if showFilterSheet}
           <div class="modal-backdrop filter-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showFilterSheet=false;}}>
@@ -1554,7 +1554,7 @@
               <div class="eyebrow">HASSLE NFT · DISCOVERY</div><h2 id="market-filter-title">{lang==='ru'?'Фильтры каталога':'Marketplace filters'}</h2>
               <div class="filter-sheet-grid compact-filter-grid">
                 <label>{lang==='ru'?'Тип':'Type'}<select class="form-input" bind:value={assetTypeFilter}><option value="all">{lang==='ru'?'Все':'All'}</option><option value="gift">{lang==='ru'?'Подарки':'Gifts'}</option><option value="username">Username</option><option value="number">+888</option></select></label>
-                <label>{lang==='ru'?'Валюта':'Currency'}<select class="form-input" bind:value={marketCurrency}><option value="all">{lang==='ru'?'Любая':'Any'}</option><option value="TON">TON</option><option value="XTR">⭐ Stars</option></select></label>
+                <label>{lang==='ru'?'Валюта':'Currency'}<select class="form-input" bind:value={marketCurrency}><option value="all">{lang==='ru'?'Любая':'Any'}</option><option value="TON">TON</option><option value="XTR">Stars</option></select></label>
                 <label>{lang==='ru'?'Цена от':'Min price'}<input class="form-input" type="number" min="0" step="any" bind:value={marketMinPrice} disabled={marketCurrency==='all'} placeholder="0" inputmode="decimal"/></label>
                 <label>{lang==='ru'?'Цена до':'Max price'}<input class="form-input" type="number" min="0" step="any" bind:value={marketMaxPrice} disabled={marketCurrency==='all'} placeholder="∞" inputmode="decimal"/></label>
                 <label class="filter-sheet-wide">{lang==='ru'?'Сортировка':'Sort'}<select class="form-input" bind:value={marketSort}><option value="recent">{lang==='ru'?'Сначала новые':'Newest'}</option><option value="price-low">{lang==='ru'?'Сначала дешевле':'Price: low to high'}</option><option value="price-high">{lang==='ru'?'Сначала дороже':'Price: high to low'}</option><option value="id-low">NFT ID ↑</option><option value="id-high">NFT ID ↓</option></select></label>
@@ -1570,7 +1570,7 @@
         {:else if marketError && orders.length===0}
           <div class="state-panel"><strong>{lang==='ru'?'Не удалось загрузить маркет':'Market failed to load'}</strong><small>{marketError}</small><button class="asset-offer-button" onclick={()=>loadMarketplace()}>{t.refresh} ↻</button></div>
         {:else if marketAssets.length===0}
-          <div class="state-panel market-empty"><span class="state-icon">⌕</span><strong>{hasMarketFilters ? (lang==='ru'?'По этим фильтрам ничего не найдено':'No assets match these filters') : (lang==='ru'?'Пока нет выставленных NFT-подарков':'No NFT gifts listed yet')}</strong><small>{hasMarketFilters ? (lang==='ru'?'Попробуй изменить запрос или сбросить фильтры.':'Try changing your search or clearing the filters.') : (lang==='ru'?'Здесь появятся реальные подарки, когда владельцы выставят их на маркетплейс.':'Real gifts will appear here when their owners list them on the marketplace.')}</small>{#if hasMarketFilters}<button class="market-empty-reset" onclick={resetMarketFilters}>{lang==='ru'?'Сбросить фильтры':'Clear filters'}</button>{/if}</div>
+          <div class="state-panel market-empty"><img class="state-brand-art" src="/brand/hassle-mark.webp" alt="HASSLE NFT"/><strong>{hasMarketFilters ? (lang==='ru'?'По этим фильтрам ничего не найдено':'No assets match these filters') : (lang==='ru'?'Пока нет выставленных NFT-подарков':'No NFT gifts listed yet')}</strong><small>{hasMarketFilters ? (lang==='ru'?'Попробуй изменить запрос или сбросить фильтры.':'Try changing your search or clearing the filters.') : (lang==='ru'?'Здесь появятся реальные подарки, когда владельцы выставят их на маркетплейс.':'Real gifts will appear here when their owners list them on the marketplace.')}</small>{#if hasMarketFilters}<button class="market-empty-reset" onclick={resetMarketFilters}>{lang==='ru'?'Сбросить фильтры':'Clear filters'}</button>{/if}</div>
         {:else}
           <div class="asset-grid">
             {#each marketAssets as order (order.id)}
@@ -1684,14 +1684,14 @@
            {/each}
          </div>
          {:else}
-           <div class="inventory-empty-state"><span class="state-icon">⌕</span><strong>{lang==='ru'?'В этой категории пока пусто':'No assets in this category yet'}</strong><small>{lang==='ru'?'Выбери другой источник или обнови инвентарь после импорта.':'Choose another source or refresh after importing assets.'}</small></div>
+           <div class="inventory-empty-state"><img class="state-brand-art" src="/brand/hassle-mark.webp" alt="HASSLE NFT"/><strong>{lang==='ru'?'В этой категории пока пусто':'No assets in this category yet'}</strong><small>{lang==='ru'?'Выбери другой источник или обнови инвентарь после импорта.':'Choose another source or refresh after importing assets.'}</small></div>
          {/if}
        {:else}
          <div class="inventory-empty-state"><span class="state-icon">✦</span><strong>{lang==='ru'?'Пока нет подтверждённых активов':'No verified assets yet'}</strong><small>{lang==='ru'?'Ручное создание карточек отключено. Импортируй подарки Telegram или подключи TON-кошелёк для проверки NFT.':'Manual asset creation is disabled. Import Telegram gifts or connect a TON wallet to verify on-chain NFTs.'}</small></div>
        {/if}
       {:else if view==='favorites'}
       <section class="page-heading compact-heading favorites-heading"><div><div class="eyebrow">HASSLE NFT</div><h1>{t.favoritesTitle}</h1></div><button class="refresh-button" onclick={()=>view='orders'}>{lang==='ru'?'Назад в маркет':'Back to market'}</button></section>
-      {#if favoriteOrders.length}<div class="orders-list">{#each favoriteOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{order.owner}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div><button class="heart-button hearted" onclick={()=>toggleFavoriteOrder(order)}>♥</button></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='orders'}>{lang==='ru'?'К активам':'Browse assets'}</button></div>{/if}
+      {#if favoriteOrders.length}<div class="orders-list">{#each favoriteOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{order.owner}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div><button class="heart-button hearted" onclick={()=>toggleFavoriteOrder(order)}>♥</button></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='orders'}>{lang==='ru'?'К активам':'Browse assets'}</button></div>{/if}
     {:else}
       <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.profile}</h1></section>
       <section class="profile-layout" data-profile-view><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div>{#if !signedIn}<button class="publish-button" onclick={()=>telegramLogin()} disabled={authBusy}>{authBusy?(lang==='ru'?'Подтверждаем…':'Verifying…'):t.signIn+' →'}</button>{:else}<span class="telegram-verified-state">✓ {lang==='ru'?'Подтверждено':'Verified'}</span>{/if}</article>
@@ -1744,7 +1744,7 @@
           {#if offers.length}
             {#each visibleOffers.slice(0,12) as offer (offer.id)}
               <article class="profile-trade-row">
-                <div><strong>{offer.order_title}</strong><small>{offer.is_mine?(lang==='ru'?'Мой оффер':'Sent by me'):(lang==='ru'?'Входящий оффер':'Received offer')} · {offer.amount} {offer.currency==='XTR'?'⭐ Stars':'TON'} · {offerStatusLabel(offer.status)}</small></div>
+                <div><strong>{offer.order_title}</strong><small>{offer.is_mine?(lang==='ru'?'Мой оффер':'Sent by me'):(lang==='ru'?'Входящий оффер':'Received offer')} · {offer.amount} {offer.currency==='XTR'?'Stars':'TON'} · {offerStatusLabel(offer.status)}</small></div>
                 {#if offer.status==='pending' && offer.is_mine}
                   <div class="profile-trade-actions"><button type="button" onclick={()=>startEditOffer(offer)}>{lang==='ru'?'Изменить':'Edit'}</button><button type="button" onclick={()=>respondToOffer(offer.id,'withdraw')} disabled={offerActionBusy===offer.id}>{lang==='ru'?'Отозвать':'Withdraw'}</button></div>
                 {:else if offer.status==='pending' && !offer.is_mine && offer.order_kind==='listing'}
@@ -1760,7 +1760,7 @@
           {#if deals.length}
             {#each deals.slice(0,12) as deal (deal.id)}
               <article class="profile-deal-row">
-                <div class="profile-deal-main"><strong>{deal.order_title}</strong><small>{deal.is_seller?(lang==='ru'?'Ты продавец':'You are the seller'):(lang==='ru'?'Ты покупатель':'You are the buyer')} · {deal.agreed_amount} {deal.currency==='XTR'?'⭐ Stars':'TON'}</small><span>{dealStatusLabel(deal.status)}</span></div>
+                <div class="profile-deal-main"><strong>{deal.order_title}</strong><small>{deal.is_seller?(lang==='ru'?'Ты продавец':'You are the seller'):(lang==='ru'?'Ты покупатель':'You are the buyer')} · {deal.agreed_amount} {deal.currency==='XTR'?'Stars':'TON'}</small><span>{dealStatusLabel(deal.status)}</span></div>
                 <div class="profile-deal-actions">
                   <button type="button" onclick={()=>toggleDealTimeline(deal.id)}>{expandedDealTimeline===deal.id?(lang==='ru'?'Скрыть журнал':'Hide log'):(lang==='ru'?'Журнал':'Timeline')}</button>
                   {#if deal.status==='paid' || deal.status==='delivery_pending'}<button type="button" onclick={()=>openDealDispute(deal.id)} disabled={disputeBusy===deal.id}>{lang==='ru'?'Спор':'Dispute'}</button>{/if}
@@ -1791,7 +1791,7 @@
                <div class="activity-row">
                  <span class="activity-marker"></span>
                  <div class="activity-row-main">
-                   <strong>{settlement.currency==='XTR'?'⭐ Telegram Stars':'TON'}</strong>
+                   <strong>{settlement.currency==='XTR'?'Telegram Stars':'TON'}</strong>
                    <small>{settlement.status==='pending_manual_payout'?(lang==='ru'?'Ожидает ручной выплаты через мультиподпись 2 из 3':'Awaiting manual 2-of-3 multisig payout'):(lang==='ru'?'Внутреннее начисление Stars. Автоматический вывод недоступен.':'Internal Stars credit. Automatic withdrawal is unavailable.')}</small>
                  </div>
                  <div class="activity-row-value"><strong>{settlement.amount} {settlement.currency==='XTR'?'⭐':'TON'}</strong></div>
@@ -1941,7 +1941,7 @@
             </div>
             <div class="eyebrow">HASSLE NFT · ASSET</div><h2 id="asset-detail-title">{selectedAsset.title}</h2>
             <div class="asset-detail-meta"><span>ID <b>#{selectedAsset.id}</b></span><span>{lang==='ru'?'Продавец':'Seller'} <b>{selectedAsset.owner}</b></span></div>
-            <div class="asset-detail-price"><small>{lang==='ru'?'Цена продавца':'Seller price'}</small><strong>{selectedAsset.price} {selectedAsset.currency==='XTR'?'⭐ Stars':'TON'}</strong></div>
+            <div class="asset-detail-price"><small>{lang==='ru'?'Цена продавца':'Seller price'}</small><strong>{selectedAsset.price} {selectedAsset.currency==='XTR'?'Stars':'TON'}</strong></div>
             {#if selectedAsset.note}<p class="asset-detail-note">{selectedAsset.note}</p>{/if}
             <div class="asset-detail-unavailable"><strong>{lang==='ru'?'Характеристики актива':'Asset traits'}</strong><span>{lang==='ru'?'Метаданные и traits появятся после подключения источника NFT-метаданных.':'Metadata and traits will appear after an NFT metadata source is connected.'}</span></div>
             {#if selectedAsset.isMine}
@@ -1962,7 +1962,7 @@
             <h2 id="buy-request-title">{lang==='ru'?'Создать заявку на покупку':'Create a buy request'}</h2>
             <label>{lang==='ru'?'Какой актив ищешь?':'What asset are you looking for?'}<input class="form-input" bind:value={createTitle} maxlength="120" placeholder={lang==='ru'?'Например, Plush Pepe #123':'For example, Plush Pepe #123'} /></label>
             <label>{lang==='ru'?'Бюджет':'Budget'}<input class="form-input" type="number" min="0.01" step={createCurrency==='XTR'?'1':'0.01'} bind:value={createPrice} inputmode="decimal" /></label>
-            <label>{lang==='ru'?'Валюта':'Currency'}<select class="form-input" bind:value={createCurrency}><option value="TON">TON</option><option value="XTR">⭐ Telegram Stars</option></select></label>
+            <label>{lang==='ru'?'Валюта':'Currency'}<select class="form-input" bind:value={createCurrency}><option value="TON">TON</option><option value="XTR">Telegram Stars</option></select></label>
             <label>{lang==='ru'?'Условия (необязательно)':'Details (optional)'}<textarea class="form-input note-input" bind:value={createNote} maxlength="300" placeholder={lang==='ru'?'Опиши нужную коллекцию или состояние':'Describe the collection or condition you want'}></textarea></label>
             <button class="ton-primary offer-submit" onclick={submitBuyRequest} disabled={createOrderBusy}>{createOrderBusy?(lang==='ru'?'Публикуем…':'Publishing…'):(lang==='ru'?'Опубликовать заявку →':'Publish buy request →')}</button>
             <small class="sell-modal-hint">{lang==='ru'?'Заявка показывает продавцам твой запрос и бюджет. Деньги не резервируются и покупка не происходит автоматически.':'The request shows sellers what you want and your budget. No funds are reserved and no purchase happens automatically.'}</small>
@@ -1983,7 +1983,7 @@
             <label>{lang==='ru'?'Валюта':'Currency'}
               <select class="form-input" bind:value={createCurrency}>
                 <option value="TON">TON</option>
-                <option value="XTR">⭐ Telegram Stars</option>
+                <option value="XTR">Telegram Stars</option>
               </select>
             </label>
             <label>{lang==='ru'?'Описание (необязательно)':'Description (optional)'}<textarea class="form-input note-input" bind:value={createNote} maxlength="300" placeholder={lang==='ru'?'Краткая информация об активе':'A short note about this asset'}></textarea></label>
