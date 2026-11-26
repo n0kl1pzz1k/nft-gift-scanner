@@ -1158,3 +1158,70 @@ button,a,input,select,textarea,[role=button]{touch-action:manipulation!important
 
 .market-search-icon,.filter-icon{display:grid;place-items:center;flex:0 0 18px;width:18px;height:18px;color:#aeb6bf}
 .market-search-icon svg,.filter-icon svg{width:18px;height:18px;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+
+/* HASSLE mark: crop the source artwork's black canvas instead of shrinking the
+   actual emblem inside an oversized portrait image. */
+.brand-symbol {
+  width: 42px !important;
+  height: 60px !important;
+  flex: 0 0 42px !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.brand-symbol img {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+  object-position: center !important;
+  transform: none !important;
+}
+.topbar-brand-mobile .brand-symbol {
+  width: 36px !important;
+  height: 52px !important;
+  flex-basis: 36px !important;
+}
+.topbar-brand-mobile .brand-symbol img {
+  object-fit: contain !important;
+  object-position: center !important;
+}
+.state-brand-art {
+  width: 110px !important;
+  height: 158px !important;
+  object-fit: contain !important;
+  object-position: center !important;
+  border-radius: 0;
+  background: transparent;
+}
+.collection-monogram {
+  width: 35px !important;
+  height: 50px !important;
+  flex: 0 0 35px !important;
+  object-fit: contain !important;
+  object-position: center !important;
+  overflow: visible;
+  background: transparent !important;
+  border: 0 !important;
+}
+.profile-asset-placeholder {
+  width: 30px;
+  height: 44px;
+  object-fit: contain;
+  object-position: center;
+  border-radius: 0;
+  background: transparent;
+}
+
+
+/* Navigation icons are decorative; keep every tap targeted at the button. */
+.mobile-nav .nav-icon,
+.mobile-nav .nav-icon svg {
+  pointer-events: none !important;
+}
+.mobile-nav button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}

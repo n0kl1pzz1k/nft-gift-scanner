@@ -11,7 +11,7 @@
 </script>
 <nav class="mobile-nav" aria-label="Primary navigation">
   {#each items as item}
-    <button class:active={active === item.id} onclick={() => onNavigate(item.id)} aria-current={active === item.id ? 'page' : undefined}>
+    <button type="button" class:active={active === item.id} onclick={() => onNavigate(item.id)} aria-current={active === item.id ? 'page' : undefined}>
       <span class="nav-icon" aria-hidden="true">
         {#if item.id === 'orders'}
           <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="6" height="6" rx="1.2"/><rect x="14" y="4" width="6" height="6" rx="1.2"/><rect x="4" y="14" width="6" height="6" rx="1.2"/><rect x="14" y="14" width="6" height="6" rx="1.2"/></svg>
