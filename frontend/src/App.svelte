@@ -275,14 +275,20 @@
     } catch {}
   }
 
-  async function openProfile() {
+  function openProfile() {
     haptic('light');
+    // Switch the route synchronously. Never let scrolling or a network request
+    // prevent the profile screen from rendering inside Telegram's iOS WebView.
     view = 'profile';
     notice = '';
-    window.scrollTo({ top: 0, behavior: 'instant' });
-    const initData = window.Telegram?.WebApp?.initData;
-    if (!signedIn && initData && !authBusy) await telegramLogin(false);
-    else if (signedIn) await Promise.all([loadSellerProfile(), loadVerifiedInventory(), loadOffersAndDeals()]);
+    try { window.scrollTo(0, 0); } catch {}
+    if (signedIn) {
+      void Promise.all([loadSellerProfile(), loadVerifiedInventory(), loadOffersAndDeals()])
+        .catch(error => { notice = error instanceof Error ? error.message : String(error); });
+      return;
+    }
+    const initData = window.Telegram?.WebApp?.initData || '';
+    if (initData && !authBusy) void telegramLogin(false);
   }
 
   function reportReasonLabel(reason: OrderReport['reason']) {
@@ -2057,7 +2063,7 @@
   </main>
 </div>
 
-<BottomNav lang={lang} active={view==='favorites'?'orders':view==='seller'?'profile':view==='create'?'profile':view as 'orders'|'auctions'|'offers'|'profile'} onNavigate={(target)=>{if(target==='profile'){void openProfile();return;}haptic();view=target;notice='';}} />
+<BottomNav lang={lang} active={view==='favorites'?'orders':view==='seller'?'profile':view==='create'?'profile':view as 'orders'|'auctions'|'offers'|'profile'} onNavigate={(target)=>{if(target==='profile'){openProfile();return;}haptic();view=target;notice='';}} />
 
 {#if showGramInfo}<div class="hassle-sheet-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showGramInfo=false;}}><section class="hassle-info-sheet" role="dialog" aria-modal="true" aria-labelledby="gram-info-title"><button class="sheet-close" type="button" onclick={()=>showGramInfo=false} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button><div class="gram-sheet-icon">G</div><span class="eyebrow">HASSLE INTERNAL CURRENCY</span><h2 id="gram-info-title">GRAM</h2><p>{lang==='ru'?'Внутренний баланс GRAM ещё не подключён к серверному учёту. Сейчас реальные расчёты и балансы остаются в существующих платёжных механизмах. Мы не показываем выдуманную сумму и не конвертируем TON или Stars автоматически.':'The internal GRAM ledger is not connected yet. Existing payment rails and balances remain unchanged. No fabricated balance or automatic TON/Stars conversion is displayed.'}</p><div class="gram-sheet-note"><span>●</span>{lang==='ru'?'Баланс появится после интеграции и проверки ledger.':'Balance will appear after ledger integration and verification.'}</div><div class="gram-action-row"><button type="button" onclick={()=>{showGramInfo=false;gramAction='deposit';}}>{lang==='ru'?'Пополнить':'Deposit'}</button><button type="button" onclick={()=>{showGramInfo=false;gramAction='withdraw';}}>{lang==='ru'?'Вывести':'Withdraw'}</button></div><button class="sheet-primary" type="button" onclick={()=>{showGramInfo=false;view='profile';void loadSellerProfile();}}>{lang==='ru'?'Открыть профиль':'Open profile'}</button></section></div>{/if}
 {#if gramAction}<div class="hassle-sheet-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)gramAction=null;}}><section class="hassle-info-sheet gram-action-sheet" role="dialog" aria-modal="true" aria-labelledby="gram-action-title"><button class="sheet-close" type="button" onclick={()=>gramAction=null} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button><div class="gram-sheet-icon">G</div><span class="eyebrow">GRAM · WALLET</span><h2 id="gram-action-title">{gramAction==='deposit'?(lang==='ru'?'Пополнение GRAM':'Deposit GRAM'):(lang==='ru'?'Вывод GRAM':'Withdraw GRAM')}</h2><p>{lang==='ru'?'Операции с внутренним балансом пока недоступны: серверный GRAM ledger и проверка транзакций ещё не подключены. Никакие средства не будут списаны или зачислены.':'Internal balance operations are not available yet. The GRAM ledger and transaction verification are not connected. No funds will be charged or credited.'}</p><div class="gram-sheet-note"><span>●</span>{lang==='ru'?'Функция появится после завершения платёжной интеграции и аудита.':'This feature will be enabled after payment integration and audit.'}</div><button class="sheet-primary" type="button" onclick={()=>gramAction=null}>{lang==='ru'?'Понятно':'Got it'}</button></section></div>{/if}
