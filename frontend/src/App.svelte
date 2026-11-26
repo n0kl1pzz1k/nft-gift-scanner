@@ -275,6 +275,16 @@
     } catch {}
   }
 
+  async function openProfile() {
+    haptic('light');
+    view = 'profile';
+    notice = '';
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    const initData = window.Telegram?.WebApp?.initData;
+    if (!signedIn && initData && !authBusy) await telegramLogin(false);
+    else if (signedIn) await Promise.all([loadSellerProfile(), loadVerifiedInventory(), loadOffersAndDeals()]);
+  }
+
   function reportReasonLabel(reason: OrderReport['reason']) {
     const labels = {scam:t.reportScam,misleading:t.reportMisleading,inappropriate:t.reportInappropriate,spam:t.reportSpam,other:t.reportOther};
     return labels[reason] || reason;
@@ -1453,20 +1463,20 @@
 
 <div class="market-app">
   <aside class="sidebar">
-    <a class="brand" href="#marketplace"><span class="brand-symbol">H</span><span>HASSLE NFT<small>THE GIFT MARKET</small></span></a>
+    <a class="brand" href="#marketplace"><span class="brand-symbol"><img src="/brand/hassle-mark.webp" alt=""/></span><span>HASSLE NFT<small>DIGITAL COLLECTIBLES</small></span></a>
     <div class="nav-caption">{lang === 'ru' ? 'МЕНЮ' : 'MENU'}</div>
     <nav class="side-nav">
       {#each [{id:'orders',label:lang==='ru'?'Маркет':'Market',icon:'▦'},{id:'auctions',label:lang==='ru'?'Аукционы':'Auctions',icon:'♢'},{id:'offers',label:lang==='ru'?'Активность':'Activity',icon:'◫'},{id:'profile',label:lang==='ru'?'Профиль':'Profile',icon:'◉'}] as item}
-        <button class:active={view===item.id || (view==='favorites' && item.id==='orders') || (view==='seller' && item.id==='profile')} class="nav-item" onclick={()=>{haptic();view=item.id as View;notice='';if(item.id==='profile')void loadSellerProfile();}}><span>{item.icon}</span>{item.label}</button>
+        <button class:active={view===item.id || (view==='favorites' && item.id==='orders') || (view==='seller' && item.id==='profile')} class="nav-item" onclick={()=>{if(item.id==='profile'){void openProfile();return;}haptic();view=item.id as View;notice='';}}><span>{item.icon}</span>{item.label}</button>
       {/each}
     </nav>
-    <div class="sidebar-bottom"><div class="sidebar-version">NFT GIFTS · TON · STARS</div></div>
+    <div class="sidebar-bottom"><div class="sidebar-version">HASSLE · DIGITAL ASSETS</div></div>
   </aside>
 
   <main class="main-content">
     <header class="topbar topbar-minimal">
-      <div class="topbar-brand-mobile"><span class="brand-symbol">H</span><strong>HASSLE <i>NFT</i></strong></div>
-      <div class="top-actions"><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" aria-label={lang==='ru'?'Открыть профиль':'Open profile'} onclick={()=>{view='profile';void loadSellerProfile();}}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
+      <div class="topbar-brand-mobile"><span class="brand-symbol"><img src="/brand/hassle-mark.webp" alt=""/></span><strong>HASSLE <i>NFT</i></strong></div>
+      <div class="top-actions"><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" aria-label={lang==='ru'?'Открыть профиль':'Open profile'} onclick={openProfile} data-profile-entry="avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
     </header>
 
     {#if view==='profile' && !signedIn}
@@ -1570,29 +1580,7 @@
           {#if publicOrdersOffset < publicOrdersTotal}<div class="load-more-wrap"><button class="load-more" onclick={loadMoreOrders} disabled={ordersLoadingMore}>{ordersLoadingMore?'…':t.loadMore}</button></div>{/if}
         {/if}
       </section>
-       <section class="activity-history-panel">
-         <div class="section-title"><div><div class="eyebrow">COMMUNITY WANTED</div><h2>{lang==='ru'?'Заявки покупателей':'Buyer requests'}</h2></div><span>{publicBuyRequests.length}</span></div>
-         {#if publicBuyRequests.length}
-           <div class="orders-list">
-             {#each publicBuyRequests as request (request.id)}
-               <article class="order-card">
-                 <div class="order-icon">⌕</div>
-                 <div class="order-main">
-                   <div class="order-kind">{lang==='ru'?'ИЩЕТ ПОКУПАТЕЛЬ':'BUY REQUEST'}</div>
-                   <h3>{request.title}</h3>
-                   <p>{request.owner}{request.note ? ' · '+request.note : ''}</p>
-                 </div>
-                 <div class="order-price"><strong>{request.price} {request.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class="status-active">{lang==='ru'?'БЮДЖЕТ':'BUDGET'}</span></div>
-                 {#if !request.isMine}<div class="order-actions"><button class="asset-offer-button" disabled={!signedIn} onclick={()=>{selectedOfferOrder=request;offerAmount=String(request.price);offerNote='';showOfferModal=true;}}>{lang==='ru'?'Предложить свой актив':'Respond with an asset'}</button></div>{/if}
-               </article>
-             {/each}
-           </div>
-         {:else}
-           <div class="state-panel">{lang==='ru'?'Пока никто не опубликовал заявку на покупку.':'No community buy requests yet.'}</div>
-         {/if}
-         <small class="sell-modal-hint">{lang==='ru'?'Заявки показывают интерес и бюджет покупателей. Встречные предложения и автоматическое исполнение заявок ещё не включены.':'Requests show buyer interest and budget. Seller counteroffers and automatic order matching are not enabled yet.'}</small>
-       </section>
-     {:else if view==='auctions'}
+       {:else if view==='auctions'}
        <section class="page-heading compact-heading"><div class="eyebrow">HASSLE NFT · LIVE BIDDING</div><h1>{lang==='ru'?'Аукционы':'Auctions'}</h1><p>{lang==='ru'?'Торги появятся после подключения серверной логики аукционов.':'Auctions will appear when the server-side bidding engine is connected.'}</p></section>
        <section class="auction-intro-card"><div class="auction-emblem">♢</div><div><span class="eyebrow">{lang==='ru'?'СЛЕДУЮЩИЙ ЭТАП':'COMING NEXT'}</span><h2>{lang==='ru'?'Торги без фальшивых лотов':'Real bidding, no placeholder lots'}</h2><p>{lang==='ru'?'Здесь будут реальные NFT-подарки с таймером, текущей ставкой и историей торгов. Пока backend-аукционы не включены, каталог остаётся пустым.':'Real NFT gifts, countdowns, live bids and bidding history will live here. No demo listings are shown while the auction backend is unavailable.'}</p></div><span class="auction-status">{lang==='ru'?'СКОРО':'SOON'}</span></section>
      {:else if view==='offers'}
@@ -1616,7 +1604,7 @@
              <div class="market-collection-list">
                {#each marketplaceStats.collections as collection (collection.collection)}
                  <article class="market-collection-row">
-                   <div class="market-collection-identity"><span class="collection-monogram">{collection.collection.slice(0,1).toUpperCase()}</span><div><strong>{collection.collection}</strong><small>{collection.active_listings} {lang==='ru'?'активных лотов':'active listings'} · {collection.trades_24h} {lang==='ru'?'закрытых позиций за 24ч':'matched in 24h'}</small></div></div>
+                   <div class="market-collection-identity"><img class="collection-monogram" src="/brand/hassle-mark.webp" alt="HASSLE"/><div><strong>{collection.collection}</strong><small>{collection.active_listings} {lang==='ru'?'активных лотов':'active listings'} · {collection.trades_24h} {lang==='ru'?'закрытых позиций за 24ч':'matched in 24h'}</small></div></div>
                    <div class="market-collection-metric"><small>{lang==='ru'?'Флор':'Floor'}</small><strong>{collection.floor_ton===null?'—':Number(collection.floor_ton).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})+' TON'}</strong>{#if collection.floor_stars!==null}<span>{Number(collection.floor_stars).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} ⭐</span>{/if}</div>
                    <div class="market-collection-metric market-collection-volume"><small>{lang==='ru'?'Оборот за 24ч':'24h volume'}</small><strong>{Number(collection.volume_ton_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})} TON</strong>{#if collection.volume_stars_24h}<span>{Number(collection.volume_stars_24h).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} ⭐</span>{/if}</div>
                  </article>
@@ -1706,7 +1694,7 @@
       {#if favoriteOrders.length}<div class="orders-list">{#each favoriteOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{order.owner}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'⭐ Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div><button class="heart-button hearted" onclick={()=>toggleFavoriteOrder(order)}>♥</button></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='orders'}>{lang==='ru'?'К активам':'Browse assets'}</button></div>{/if}
     {:else}
       <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.profile}</h1></section>
-      <section class="profile-layout"><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div>{#if !signedIn}<button class="publish-button" onclick={()=>telegramLogin()} disabled={authBusy}>{authBusy?(lang==='ru'?'Подтверждаем…':'Verifying…'):t.signIn+' →'}</button>{:else}<span class="telegram-verified-state">✓ {lang==='ru'?'Подтверждено':'Verified'}</span>{/if}</article>
+      <section class="profile-layout" data-profile-view><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div>{#if !signedIn}<button class="publish-button" onclick={()=>telegramLogin()} disabled={authBusy}>{authBusy?(lang==='ru'?'Подтверждаем…':'Verifying…'):t.signIn+' →'}</button>{:else}<span class="telegram-verified-state">✓ {lang==='ru'?'Подтверждено':'Verified'}</span>{/if}</article>
       <div class="account-stats-grid profile-stats-grid">
         {#each [{label:lang==='ru'?'Активные объявления':'Active listings',value:accountStats.active_orders},{label:lang==='ru'?'Завершённые сделки':'Completed trades',value:accountStats.completed_orders},{label:lang==='ru'?'Отправлено офферов':'Offers sent',value:accountStats.pending_offers_sent},{label:lang==='ru'?'Входящие офферы':'Incoming offers',value:accountStats.pending_offers_received}] as metric}
           <div class="account-stat"><small>{metric.label}</small><strong>{metric.value}</strong></div>
@@ -1735,7 +1723,7 @@
           <div class="profile-inventory-list">
             {#each verifiedAssets as asset (asset.id)}
               <article class="profile-asset-row">
-                {#if assetPreviewUrl(asset)}<img src={assetPreviewUrl(asset)} alt={asset.title} loading="lazy"/>{:else}<span class="profile-asset-placeholder">◇</span>{/if}
+                {#if assetPreviewUrl(asset)}<img src={assetPreviewUrl(asset)} alt={asset.title} loading="lazy"/>{:else}<img class="profile-asset-placeholder" src="/brand/hassle-mark.webp" alt="HASSLE NFT"/>{/if}
                 <div class="profile-asset-copy"><strong>{asset.title}</strong><small>{asset.source==='telegram_gift'?'Telegram Gift':asset.source==='ton_nft'?'TON NFT':asset.asset_type==='username'?'Username':'+888'} · {asset.active_listing_id?(lang==='ru'?'На продаже':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</small></div>
                 {#if asset.active_listing_id}
                   {#if orders.find(order=>order.id===asset.active_listing_id)}<button class="profile-asset-action" type="button" onclick={()=>{const listing=orders.find(order=>order.id===asset.active_listing_id);if(listing)startEditOrder(listing);}}>{lang==='ru'?'Управлять':'Manage'}</button>{:else}<span class="profile-asset-listed">{lang==='ru'?'Выставлен':'Listed'}</span>{/if}
@@ -2069,9 +2057,9 @@
   </main>
 </div>
 
-<BottomNav lang={lang} active={view==='favorites'?'orders':view==='seller'?'profile':view==='create'?'profile':view as 'orders'|'auctions'|'offers'|'profile'} onNavigate={(target)=>{haptic();view=target;notice='';if(target==='profile'){void loadSellerProfile();void loadVerifiedInventory();}}} />
+<BottomNav lang={lang} active={view==='favorites'?'orders':view==='seller'?'profile':view==='create'?'profile':view as 'orders'|'auctions'|'offers'|'profile'} onNavigate={(target)=>{if(target==='profile'){void openProfile();return;}haptic();view=target;notice='';}} />
 
 {#if showGramInfo}<div class="hassle-sheet-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showGramInfo=false;}}><section class="hassle-info-sheet" role="dialog" aria-modal="true" aria-labelledby="gram-info-title"><button class="sheet-close" type="button" onclick={()=>showGramInfo=false} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button><div class="gram-sheet-icon">G</div><span class="eyebrow">HASSLE INTERNAL CURRENCY</span><h2 id="gram-info-title">GRAM</h2><p>{lang==='ru'?'Внутренний баланс GRAM ещё не подключён к серверному учёту. Сейчас реальные расчёты и балансы остаются в существующих платёжных механизмах. Мы не показываем выдуманную сумму и не конвертируем TON или Stars автоматически.':'The internal GRAM ledger is not connected yet. Existing payment rails and balances remain unchanged. No fabricated balance or automatic TON/Stars conversion is displayed.'}</p><div class="gram-sheet-note"><span>●</span>{lang==='ru'?'Баланс появится после интеграции и проверки ledger.':'Balance will appear after ledger integration and verification.'}</div><div class="gram-action-row"><button type="button" onclick={()=>{showGramInfo=false;gramAction='deposit';}}>{lang==='ru'?'Пополнить':'Deposit'}</button><button type="button" onclick={()=>{showGramInfo=false;gramAction='withdraw';}}>{lang==='ru'?'Вывести':'Withdraw'}</button></div><button class="sheet-primary" type="button" onclick={()=>{showGramInfo=false;view='profile';void loadSellerProfile();}}>{lang==='ru'?'Открыть профиль':'Open profile'}</button></section></div>{/if}
 {#if gramAction}<div class="hassle-sheet-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)gramAction=null;}}><section class="hassle-info-sheet gram-action-sheet" role="dialog" aria-modal="true" aria-labelledby="gram-action-title"><button class="sheet-close" type="button" onclick={()=>gramAction=null} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button><div class="gram-sheet-icon">G</div><span class="eyebrow">GRAM · WALLET</span><h2 id="gram-action-title">{gramAction==='deposit'?(lang==='ru'?'Пополнение GRAM':'Deposit GRAM'):(lang==='ru'?'Вывод GRAM':'Withdraw GRAM')}</h2><p>{lang==='ru'?'Операции с внутренним балансом пока недоступны: серверный GRAM ledger и проверка транзакций ещё не подключены. Никакие средства не будут списаны или зачислены.':'Internal balance operations are not available yet. The GRAM ledger and transaction verification are not connected. No funds will be charged or credited.'}</p><div class="gram-sheet-note"><span>●</span>{lang==='ru'?'Функция появится после завершения платёжной интеграции и аудита.':'This feature will be enabled after payment integration and audit.'}</div><button class="sheet-primary" type="button" onclick={()=>gramAction=null}>{lang==='ru'?'Понятно':'Got it'}</button></section></div>{/if}
 {#if showAboutModal}<div class="hassle-sheet-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showAboutModal=false;}}><section class="hassle-info-sheet" role="dialog" aria-modal="true" aria-labelledby="about-hassle-title"><button class="sheet-close" type="button" onclick={()=>showAboutModal=false} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button><div class="gram-sheet-icon">H</div><span class="eyebrow">TELEGRAM NFT MARKETPLACE</span><h2 id="about-hassle-title">HASSLE NFT</h2><p>{lang==='ru'?'Независимый маркетплейс Telegram NFT-подарков, коллекционных имён и номеров. Платформа показывает только подтверждённые активы и не подменяет реальные балансы демонстрационными цифрами.':'An independent marketplace for Telegram NFT gifts, collectible usernames and numbers. The platform displays verified assets and never substitutes real balances with demo values.'}</p><button class="sheet-primary" type="button" onclick={()=>showAboutModal=false}>{lang==='ru'?'Закрыть':'Close'}</button></section></div>{/if}
-{#if showSplash}<div class="hassle-splash" out:fade={{duration:260}} aria-label="HASSLE NFT loading"><div class="splash-content"><div class="splash-mark">H</div><div class="splash-wordmark">HASSLE <span>NFT</span></div><div class="splash-progress"><i></i></div><small>{lang==='ru'?'Загрузка…':'Loading…'}</small></div></div>{/if}
+{#if showSplash}<div class="hassle-splash" out:fade={{duration:260}} aria-label="HASSLE NFT loading"><div class="splash-content"><div class="splash-mark"><img src="/brand/hassle-mark.webp" alt="HASSLE NFT"/></div><div class="splash-wordmark">HASSLE <span>NFT</span></div><div class="splash-progress"><i></i></div><small>{lang==='ru'?'Загрузка…':'Loading…'}</small></div></div>{/if}
