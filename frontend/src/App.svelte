@@ -33,6 +33,7 @@
   let lang = $state<'ru' | 'en'>('ru');
   let showSplash = $state(true);
   let showGramInfo = $state(false);
+  let showFilterSheet = $state(false);
   let view = $state<View>('orders');
   let marketSearch = $state('');
   let marketplaceLoading = $state(true);
@@ -1522,16 +1523,28 @@
         <div class="market-heading-row catalog-heading"><div><div class="eyebrow">HASSLE NFT MARKET</div><h2>{lang==='ru'?'Каталог NFT-подарков':'NFT Gift Catalogue'}</h2></div><button class="refresh-button" type="button" onclick={startBuyRequest}>{lang==='ru'?'＋ Хочу купить':'＋ Post buy request'}</button></div>
         <div class="market-category-rail" aria-label={lang==='ru'?'Категории':'Categories'}><button class:chosen={assetTypeFilter==='all'} onclick={()=>assetTypeFilter='all'}>{lang==='ru'?'Все':'All'}</button><button class:chosen={assetTypeFilter==='gift'} onclick={()=>assetTypeFilter='gift'}>{lang==='ru'?'Подарки':'Gifts'}</button><button class:chosen={assetTypeFilter==='username'} onclick={()=>assetTypeFilter='username'}>Username</button><button class:chosen={assetTypeFilter==='number'} onclick={()=>assetTypeFilter='number'}>+888</button></div>
         <div class="market-toolbar">
-          <label class="market-search"><span>⌕</span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label={lang==='ru'?'Поиск активов':'Search assets'}/></label>
-          <label class="market-search"><span>▤</span><input bind:value={marketCollectionSearch} placeholder={lang==='ru'?'Коллекция':'Collection'} aria-label={lang==='ru'?'Фильтр по коллекции':'Filter by collection or collection name'}/></label>
-          <label class="market-search"><span>#</span><input bind:value={marketNftIdSearch} placeholder={lang==='ru'?'NFT ID':'NFT ID'} aria-label="NFT ID"/></label>
-          <select class="market-select" bind:value={nftBackground} aria-label={lang==='ru'?'Цвет фона NFT':'NFT background color'}><option value="midnight">{lang==='ru'?'Фон: графит':'Background: graphite'}</option><option value="violet">{lang==='ru'?'Фон: фиолетовый':'Background: violet'}</option><option value="blue">{lang==='ru'?'Фон: синий':'Background: blue'}</option><option value="emerald">{lang==='ru'?'Фон: изумрудный':'Background: emerald'}</option><option value="rose">{lang==='ru'?'Фон: розовый':'Background: rose'}</option><option value="gold">{lang==='ru'?'Фон: золотой':'Background: gold'}</option></select>
-          <select class="market-select" bind:value={assetTypeFilter} aria-label={lang==='ru'?'Тип актива':'Asset type'}><option value="all">{lang==='ru'?'Все активы':'All assets'}</option><option value="gift">{lang==='ru'?'NFT-подарки':'NFT Gifts'}</option><option value="username">Username</option><option value="number">{lang==='ru'?'Номера 888':'Anonymous numbers'}</option></select>
-          <select class="market-select" bind:value={marketCurrency} aria-label={lang==='ru'?'Валюта цены':'Price currency'}><option value="all">{lang==='ru'?'Любая валюта':'Any currency'}</option><option value="TON">TON</option><option value="XTR">⭐ Stars</option></select>
-          <select class="market-select" bind:value={marketSort} aria-label={lang==='ru'?'Сортировка активов':'Sort assets'}><option value="recent">{lang==='ru'?'Сначала новые':'Recently listed'}</option><option value="price-low">{lang==='ru'?'Сначала дешевле':'Price: low to high'}</option><option value="price-high">{lang==='ru'?'Сначала дороже':'Price: high to low'}</option><option value="id-low">{lang==='ru'?'NFT ID: по возрастанию':'NFT ID: ascending'}</option><option value="id-high">{lang==='ru'?'NFT ID: по убыванию':'NFT ID: descending'}</option></select>
-          <label class="price-filter"><span>{lang==='ru'?'От':'Min'}</span><input type="number" min="0" step="any" bind:value={marketMinPrice} disabled={marketCurrency==='all'} placeholder="0" aria-label={lang==='ru'?'Минимальная цена':'Minimum price'} inputmode="decimal"/></label>
-          <label class="price-filter"><span>{lang==='ru'?'До':'Max'}</span><input type="number" min="0" step="any" bind:value={marketMaxPrice} disabled={marketCurrency==='all'} placeholder="∞" aria-label={lang==='ru'?'Максимальная цена':'Maximum price'} inputmode="decimal"/></label>
+          <label class="market-search market-search-primary"><span>⌕</span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label={lang==='ru'?'Поиск активов':'Search assets'}/></label>
+          <button class="filter-open-button" type="button" onclick={()=>showFilterSheet=true}><span>☷</span>{lang==='ru'?'Фильтры':'Filters'}{#if hasMarketFilters}<i>•</i>{/if}</button>
         </div>
+        {#if showFilterSheet}
+          <div class="modal-backdrop filter-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showFilterSheet=false;}}>
+            <section class="sell-modal market-filter-sheet" role="dialog" aria-modal="true" aria-labelledby="market-filter-title">
+              <button class="modal-close" type="button" onclick={()=>showFilterSheet=false} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button>
+              <div class="eyebrow">HASSLE NFT · DISCOVERY</div><h2 id="market-filter-title">{lang==='ru'?'Фильтры каталога':'Marketplace filters'}</h2>
+              <div class="filter-sheet-grid">
+                <label class="filter-sheet-wide">{lang==='ru'?'Коллекция':'Collection'}<input class="form-input" bind:value={marketCollectionSearch} placeholder={lang==='ru'?'Название коллекции':'Collection name'}/></label>
+                <label class="filter-sheet-wide">NFT ID<input class="form-input" bind:value={marketNftIdSearch} placeholder="12345"/></label>
+                <label>{lang==='ru'?'Тип актива':'Asset type'}<select class="form-input" bind:value={assetTypeFilter}><option value="all">{lang==='ru'?'Все активы':'All assets'}</option><option value="gift">{lang==='ru'?'NFT-подарки':'NFT Gifts'}</option><option value="username">Username</option><option value="number">{lang==='ru'?'Номера 888':'Anonymous numbers'}</option></select></label>
+                <label>{lang==='ru'?'Валюта цены':'Price currency'}<select class="form-input" bind:value={marketCurrency}><option value="all">{lang==='ru'?'Любая валюта':'Any currency'}</option><option value="TON">TON</option><option value="XTR">⭐ Stars</option></select></label>
+                <label class="filter-sheet-wide">{lang==='ru'?'Сортировка':'Sort by'}<select class="form-input" bind:value={marketSort}><option value="recent">{lang==='ru'?'Сначала новые':'Recently listed'}</option><option value="price-low">{lang==='ru'?'Сначала дешевле':'Price: low to high'}</option><option value="price-high">{lang==='ru'?'Сначала дороже':'Price: high to low'}</option><option value="id-low">{lang==='ru'?'NFT ID: по возрастанию':'NFT ID: ascending'}</option><option value="id-high">{lang==='ru'?'NFT ID: по убыванию':'NFT ID: descending'}</option></select></label>
+                <label>{lang==='ru'?'Цена от':'Min price'}<input class="form-input" type="number" min="0" step="any" bind:value={marketMinPrice} disabled={marketCurrency==='all'} placeholder="0" inputmode="decimal"/></label>
+                <label>{lang==='ru'?'Цена до':'Max price'}<input class="form-input" type="number" min="0" step="any" bind:value={marketMaxPrice} disabled={marketCurrency==='all'} placeholder="∞" inputmode="decimal"/></label>
+                <label class="filter-sheet-wide">{lang==='ru'?'Цвет карточек':'Card appearance'}<select class="form-input" bind:value={nftBackground}><option value="midnight">{lang==='ru'?'Графит':'Graphite'}</option><option value="violet">{lang==='ru'?'Фиолетовый':'Violet'}</option><option value="blue">{lang==='ru'?'Синий':'Blue'}</option><option value="emerald">{lang==='ru'?'Изумрудный':'Emerald'}</option><option value="rose">{lang==='ru'?'Розовый':'Rose'}</option><option value="gold">{lang==='ru'?'Золотой':'Gold'}</option></select></label>
+              </div>
+              <div class="filter-sheet-actions"><button class="filter-reset-button" type="button" onclick={()=>{resetMarketFilters();showFilterSheet=false;}}>{lang==='ru'?'Сбросить':'Reset'}</button><button class="ton-primary" type="button" onclick={()=>showFilterSheet=false}>{lang==='ru'?'Показать результаты':'Show results'}</button></div>
+            </section>
+          </div>
+        {/if}
         {#if invalidPriceRange}<div class="state-panel filter-error" role="alert">{t.invalidPrice}</div>{/if}
         <div class="market-meta"><span>{marketAssets.length} {lang==='ru'?'активов в каталоге':'assets in market'}</span><span>{lang==='ru'?'Сделки в TON и Stars':'TON & Stars'}</span>{#if hasMarketFilters}<button class="market-reset-filters" onclick={resetMarketFilters}>{lang==='ru'?'Сбросить фильтры':'Clear filters'} ×</button>{/if}</div>
         {#if marketplaceLoading && orders.length===0}
