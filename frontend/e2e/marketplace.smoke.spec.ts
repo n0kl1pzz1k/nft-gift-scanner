@@ -106,7 +106,13 @@ test('authenticated profile opens from the mobile tab without waiting on navigat
     return document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.outerHTML.slice(0, 500) || 'none';
   });
   console.log('AUTH PROFILE NAV HIT TARGET:', navHitTarget);
+  await page.evaluate(() => {
+    (window as any).__navEvents = [];
+    document.addEventListener('pointerdown', event => (window as any).__navEvents.push('pointerdown:' + (event.target as Element).tagName), true);
+    document.addEventListener('click', event => (window as any).__navEvents.push('click:' + (event.target as Element).tagName), true);
+  });
   await profileTab.click();
+  console.log('AUTH PROFILE NAV EVENTS:', await page.evaluate(() => (window as any).__navEvents));
   await expect(page.locator('.market-app')).toHaveAttribute('data-active-view', 'profile');
   await expect(profileTab).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-profile-view]')).toBeVisible();
