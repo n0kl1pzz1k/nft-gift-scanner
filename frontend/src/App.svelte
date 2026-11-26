@@ -30,7 +30,7 @@
   type MarketplaceStats = {
     active_listings: number; active_buy_requests: number; matched_orders: number;
     volume_ton: number; volume_stars: number; floor_ton: number | null; floor_stars: number | null; total_orders: number;
-    volume_ton_24h: number; volume_stars_24h: number; matched_orders_24h: number;
+    volume_ton_24h: number; volume_stars_24h: number; completed_trades_24h: number;
     collections: MarketCollectionStat[];
   };
   type View = 'orders' | 'auctions' | 'offers' | 'create' | 'favorites' | 'profile' | 'seller';
@@ -98,7 +98,7 @@
   let activityTotal = $state(0);
   let activityBusy = $state(false);
   let accountStats = $state<AccountStats>({active_orders:0,completed_orders:0,pending_offers_sent:0,pending_offers_received:0,unread_notifications:0,deals:0,seller_pending_settlements:[]});
-  let marketplaceStats = $state<MarketplaceStats>({active_listings:0,active_buy_requests:0,matched_orders:0,volume_ton:0,volume_stars:0,floor_ton:null,floor_stars:null,total_orders:0,volume_ton_24h:0,volume_stars_24h:0,matched_orders_24h:0,collections:[]});
+  let marketplaceStats = $state<MarketplaceStats>({active_listings:0,active_buy_requests:0,matched_orders:0,volume_ton:0,volume_stars:0,floor_ton:null,floor_stars:null,total_orders:0,volume_ton_24h:0,volume_stars_24h:0,completed_trades_24h:0,collections:[]});
   let sellerProfile = $state<SellerProfile | null>(null);
   let sellerDisplayName = $state('');
   let sellerBio = $state('');
@@ -1603,9 +1603,9 @@
          </header>
          <div class="market-period-label"><span></span>{lang==='ru'?'ПОСЛЕДНИЕ 24 ЧАСА':'LAST 24 HOURS'}</div>
          <div class="market-activity-kpis">
-           <article class="market-kpi market-kpi-primary"><small>{lang==='ru'?'Объём торгов':'Trading volume'}</small><strong>{Number(marketplaceStats.volume_ton_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})} <i>TON</i></strong><span>{lang==='ru'?'Закрытые позиции за сутки':'Matched positions in 24h'}</span></article>
+           <article class="market-kpi market-kpi-primary"><small>{lang==='ru'?'Объём торгов':'Trading volume'}</small><strong>{Number(marketplaceStats.volume_ton_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})} <i>TON</i></strong><span>{lang==='ru'?'По завершённым сделкам':'Based on completed trades'}</span></article>
            <article class="market-kpi"><small>{lang==='ru'?'Объём в Stars':'Stars volume'}</small><strong>{Number(marketplaceStats.volume_stars_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} <i>⭐</i></strong><span>{lang==='ru'?'Отдельно от TON':'Reported separately from TON'}</span></article>
-           <article class="market-kpi"><small>{lang==='ru'?'Закрытые позиции':'Matched positions'}</small><strong>{Number(marketplaceStats.matched_orders_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</strong><span>{lang==='ru'?'За 24 часа':'In the last 24 hours'}</span></article>
+           <article class="market-kpi"><small>{lang==='ru'?'Завершённые сделки':'Completed trades'}</small><strong>{Number(marketplaceStats.completed_trades_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</strong><span>{lang==='ru'?'За 24 часа':'In the last 24 hours'}</span></article>
            <article class="market-kpi"><small>{lang==='ru'?'Активные объявления':'Active listings'}</small><strong>{Number(marketplaceStats.active_listings||0).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</strong><span>{lang==='ru'?'Сейчас на площадке':'Currently on the marketplace'}</span></article>
          </div>
          <section class="market-collections-panel">
