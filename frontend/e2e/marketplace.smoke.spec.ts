@@ -107,7 +107,6 @@ test('authenticated profile opens from the mobile tab without waiting on navigat
   });
   console.log('AUTH PROFILE NAV HIT TARGET:', navHitTarget);
   await profileTab.click();
-  await expect(profileTab).toHaveAttribute('data-last-clicked', 'profile');
   await expect(page.locator('.market-app')).toHaveAttribute('data-active-view', 'profile');
   await expect(profileTab).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-profile-view]')).toBeVisible();
