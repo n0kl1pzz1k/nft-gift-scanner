@@ -1425,7 +1425,10 @@
     // Telegram iOS WebView can swallow the delegated child-button handler after
     // auth state changes. Capture the profile pointer gesture at document level
     // and fall back only if the normal button callback did not change the route.
+    (window as any).__profileNavFallbackMounted = true;
+    (window as any).__profileNavFallbackCalls = 0;
     const handleProfileNavigation = (event: Event) => {
+      (window as any).__profileNavFallbackCalls += 1;
       const target = event.target as Element | null;
       const profileButton = target?.closest?.('button[data-nav-id="profile"]');
       if (!profileButton) return;
