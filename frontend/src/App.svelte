@@ -44,6 +44,7 @@
   let gramAction = $state<'deposit'|'withdraw'|null>(null);
   let showAboutModal = $state(false);
   let view = $state<View>('orders');
+  $effect(() => { console.log('[HASSLE VIEW CHANGE]', view); });
   let marketSearch = $state('');
   let marketplaceLoading = $state(true);
   let marketError = $state('');
@@ -276,6 +277,7 @@
   }
 
   function openProfile() {
+    console.log('[HASSLE OPEN PROFILE]', { signedIn, authBusy, view });
     haptic('light');
     // Switch the route synchronously. Never let scrolling or a network request
     // prevent the profile screen from rendering inside Telegram's iOS WebView.
@@ -634,6 +636,7 @@
       publicSellerProfile = data.profile as PublicSellerProfile;
     } catch (e) {
       notice = e instanceof Error ? e.message : String(e);
+      console.log('[HASSLE RESET ORDERS]', new Error().stack);
       view = 'orders';
     } finally {
       publicSellerBusy = false;
