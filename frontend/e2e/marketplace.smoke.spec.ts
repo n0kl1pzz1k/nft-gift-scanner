@@ -76,6 +76,7 @@ test('profile tab is clickable on iPhone and opens the account screen', async ({
 });
 
 test('HASSLE brand artwork is loaded in the Mini App', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await stubTelegramAndApi(page);
   await page.goto('/');
   const mark = page.locator('.topbar-brand-mobile img');
