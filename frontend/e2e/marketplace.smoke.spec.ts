@@ -101,6 +101,11 @@ test('authenticated profile opens from the mobile tab without waiting on navigat
   await expect(page.locator('.market-app')).toHaveAttribute('data-auth-state', 'authenticated', { timeout: 15000 });
   const profileTab = page.locator('.mobile-nav button').filter({ hasText: 'Профиль' });
   await expect(profileTab).toBeVisible();
+  const navHitTarget = await profileTab.evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    return document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.outerHTML.slice(0, 500) || 'none';
+  });
+  console.log('AUTH PROFILE NAV HIT TARGET:', navHitTarget);
   await profileTab.click();
   await expect(profileTab).toHaveAttribute('data-last-clicked', 'profile');
   await expect(page.locator('.market-app')).toHaveAttribute('data-active-view', 'profile');
