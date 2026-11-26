@@ -113,6 +113,7 @@ test('authenticated profile opens from the mobile tab without waiting on navigat
   });
   await profileTab.click();
   console.log('AUTH PROFILE NAV EVENTS:', await page.evaluate(() => (window as any).__navEvents));
+  console.log('PROFILE FALLBACK:', await page.evaluate(() => ({ mounted: (window as any).__profileNavFallbackMounted, calls: (window as any).__profileNavFallbackCalls })));
   await expect(page.locator('.market-app')).toHaveAttribute('data-active-view', 'profile');
   await expect(profileTab).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-profile-view]')).toBeVisible();
