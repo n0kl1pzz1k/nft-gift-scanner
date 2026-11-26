@@ -43,13 +43,13 @@
 <article class="asset-card" in:fade={{ duration: 160 }}>
   <div class={'asset-art asset-art-' + kind} style={`background-color: ${({midnight:'#171c24',violet:'#39245d',blue:'#173b62',emerald:'#164a3d',rose:'#5a293d',gold:'#59451d'})[backgroundColor]}`}>
     {#if kind === 'username'}
-      <span class="asset-at">@</span><strong>{order.title.replace(/^@/, '')}</strong><small>TELEGRAM USERNAME</small>
+      <img class="asset-brand-art" src="/brand/hassle-mark.webp" alt=""/><span class="asset-at">@</span><strong>{order.title.replace(/^@/, '')}</strong><small>TELEGRAM USERNAME</small>
     {:else if kind === 'number'}
-      <span class="asset-number">{order.title.replace(/[^0-9+]/g, '') || '888'}</span><small>ANONYMOUS NUMBER</small>
+      <img class="asset-brand-art" src="/brand/hassle-mark.webp" alt=""/><span class="asset-number">{order.title.replace(/[^0-9+]/g, '') || '888'}</span><small>ANONYMOUS NUMBER</small>
     {:else if kind === 'gift'}
-      {#if order.image_url}<img class="asset-gift-image" src={order.image_url} alt={order.title} loading="lazy" />{:else}<div class="asset-preview-placeholder"><span>PREVIEW</span><small>{lang === 'ru' ? 'Изображение появится после импорта подарка' : 'Gift preview appears after verified import'}</small></div>{/if}
+      {#if order.image_url}<img class="asset-gift-image" src={order.image_url} alt={order.title} loading="lazy" />{:else}<div class="asset-preview-placeholder"><img src="/brand/hassle-mark.webp" alt="HASSLE NFT"/><small>{lang === 'ru' ? 'Ожидается изображение подарка' : 'Gift artwork pending'}</small></div>{/if}
     {:else}
-      <div class="asset-preview-placeholder"><span>ASSET</span><small>{lang === 'ru' ? 'Тип актива ещё не подтверждён' : 'Asset type is not verified yet'}</small></div>
+      <div class="asset-preview-placeholder"><img src="/brand/hassle-mark.webp" alt="HASSLE NFT"/><small>{lang === 'ru' ? 'Подтверждённый актив' : 'Verified asset'}</small></div>
     {/if}
     <span class="asset-type-pill">{typeLabel}</span>
     <button class={'asset-favorite ' + (favorite ? 'is-favorite' : '')} onclick={onFavorite} aria-label={lang === 'ru' ? (favorite ? 'Убрать из избранного' : 'Добавить в избранное') : (favorite ? 'Remove from favorites' : 'Add to favorites')}>{favorite ? '♥' : '♡'}</button>
@@ -58,7 +58,7 @@
     <div class="asset-title-row"><button class="asset-title-button" onclick={onOpen}>{order.title}</button><span class="asset-id">#{order.id.slice(-5)}</span></div>
     <p class="asset-owner">{#if sellerProfileId}<button class="asset-seller-link" onclick={onSeller}>{order.owner}</button>{:else}{order.owner}{/if}{order.note ? ' · ' + order.note : ''}</p>
     <div class="asset-card-footer">
-      <div><small>{lang === 'ru' ? 'Цена' : 'Price'}</small><strong>{order.price} <span>{order.currency === 'XTR' ? '⭐' : 'TON'}</span></strong></div>
+      <div><small>{lang === 'ru' ? 'Цена' : 'Price'}</small><strong>{order.price} <span>{order.currency === 'XTR' ? 'Stars' : 'TON'}</span></strong></div>
       {#if isMine}
         <button class="asset-offer-button" onclick={onManage}>{lang === 'ru' ? 'Управлять' : 'Manage listing'}</button>
       {:else}
