@@ -1214,3 +1214,14 @@ button,a,input,select,textarea,[role=button]{touch-action:manipulation!important
   border-radius: 0;
   background: transparent;
 }
+
+
+/* Navigation icons are decorative; keep every tap targeted at the button. */
+.mobile-nav .nav-icon,
+.mobile-nav .nav-icon svg {
+  pointer-events: none !important;
+}
+.mobile-nav button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
