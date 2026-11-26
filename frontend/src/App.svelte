@@ -1470,7 +1470,7 @@
         <button class:active={view===item.id || (view==='favorites' && item.id==='orders') || (view==='seller' && item.id==='profile')} class="nav-item" onclick={()=>{if(item.id==='profile'){void openProfile();return;}haptic();view=item.id as View;notice='';}}><span>{item.icon}</span>{item.label}</button>
       {/each}
     </nav>
-    <div class="sidebar-bottom"><div class="sidebar-version">NFT GIFTS · TON · STARS</div></div>
+    <div class="sidebar-bottom"><div class="sidebar-version">HASSLE · DIGITAL ASSETS</div></div>
   </aside>
 
   <main class="main-content">
