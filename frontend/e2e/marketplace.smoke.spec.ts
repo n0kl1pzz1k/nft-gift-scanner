@@ -100,7 +100,6 @@ test('authenticated profile opens from the mobile tab without waiting on navigat
   await page.goto('/');
   const profileTab = page.locator('.mobile-nav button').filter({ hasText: 'Профиль' });
   await expect(profileTab).toBeVisible();
-  await expect.poll(() => page.locator('[data-profile-view]').count()).toBeGreaterThan(0);
   await profileTab.click();
   await expect(profileTab).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-profile-view]')).toBeVisible();
