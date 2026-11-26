@@ -1491,41 +1491,12 @@
         <h1>{t.profile}</h1>
         <p>{lang==='ru'?'Аккаунт Telegram и публичная карточка продавца':'Your Telegram account and public seller card'}</p>
       </section>
-      {#if signedIn}
-        <section class="public-seller-layout">
-          <article class="profile-card public-seller-card">
-            <div class="profile-avatar">
-              {#if telegramPhoto}<img src={telegramPhoto} alt="Telegram avatar"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'T'}</span>{/if}
-            </div>
-            <div class="public-seller-identity">
-              <h2>{telegramUser || 'Telegram user'}</h2>
-              {#if telegramUsername}<p>{telegramUsername}</p>{/if}
-              <p>{lang==='ru'?'Telegram подтверждён':'Telegram verified'}{telegramPremium?' · Premium':''}</p>
-              <small>{lang==='ru'?'Аккаунт авторизован через Telegram Mini App':'Signed in through Telegram Mini App'}</small>
-            </div>
-          </article>
-          <article class="profile-card seller-profile-editor">
-            <div class="section-title"><div><div class="eyebrow">PUBLIC PROFILE</div><h2>{t.sellerCardTitle}</h2></div></div>
-            <label class="profile-field-label">{t.sellerDisplayName}
-              <input class="form-input" bind:value={sellerDisplayName} maxlength="60" placeholder={telegramUser || (lang==='ru'?'Твоё имя':'Your name')}/>
-            </label>
-            <label class="profile-field-label">{t.sellerBio}
-              <textarea class="form-input note-input" bind:value={sellerBio} maxlength="300" placeholder={lang==='ru'?'Расскажи о себе или своих активах':'Tell buyers about yourself or your assets'}></textarea>
-            </label>
-            <button class="ton-primary offer-submit" type="button" onclick={saveSellerProfile} disabled={sellerProfileBusy}>
-              {sellerProfileBusy?(lang==='ru'?'Сохраняем…':'Saving…'):t.sellerSave}
-            </button>
-            {#if sellerProfile?.profile_id}<small class="sell-modal-hint">{t.sellerProfileId}: {sellerProfile.profile_id}</small>{/if}
-          </article>
-        </section>
-      {:else}
-        <div class="state-panel profile-auth-panel">
-          <strong>{t.guest}</strong>
-          <small>{t.authHint}</small>
-          <button class="ton-primary" type="button" onclick={()=>telegramLogin()} disabled={authBusy || !window.Telegram?.WebApp?.initData}>{authBusy?(lang==='ru'?'Подтверждаем…':'Verifying…'):(lang==='ru'?'Войти через Telegram':'Sign in with Telegram')}</button>
-          <small>{lang==='ru'?'Если кнопка недоступна, открой Mini App через кнопку в боте.':'If sign-in is unavailable, open the Mini App using the bot button.'}</small>
-        </div>
-      {/if}
+      <section class="state-panel profile-auth-panel" data-profile-guest-view>
+        <strong>{t.guest}</strong>
+        <small>{t.authHint}</small>
+        <button class="ton-primary" type="button" onclick={()=>telegramLogin()} disabled={authBusy || !window.Telegram?.WebApp?.initData}>{authBusy?(lang==='ru'?'Подтверждаем…':'Verifying…'):(lang==='ru'?'Войти через Telegram':'Sign in with Telegram')}</button>
+        <small>{lang==='ru'?'Если кнопка недоступна, открой Mini App через кнопку в боте.':'If sign-in is unavailable, open the Mini App using the bot button.'}</small>
+      </section>
     {:else if view==='seller'}
       <section class="page-heading"><div class="eyebrow">HASSLE NFT · SELLER</div><h1>{lang==='ru'?'Профиль продавца':'Seller profile'}</h1><p>{lang==='ru'?'Публичная информация и активы на продаже':'Public information and active listings'}</p></section>
       {#if publicSellerBusy}<div class="state-panel">{t.loading}</div>
@@ -1698,7 +1669,7 @@
       {:else if view==='favorites'}
       <section class="page-heading compact-heading favorites-heading"><div><div class="eyebrow">HASSLE NFT</div><h1>{t.favoritesTitle}</h1></div><button class="refresh-button" onclick={()=>view='orders'}>{lang==='ru'?'Назад в маркет':'Back to market'}</button></section>
       {#if favoriteOrders.length}<div class="orders-list">{#each favoriteOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{order.owner}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'Stars':'TON'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div><button class="heart-button hearted" onclick={()=>toggleFavoriteOrder(order)}>♥</button></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='orders'}>{lang==='ru'?'К активам':'Browse assets'}</button></div>{/if}
-    {:else}
+    {:else if view==='profile'}
       <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.profile}</h1></section>
       <section class="profile-layout" data-profile-view><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div>{#if !signedIn}<button class="publish-button" onclick={()=>telegramLogin()} disabled={authBusy}>{authBusy?(lang==='ru'?'Подтверждаем…':'Verifying…'):t.signIn+' →'}</button>{:else}<span class="telegram-verified-state">✓ {lang==='ru'?'Подтверждено':'Verified'}</span>{/if}</article>
       <div class="account-stats-grid profile-stats-grid">
