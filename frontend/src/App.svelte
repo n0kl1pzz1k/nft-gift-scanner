@@ -1454,7 +1454,7 @@
 
   <main class="main-content">
     <header class="topbar">
-      <button class="gram-balance-trigger" type="button" onclick={()=>showGramInfo=true" aria-label={lang==='ru'?'Информация о балансе GRAM':'GRAM balance information'}><span class="gram-coin">G</span><span class="gram-balance-copy"><strong>GRAM</strong><small>{lang==='ru'?'Баланс не подключён':'Balance unavailable'}</small></span><span class="gram-chevron">⌄</span></button>
+      <button class="gram-balance-trigger" type="button" onclick={()=>showGramInfo=true} aria-label={lang==='ru'?'Информация о балансе GRAM':'GRAM balance information'}><span class="gram-coin">G</span><span class="gram-balance-copy"><strong>GRAM</strong><small>{lang==='ru'?'Баланс не подключён':'Balance unavailable'}</small></span><span class="gram-chevron">⌄</span></button>
       <div class="top-actions"><button class="wallet-header-button" type="button" onclick={()=>{view='profile';void loadSellerProfile();}}><span>◈</span>{lang==='ru'?(walletConnected?'Кошелёк подключён':'Подключить кошелёк'):(walletConnected?'Wallet connected':'Connect wallet')}</button><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>{view='profile';void loadSellerProfile();}}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
     </header>
 
