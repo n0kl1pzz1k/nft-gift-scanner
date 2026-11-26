@@ -2001,7 +2001,15 @@ def create_marketplace_router(
                 active_buy_requests = conn.execute(
                     "SELECT COUNT(*) FROM marketplace_orders WHERE kind='buy-order' AND status='active'"
                 ).fetchone()[0]
-            return {"active_listings": 0, "active_buy_requests": active_buy_requests, "matched_orders": 0, "volume_ton": 0, "volume_stars": 0, "floor_ton": None, "floor_stars": None, "total_orders": active_buy_requests}
+            return {
+                "active_listings": 0, "active_buy_requests": active_buy_requests,
+                "matched_orders": 0, "volume_ton": 0, "volume_stars": 0,
+                "floor_ton": None, "floor_stars": None, "total_orders": active_buy_requests,
+                "volume_ton_24h": 0, "volume_stars_24h": 0, "matched_orders_24h": 0,
+                "collections": [],
+            }
+        now = int(time.time())
+        since_24h = now - 86400
         with _db() as conn:
             counts = conn.execute("""
                 SELECT
@@ -2015,7 +2023,70 @@ def create_marketplace_router(
                     COUNT(*) AS total_orders
                 FROM marketplace_orders
             """).fetchone()
-        return {key: (counts[key] or 0) for key in counts.keys()}
+            activity_rows = conn.execute("""
+                SELECT o.title, COALESCE(o.asset_type, a.asset_type) AS asset_type,
+                       o.kind, o.status, o.currency, CAST(o.price AS REAL) AS price
+                FROM marketplace_orders o
+                LEFT JOIN verified_assets a ON a.id = o.asset_id
+                WHERE (o.status='active' AND o.kind='listing')
+                   OR (o.status='matched' AND o.updated_at >= ?)
+            """, (since_24h,)).fetchall()
+
+        collections = {}
+        volume_ton_24h = 0.0
+        volume_stars_24h = 0.0
+        matched_orders_24h = 0
+        for row in activity_rows:
+            asset_type = str(row["asset_type"] or "gift")
+            title = str(row["title"] or "").strip()
+            if asset_type == "username":
+                collection_name = "Telegram usernames"
+            elif asset_type == "number":
+                collection_name = "Anonymous numbers"
+            else:
+                collection_name = title
+                hash_parts = collection_name.rsplit("#", 1)
+                if len(hash_parts) == 2 and hash_parts[1].strip().isdigit():
+                    collection_name = hash_parts[0].strip()
+                else:
+                    dash_parts = collection_name.rsplit("-", 1)
+                    if len(dash_parts) == 2 and dash_parts[1].strip().isdigit():
+                        collection_name = dash_parts[0].strip()
+                collection_name = collection_name or "Telegram gifts"
+
+            bucket = collections.setdefault(collection_name, {
+                "collection": collection_name, "active_listings": 0, "trades_24h": 0,
+                "volume_ton_24h": 0.0, "volume_stars_24h": 0.0,
+                "floor_ton": None, "floor_stars": None,
+            })
+            price = float(row["price"] or 0)
+            if row["status"] == "active" and row["kind"] == "listing":
+                bucket["active_listings"] += 1
+                floor_key = "floor_ton" if row["currency"] == "TON" else "floor_stars"
+                current_floor = bucket[floor_key]
+                bucket[floor_key] = price if current_floor is None else min(current_floor, price)
+            elif row["status"] == "matched":
+                bucket["trades_24h"] += 1
+                matched_orders_24h += 1
+                if row["currency"] == "TON":
+                    bucket["volume_ton_24h"] += price
+                    volume_ton_24h += price
+                elif row["currency"] == "XTR":
+                    bucket["volume_stars_24h"] += price
+                    volume_stars_24h += price
+
+        collection_list = sorted(
+            collections.values(),
+            key=lambda item: (item["trades_24h"], item["active_listings"], item["collection"].lower()),
+            reverse=True,
+        )[:30]
+        return {
+            **{key: (counts[key] or 0) for key in counts.keys()},
+            "volume_ton_24h": round(volume_ton_24h, 6),
+            "volume_stars_24h": round(volume_stars_24h, 2),
+            "matched_orders_24h": matched_orders_24h,
+            "collections": collection_list,
+        }
 
     @router.post("/orders", status_code=201)
     async def create_order(
