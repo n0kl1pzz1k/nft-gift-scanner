@@ -1431,6 +1431,7 @@
       (window as any).__profileNavFallbackCalls += 1;
       const target = event.target as Element | null;
       const profileButton = target?.closest?.('button[data-nav-id="profile"]');
+      ((window as any).__profileNavMatches ||= []).push({ target: target?.outerHTML?.slice(0, 240) || String(target), matched: Boolean(profileButton) });
       if (!profileButton) return;
       const viewBeforeEvent = view;
       Promise.resolve().then(() => {
