@@ -2232,6 +2232,11 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(stats.json()["total_orders"], 1)
         self.assertEqual(stats.json()["floor_ton"], 2.5)
         self.assertEqual(stats.json()["floor_stars"], 0)
+        self.assertEqual(stats.json()["volume_ton"], 0)
+        self.assertEqual(stats.json()["completed_trades_24h"], 0)
+        self.assertEqual(stats.json()["collections"][0]["collection"], "Plush Pepe")
+        self.assertEqual(stats.json()["collections"][0]["active_listings"], 1)
+        self.assertEqual(stats.json()["collections"][0]["floor_ton"], 2.5)
         unchanged = self.client.get("/api/marketplace/orders?status=active")
         self.assertTrue(any(item["id"] == order_id for item in unchanged.json()["items"]))
 

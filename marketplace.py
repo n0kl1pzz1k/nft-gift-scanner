@@ -2001,21 +2001,121 @@ def create_marketplace_router(
                 active_buy_requests = conn.execute(
                     "SELECT COUNT(*) FROM marketplace_orders WHERE kind='buy-order' AND status='active'"
                 ).fetchone()[0]
-            return {"active_listings": 0, "active_buy_requests": active_buy_requests, "matched_orders": 0, "volume_ton": 0, "volume_stars": 0, "floor_ton": None, "floor_stars": None, "total_orders": active_buy_requests}
+            return {
+                "active_listings": 0, "active_buy_requests": active_buy_requests,
+                "matched_orders": 0, "completed_trades": 0, "volume_ton": 0, "volume_stars": 0,
+                "floor_ton": None, "floor_stars": None, "total_orders": active_buy_requests,
+                "volume_ton_24h": 0, "volume_stars_24h": 0, "completed_trades_24h": 0,
+                "collections": [],
+            }
+
+        since_24h = int(time.time()) - 86400
         with _db() as conn:
             counts = conn.execute("""
                 SELECT
                     SUM(CASE WHEN status='active' AND kind='listing' THEN 1 ELSE 0 END) AS active_listings,
                     SUM(CASE WHEN status='active' AND kind='buy-order' THEN 1 ELSE 0 END) AS active_buy_requests,
                     SUM(CASE WHEN status='matched' THEN 1 ELSE 0 END) AS matched_orders,
-                    SUM(CASE WHEN status='matched' AND currency='TON' THEN CAST(price AS REAL) ELSE 0 END) AS volume_ton,
-                    SUM(CASE WHEN status='matched' AND currency='XTR' THEN CAST(price AS REAL) ELSE 0 END) AS volume_stars,
                     MIN(CASE WHEN status='active' AND kind='listing' AND currency='TON' THEN CAST(price AS REAL) END) AS floor_ton,
                     MIN(CASE WHEN status='active' AND kind='listing' AND currency='XTR' THEN CAST(price AS REAL) END) AS floor_stars,
                     COUNT(*) AS total_orders
                 FROM marketplace_orders
             """).fetchone()
-        return {key: (counts[key] or 0) for key in counts.keys()}
+            active_rows = conn.execute("""
+                SELECT o.title, COALESCE(o.asset_type, a.asset_type) AS asset_type,
+                       o.currency, CAST(o.price AS REAL) AS price
+                FROM marketplace_orders o
+                LEFT JOIN verified_assets a ON a.id = o.asset_id
+                WHERE o.status='active' AND o.kind='listing'
+            """).fetchall()
+            completed_rows = conn.execute("""
+                SELECT d.id, d.agreed_amount, d.currency, e.created_at,
+                       o.title, COALESCE(o.asset_type, a.asset_type) AS asset_type
+                FROM marketplace_escrow_events e
+                JOIN marketplace_deals d ON d.id = e.deal_id
+                JOIN marketplace_orders o ON o.id = d.order_id
+                LEFT JOIN verified_assets a ON a.id = o.asset_id
+                WHERE e.event_type='deal_completed'
+            """).fetchall()
+
+        collections = {}
+        volume_ton = 0.0
+        volume_stars = 0.0
+        volume_ton_24h = 0.0
+        volume_stars_24h = 0.0
+        completed_trades_24h = 0
+
+        def collection_bucket(title_value, asset_type_value):
+            asset_type = str(asset_type_value or "gift")
+            title = str(title_value or "").strip()
+            if asset_type == "username":
+                return "Telegram usernames"
+            if asset_type == "number":
+                return "Anonymous numbers"
+            hash_parts = title.rsplit("#", 1)
+            if len(hash_parts) == 2 and hash_parts[1].strip().isdigit():
+                title = hash_parts[0].strip()
+            else:
+                dash_parts = title.rsplit("-", 1)
+                if len(dash_parts) == 2 and dash_parts[1].strip().isdigit():
+                    title = dash_parts[0].strip()
+            return title or "Telegram gifts"
+
+        def ensure_collection(name):
+            return collections.setdefault(name, {
+                "collection": name, "active_listings": 0, "trades_24h": 0,
+                "volume_ton_24h": 0.0, "volume_stars_24h": 0.0,
+                "floor_ton": None, "floor_stars": None,
+            })
+
+        for row in active_rows:
+            name = collection_bucket(row["title"], row["asset_type"])
+            bucket = ensure_collection(name)
+            bucket["active_listings"] += 1
+            floor_key = "floor_ton" if row["currency"] == "TON" else "floor_stars"
+            price = float(row["price"] or 0)
+            current_floor = bucket[floor_key]
+            bucket[floor_key] = price if current_floor is None else min(current_floor, price)
+
+        for row in completed_rows:
+            name = collection_bucket(row["title"], row["asset_type"])
+            bucket = ensure_collection(name)
+            price = float(row["agreed_amount"] or 0)
+            currency = str(row["currency"])
+            if currency == "TON":
+                volume_ton += price
+            elif currency == "XTR":
+                volume_stars += price
+            if int(row["created_at"] or 0) >= since_24h:
+                completed_trades_24h += 1
+                bucket["trades_24h"] += 1
+                if currency == "TON":
+                    volume_ton_24h += price
+                    bucket["volume_ton_24h"] += price
+                elif currency == "XTR":
+                    volume_stars_24h += price
+                    bucket["volume_stars_24h"] += price
+
+        collection_list = sorted(
+            collections.values(),
+            key=lambda item: (item["trades_24h"], item["active_listings"], item["collection"].lower()),
+            reverse=True,
+        )[:30]
+        return {
+            "active_listings": counts["active_listings"] or 0,
+            "active_buy_requests": counts["active_buy_requests"] or 0,
+            "matched_orders": counts["matched_orders"] or 0,
+            "completed_trades": len(completed_rows),
+            "volume_ton": round(volume_ton, 6),
+            "volume_stars": round(volume_stars, 2),
+            "floor_ton": counts["floor_ton"] if counts["floor_ton"] is not None else 0,
+            "floor_stars": counts["floor_stars"] if counts["floor_stars"] is not None else 0,
+            "total_orders": counts["total_orders"] or 0,
+            "volume_ton_24h": round(volume_ton_24h, 6),
+            "volume_stars_24h": round(volume_stars_24h, 2),
+            "completed_trades_24h": completed_trades_24h,
+            "collections": collection_list,
+        }
 
     @router.post("/orders", status_code=201)
     async def create_order(
