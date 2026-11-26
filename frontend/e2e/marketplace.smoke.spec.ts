@@ -102,6 +102,7 @@ test('authenticated profile opens from the mobile tab without waiting on navigat
   const profileTab = page.locator('.mobile-nav button').filter({ hasText: 'Профиль' });
   await expect(profileTab).toBeVisible();
   await profileTab.click();
+  await expect(profileTab).toHaveAttribute('data-last-clicked', 'profile');
   await expect(page.locator('.market-app')).toHaveAttribute('data-active-view', 'profile');
   await expect(profileTab).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-profile-view]')).toBeVisible();
