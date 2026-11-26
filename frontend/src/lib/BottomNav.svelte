@@ -1,12 +1,11 @@
 <script lang="ts">
-  type NavId = 'orders' | 'auctions' | 'create' | 'offers' | 'profile';
+  type NavId = 'orders' | 'auctions' | 'offers' | 'profile';
   type Props = { active: NavId; lang: 'ru' | 'en'; onNavigate: (id: NavId) => void };
   let { active, lang, onNavigate }: Props = $props();
   const items: {id: NavId; label: string; icon: string}[] = $derived([
     {id:'orders',label:lang === 'ru' ? 'Маркет' : 'Market',icon:'▦'},
     {id:'auctions',label:lang === 'ru' ? 'Аукционы' : 'Auctions',icon:'♢'},
-    {id:'create',label:lang === 'ru' ? 'Мои подарки' : 'My Gifts',icon:'◈'},
-    {id:'offers',label:lang === 'ru' ? 'Активность' : 'Activity',icon:'↗'},
+    {id:'offers',label:lang === 'ru' ? 'Рынок' : 'Market pulse',icon:'◫'},
     {id:'profile',label:lang === 'ru' ? 'Профиль' : 'Profile',icon:'◉'},
   ]);
 </script>
