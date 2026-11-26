@@ -12,7 +12,7 @@
 </script>
 <nav class="mobile-nav" aria-label="Primary navigation">
   {#each items as item}
-    <button type="button" data-nav-id={item.id} data-last-clicked={lastClicked} class:active={active === item.id} onpointerup={(event) => { event.preventDefault(); event.stopPropagation(); lastClicked = item.id; onNavigate(item.id); }} onkeydown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); lastClicked = item.id; onNavigate(item.id); } }} aria-current={active === item.id ? 'page' : undefined}>
+    <button type="button" data-nav-id={item.id} data-last-clicked={lastClicked} class:active={active === item.id} onpointerdown={(event) => { event.preventDefault(); lastClicked = item.id; onNavigate(item.id); }} onkeydown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); lastClicked = item.id; onNavigate(item.id); } }} aria-current={active === item.id ? 'page' : undefined}>
       <span class="nav-icon" aria-hidden="true">
         {#if item.id === 'orders'}
           <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="6" height="6" rx="1.2"/><rect x="14" y="4" width="6" height="6" rx="1.2"/><rect x="4" y="14" width="6" height="6" rx="1.2"/><rect x="14" y="14" width="6" height="6" rx="1.2"/></svg>
