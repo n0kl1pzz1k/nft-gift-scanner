@@ -5,7 +5,7 @@
   const items: {id: NavId; label: string; icon: string}[] = $derived([
     {id:'orders',label:lang === 'ru' ? 'Маркет' : 'Market',icon:'▦'},
     {id:'auctions',label:lang === 'ru' ? 'Аукционы' : 'Auctions',icon:'♢'},
-    {id:'offers',label:lang === 'ru' ? 'Рынок' : 'Market pulse',icon:'◫'},
+    {id:'offers',label:lang === 'ru' ? 'Активность' : 'Activity',icon:'◫'},
     {id:'profile',label:lang === 'ru' ? 'Профиль' : 'Profile',icon:'◉'},
   ]);
 </script>
