@@ -833,8 +833,7 @@
         const message = lang === 'ru'
           ? `Telegram требует комиссию ${fee} Stars за передачу подарка. Разрешить списание этой комиссии с подключённого Business-аккаунта?`
           : `Telegram requires a ${fee} Stars transfer fee. Allow this fee to be charged to the connected Business account?`;
-        const splashTimer = window.setTimeout(() => { showSplash = false; }, 1050);
-    const webApp = (window as any).Telegram?.WebApp;
+        const webApp = (window as any).Telegram?.WebApp;
         const accepted = await new Promise<boolean>((resolve) => {
           if (typeof webApp?.showConfirm === 'function') {
             webApp.showConfirm(message, (confirmed: boolean) => resolve(Boolean(confirmed)));
@@ -1395,6 +1394,7 @@
   }
 
   onMount(() => {
+    const splashTimer = window.setTimeout(() => { showSplash = false; }, 1050);
     const webApp = (window as any).Telegram?.WebApp;
     webApp?.ready?.();
     webApp?.expand?.();
