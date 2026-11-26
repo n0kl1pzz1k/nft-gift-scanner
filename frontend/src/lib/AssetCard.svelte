@@ -52,7 +52,7 @@
       <div class="asset-preview-placeholder"><img src="/brand/hassle-mark.webp" alt="HASSLE NFT"/><small>{lang === 'ru' ? 'Подтверждённый актив' : 'Verified asset'}</small></div>
     {/if}
     <span class="asset-type-pill">{typeLabel}</span>
-    <button class={'asset-favorite ' + (favorite ? 'is-favorite' : '')} onclick={onFavorite} aria-label={lang === 'ru' ? (favorite ? 'Убрать из избранного' : 'Добавить в избранное') : (favorite ? 'Remove from favorites' : 'Add to favorites')}>{favorite ? '♥' : '♡'}</button>
+    <button class={'asset-favorite ' + (favorite ? 'is-favorite' : '')} onclick={onFavorite} aria-label={lang === 'ru' ? (favorite ? 'Убрать из избранного' : 'Добавить в избранное') : (favorite ? 'Remove from favorites' : 'Add to favorites')}>{#if favorite}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 8.8c0 4.1-8.2 10-8.2 10s-8.2-5.9-8.2-10a4.1 4.1 0 0 1 8.2-1.3 4.1 4.1 0 0 1 8.2 1.3Z"/></svg>{:else}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 8.8c0 4.1-8.2 10-8.2 10s-8.2-5.9-8.2-10a4.1 4.1 0 0 1 8.2-1.3 4.1 4.1 0 0 1 8.2 1.3Z"/></svg>{/if}</button>
   </div>
   <div class="asset-card-content">
     <div class="asset-title-row"><button class="asset-title-button" onclick={onOpen}>{order.title}</button><span class="asset-id">#{order.id.slice(-5)}</span></div>
