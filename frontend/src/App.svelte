@@ -34,6 +34,8 @@
   let showSplash = $state(true);
   let showGramInfo = $state(false);
   let showFilterSheet = $state(false);
+  let gramAction = $state<'deposit'|'withdraw'|null>(null);
+  let showAboutModal = $state(false);
   let view = $state<View>('orders');
   let marketSearch = $state('');
   let marketplaceLoading = $state(true);
@@ -60,6 +62,7 @@
   let giftPreviewUrls = $state<Record<string,string>>({});
   let verifiedAssetsLoading = $state(false);
   let inventoryFilter = $state<'all'|'telegram_gift'|'ton_nft'>('all');
+  let inventoryListingFilter = $state<'all'|'listed'|'unlisted'>('all');
   let assetListingEnabled = $state(false);
   let selectedInventoryAsset = $state<VerifiedAsset | null>(null);
   let tonNftImportBusy = $state(false);
@@ -1459,7 +1462,7 @@
       <div class="top-actions"><button class="wallet-header-button" type="button" onclick={()=>{view='profile';void loadSellerProfile();}}><span>◈</span>{lang==='ru'?(walletConnected?'Кошелёк подключён':'Подключить кошелёк'):(walletConnected?'Wallet connected':'Connect wallet')}</button><button class="language" onclick={()=>lang=lang==='ru'?'en':'ru'}>{lang.toUpperCase()}</button><button class="avatar-button" onclick={()=>{view='profile';void loadSellerProfile();}}>{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser ? telegramUser.slice(0,1).toUpperCase() : 'G'}</span>{/if}</button></div>
     </header>
 
-    {#if view==='profile'}
+    {#if view==='profile' && !signedIn}
       <section class="page-heading compact-heading">
         <div class="eyebrow">HASSLE NFT · ACCOUNT</div>
         <h1>{t.profile}</h1>
@@ -1716,7 +1719,7 @@
        </section>
     
      {:else if view==='create'}
-       <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{lang==='ru'?'Инвентарь':'Inventory'}</h1><p>{lang==='ru'?'Подтверждённые подарки Telegram и NFT из твоего TON-кошелька':'Verified Telegram gifts and NFTs from your TON wallet'}</p></section>
+       <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{lang==='ru'?'Мои подарки':'My Gifts'}</h1><p>{lang==='ru'?'Твои подтверждённые подарки Telegram и NFT из TON-кошелька':'Your verified Telegram gifts and NFTs from your TON wallet'}</p></section>
        <div class="inventory-connect-panel"><div class="inventory-connect-icon">◈</div><div class="inventory-connect-copy"><span class="eyebrow">YOUR ASSETS · TON CONNECT</span><h2>{lang==='ru'?'Твои активы':'Your assets'}</h2><p>{lang==='ru'?'Telegram Business нужен только для импорта подарков из Telegram и не обязателен для покупателей. NFT из TON можно добавить через TON Connect и TON Proof. Мы никогда не запрашиваем seed-фразу или приватный ключ.':'Telegram Business is only needed to import gifts from Telegram and is not required for buyers. TON NFTs can be imported with TON Connect and TON Proof. We never ask for your seed phrase or private key.'}</p>{#if signedIn}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTelegramGifts} disabled={telegramGiftImportBusy}>{telegramGiftImportBusy?(lang==='ru'?'Проверяем подарки…':'Checking gifts…'):(lang==='ru'?'↓ Загрузить подарки Telegram':'↓ Import Telegram gifts')}</button>{/if}{#if telegramGiftImportMessage}<p class="ton-wallet-message">{telegramGiftImportMessage}</p>{/if}
         {#if telegramBusinessStatus.gift_import_ready}
           <button class="ton-wallet-button inventory-import-button" type="button" onclick={importBusinessGifts} disabled={businessGiftImportBusy}>{businessGiftImportBusy?(lang==='ru'?'Загружаем бизнес-подарки…':'Importing business gifts…'):(lang==='ru'?'↓ Импортировать подарки Business':'↓ Import Business gifts')}</button>
@@ -1742,16 +1745,23 @@
          <div class="inventory-empty-state"><span class="state-icon">◌</span><strong>{lang==='ru'?'Проверяем инвентарь…':'Checking inventory…'}</strong></div>
        {:else if verifiedAssets.length}
          <div class="inventory-toolbar">
-           <div class="inventory-filter-group" role="group" aria-label={lang==='ru'?'Фильтр инвентаря':'Inventory filter'}>
-             <button class:active={inventoryFilter==='all'} type="button" onclick={()=>inventoryFilter='all'}>{lang==='ru'?'Все':'All'} <span>{verifiedAssets.length}</span></button>
-             <button class:active={inventoryFilter==='telegram_gift'} type="button" onclick={()=>inventoryFilter='telegram_gift'}>Telegram <span>{verifiedAssets.filter(asset=>asset.source==='telegram_gift').length}</span></button>
-             <button class:active={inventoryFilter==='ton_nft'} type="button" onclick={()=>inventoryFilter='ton_nft'}>TON NFT <span>{verifiedAssets.filter(asset=>asset.source==='ton_nft').length}</span></button>
+             <div class="inventory-toolbar-groups">
+               <div class="inventory-filter-group" role="group" aria-label={lang==='ru'?'Источник активов':'Asset source'}>
+                 <button class:active={inventoryFilter==='all'} type="button" onclick={()=>inventoryFilter='all'}>{lang==='ru'?'Все источники':'All sources'} <span>{verifiedAssets.length}</span></button>
+                 <button class:active={inventoryFilter==='telegram_gift'} type="button" onclick={()=>inventoryFilter='telegram_gift'}>Telegram <span>{verifiedAssets.filter(asset=>asset.source==='telegram_gift').length}</span></button>
+                 <button class:active={inventoryFilter==='ton_nft'} type="button" onclick={()=>inventoryFilter='ton_nft'}>TON NFT <span>{verifiedAssets.filter(asset=>asset.source==='ton_nft').length}</span></button>
+               </div>
+               <div class="inventory-filter-group inventory-status-tabs" role="group" aria-label={lang==='ru'?'Статус объявления':'Listing status'}>
+                 <button class:active={inventoryListingFilter==='all'} type="button" onclick={()=>inventoryListingFilter='all'}>{lang==='ru'?'Все':'All'}</button>
+                 <button class:active={inventoryListingFilter==='listed'} type="button" onclick={()=>inventoryListingFilter='listed'}>{lang==='ru'?'Выставленные':'Listed'} <span>{verifiedAssets.filter(asset=>Boolean(asset.active_listing_id)).length}</span></button>
+                 <button class:active={inventoryListingFilter==='unlisted'} type="button" onclick={()=>inventoryListingFilter='unlisted'}>{lang==='ru'?'Не выставленные':'Unlisted'} <span>{verifiedAssets.filter(asset=>!asset.active_listing_id).length}</span></button>
+               </div>
+             </div>
+             <button class="refresh-button" type="button" onclick={loadVerifiedInventory} disabled={verifiedAssetsLoading}>{lang==='ru'?'Обновить':'Refresh'} ↻</button>
            </div>
-           <button class="refresh-button" type="button" onclick={loadVerifiedInventory} disabled={verifiedAssetsLoading}>{lang==='ru'?'Обновить':'Refresh'} ↻</button>
-         </div>
-         {#if verifiedAssets.filter(asset=>inventoryFilter==='all'||asset.source===inventoryFilter).length}
+         {#if verifiedAssets.filter(asset=>(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))).length}
          <div class="verified-inventory-list">
-           {#each verifiedAssets.filter(asset=>inventoryFilter==='all'||asset.source===inventoryFilter) as asset (asset.id)}
+           {#each verifiedAssets.filter(asset=>(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))) as asset (asset.id)}
              <article class="verified-inventory-item">
                {#if assetPreviewUrl(asset)}<img src={assetPreviewUrl(asset)} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder"><span>HASSLE</span><small>{asset.source==='telegram_gift'?(lang==='ru'?'КОЛЛЕКЦИОННЫЙ ПОДАРОК':'COLLECTIBLE GIFT'):asset.asset_type==='username'?'TELEGRAM USERNAME':asset.asset_type==='number'?'ANONYMOUS NUMBER':'VERIFIED ASSET'}</small></div>{/if}
                <div class="verified-inventory-details">
