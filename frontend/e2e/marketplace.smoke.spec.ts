@@ -130,5 +130,5 @@ test('catalog shows real marketplace metrics and official Gram denomination', as
   await expect(page.locator('.market-live-stats')).toContainText('Активные лоты');
   await expect(page.locator('.market-category-rail')).toBeVisible();
   await expect(page.locator('.market-search input')).toHaveCSS('font-size', '16px');
-  await expect(page.locator('.gram-token-icon').first()).toBeVisible();
+  await expect(page.locator('.market-currency-legend .gram-token-icon')).toBeVisible();
 });
