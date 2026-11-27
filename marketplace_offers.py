@@ -15,7 +15,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Callable, Literal
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Header, HTTPException, Query
 
 from marketplace import _enforce_user_rate_limit, _verified_asset_actions_enabled, _test_unverified_assets_allowed, _migrate_legacy_marketplace_table_names, _checkout_enabled_for_order
 from database import begin_write, select_for_update, require_sqlite_connection, db as _database_db
@@ -1985,6 +1985,170 @@ def create_marketplace_offers_router(
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             conn.commit()
         return {"deal_id": deal_id, "status": "completed", "seller_credit": "recorded", "settlement_status": "pending_manual_payout", "idempotent_replay": False}
+
+
+    @router.post("/admin/deals/{deal_id}/prepare-gram-seller-payout")
+    async def prepare_gram_seller_payout(
+        deal_id: str,
+        request: dict = Body(...),
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Prepare an unsigned 2-of-3 GRAM payout from a completed, ledger-backed deal."""
+        from decimal import Decimal
+        from ton_nft_inventory import normalise_ton_address
+        from ton_multisig import _raw_address, fetch_ton_multisig_config, is_two_of_three_multisig
+        from ton_multisig_transactions import (
+            build_native_gram_transfer_actions_boc,
+            build_new_order_payload,
+        )
+
+        admin = _admin_user(x_telegram_init_data)
+        admin_id = str(admin["id"])
+        _enforce_user_rate_limit(admin_id, "gram_seller_payout_prepare", 5)
+        expected_treasury = os.getenv("HASSLE_TON_MULTISIG_EXPECTED_ADDRESS", "").strip()
+        if not expected_treasury:
+            raise HTTPException(status_code=503, detail="Verified 2-of-3 GRAM treasury is not configured")
+        signer_wallet = request.get("wallet_address")
+        if not isinstance(signer_wallet, str) or not signer_wallet.strip():
+            raise HTTPException(status_code=422, detail="Connect one of the three configured treasury signer wallets")
+        try:
+            config = await fetch_ton_multisig_config(expected_treasury)
+            if not is_two_of_three_multisig(config, expected_treasury):
+                raise HTTPException(status_code=409, detail="On-chain 2-of-3 treasury verification failed")
+            signers = config.get("signers")
+            if not isinstance(signers, list) or len(signers) != 3:
+                raise HTTPException(status_code=409, detail="Treasury signer set is invalid")
+            signer_raw = _raw_address(signer_wallet)
+            signer_index = next(
+                (index for index, signer in enumerate(signers)
+                 if _raw_address(str(signer)) == signer_raw),
+                None,
+            )
+            if signer_index is None:
+                raise HTTPException(status_code=403, detail="Connected wallet is not a configured treasury signer")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Could not verify the configured GRAM treasury") from exc
+
+        now = int(time.time())
+        with _db() as conn:
+            begin_write(conn, f"deal:{deal_id}")
+            deal = conn.execute(
+                select_for_update(conn, """SELECT * FROM marketplace_deals WHERE id=?"""),
+                (deal_id,),
+            ).fetchone()
+            if deal is None:
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Deal not found")
+            if deal["status"] != "completed" or str(deal["currency"]) != "TON":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Only completed GRAM deals can be paid out")
+            if conn.execute(
+                "SELECT 1 FROM marketplace_escrow_events WHERE deal_id=? AND event_type='payout_released' LIMIT 1",
+                (deal_id,),
+            ).fetchone():
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="A payout has already been recorded for this deal")
+            seller_id = str(deal["listing_owner_id"])
+            seller_wallet = conn.execute(
+                """SELECT address FROM verified_wallets
+                   WHERE telegram_id=? AND network='-239' AND revoked_at IS NULL
+                   ORDER BY last_verified_at DESC LIMIT 1""",
+                (seller_id,),
+            ).fetchone()
+            payable = conn.execute(
+                """SELECT lt.id, lt.amount
+                   FROM marketplace_ledger_transactions lt
+                   JOIN marketplace_ledger_entries le ON le.transaction_id=lt.id
+                   WHERE lt.reference_id=? AND lt.currency='TON'
+                     AND le.account_type='seller_payable' AND le.account_id=?
+                     AND le.direction='credit'
+                   ORDER BY lt.created_at DESC LIMIT 2""",
+                (deal_id, seller_id),
+            ).fetchall()
+            credit_event = conn.execute(
+                """SELECT created_at FROM marketplace_escrow_events
+                   WHERE deal_id=? AND event_type='seller_credit_recorded'
+                   ORDER BY created_at DESC LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            intent = conn.execute(
+                """SELECT * FROM marketplace_payment_intents
+                   WHERE deal_id=? AND provider='ton' AND status='confirmed'
+                   ORDER BY created_at DESC LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            if seller_wallet is None or len(payable) != 1 or credit_event is None or intent is None:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="A confirmed payment, single seller payable, credit event and active verified seller wallet are required")
+            metadata = json.loads(intent["metadata_json"] or "{}")
+            try:
+                paid_treasury = normalise_ton_address(str(metadata.get("treasury") or ""))
+                configured_treasury = normalise_ton_address(expected_treasury)
+                seller_raw = normalise_ton_address(str(seller_wallet["address"]))
+                payable_amount = Decimal(str(payable[0]["amount"]))
+                paid_amount = Decimal(str(intent["amount"]))
+            except Exception as exc:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Payment treasury, seller wallet or ledger amount is invalid") from exc
+            if paid_treasury != configured_treasury or payable_amount <= 0 or payable_amount != paid_amount:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Seller payable does not match the confirmed GRAM payment to this treasury")
+            if conn.execute(
+                "SELECT 1 FROM marketplace_ledger_transactions WHERE reference_type='withdrawal' AND reference_id=? LIMIT 1",
+                (deal_id,),
+            ).fetchone():
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="A withdrawal is already recorded for this deal")
+            conn.commit()
+
+        nano_amount = int(payable_amount * Decimal(1_000_000_000))
+        if Decimal(nano_amount) / Decimal(1_000_000_000) != payable_amount:
+            raise HTTPException(status_code=409, detail="Seller payable has unsupported GRAM precision")
+        expiration = now + 15 * 60
+        memo = f"HASSLE NFT payout {deal_id}"
+        try:
+            actions_boc = build_native_gram_transfer_actions_boc(
+                seller_raw, nano_amount, memo,
+            )
+            prepared = build_new_order_payload(
+                actions_boc,
+                signer_index=signer_index,
+                signer_addresses=signers,
+                expiration_date=expiration,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="GRAM payout transaction could not be safely encoded") from exc
+        return {
+            "status": "prepared_unsigned",
+            "network": "-239",
+            "deal_id": deal_id,
+            "treasury_address": expected_treasury,
+            "seller_telegram_id": seller_id,
+            "seller_wallet": seller_raw,
+            "currency": "GRAM",
+            "amount": format(payable_amount, "f"),
+            "memo": memo,
+            "transaction": {
+                "validUntil": expiration,
+                "network": "-239",
+                "messages": [{
+                    "address": expected_treasury,
+                    "amount": prepared["attached_value_nano"],
+                    "payload": prepared["payload"],
+                }],
+            },
+            "review": {
+                "payload_sha256": prepared["payload_sha256"],
+                "action_count": prepared["action_count"],
+                "actions": prepared["actions"],
+                "approval_safe": False,
+                "requires_independent_signer_review": True,
+                "ledger_backed": True,
+                "seller_wallet_verified": True,
+            },
+        }
 
 
     @router.post("/admin/deals/{deal_id}/execute-ton-seller-payout")
