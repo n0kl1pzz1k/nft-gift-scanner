@@ -360,7 +360,12 @@
         request('/api/marketplace/orders?' + orderFilterQuery()),        authToken ? request('/api/marketplace/mine') : Promise.resolve({items:[]}),
         request('/api/marketplace/stats'),
       ]);
-      const publicItems = Array.isArray(publicData.items) ? publicData.items as MarketplaceOrder[] : [];
+      const rawPublicItems = Array.isArray(publicData.items) ? publicData.items as MarketplaceOrder[] : [];
+      const publicItems = rawPublicItems.map(item => (
+        item.image_url || !item.asset_id || item.asset_type !== 'gift'
+          ? item
+          : { ...item, image_url: API + '/api/marketplace/public-assets/' + encodeURIComponent(item.asset_id) + '/preview' }
+      ));
       const mineItems = Array.isArray(mineData.items) ? mineData.items as MarketplaceOrder[] : [];
       const combined = new Map<string, MarketplaceOrder>();
       for (const item of [...publicItems, ...mineItems]) combined.set(item.id, item);
