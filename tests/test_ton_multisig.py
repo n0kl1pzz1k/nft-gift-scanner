@@ -148,6 +148,47 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
             config.update({"code_hash": CODE_HASH, "data_hash": DATA_HASH})
             self.assertFalse(is_two_of_three_multisig(config, TREASURY))
 
+    def test_decodes_send_message_action_and_keeps_approval_blocked(self):
+        from tonsdk.boc import Builder, begin_dict
+        recipient = "0:" + "c" * 64
+        body = Builder().store_uint(0x5FCC3D14, 32).end_cell()
+        message = (
+            Builder()
+            .store_uint(0, 1)  # internal message
+            .store_bit(1).store_bit(1).store_bit(0)
+            .store_address(None)
+            .store_address(Address(recipient))
+            .store_coins(1234567890)
+            .store_bit(0)  # no extra currencies
+            .store_coins(0).store_coins(0)
+            .store_uint(0, 64).store_uint(0, 32)
+            .store_bit(0)  # no StateInit
+            .store_bit(1).store_ref(body)
+            .end_cell()
+        )
+        action = Builder().store_uint(0xF1381E5B, 32).store_uint(3, 8).store_ref(message).end_cell()
+        dictionary = begin_dict(8)
+        dictionary.store_cell(0, action)
+        boc = base64.b64encode(dictionary.end_dict().to_boc(False)).decode()
+        from ton_multisig import decode_multisig_order_actions
+        decoded = decode_multisig_order_actions(boc)
+        self.assertEqual(decoded["action_count"], 1)
+        self.assertFalse(decoded["approval_safe"])
+        self.assertEqual(decoded["actions"][0]["recipient"], recipient)
+        self.assertEqual(decoded["actions"][0]["amount_nano"], "1234567890")
+        self.assertEqual(decoded["actions"][0]["body_op"], 0x5FCC3D14)
+
+    def test_unknown_action_is_never_approval_safe(self):
+        from tonsdk.boc import Builder, begin_dict
+        action = Builder().store_uint(0xDEADBEEF, 32).end_cell()
+        dictionary = begin_dict(8)
+        dictionary.store_cell(0, action)
+        boc = base64.b64encode(dictionary.end_dict().to_boc(False)).decode()
+        from ton_multisig import decode_multisig_order_actions
+        decoded = decode_multisig_order_actions(boc)
+        self.assertEqual(decoded["actions"][0]["kind"], "unknown")
+        self.assertFalse(decoded["approval_safe"])
+
     def test_decodes_order_getter_metadata(self):
         from ton_multisig import decode_multisig_order_getter
         order = decode_multisig_order_getter(order_getter_payload(7))
