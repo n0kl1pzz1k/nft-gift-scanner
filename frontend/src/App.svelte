@@ -1103,7 +1103,7 @@
       offer_accepted:t.offerAcceptedActivity, offer_declined:t.offerDeclinedActivity, offer_withdrawn:t.offerWithdrawnActivity,
       deal_created:lang==='ru'?'Сделка создана':'Deal created',
       listing_reserved:lang==='ru'?'Объявление зарезервировано':'Listing reserved',
-      payment_not_enabled:lang==='ru'?'Оплата пока недоступна':'Payment not enabled',
+      payment_not_enabled:event.data.checkout_configured===true?(lang==='ru'?'Защищённая оплата готова':'Protected checkout ready'):(lang==='ru'?'Оплата пока недоступна':'Payment not enabled'),
       deal_cancelled:lang==='ru'?'Резерв отменён':'Reservation cancelled',
     };
     return labels[item.type] || item.type;
