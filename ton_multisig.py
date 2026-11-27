@@ -249,6 +249,21 @@ def _read_standard_message_address(slice_, field: str, *, allow_none: bool = Fal
 
 def _decode_known_message_body(body_slice, opcode: int | None) -> dict[str, Any]:
     fields: dict[str, Any] = {"body_fields_decoded": False}
+    if opcode == 0x00000000:  # TON text comment
+        if body_slice.ref_offset < len(body_slice.refs):
+            raise ValueError("Text comment body cannot contain references")
+        remaining_bits = len(body_slice.bits)
+        if remaining_bits % 8:
+            raise ValueError("Text comment body must contain whole UTF-8 bytes")
+        raw_comment = body_slice.read_bytes(remaining_bits // 8)
+        try:
+            comment = raw_comment.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("Text comment is not valid UTF-8") from exc
+        if not comment or len(comment.encode("utf-8")) > 256:
+            raise ValueError("Text comment is empty or too long")
+        fields["comment"] = comment
+        fields["body_fields_decoded"] = True
     if opcode == 0x5FCC3D14:  # TEP-62 NFT transfer
         fields["body_query_id"] = str(body_slice.read_uint(64))
         fields["asset_recipient"] = _read_standard_message_address(body_slice, "NFT new_owner")
