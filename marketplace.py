@@ -1313,7 +1313,7 @@ def get_verified_asset_owner(source: str, external_asset_id: str) -> str | None:
 
 
 def sync_ton_nft_assets(*, owner_telegram_id: str, wallets: list[dict[str, Any]],
-                          nft_items: list[dict[str, str]], complete: bool) -> list[dict[str, Any]]:
+                          nft_items: list[dict[str, Any]], complete: bool) -> list[dict[str, Any]]:
     """Persist provider-derived NFT snapshots and revoke stale ownership only on complete scans."""
     owner_id = str(owner_telegram_id).strip()
     if not owner_id.isdigit():
