@@ -172,7 +172,7 @@
   const ru = {
     market: 'Маркет', orders: 'Маркет', create: 'Профиль', favorites: 'Избранное', profile: 'Профиль', readonly: 'HASSLE NFT', catalogOnly: 'Независимый маркетплейс Telegram NFT-подарков. Покупай, продавай и договаривайся напрямую.',
     headline: 'Твой рынок Telegram NFT-подарков', subtitle: 'Маркетплейс Telegram NFT-подарков от n0kl1pzz1k.',
-    brandEyebrow: 'HASSLE NFT · VERIFIED ASSETS', heroLine1: 'Telegram Gifts.', heroLine2: 'Твой маркет. Твои сделки.', heroDescription: 'Импортируй подарки Telegram, коллекционные Username и анонимные номера +888. Владение NFT подтверждается напрямую смарт-контрактами TON.', openCatalogue: 'Открыть маркет', connectedLabel: 'HASSLE NFT · HASSLE NFT MARKET', exploreMarket: 'МАРКЕТПЛЕЙС HASSLE NFT', collectionsTitle: 'Активы', collectionsCount: 'активов сообщества', discoverLabel: 'МАРКЕТ', search: 'Название актива, username или номер', min: 'Цена от', max: 'Цена до',
+    brandEyebrow: 'HASSLE NFT · VERIFIED ASSETS', heroLine1: 'Telegram Gifts.', heroLine2: 'Твой маркет. Твои сделки.', heroDescription: 'Импортируй подарки Telegram, коллекционные Username и анонимные номера +888. Владение NFT подтверждается напрямую смарт-контрактами блокчейна.', openCatalogue: 'Открыть маркет', connectedLabel: 'HASSLE NFT · HASSLE NFT MARKET', exploreMarket: 'МАРКЕТПЛЕЙС HASSLE NFT', collectionsTitle: 'Активы', collectionsCount: 'активов сообщества', discoverLabel: 'МАРКЕТ', search: 'Название актива, username или номер', min: 'Цена от', max: 'Цена до',
     listings: 'Активы', results: 'найдено', loading: 'Загружаем маркетплейс…', loadMore: 'Показать ещё',
     empty: 'Пока нет подходящих активов.', failed: 'Не удалось загрузить маркетплейс.',
     details: 'Об активе', floor: 'Флор', price: 'Цена', traits: 'Характеристики',
@@ -184,7 +184,7 @@
     offersTitle: 'Офферы', dealsTitle: 'История сделок', sendOffer: 'Отправить оффер', offerAmount: 'Сумма оффера', acceptOffer: 'Принять', declineOffer: 'Отклонить', withdrawOffer: 'Отозвать', noOffers: 'Офферов пока нет.', noDeals: 'История сделок пока пуста.', incoming: 'Входящий', outgoing: 'Исходящий', offerStatusFilter: 'Статус оффера', offerPending: 'Ожидает ответа', offerAccepted: 'Принят', offerDeclined: 'Отклонён', offerWithdrawn: 'Отозван',
     accountStatsTitle: 'Статистика аккаунта', activeOrdersStat: 'Активные позиции', completedOrdersStat: 'Завершённые', sentOffersStat: 'Мои офферы', receivedOffersStat: 'Входящие офферы', notificationsTitle: 'Уведомления', markAllRead: 'Прочитать все', noNotifications: 'Новых уведомлений нет.', offerReceivedNotice: 'отправил(а) оффер', offerAcceptedNotice: 'принят оффер по', offerDeclinedNotice: 'отклонил(а) оффер по', offerWithdrawnNotice: 'отозвал(а) оффер по', activityTitle: 'История активности', noActivity: 'Активность пока не появилась.', loadMoreActivity: 'Показать ещё', orderCreatedActivity: 'Актив выставлен', orderUpdatedActivity: 'Параметры актива изменены', orderFilledActivity: 'Позиция закрыта', orderCancelledActivity: 'Актив снят с продажи', offerReceivedActivity: 'Получен оффер', offerAcceptedActivity: 'Оффер принят', offerDeclinedActivity: 'Оффер отклонён', offerWithdrawnActivity: 'Оффер отозван', dealCreatedActivity: 'Создана сделка',
     active: 'Активен', matched: 'Закрыт', cancelled: 'Отменён', cancel: 'Снять', match: 'Исполнить', editOrder: 'Изменить', saveOrder: 'Сохранить', cancelEdit: 'Отмена', editTitle: 'Название', editPrice: 'Цена', editNote: 'Комментарий', orderUpdated: 'Параметры актива обновлены.',
-    demo: 'HASSLE NFT MARKETPLACE', demoWallet: 'Подключение кошелька', demoWalletText: 'Подключение TON-кошелька появится в следующем этапе.',
+    demo: 'HASSLE NFT MARKETPLACE', demoWallet: 'Подключение кошелька', demoWalletText: 'Подключение GRAM-кошелька появится в следующем этапе.',
     signIn: 'Подтвердить Telegram', guest: 'Гость', authHint: 'Открой Mini App через Telegram, чтобы подтвердить профиль.',
     signed: 'Telegram подтверждён', profileText: 'Профиль Telegram и управление публичной карточкой продавца.', sellerCardTitle: 'Публичная карточка продавца', sellerDisplayName: 'Отображаемое имя', sellerBio: 'О себе', sellerSave: 'Сохранить профиль', sellerSaved: 'Профиль продавца обновлён.', sellerProfileId: 'Публичный ID',
     favoritesTitle: 'Избранные активы', noFavorites: 'Сохранённых активов пока нет.',
@@ -194,7 +194,7 @@
   const en = {
     market: 'Market', orders: 'Market', create: 'Profile', favorites: 'Favorites', profile: 'Profile', readonly: 'HASSLE NFT', catalogOnly: 'An independent Telegram NFT gift marketplace. Assets are listed only after ownership verification.',
     headline: 'Discover gifts worth keeping', subtitle: 'HASSLE NFT is a Telegram NFT gift marketplace.',
-    brandEyebrow: 'HASSLE NFT · VERIFIED ASSETS', heroLine1: 'Telegram Gifts.', heroLine2: 'Your market. Your deals.', heroDescription: 'Import Telegram gifts, collectible usernames and anonymous +888 numbers. NFT ownership is verified directly against TON smart contracts.', openCatalogue: 'Open marketplace', connectedLabel: 'HASSLE NFT MARKETPLACE', exploreMarket: 'HASSLE NFT MARKETPLACE', collectionsTitle: 'Assets', collectionsCount: 'community assets', discoverLabel: 'MARKET', search: 'Asset name, username or number', min: 'Min price', max: 'Max price',
+    brandEyebrow: 'HASSLE NFT · VERIFIED ASSETS', heroLine1: 'Telegram Gifts.', heroLine2: 'Your market. Your deals.', heroDescription: 'Import Telegram gifts, collectible usernames and anonymous +888 numbers. NFT ownership is verified directly against blockchain smart contracts.', openCatalogue: 'Open marketplace', connectedLabel: 'HASSLE NFT MARKETPLACE', exploreMarket: 'HASSLE NFT MARKETPLACE', collectionsTitle: 'Assets', collectionsCount: 'community assets', discoverLabel: 'MARKET', search: 'Asset name, username or number', min: 'Min price', max: 'Max price',
     listings: 'Marketplace assets', results: 'found', loading: 'Loading marketplace…', loadMore: 'Load more',
     empty: 'No matching assets yet.', failed: 'Could not load the marketplace.',
     details: 'Asset details', floor: 'Floor', price: 'Price', traits: 'Attributes',
@@ -206,7 +206,7 @@
     offersTitle: 'Offers', dealsTitle: 'Trade history', sendOffer: 'Send offer', offerAmount: 'Offer amount', acceptOffer: 'Accept', declineOffer: 'Decline', withdrawOffer: 'Withdraw', noOffers: 'No offers yet.', noDeals: 'No trade history yet.', incoming: 'Incoming', outgoing: 'Outgoing', offerStatusFilter: 'Offer status', offerPending: 'Awaiting response', offerAccepted: 'Accepted', offerDeclined: 'Declined', offerWithdrawn: 'Withdrawn',
     accountStatsTitle: 'Account stats', activeOrdersStat: 'Active positions', completedOrdersStat: 'Completed', sentOffersStat: 'Offers sent', receivedOffersStat: 'Offers received', notificationsTitle: 'Notifications', markAllRead: 'Mark all read', noNotifications: 'No notifications yet.', offerReceivedNotice: 'sent you an offer for', offerAcceptedNotice: 'accepted your offer for', offerDeclinedNotice: 'declined your offer for', offerWithdrawnNotice: 'withdrew an offer for', activityTitle: 'Activity history', noActivity: 'No activity yet.', loadMoreActivity: 'Load more', orderCreatedActivity: 'Asset listed', orderUpdatedActivity: 'Asset details updated', orderFilledActivity: 'Position closed', orderCancelledActivity: 'Asset delisted', offerReceivedActivity: 'Offer received', offerAcceptedActivity: 'Offer accepted', offerDeclinedActivity: 'Offer declined', offerWithdrawnActivity: 'Offer withdrawn', dealCreatedActivity: 'Trade created',
     active: 'Active', matched: 'Closed', cancelled: 'Cancelled', cancel: 'Cancel', match: 'Complete', editOrder: 'Edit', saveOrder: 'Save changes', cancelEdit: 'Discard', editTitle: 'Title', editPrice: 'Price', editNote: 'Note', orderUpdated: 'Asset details updated.',
-    demo: 'HASSLE NFT MARKETPLACE', demoWallet: 'Wallet connection', demoWalletText: 'TON wallet connection will be available in the next release.',
+    demo: 'HASSLE NFT MARKETPLACE', demoWallet: 'Wallet connection', demoWalletText: 'GRAM wallet connection will be available in the next release.',
     signIn: 'Verify Telegram', guest: 'Guest', authHint: 'Open the Mini App in Telegram to verify your profile.',
     signed: 'Telegram verified', profileText: 'Your Telegram account and public seller card.', sellerCardTitle: 'Public seller card', sellerDisplayName: 'Display name', sellerBio: 'About', sellerSave: 'Save profile', sellerSaved: 'Seller profile updated.', sellerProfileId: 'Public ID',
     favoritesTitle: 'Saved assets', noFavorites: 'No saved assets yet.',
@@ -504,8 +504,8 @@
       await loadVerifiedInventory();
       const count = Number(result.imported) || 0;
       tonNftImportMessage = lang === 'ru'
-        ? (count ? `Проверено TON NFT: ${count}` : 'В подключённом TON-кошельке не найдены NFT, выпущенные в блокчейне TON.')
-        : (count ? `TON NFTs verified: ${count}` : 'No NFTs minted on TON were found in the connected wallet.');
+        ? (count ? `Проверено NFT: ${count}` : 'В подключённом GRAM-кошельке не найдены NFT, выпущенные в блокчейне.')
+        : (count ? `wallet NFTs verified: ${count}` : 'No NFTs minted on-chain were found in the connected wallet.');
       if (result.ownership_scan_complete === false) {
         tonNftImportMessage += lang === 'ru' ? ' Проверка продолжится при следующем обновлении.' : ' Ownership verification was incomplete; refresh again later.';
       }
@@ -920,8 +920,8 @@
         body: JSON.stringify({ idempotency_key: crypto.randomUUID() }),
       });
       notice = lang === 'ru'
-        ? 'TON подтвердил нового владельца. Сделка завершена, NFT добавлен в инвентарь покупателя.'
-        : 'TON confirmed the new owner. The deal is complete and the NFT is in the buyer inventory.';
+        ? 'Блокчейн подтвердил нового владельца. Сделка завершена, NFT добавлен в инвентарь покупателя.'
+        : 'The blockchain confirmed the new owner. The deal is complete and the NFT is in the buyer inventory.';
       await Promise.all([loadOffersAndDeals(), loadMarketplace(), loadVerifiedInventory()]);
     } catch (e) {
       notice = e instanceof Error ? e.message : String(e);
@@ -989,12 +989,12 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idempotency_key: crypto.randomUUID() }),
       });
-      if (!data.transaction || !data.buyer_wallet) throw new Error(lang === 'ru' ? 'Сервер не подготовил TON-платёж.' : 'The server did not prepare the TON payment.');
+      if (!data.transaction || !data.buyer_wallet) throw new Error(lang === 'ru' ? 'Сервер не подготовил GRAM-платёж.' : 'The server did not prepare the GRAM payment.');
       tonPaymentRequest = { dealId, buyerWallet: String(data.buyer_wallet), transaction: data.transaction };
       view = 'profile';
       notice = lang === 'ru'
-        ? 'Проверь сумму и адрес в TON-кошельке. После подписи маркетплейс проверит транзакцию в блокчейне.'
-        : 'Check the amount and address in your TON wallet. After signing, the marketplace will verify the on-chain transaction.';
+        ? 'Проверь сумму и адрес в GRAM-кошельке. После подписи маркетплейс проверит транзакцию в блокчейне.'
+        : 'Check the amount and address in your GRAM wallet. After signing, the marketplace will verify the on-chain transaction.';
     } catch (e) {
       notice = e instanceof Error ? e.message : String(e);
     } finally {
@@ -1011,13 +1011,13 @@
       });
       tonPaymentRequest = null;
       notice = lang === 'ru'
-        ? 'TON подтвердил оплату. Средства учтены в эскроу сделки.'
-        : 'TON confirmed the payment. Funds are recorded in deal escrow.';
+        ? 'Блокчейн подтвердил оплату. Средства учтены в эскроу сделки.'
+        : 'The blockchain confirmed the payment. Funds are recorded in deal escrow.';
       await loadOffersAndDeals();
     } catch (e) {
       notice = lang === 'ru'
-        ? (e instanceof Error ? e.message : 'TON ещё не подтвердил перевод. Обнови статус позже, не отправляй деньги повторно.')
-        : (e instanceof Error ? e.message : 'TON has not confirmed the transfer yet. Check again later; do not pay twice.');
+        ? (e instanceof Error ? e.message : 'Блокчейн ещё не подтвердил перевод. Обнови статус позже, не отправляй деньги повторно.')
+        : (e instanceof Error ? e.message : 'The blockchain has not confirmed the transfer yet. Check again later; do not pay twice.');
       await loadOffersAndDeals();
     }
   }
@@ -1716,7 +1716,7 @@
          <div class="market-period-label"><span></span>{lang==='ru'?'ПОСЛЕДНИЕ 24 ЧАСА':'LAST 24 HOURS'}</div>
          <div class="market-activity-kpis">
            <article class="market-kpi market-kpi-primary"><small>{lang==='ru'?'Объём торгов':'Trading volume'}</small><strong>{Number(marketplaceStats.volume_ton_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})} <span class="gram-amount"><GramToken size={16}/> GRAM</span></strong><span>{lang==='ru'?'По завершённым сделкам':'Based on completed trades'}</span></article>
-           <article class="market-kpi"><small>{lang==='ru'?'Объём в Stars':'Stars volume'}</small><strong>{Number(marketplaceStats.volume_stars_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} <i>⭐</i></strong><span>{lang==='ru'?'Отдельно от TON':'Reported separately from GRAM'}</span></article>
+           <article class="market-kpi"><small>{lang==='ru'?'Объём в Stars':'Stars volume'}</small><strong>{Number(marketplaceStats.volume_stars_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} <i>⭐</i></strong><span>{lang==='ru'?'Отдельно от GRAM':'Reported separately from GRAM'}</span></article>
            <article class="market-kpi"><small>{lang==='ru'?'Завершённые сделки':'Completed trades'}</small><strong>{Number(marketplaceStats.completed_trades_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</strong><span>{lang==='ru'?'За 24 часа':'In the last 24 hours'}</span></article>
            <article class="market-kpi"><small>{lang==='ru'?'Активные объявления':'Active listings'}</small><strong>{Number(marketplaceStats.active_listings||0).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</strong><span>{lang==='ru'?'Сейчас на площадке':'Currently on the marketplace'}</span></article>
          </div>
@@ -1747,8 +1747,8 @@
          <p class="market-data-footnote">{lang==='ru'?'Объём торгов не равен капитализации. Показатели считаются по данным реестра HASSLE NFT; GRAM и Stars не суммируются между собой.':'Trading volume is not market capitalization. Metrics come from the HASSLE NFT order registry; GRAM and Stars are kept separate.'}</p>
        </section>
      {:else if view==='create'}
-       <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{lang==='ru'?'Мои подарки':'My Gifts'}</h1><p>{lang==='ru'?'Твои подтверждённые подарки Telegram и NFT из TON-кошелька':'Your verified Telegram gifts and NFTs from your TON wallet'}</p></section>
-       <div class="inventory-connect-panel"><div class="inventory-connect-icon">◈</div><div class="inventory-connect-copy"><span class="eyebrow">YOUR ASSETS · TON CONNECT</span><h2>{lang==='ru'?'Твои активы':'Your assets'}</h2><p>{lang==='ru'?'Telegram Business нужен только для импорта подарков из Telegram и не обязателен для покупателей. NFT из TON можно добавить через TON Connect и TON Proof. Мы никогда не запрашиваем seed-фразу или приватный ключ.':'Telegram Business is only needed to import gifts from Telegram and is not required for buyers. TON NFTs can be imported with TON Connect and TON Proof. We never ask for your seed phrase or private key.'}</p>{#if signedIn}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTelegramGifts} disabled={telegramGiftImportBusy}>{telegramGiftImportBusy?(lang==='ru'?'Проверяем подарки…':'Checking gifts…'):(lang==='ru'?'↓ Загрузить подарки Telegram':'↓ Import Telegram gifts')}</button>{/if}{#if telegramGiftImportMessage}<p class="ton-wallet-message">{telegramGiftImportMessage}</p>{/if}
+       <section class="page-heading compact-heading"><div class="eyebrow">YOUR COLLECTION</div><h1>{lang==='ru'?'Мои подарки':'My Gifts'}</h1><p>{lang==='ru'?'Твои подтверждённые подарки Telegram и NFT из GRAM-кошелька':'Your verified Telegram gifts and NFTs from your GRAM wallet'}</p></section>
+       <div class="inventory-connect-panel"><div class="inventory-connect-icon">◈</div><div class="inventory-connect-copy"><span class="eyebrow">YOUR ASSETS · TON CONNECT</span><h2>{lang==='ru'?'Твои активы':'Your assets'}</h2><p>{lang==='ru'?'Telegram Business нужен только для импорта подарков из Telegram и не обязателен для покупателей. NFT из подключённого кошелька можно добавить через подключение кошелька и криптографическое подтверждение. Мы никогда не запрашиваем seed-фразу или приватный ключ.':'Telegram Business is only needed to import gifts from Telegram and is not required for buyers. wallet NFTs can be imported with подключение кошелька and подтверждение владения. We never ask for your seed phrase or private key.'}</p>{#if signedIn}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTelegramGifts} disabled={telegramGiftImportBusy}>{telegramGiftImportBusy?(lang==='ru'?'Проверяем подарки…':'Checking gifts…'):(lang==='ru'?'↓ Загрузить подарки Telegram':'↓ Import Telegram gifts')}</button>{/if}{#if telegramGiftImportMessage}<p class="ton-wallet-message">{telegramGiftImportMessage}</p>{/if}
         {#if telegramBusinessStatus.gift_import_ready}
           <button class="ton-wallet-button inventory-import-button" type="button" onclick={importBusinessGifts} disabled={businessGiftImportBusy}>{businessGiftImportBusy?(lang==='ru'?'Загружаем бизнес-подарки…':'Importing business gifts…'):(lang==='ru'?'↓ Импортировать подарки Business':'↓ Import Business gifts')}</button>
           {#if businessGiftImportMessage}<p class="ton-wallet-message">{businessGiftImportMessage}</p>{/if}
@@ -1764,11 +1764,11 @@
             {#if !telegramBusinessStatus.gift_import_ready}<small>{lang==='ru'?'Выдай боту право просмотра подарков в настройках Telegram Business.':'Grant the bot permission to view gifts in Telegram Business settings.'}</small>{/if}
             <p>{lang==='ru'?'После оплаты продавец может передать подарок покупателю через Telegram Business. Если Telegram требует комиссию в Stars, приложение отдельно запросит твоё согласие до передачи.':'After payment, the seller can transfer the gift to the buyer through Telegram Business. If Telegram requires a Stars fee, the app asks for your consent before the transfer.'}</p>
           {:else}
-            <p>{lang==='ru'?'Это дополнительный способ импорта Telegram-подарков. Подключённые бизнес-боты доступны и без Premium. Покупателям подключать Telegram Business вообще не нужно; NFT из TON можно добавлять через кошелёк.':'This is an optional way to import Telegram gifts. The Telegram Business account owner needs Premium to connect it. Without it, users can still browse and buy, and import TON NFTs through a wallet.'}</p>
+            <p>{lang==='ru'?'Это дополнительный способ импорта Telegram-подарков. Подключённые бизнес-боты доступны и без Premium. Покупателям подключать Telegram Business вообще не нужно; NFT из подключённого кошелька можно добавлять через кошелёк.':'This is an optional way to import Telegram gifts. The Telegram Business account owner needs Premium to connect it. Without it, users can still browse and buy, and import wallet NFTs through a wallet.'}</p>
           {/if}
           <button class="refresh-button" type="button" onclick={loadTelegramBusinessStatus}>{lang==='ru'?'Проверить подключение':'Check connection'} ↻</button>
         </div>
-        <TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления TON и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for TON to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletAddress=address;walletConnected=Boolean(address);}} />{#if walletConnected}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTonWalletAssets} disabled={tonNftImportBusy}>{tonNftImportBusy?(lang==='ru'?'Проверяем NFT в TON…':'Verifying TON NFTs…'):(lang==='ru'?'↓ Загрузить NFT из TON':'↓ Import NFTs from TON')}</button>{/if}{#if tonNftImportMessage}<p class="ton-wallet-message">{tonNftImportMessage}</p>{/if}</div></div>
+        <TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления блокчейна и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for TON to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletAddress=address;walletConnected=Boolean(address);}} />{#if walletConnected}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTonWalletAssets} disabled={tonNftImportBusy}>{tonNftImportBusy?(lang==='ru'?'Проверяем NFT в TON…':'Verifying wallet NFTs…'):(lang==='ru'?'↓ Загрузить NFT из кошелька':'↓ Import NFTs from TON')}</button>{/if}{#if tonNftImportMessage}<p class="ton-wallet-message">{tonNftImportMessage}</p>{/if}</div></div>
        {#if verifiedAssets.some(asset=>asset.source==='telegram_gift') && !telegramOwnershipSnapshotComplete}<div class="ownership-verification-notice" role="status">{lang==='ru'?'Подарки Telegram временно скрыты: актуальное владение ещё не подтверждено. Нажми «Обновить», чтобы проверить аккаунт.':'Telegram gifts are temporarily hidden because current ownership has not been confirmed. Tap Refresh to verify your account.'}</div>{/if}{#if verifiedAssetsLoading}
          <div class="inventory-empty-state"><span class="state-icon">◌</span><strong>{lang==='ru'?'Проверяем инвентарь…':'Checking inventory…'}</strong></div>
        {:else if visibleVerifiedAssets.length}
@@ -1777,7 +1777,7 @@
                <div class="inventory-filter-group" role="group" aria-label={lang==='ru'?'Источник активов':'Asset source'}>
                  <button class:active={inventoryFilter==='all'} type="button" onclick={()=>inventoryFilter='all'}>{lang==='ru'?'Все источники':'All sources'} <span>{visibleVerifiedAssets.length}</span></button>
                  <button class:active={inventoryFilter==='telegram_gift'} type="button" onclick={()=>inventoryFilter='telegram_gift'}>Telegram <span>{visibleVerifiedAssets.filter(asset=>asset.source==='telegram_gift').length}</span></button>
-                 <button class:active={inventoryFilter==='ton_nft'} type="button" onclick={()=>inventoryFilter='ton_nft'}>TON NFT <span>{visibleVerifiedAssets.filter(asset=>asset.source==='ton_nft').length}</span></button>
+                 <button class:active={inventoryFilter==='ton_nft'} type="button" onclick={()=>inventoryFilter='ton_nft'}>NFT <span>{visibleVerifiedAssets.filter(asset=>asset.source==='ton_nft').length}</span></button>
                </div>
                <div class="inventory-filter-group inventory-status-tabs" role="group" aria-label={lang==='ru'?'Статус объявления':'Listing status'}>
                  <button class:active={inventoryListingFilter==='all'} type="button" onclick={()=>inventoryListingFilter='all'}>{lang==='ru'?'Все':'All'}</button>
@@ -1808,7 +1808,7 @@
                    <small class="verified-gift-id">{lang==='ru'?'Уникальный ID':'Unique ID'} · {asset.external_asset_id}</small>
                    <a class="inventory-gift-link" href={'https://t.me/nft/'+encodeURIComponent(asset.external_asset_id)} target="_blank" rel="noopener noreferrer">{lang==='ru'?'Открыть оригинал в Telegram':'Open original in Telegram'} ↗</a>
                  {:else}
-                   <small>{asset.asset_type==='username'?(lang==='ru'?'Коллекционное имя Telegram':'Telegram collectible username'):asset.asset_type==='number'?(lang==='ru'?'Анонимный номер +888':'Anonymous +888 number'):(lang==='ru'?'TON NFT':'TON NFT')} · {asset.external_asset_id}</small>
+                   <small>{asset.asset_type==='username'?(lang==='ru'?'Коллекционное имя Telegram':'Telegram collectible username'):asset.asset_type==='number'?(lang==='ru'?'Анонимный номер +888':'Anonymous +888 number'):(lang==='ru'?'NFT':'NFT')} · {asset.external_asset_id}</small>
                  {/if}
                  <span>{asset.active_listing_id?(lang==='ru'?'Уже выставлен':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</span>
                  {#if asset.active_listing_id}<small class="inventory-listing-note">{lang==='ru'?'Объявление уже опубликовано':'Listing is already live'}</small>{#if orders.find(order=>order.id===asset.active_listing_id)}<button class="inventory-list-button" type="button" onclick={()=>{const listing=orders.find(order=>order.id===asset.active_listing_id);if(listing)startEditOrder(listing);}}>{lang==='ru'?'Управлять объявлением':'Manage listing'} ↗</button>{/if}{:else if asset.source==='telegram_gift'}<small class="inventory-listing-note">{lang==='ru'?'Продажа откроется после проверки безопасной передачи подарка':'Sales unlock after secure gift transfer is verified'}</small>{:else if assetListingEnabled}<button class="inventory-list-button" type="button" onclick={()=>startAssetListing(asset)}>{lang==='ru'?'Выставить на продажу':'List for sale'} ↗</button>{:else}<small class="inventory-listing-note">{lang==='ru'?'Публикация откроется после завершения проверки':'Listing will open after final verification'}</small>{/if}
@@ -1820,7 +1820,7 @@
            <div class="inventory-empty-state"><img class="state-brand-art" src="/brand/hassle-mark.webp?v=224" alt="HASSLE NFT"/><strong>{lang==='ru'?'В этой категории пока пусто':'No assets in this category yet'}</strong><small>{lang==='ru'?'Выбери другой источник или обнови инвентарь после импорта.':'Choose another source or refresh after importing assets.'}</small></div>
          {/if}
        {:else}
-         <div class="inventory-empty-state"><span class="state-icon">✦</span><strong>{lang==='ru'?'Пока нет подтверждённых активов':'No verified assets yet'}</strong><small>{lang==='ru'?'Ручное создание карточек отключено. Импортируй подарки Telegram или подключи TON-кошелёк для проверки NFT.':'Manual asset creation is disabled. Import Telegram gifts or connect a TON wallet to verify on-chain NFTs.'}</small></div>
+         <div class="inventory-empty-state"><span class="state-icon">✦</span><strong>{lang==='ru'?'Пока нет подтверждённых активов':'No verified assets yet'}</strong><small>{lang==='ru'?'Ручное создание карточек отключено. Импортируй подарки Telegram или подключи GRAM-кошелёк для проверки NFT.':'Manual asset creation is disabled. Import Telegram gifts or connect a GRAM wallet to verify on-chain NFTs.'}</small></div>
        {/if}
       {:else if view==='favorites'}
       <section class="page-heading compact-heading favorites-heading"><div><div class="eyebrow">HASSLE NFT</div><h1>{t.favoritesTitle}</h1></div><button class="refresh-button" onclick={()=>view='orders'}>{lang==='ru'?'Назад в маркет':'Back to market'}</button></section>
@@ -1837,14 +1837,14 @@
         <div class="gram-profile-mark"><GramToken size={34} class="gram-token-icon" /></div><div class="gram-profile-copy"><div class="eyebrow">HASSLE BALANCE</div><h2>GRAM</h2><strong>{lang==='ru'?'Баланс пока не подключён':'Balance not connected'}</strong><small>{lang==='ru'?'Внутренний ledger ещё не активирован. Реальные суммы не подменяются заглушками.':'The internal ledger is not active. No placeholder balance is shown.'}</small></div><button class="refresh-button" type="button" onclick={()=>showGramInfo=true}>{lang==='ru'?'Подробнее':'Details'}</button>
       </article>
       <article class="profile-card wallet-card">
-        <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">TON CONNECT · PROOF</div><h2>{lang==='ru'?'TON-кошелёк':'TON wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления TON и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for TON to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletAddress=address;walletConnected=Boolean(address);}} /></div>
+        <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">WALLET CONNECT · PROOF</div><h2>{lang==='ru'?'GRAM-кошелёк':'GRAM wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления блокчейна и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for TON to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletAddress=address;walletConnected=Boolean(address);}} /></div>
       </article>
       <article class="profile-card profile-inventory-card">
         <div class="profile-inventory-heading"><div><div class="eyebrow">YOUR COLLECTION</div><h2>{lang==='ru'?'Подарки и инвентарь':'Gifts & inventory'}</h2><small>{visibleVerifiedAssets.length} {lang==='ru'?'подтверждённых активов':'verified assets'}</small></div><button class="refresh-button" type="button" onclick={refreshOwnershipInventory} disabled={verifiedAssetsLoading || telegramGiftImportBusy || businessGiftImportBusy || tonNftImportBusy}>↻</button></div>
         <div class="profile-import-actions">
           <button type="button" class="profile-import-button" onclick={importTelegramGifts} disabled={!signedIn || telegramGiftImportBusy}>{telegramGiftImportBusy?'…':(lang==='ru'?'＋ Импорт Telegram':'＋ Import Telegram')}</button>
           <button type="button" class="profile-import-button" onclick={importBusinessGifts} disabled={!signedIn || !telegramBusinessStatus.gift_import_ready || businessGiftImportBusy}>{businessGiftImportBusy?'…':(lang==='ru'?'Business gifts':'Business gifts')}</button>
-          <button type="button" class="profile-import-button" onclick={importTonWalletAssets} disabled={!signedIn || !walletConnected || tonNftImportBusy}>{tonNftImportBusy?'…':(lang==='ru'?'Импорт TON NFT':'Import TON NFTs')}</button>
+          <button type="button" class="profile-import-button" onclick={importTonWalletAssets} disabled={!signedIn || !walletConnected || tonNftImportBusy}>{tonNftImportBusy?'…':(lang==='ru'?'Импорт NFT':'Import wallet NFTs')}</button>
         </div>
         <div class="profile-business-status"><span class:ready={telegramBusinessStatus.gift_import_ready}></span><span>{telegramBusinessStatus.gift_import_ready?(lang==='ru'?'Telegram Business подключён':'Telegram Business connected'):(lang==='ru'?'Telegram Business не подключён или нет прав':'Telegram Business not connected or missing permissions')}</span><button type="button" onclick={loadTelegramBusinessStatus}>{lang==='ru'?'Проверить':'Check'}</button></div>
         {#if telegramGiftImportMessage}<p class="profile-import-message">{telegramGiftImportMessage}</p>{/if}
@@ -1857,7 +1857,7 @@
             {#each visibleVerifiedAssets as asset (asset.id)}
               <article class="profile-asset-row">
                 {#if assetPreviewUrl(asset)}<img src={assetPreviewUrl(asset)} alt={asset.title} loading="lazy"/>{:else}<img class="profile-asset-placeholder" src="/brand/hassle-mark.webp?v=224" alt="HASSLE NFT"/>{/if}
-                <div class="profile-asset-copy"><strong>{asset.title}</strong><small>{asset.source==='telegram_gift'?'Telegram Gift':asset.source==='ton_nft'?'TON NFT':asset.asset_type==='username'?'Username':'+888'} · {asset.active_listing_id?(lang==='ru'?'На продаже':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</small>{#if assetTraits(asset).length}<div class="asset-trait-chips profile-traits">{#each assetTraits(asset) as trait (trait.key)}<span class="asset-trait-chip">{#if trait.key==='backdrop' && trait.colors?.center}<i class="asset-trait-swatch" style={'background:linear-gradient(135deg,'+trait.colors.center+','+(trait.colors.edge||trait.colors.center)+')'}></i>{/if}<small>{trait.key.toUpperCase()}</small><b>{trait.name}</b>{#if trait.tier}<em>{trait.tier.toUpperCase()}</em>{:else if trait.rarity!==undefined}<em>{trait.rarity}%</em>{/if}</span>{/each}</div>{/if}</div>
+                <div class="profile-asset-copy"><strong>{asset.title}</strong><small>{asset.source==='telegram_gift'?'Telegram Gift':asset.source==='ton_nft'?'NFT':asset.asset_type==='username'?'Username':'+888'} · {asset.active_listing_id?(lang==='ru'?'На продаже':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</small>{#if assetTraits(asset).length}<div class="asset-trait-chips profile-traits">{#each assetTraits(asset) as trait (trait.key)}<span class="asset-trait-chip">{#if trait.key==='backdrop' && trait.colors?.center}<i class="asset-trait-swatch" style={'background:linear-gradient(135deg,'+trait.colors.center+','+(trait.colors.edge||trait.colors.center)+')'}></i>{/if}<small>{trait.key.toUpperCase()}</small><b>{trait.name}</b>{#if trait.tier}<em>{trait.tier.toUpperCase()}</em>{:else if trait.rarity!==undefined}<em>{trait.rarity}%</em>{/if}</span>{/each}</div>{/if}</div>
                 {#if asset.active_listing_id}
                   {#if orders.find(order=>order.id===asset.active_listing_id)}<button class="profile-asset-action" type="button" onclick={()=>{const listing=orders.find(order=>order.id===asset.active_listing_id);if(listing)startEditOrder(listing);}}>{lang==='ru'?'Управлять':'Manage'}</button>{:else}<span class="profile-asset-listed">{lang==='ru'?'Выставлен':'Listed'}</span>{/if}
                 {:else if asset.source==='telegram_gift'}<span class="profile-asset-listed">{lang==='ru'?'Передача не готова':'Transfer pending'}</span>
@@ -1867,7 +1867,7 @@
             {/each}
           </div>
         {:else}
-          <div class="profile-inventory-empty"><strong>{lang==='ru'?'Инвентарь пока пуст':'Your inventory is empty'}</strong><small>{lang==='ru'?'Импортируй коллекционные подарки Telegram или NFT из подключённого TON-кошелька.':'Import collectible Telegram gifts or NFTs from your connected TON wallet.'}</small></div>
+          <div class="profile-inventory-empty"><strong>{lang==='ru'?'Инвентарь пока пуст':'Your inventory is empty'}</strong><small>{lang==='ru'?'Импортируй коллекционные подарки Telegram или NFT из подключённого GRAM-кошелька.':'Import collectible Telegram gifts or NFTs from your connected GRAM wallet.'}</small></div>
         {/if}
       </article>
       <details class="profile-trades-details">
@@ -2128,7 +2128,7 @@
             <h2 id="inventory-list-title">{lang==='ru'?'Выставить NFT':'List NFT for sale'}</h2>
             <div class="offer-asset-preview">
               {#if assetPreviewUrl(selectedInventoryAsset)}<img src={assetPreviewUrl(selectedInventoryAsset)} alt={selectedInventoryAsset.title}/>{:else}<span>◈</span>{/if}
-              <div><strong>{selectedInventoryAsset.title}</strong><small>{selectedInventoryAsset.source==='ton_nft'?'TON NFT':'Verified asset'} · {selectedInventoryAsset.external_asset_id}</small></div>
+              <div><strong>{selectedInventoryAsset.title}</strong><small>{selectedInventoryAsset.source==='ton_nft'?'NFT':'Verified asset'} · {selectedInventoryAsset.external_asset_id}</small></div>
             </div>
             <label>{lang==='ru'?'Цена':'Price'}<input class="form-input" type="number" min="0.01" step={createCurrency==='XTR'?'1':'0.01'} bind:value={createPrice} placeholder={createCurrency==='XTR'?'100':'1.25'} /></label>
             <label>{lang==='ru'?'Валюта':'Currency'}
