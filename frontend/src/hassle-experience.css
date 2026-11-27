@@ -239,3 +239,10 @@ button:not(:disabled):active{transform:translateY(1px)!important}
 .inventory-trait-search{width:min(100%,220px);min-height:36px;border:1px solid var(--border-subtle,rgba(145,166,205,.2));border-radius:10px;background:rgba(10,15,27,.55);color:var(--text-primary,#f4f6fb);padding:8px 11px;font:inherit;font-size:12px;outline:none}
 .inventory-trait-search:focus{border-color:rgba(113,151,255,.6);box-shadow:0 0 0 3px rgba(113,151,255,.1)}
 @media(max-width:520px){.inventory-trait-toolbar{align-items:stretch}.inventory-trait-search{width:100%}.inventory-trait-toolbar .inventory-filter-group button{padding:7px 9px}}
+
+
+.asset-card-traits{display:flex;flex-wrap:wrap;gap:5px;margin:9px 0 2px;min-width:0}
+.asset-card-trait{display:inline-flex;align-items:center;gap:5px;max-width:100%;padding:5px 7px;border:1px solid rgba(145,166,205,.16);border-radius:8px;background:rgba(118,145,194,.065);font-size:9px;line-height:1.15;color:var(--text-primary,#f4f6fb)}
+.asset-card-trait small{font-size:8px;letter-spacing:.07em;font-weight:800;color:var(--text-muted,#8e9bb2)}
+.asset-card-trait b{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.asset-card-trait em{font-style:normal;color:var(--accent,#8faeff);font-variant-numeric:tabular-nums}
