@@ -190,14 +190,17 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
         action = Builder().store_uint(0xF1381E5B, 32).store_uint(3, 8).store_ref(message).end_cell()
         dictionary = begin_dict(8)
         dictionary.store_ref(0, action)
+        dictionary.store_ref(1, action)
         boc = base64.b64encode(dictionary.end_dict().to_boc(False)).decode()
         from ton_multisig import decode_multisig_order_actions
         decoded = decode_multisig_order_actions(boc)
-        self.assertEqual(decoded["action_count"], 1)
+        self.assertEqual(decoded["action_count"], 2)
         self.assertFalse(decoded["approval_safe"])
         self.assertEqual(decoded["actions"][0]["recipient"], recipient)
         self.assertEqual(decoded["actions"][0]["amount_nano"], "1234567890")
         self.assertEqual(decoded["actions"][0]["body_op"], 0x5FCC3D14)
+        self.assertEqual(decoded["actions"][0]["body_kind"], "nft_transfer")
+        self.assertEqual(decoded["actions"][1]["index"], 1)
 
     def test_unknown_action_is_never_approval_safe(self):
         from tonsdk.boc import Builder, begin_dict
