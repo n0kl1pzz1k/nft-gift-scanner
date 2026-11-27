@@ -531,7 +531,7 @@
       return;
     }
     const now = Date.now();
-    if (now - lastOwnershipRefreshAt < 45_000) {
+    if (telegramOwnershipSnapshotComplete && now - lastOwnershipRefreshAt < 45_000) {
       await loadVerifiedInventory();
       return;
     }
