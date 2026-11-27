@@ -1212,7 +1212,7 @@
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idempotency_key: idempotencyKey }) },
       );
       showAssetDetails = false;
-      await loadOffersAndDeals();
+      await Promise.all([loadOffersAndDeals(), loadSellerProfile()]);
       if (typeof result.deal_id === 'string') expandedDealTimeline = result.deal_id;
       view = 'profile';
       haptic('success');
