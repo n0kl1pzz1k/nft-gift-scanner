@@ -2055,8 +2055,11 @@
                       <div class="state-panel">
                         <strong>#{String(action.index)} · {String(action.kind)} · {String(action.opcode)}</strong>
                         {#if action.kind === 'send_message'}
-                          <small>{lang==='ru'?'Получатель':'Recipient'}: {String(action.recipient || '—')}</small>
-                          <small>{lang==='ru'?'Сумма':'Amount'}: {formatGramNano(action.amount_nano)} GRAM · mode {String(action.send_mode)}</small>
+                          <small>{lang==='ru'?'Контракт назначения':'Message destination'}: {String(action.recipient || '—')}</small>
+                          {#if action.asset_recipient}<small>{lang==='ru'?'Получатель актива':'Asset recipient'}: {String(action.asset_recipient)}</small>{/if}
+                          <small>{lang==='ru'?'Сумма сообщения':'Message value'}: {formatGramNano(action.amount_nano)} GRAM · mode {String(action.send_mode)}</small>
+                          {#if action.forward_amount_nano}<small>{lang==='ru'?'GRAM для пересылки':'Forward amount'}: {formatGramNano(action.forward_amount_nano)} GRAM</small>{/if}
+                          {#if action.jetton_amount_nano}<small>Jetton amount (base units): {String(action.jetton_amount_nano)}</small>{/if}
                           <small>{lang==='ru'?'Тип тела':'Body type'}: {String(action.body_kind || 'unknown')} · {action.body_op === null ? '—' : '0x'+Number(action.body_op).toString(16).padStart(8,'0')}</small>
                         {:else if action.kind === 'update_multisig_params'}
                           <small>Threshold: {String(action.threshold)} · Signers: {Array.isArray(action.signers) ? action.signers.length : 0} · Proposers: {Array.isArray(action.proposers) ? action.proposers.length : 0}</small>
