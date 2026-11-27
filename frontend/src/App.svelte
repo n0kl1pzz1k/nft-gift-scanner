@@ -73,6 +73,8 @@
   let lastOwnershipRefreshAt = 0;
   let inventoryFilter = $state<'all'|'telegram_gift'|'ton_nft'>('all');
   let inventoryListingFilter = $state<'all'|'listed'|'unlisted'>('all');
+  let inventoryTraitFilter = $state<'all'|'model'|'symbol'|'backdrop'>('all');
+  let inventoryTraitQuery = $state('');
   let assetListingEnabled = $state(false);
   let selectedInventoryAsset = $state<VerifiedAsset | null>(null);
   let tonNftImportBusy = $state(false);
@@ -255,6 +257,15 @@
   });
   const inventoryAssets = $derived(orders.filter(order => order.isMine && order.kind === 'listing'));
   const visibleVerifiedAssets = $derived(verifiedAssets.filter(asset => asset.source !== 'telegram_gift' || telegramOwnershipSnapshotComplete));
+  const inventoryFilteredAssets = $derived(visibleVerifiedAssets.filter(asset => {
+    const sourceMatch = inventoryFilter === 'all' || asset.source === inventoryFilter;
+    const statusMatch = inventoryListingFilter === 'all' || (inventoryListingFilter === 'listed' ? Boolean(asset.active_listing_id) : !asset.active_listing_id);
+    const traits = assetTraits(asset);
+    const traitMatch = inventoryTraitFilter === 'all' || traits.some(trait => trait.key === inventoryTraitFilter);
+    const query = inventoryTraitQuery.trim().toLocaleLowerCase();
+    const queryMatch = !query || traits.some(trait => trait.name.toLocaleLowerCase().includes(query));
+    return sourceMatch && statusMatch && traitMatch && queryMatch;
+  }));
   const tonFloor = $derived(marketplaceStats.floor_ton && marketplaceStats.floor_ton > 0 ? marketplaceStats.floor_ton.toFixed(2) : '—');
   const starsFloor = $derived(marketplaceStats.floor_stars && marketplaceStats.floor_stars > 0 ? marketplaceStats.floor_stars.toFixed(0) : '—');
   function assetTypeOf(order: MarketplaceOrder): AssetTypeFilter | 'unknown' {
@@ -1704,9 +1715,18 @@
              </div>
              <button class="refresh-button" type="button" onclick={refreshOwnershipInventory} disabled={verifiedAssetsLoading || telegramGiftImportBusy || businessGiftImportBusy || tonNftImportBusy}>{lang==='ru'?'Обновить':'Refresh'} ↻</button>
            </div>
-         {#if visibleVerifiedAssets.filter(asset=>(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))).length}
+           <div class="inventory-trait-toolbar">
+             <div class="inventory-filter-group" role="group" aria-label={lang==='ru'?'Характеристики NFT':'NFT traits'}>
+               <button class:active={inventoryTraitFilter==='all'} type="button" onclick={()=>inventoryTraitFilter='all'}>{lang==='ru'?'Все свойства':'All traits'}</button>
+               <button class:active={inventoryTraitFilter==='model'} type="button" onclick={()=>inventoryTraitFilter='model'}>Model</button>
+               <button class:active={inventoryTraitFilter==='symbol'} type="button" onclick={()=>inventoryTraitFilter='symbol'}>Symbol</button>
+               <button class:active={inventoryTraitFilter==='backdrop'} type="button" onclick={()=>inventoryTraitFilter='backdrop'}>Backdrop</button>
+             </div>
+             <input class="inventory-trait-search" type="search" bind:value={inventoryTraitQuery} placeholder={lang==='ru'?'Найти свойство…':'Search trait…'} aria-label={lang==='ru'?'Поиск по характеристикам':'Search NFT traits'} />
+           </div>
+         {#if inventoryFilteredAssets.length}(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))).length}
          <div class="verified-inventory-list">
-           {#each visibleVerifiedAssets.filter(asset=>(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))) as asset (asset.id)}
+           {#each inventoryFilteredAssets as asset (asset.id)}
              <article class="verified-inventory-item">
                {#if assetPreviewUrl(asset)}<img src={assetPreviewUrl(asset)} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder"><span>HASSLE</span><small>{asset.source==='telegram_gift'?(lang==='ru'?'КОЛЛЕКЦИОННЫЙ ПОДАРОК':'COLLECTIBLE GIFT'):asset.asset_type==='username'?'TELEGRAM USERNAME':asset.asset_type==='number'?'ANONYMOUS NUMBER':'VERIFIED ASSET'}</small></div>{/if}
                <div class="verified-inventory-details">
