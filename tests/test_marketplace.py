@@ -2561,6 +2561,9 @@ class SharedMarketplaceTests(unittest.TestCase):
             "BOT_TOKEN": "test-bot-token",
             "PAYMENT_SUPPORT_CONTACT": "@hassle_support",
         }):
+            catalog = self.client.get("/api/marketplace/orders?status=active")
+            catalog_item = next(item for item in catalog.json()["items"] if item["id"] == order_id)
+            self.assertTrue(catalog_item["buy_now_enabled"])
             bought = self.client.post(
                 f"/api/marketplace/orders/{order_id}/buy-now",
                 headers=buyer_headers,
