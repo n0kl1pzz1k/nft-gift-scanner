@@ -217,7 +217,7 @@
   const publicBuyRequests = $derived(orders.filter(order => order.kind === 'buy-order' && order.status === 'active').sort((a,b) => b.createdAt-a.createdAt));
   const myListings = $derived(orders.filter(order => order.isMine).sort((a, b) => b.createdAt - a.createdAt));
   const invalidPriceRange = $derived(marketCurrency !== 'all' && ((marketMinPrice !== '' && (!Number.isFinite(Number(marketMinPrice)) || Number(marketMinPrice) < 0)) || (marketMaxPrice !== '' && (!Number.isFinite(Number(marketMaxPrice)) || Number(marketMaxPrice) < 0)) || (marketMinPrice !== '' && marketMaxPrice !== '' && Number(marketMinPrice) > Number(marketMaxPrice))));
-  const hasMarketFilters = $derived(Boolean(marketSearch.trim() || assetTypeFilter !== 'all' || marketCurrency !== 'all' || marketMinPrice !== '' || marketMaxPrice !== ''));
+  const hasMarketFilters = $derived(Boolean(marketSearch.trim() || marketCollectionSearch.trim() || marketNftIdSearch.trim() || assetTypeFilter !== 'all' || marketCurrency !== 'all' || marketMinPrice !== '' || marketMaxPrice !== ''));
   function resetMarketFilters() {
     marketSearch = '';
     marketCollectionSearch = '';
