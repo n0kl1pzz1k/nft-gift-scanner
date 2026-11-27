@@ -1396,3 +1396,29 @@ button:disabled{cursor:not-allowed!important;filter:saturate(.55)!important;opac
   .asset-card-actions button{flex:1}
   .asset-title-button{font-size:13px!important}
 }
+
+
+/* Compact profile workspace: three focused tabs, no endless account scroll. */
+.profile-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:12px!important}
+.profile-heading-user{color:#8daac4;font-size:11px;font-weight:650;max-width:48%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.profile-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;max-width:860px;margin:0 0 14px;padding:5px;border:1px solid rgba(133,181,224,.15);border-radius:15px;background:rgba(8,17,28,.76)}
+.profile-tabs button{min-height:43px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid transparent;border-radius:10px;background:transparent;color:#91a9c0;font-size:12px;font-weight:720;white-space:nowrap}
+.profile-tabs button span{font-size:15px}.profile-tabs button small{padding:2px 6px;border-radius:20px;background:rgba(95,174,232,.12);color:#bce5ff;font-size:10px}
+.profile-tabs button.active{color:#eaf7ff;background:linear-gradient(135deg,rgba(49,151,226,.23),rgba(92,92,218,.17));border-color:rgba(99,190,255,.28);box-shadow:inset 0 1px rgba(255,255,255,.05)}
+.profile-layout[data-profile-tab="account"] .profile-inventory-card,.profile-layout[data-profile-tab="account"] .moderation-card{display:none!important}
+.profile-layout[data-profile-tab="inventory"]>*:not(.profile-inventory-card){display:none!important}
+.profile-layout[data-profile-tab="admin"]>*:not(.moderation-card){display:none!important}
+.profile-layout[data-profile-tab="admin"] .moderation-card{display:block!important}
+.profile-layout{gap:11px!important;max-width:1000px!important}
+.profile-main{display:grid!important;grid-template-columns:54px minmax(0,1fr) auto;align-items:center!important;gap:12px!important;padding:13px 15px!important;min-height:82px}
+.profile-avatar{width:48px!important;height:48px!important;min-width:48px!important}
+.profile-main h2{font-size:16px!important;margin:0 0 3px!important}.profile-main p{font-size:11px!important;margin:0!important}.profile-main .profile-premium{font-size:9px!important}
+.profile-stats-grid{grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:8px!important;margin:0!important}
+.profile-stats-grid .account-stat{padding:10px 12px!important;min-height:64px}
+.profile-stats-grid .account-stat strong{font-size:19px!important}
+.gram-profile-card,.wallet-card{display:flex!important;align-items:center!important;gap:12px!important;padding:14px 16px!important;min-height:unset!important}
+.gram-profile-copy,.wallet-card-copy{flex:1;min-width:0}.gram-profile-copy h2,.wallet-card-copy h2{font-size:17px!important;margin:1px 0 3px!important}.gram-profile-copy>small,.wallet-card-copy p{font-size:10px!important;line-height:1.45!important;margin:3px 0 0!important}
+.gram-profile-actions{display:flex;gap:6px;margin:7px 0 2px}.gram-profile-actions button{border:1px solid rgba(102,187,245,.24);background:rgba(65,155,220,.1);color:#d7efff;border-radius:9px;padding:6px 10px;font-size:10px;font-weight:700}
+.wallet-card .ton-wallet-connect{max-width:100%!important}.profile-inventory-card{padding:14px!important}.profile-inventory-heading h2{font-size:17px!important}.profile-inventory-list{max-height:min(58vh,560px);overflow:auto;padding-right:3px}.profile-asset-row{padding:9px!important;gap:10px!important}.profile-asset-row>img{width:52px!important;height:52px!important;object-fit:cover!important}.profile-asset-copy strong{font-size:12px!important}.profile-asset-copy small{font-size:10px!important}.profile-trades-details,.seller-profile-editor,.activity-card,.notification-card,.preferences-card{margin-top:10px!important}
+.moderation-card{max-height:calc(100dvh - 190px);overflow:auto;padding:15px!important}.moderation-card .account-stats-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+@media(max-width:620px){.profile-tabs{position:sticky;top:58px;z-index:12;backdrop-filter:blur(18px)}.profile-main{grid-template-columns:44px minmax(0,1fr) auto;padding:10px!important}.profile-avatar{width:40px!important;height:40px!important;min-width:40px!important}.profile-stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.profile-stats-grid .account-stat{min-height:58px}.gram-profile-card,.wallet-card{padding:11px!important;flex-wrap:wrap}.gram-profile-actions{flex-wrap:wrap}.moderation-card{max-height:none}.moderation-card .account-stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
