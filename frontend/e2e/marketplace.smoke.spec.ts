@@ -121,3 +121,14 @@ test('authenticated profile opens from the mobile tab without waiting on navigat
   await expect(page.locator('[data-profile-view]')).toBeVisible();
   await expect(page.locator('.profile-main')).toContainText('Test User');
 });
+
+test('catalog shows real marketplace metrics and official Gram denomination', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await stubTelegramAndApi(page);
+  await page.goto('/');
+  await expect(page.locator('.market-live-stats')).toBeVisible();
+  await expect(page.locator('.market-live-stats')).toContainText('Активные лоты');
+  await expect(page.locator('.market-category-rail')).toBeVisible();
+  await expect(page.locator('.market-search input')).toHaveCSS('font-size', '16px');
+  await expect(page.locator('.gram-token-icon').first()).toBeVisible();
+});
