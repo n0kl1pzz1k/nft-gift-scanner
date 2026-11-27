@@ -2035,9 +2035,9 @@
                 <div class="account-stat" aria-label={lang==='ru'?'Ордер мультисига':'Multisig order'}>
                   <strong>Order #{String(order.order_seqno)}</strong>
                   <small>{String(order.address || '')}</small>
-                  <p>{lang==='ru'?'Подписи':'Approvals'}: {String(order.approvals_num ?? 0)}/{String(order.threshold ?? 0)} · {lang==='ru'?'Состояние':'State'}: {order.executed ? (lang==='ru'?'Исполнен':'Executed') : (Number(order.expiration_date || 0) * 1000 < Date.now() ? (lang==='ru'?'Истёк':'Expired') : (lang==='ru'?'Ожидает подписей':'Awaiting signatures'))}</p>
+                  <p>{lang==='ru'?'Подписи':'Approvals'}: {String(order.approvals_num ?? 0)}/{String(order.threshold ?? 0)} · {lang==='ru'?'Состояние':'State'}: {order.sent_for_execution ? (lang==='ru'?'Отправлен на исполнение, результат ещё не подтверждён':'Sent for execution, outcome not yet confirmed') : (Number(order.expiration_date || 0) * 1000 < Date.now() ? (lang==='ru'?'Истёк':'Expired') : (lang==='ru'?'Ожидает подписей':'Awaiting signatures'))}</p>
                   <small>{lang==='ru'?'Истекает':'Expires'}: {order.expiration_date ? new Date(Number(order.expiration_date) * 1000).toLocaleString() : '—'}</small>
-                  <small>{lang==='ru'?'Подписанты':'Signers'}: {Array.isArray(order.signers) ? (order.signers as string[]).join(' · ') : '—'}</small>
+                  <small>{lang==='ru'?'Подписанты':'Signers'}: {Array.isArray(order.approvals) ? (order.approvals as Array<{address:string;approved:boolean}>).map((signer)=>signer.address+' '+(signer.approved?'✓':'·')).join(' · ') : (Array.isArray(order.signers) ? (order.signers as string[]).join(' · ') : '—')}</small>
                   <small>{lang==='ru'?'Хеш действий':'Action payload hash'}: {String(order.order_payload_hash || '—')}</small>
                   <p>{lang==='ru'?'Действия пока не декодированы. Хеш фиксирует содержимое, но подтверждение отключено до проверки каждого действия.':'Actions are not decoded yet. The hash fingerprints the payload, but approval stays disabled until every action is parsed and verified.'}</p>
                 </div>
