@@ -2039,7 +2039,22 @@
                   <small>{lang==='ru'?'Истекает':'Expires'}: {order.expiration_date ? new Date(Number(order.expiration_date) * 1000).toLocaleString() : '—'}</small>
                   <small>{lang==='ru'?'Подписанты':'Signers'}: {Array.isArray(order.approvals) ? (order.approvals as Array<{address:string;approved:boolean}>).map((signer)=>signer.address+' '+(signer.approved?'✓':'·')).join(' · ') : (Array.isArray(order.signers) ? (order.signers as string[]).join(' · ') : '—')}</small>
                   <small>{lang==='ru'?'Хеш действий':'Action payload hash'}: {String(order.order_payload_hash || '—')}</small>
-                  <p>{lang==='ru'?'Действия пока не декодированы. Хеш фиксирует содержимое, но подтверждение отключено до проверки каждого действия.':'Actions are not decoded yet. The hash fingerprints the payload, but approval stays disabled until every action is parsed and verified.'}</p>
+                  {#if Array.isArray(order.actions)}
+                    {#each order.actions as action (String(action.index))}
+                      <div class="state-panel">
+                        <strong>#{String(action.index)} · {String(action.kind)} · {String(action.opcode)}</strong>
+                        {#if action.kind === 'send_message'}
+                          <small>{lang==='ru'?'Получатель':'Recipient'}: {String(action.recipient || '—')}</small>
+                          <small>{lang==='ru'?'Сумма':'Amount'}: {(Number(action.amount_nano || 0) / 1000000000).toFixed(4)} GRAM · mode {String(action.send_mode)}</small>
+                          <small>{lang==='ru'?'Код тела':'Body opcode'}: {action.body_op === null ? '—' : '0x'+Number(action.body_op).toString(16).padStart(8,'0')}</small>
+                        {:else if action.kind === 'update_multisig_params'}
+                          <small>Threshold: {String(action.threshold)} · Signers: {Array.isArray(action.signers) ? action.signers.length : 0} · Proposers: {Array.isArray(action.proposers) ? action.proposers.length : 0}</small>
+                        {/if}
+                        <small>{String(action.review_reason || '')}</small>
+                      </div>
+                    {/each}
+                  {/if}
+                  <p>{lang==='ru'?'Декодирование описывает содержимое, но не разрешает подпись. Каждое действие требует отдельной проверки политики.':'Decoded for inspection only. Signing remains disabled until every action passes an independent policy check.'}</p>
                 </div>
               {/each}
             {/if}
