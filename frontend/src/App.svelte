@@ -5,6 +5,7 @@
   import GramToken from './lib/GramToken.svelte';
   import BottomNav from './lib/BottomNav.svelte';
   import TonWalletConnect from './lib/TonWalletConnect.svelte';
+  import HassleSplash from './lib/HassleSplash.svelte';
 
   type VerifiedAsset = { id:string; source:string; external_asset_id:string; title:string; asset_type:'gift'|'username'|'number'; image_url:string; verified_at:number; active_listing_id:string|null; traits_json?:string };
   type MarketplaceOrder = {
@@ -1546,7 +1547,9 @@
   }
 
   onMount(() => {
-    const splashTimer = window.setTimeout(() => { showSplash = false; }, 1050);
+    const splashStartedAt = Date.now();
+    let splashRevealTimer: number | undefined;
+    const splashFallbackTimer = window.setTimeout(() => { showSplash = false; }, 8000);
     // Telegram iOS WebView can swallow the delegated child-button handler after
     // auth state changes. Capture the profile pointer gesture at document level
     // and fall back only if the normal button callback did not change the route.
@@ -1578,14 +1581,21 @@
     // Load the public marketplace immediately. Session restoration must never
     // block the first screen: an expired Telegram session or a slow auth endpoint
     // previously left the Mini App on its initial loading state.
-    void loadMarketplace();
+    void loadMarketplace().finally(() => {
+      const remaining = Math.max(0, 1900 - (Date.now() - splashStartedAt));
+      splashRevealTimer = window.setTimeout(() => { showSplash = false; }, remaining);
+    });
     void restoreTelegramSession().then(restored => {
       if (restored) return;
       if (window.Telegram?.WebApp?.initData) void telegramLogin(false);
     }).catch(() => {
       // Public browsing remains available even when Telegram authentication fails.
     });
-    return () => { window.clearTimeout(splashTimer); webApp?.offEvent?.('themeChanged', syncTelegramTheme); };
+    return () => {
+      window.clearTimeout(splashFallbackTimer);
+      if (splashRevealTimer !== undefined) window.clearTimeout(splashRevealTimer);
+      webApp?.offEvent?.('themeChanged', syncTelegramTheme);
+    };
   });
 </script>
 
@@ -2203,4 +2213,4 @@
 {#if showGramInfo}<div class="hassle-sheet-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showGramInfo=false;}}><div class="hassle-info-sheet" role="dialog" aria-modal="true" aria-labelledby="gram-info-title"><button class="sheet-close" type="button" onclick={()=>showGramInfo=false} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button><div class="gram-sheet-icon"><GramToken size={34} class="gram-token-icon" /></div><span class="eyebrow">HASSLE INTERNAL CURRENCY</span><h2 id="gram-info-title">GRAM</h2><p>{lang==='ru'?'Внутренний баланс GRAM ещё не подключён к серверному учёту. Сейчас реальные расчёты и балансы остаются в существующих платёжных механизмах. Мы не показываем выдуманную сумму и не конвертируем TON или Stars автоматически.':'The internal GRAM ledger is not connected yet. Existing payment rails and balances remain unchanged. No fabricated balance or automatic TON/Stars conversion is displayed.'}</p><div class="gram-sheet-note"><span>●</span>{lang==='ru'?'Баланс появится после интеграции и проверки ledger.':'Balance will appear after ledger integration and verification.'}</div><div class="gram-action-row"><button type="button" onclick={()=>{showGramInfo=false;gramAction='deposit';}}>{lang==='ru'?'Пополнить':'Deposit'}</button><button type="button" onclick={()=>{showGramInfo=false;gramAction='withdraw';}}>{lang==='ru'?'Вывести':'Withdraw'}</button></div><button class="sheet-primary" type="button" onclick={()=>{showGramInfo=false;view='profile';void loadSellerProfile();}}>{lang==='ru'?'Открыть профиль':'Open profile'}</button></div></div>{/if}
 {#if gramAction}<div class="hassle-sheet-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)gramAction=null;}}><div class="hassle-info-sheet gram-action-sheet" role="dialog" aria-modal="true" aria-labelledby="gram-action-title"><button class="sheet-close" type="button" onclick={()=>gramAction=null} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button><div class="gram-sheet-icon"><GramToken size={34} class="gram-token-icon" /></div><span class="eyebrow">GRAM · WALLET</span><h2 id="gram-action-title">{gramAction==='deposit'?(lang==='ru'?'Пополнение GRAM':'Deposit GRAM'):(lang==='ru'?'Вывод GRAM':'Withdraw GRAM')}</h2><p>{lang==='ru'?'Операции с внутренним балансом пока недоступны: серверный GRAM ledger и проверка транзакций ещё не подключены. Никакие средства не будут списаны или зачислены.':'Internal balance operations are not available yet. The GRAM ledger and transaction verification are not connected. No funds will be charged or credited.'}</p><div class="gram-sheet-note"><span>●</span>{lang==='ru'?'Функция появится после завершения платёжной интеграции и аудита.':'This feature will be enabled after payment integration and audit.'}</div><button class="sheet-primary" type="button" onclick={()=>gramAction=null}>{lang==='ru'?'Понятно':'Got it'}</button></div></div>{/if}
 {#if showAboutModal}<div class="hassle-sheet-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showAboutModal=false;}}><div class="hassle-info-sheet" role="dialog" aria-modal="true" aria-labelledby="about-hassle-title"><button class="sheet-close" type="button" onclick={()=>showAboutModal=false} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button><div class="gram-sheet-icon">H</div><span class="eyebrow">TELEGRAM NFT MARKETPLACE</span><h2 id="about-hassle-title">HASSLE NFT</h2><p>{lang==='ru'?'Независимый маркетплейс Telegram NFT-подарков, коллекционных имён и номеров. Платформа показывает только подтверждённые активы и не подменяет реальные балансы демонстрационными цифрами.':'An independent marketplace for Telegram NFT gifts, collectible usernames and numbers. The platform displays verified assets and never substitutes real balances with demo values.'}</p><button class="sheet-primary" type="button" onclick={()=>showAboutModal=false}>{lang==='ru'?'Закрыть':'Close'}</button></div></div>{/if}
-{#if showSplash}<div class="hassle-splash" out:fade={{duration:260}} aria-label="HASSLE NFT loading"><div class="splash-content"><div class="splash-mark"><img src="/brand/hassle-mark.webp?v=224" alt="HASSLE NFT"/></div><div class="splash-wordmark">HASSLE <span>NFT</span></div><div class="splash-progress"><i></i></div><small>{lang==='ru'?'Загрузка…':'Loading…'}</small></div></div>{/if}
+{#if showSplash}<div out:fade={{duration:420}}><HassleSplash lang={lang}/></div>{/if}
