@@ -6,7 +6,7 @@
   import BottomNav from './lib/BottomNav.svelte';
   import TonWalletConnect from './lib/TonWalletConnect.svelte';
 
-  type VerifiedAsset = { id:string; source:string; external_asset_id:string; title:string; asset_type:'gift'|'username'|'number'; image_url:string; verified_at:number; active_listing_id:string|null };
+  type VerifiedAsset = { id:string; source:string; external_asset_id:string; title:string; asset_type:'gift'|'username'|'number'; image_url:string; verified_at:number; active_listing_id:string|null; traits_json?:string };
   type MarketplaceOrder = {
     id: string; external_asset_id?: string | null; collection?: string | null; kind: 'listing' | 'buy-order'; title: string; asset_id?: string | null; image_url?: string; asset_type?: 'gift' | 'username' | 'number' | null;
     price: string | number; currency: 'TON' | 'XTR'; status: 'active' | 'matched' | 'cancelled';
@@ -402,6 +402,18 @@
     } catch {
       telegramBusinessStatus = {connected:false,can_view_gifts_and_stars:false,can_transfer_and_upgrade_gifts:false,can_transfer_stars:false,gift_import_ready:false,gift_transfer_ready:false};
     }
+  }
+
+
+  function assetTraits(asset: VerifiedAsset): { key:string; name:string; rarity?:number }[] {
+    try {
+      const data = JSON.parse(asset.traits_json || '{}');
+      return ['model','symbol','backdrop'].flatMap(key => {
+        const trait = data?.[key];
+        if (!trait || typeof trait.name !== 'string') return [];
+        return [{ key, name: trait.name, rarity: typeof trait.rarity_percent === 'number' ? trait.rarity_percent : undefined }];
+      });
+    } catch { return []; }
   }
 
   function assetPreviewUrl(asset: { id: string; image_url?: string | null } | null) {
@@ -1753,7 +1765,7 @@
             {#each visibleVerifiedAssets as asset (asset.id)}
               <article class="profile-asset-row">
                 {#if assetPreviewUrl(asset)}<img src={assetPreviewUrl(asset)} alt={asset.title} loading="lazy"/>{:else}<img class="profile-asset-placeholder" src="/brand/hassle-mark.webp?v=224" alt="HASSLE NFT"/>{/if}
-                <div class="profile-asset-copy"><strong>{asset.title}</strong><small>{asset.source==='telegram_gift'?'Telegram Gift':asset.source==='ton_nft'?'TON NFT':asset.asset_type==='username'?'Username':'+888'} · {asset.active_listing_id?(lang==='ru'?'На продаже':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</small></div>
+                <div class="profile-asset-copy"><strong>{asset.title}</strong><small>{asset.source==='telegram_gift'?'Telegram Gift':asset.source==='ton_nft'?'TON NFT':asset.asset_type==='username'?'Username':'+888'} · {asset.active_listing_id?(lang==='ru'?'На продаже':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</small>{#if assetTraits(asset).length}<div class="asset-trait-chips profile-traits">{#each assetTraits(asset) as trait (trait.key)}<span class="asset-trait-chip"><small>{trait.key.toUpperCase()}</small><b>{trait.name}</b></span>{/each}</div>{/if}</div>
                 {#if asset.active_listing_id}
                   {#if orders.find(order=>order.id===asset.active_listing_id)}<button class="profile-asset-action" type="button" onclick={()=>{const listing=orders.find(order=>order.id===asset.active_listing_id);if(listing)startEditOrder(listing);}}>{lang==='ru'?'Управлять':'Manage'}</button>{:else}<span class="profile-asset-listed">{lang==='ru'?'Выставлен':'Listed'}</span>{/if}
                 {:else if asset.source==='telegram_gift'}<span class="profile-asset-listed">{lang==='ru'?'Передача не готова':'Transfer pending'}</span>
