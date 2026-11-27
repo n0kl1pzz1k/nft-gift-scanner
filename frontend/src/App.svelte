@@ -2108,11 +2108,11 @@
               {:else if assetTypeOf(selectedAsset)==='gift'}{#if assetPreviewUrl(selectedAsset)}<img class="asset-detail-gift-image" src={assetPreviewUrl(selectedAsset)} alt={selectedAsset.title} />{:else}<div class="asset-preview-placeholder"><span>PREVIEW</span><small>{lang==='ru'?'Изображение появится после импорта подарка':'Gift preview appears after verified import'}</small></div>{/if}
                {:else}<div class="asset-preview-placeholder"><span>ASSET</span><small>{lang==='ru'?'Тип актива ещё не подтверждён':'Asset type is not verified yet'}</small></div>{/if}
             </div>
-            <div class="eyebrow">HASSLE NFT · ASSET</div><h2 id="asset-detail-title">{selectedAsset.title}</h2>
-            <div class="asset-detail-meta"><span>ID <b>#{selectedAsset.id}</b></span>{#if listingSerialNumber(selectedAsset)}<span>{lang==='ru'?'Номер':'Serial'} <b>#{listingSerialNumber(selectedAsset)}</b></span>{/if}<span>{lang==='ru'?'Продавец':'Seller'} <b>{selectedAsset.owner}</b></span></div>
-            <div class="asset-detail-price"><small>{lang==='ru'?'Цена продавца':'Seller price'}</small><strong>{#if selectedAsset.currency==='XTR'}{selectedAsset.price} Stars{:else}<span class="gram-amount"><GramToken size={18}/>{selectedAsset.price}</span>{/if}</strong></div>
+            <div class="eyebrow">HASSLE NFT · {selectedAsset.kind==='buy-order'?'BUY REQUEST':'ASSET'}</div><h2 id="asset-detail-title">{selectedAsset.title}</h2>
+            <div class="asset-detail-meta"><span>ID <b>#{selectedAsset.id}</b></span>{#if listingSerialNumber(selectedAsset)}<span>{lang==='ru'?'Номер':'Serial'} <b>#{listingSerialNumber(selectedAsset)}</b></span>{/if}<span>{lang==='ru'?(selectedAsset.kind==='buy-order'?'Покупатель':'Продавец'):(selectedAsset.kind==='buy-order'?'Buyer':'Seller')} <b>{selectedAsset.owner}</b></span></div>
+            <div class="asset-detail-price"><small>{lang==='ru'?(selectedAsset.kind==='buy-order'?'Бюджет покупателя':'Цена продавца'):(selectedAsset.kind==='buy-order'?'Buyer budget':'Seller price')}</small><strong>{#if selectedAsset.currency==='XTR'}{selectedAsset.price} Stars{:else}<span class="gram-amount"><GramToken size={18}/>{selectedAsset.price}</span>{/if}</strong></div>
             {#if selectedAsset.note}<p class="asset-detail-note">{selectedAsset.note}</p>{/if}
-            {#if listingTraits(selectedAsset).length}
+            {#if selectedAsset.kind!=='buy-order' && listingTraits(selectedAsset).length}
               <div class="asset-detail-traits">
                 <div class="asset-detail-traits-heading">{lang==='ru'?'Характеристики коллекционного предмета':'Collectible attributes'}</div>
                 {#each listingTraits(selectedAsset) as trait (trait.key)}
@@ -2127,10 +2127,16 @@
             {:else}
               <div class="asset-detail-unavailable"><strong>{lang==='ru'?'Характеристики актива':'Asset traits'}</strong><span>{lang==='ru'?'Источник не предоставил характеристики для этого предмета.':'No collectible attributes were provided by the source for this item.'}</span></div>
             {/if}
-            {#if selectedAsset.isMine}
+            {#if selectedAsset.kind==='buy-order' && selectedAsset.isMine}
+              <button class="ton-primary offer-submit" onclick={()=>{selectedOfferOrder=selectedAsset;buyOrderResponses=[];showAssetDetails=false;showOfferModal=true;void loadBuyOrderResponses(selectedAsset!.id);}}>{lang==='ru'?'Посмотреть ответы ('+(selectedAsset.response_count||0)+')':'View responses ('+(selectedAsset.response_count||0)+')'}</button>
+            {:else if selectedAsset.kind==='buy-order'}
+              <button class="ton-primary offer-submit" disabled={!signedIn} onclick={()=>{if(!selectedAsset)return;selectedOfferOrder=selectedAsset;offerAmount=String(selectedAsset.price);offerNote='';offerAssetId='';showOfferModal=true;showAssetDetails=false;void loadVerifiedInventory();}}>{lang==='ru'?'Ответить подтверждённым активом':'Respond with verified asset'}</button>
+            {:else if selectedAsset.isMine}
               <button class="ton-primary offer-submit" onclick={()=>{startEditOrder(selectedAsset!);showAssetDetails=false;}}>{lang==='ru'?'Управлять объявлением':'Manage listing'}</button>
             {:else}
-              <button class="ton-primary offer-submit" disabled={!signedIn} title={!signedIn?(lang==='ru'?'Войди через Telegram, чтобы отправить оффер':'Sign in with Telegram to make an offer'):undefined} onclick={()=>{if(!selectedAsset)return;selectedOfferOrder=selectedAsset;offerAmount=String(selectedAsset.price);offerNote='';showOfferModal=true;showAssetDetails=false;}}>{lang==='ru'?'Сделать оффер':'Make an offer'}</button>
+              {#if !selectedAsset.source_buy_order_id}
+                <button class="ton-primary offer-submit" disabled={!signedIn} title={!signedIn?(lang==='ru'?'Войди через Telegram, чтобы отправить оффер':'Sign in with Telegram to make an offer'):undefined} onclick={()=>{if(!selectedAsset)return;selectedOfferOrder=selectedAsset;offerAmount=String(selectedAsset.price);offerNote='';showOfferModal=true;showAssetDetails=false;}}>{lang==='ru'?'Сделать оффер':'Make an offer'}</button>
+              {/if}
               <button class="report-asset-button" onclick={()=>{const asset=selectedAsset;if(!asset)return;if(!signedIn){notice=t.authHint;haptic('error');return;}startOrderReport(asset.id);}}>{t.reportOrder}</button>
               {#if selectedAsset.buy_now_enabled}
                 <button class="asset-buy-now" type="button" disabled={buyNowBusy===selectedAsset.id || !signedIn} title={!signedIn?(lang==='ru'?'Войди через Telegram, чтобы купить':'Sign in with Telegram to buy'):undefined} onclick={()=>void buyNow(selectedAsset!)}>{buyNowBusy===selectedAsset.id?(lang==='ru'?'Резервируем…':'Reserving…'):(lang==='ru'?'Купить сейчас':'Buy now')}</button>
