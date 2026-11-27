@@ -58,7 +58,26 @@ def normalise_business_owned_gift(raw: Any) -> dict[str, Any] | None:
     next_transfer_date = raw.get("next_transfer_date")
     if isinstance(next_transfer_date, bool) or not isinstance(next_transfer_date, int) or next_transfer_date < 0:
         next_transfer_date = None
+    traits = {}
+    for key, component in (("model", model), ("symbol", symbol)):
+        name = component.get("name")
+        rarity = component.get("rarity_per_mille")
+        if isinstance(name, str) and name.strip():
+            trait = {"name": name.strip()[:100]}
+            if isinstance(rarity, int) and not isinstance(rarity, bool) and 0 <= rarity <= 1000:
+                trait["rarity_per_mille"] = rarity
+            traits[key] = trait
+    backdrop = gift.get("backdrop") if isinstance(gift.get("backdrop"), dict) else {}
+    backdrop_name = backdrop.get("name")
+    backdrop_rarity = backdrop.get("rarity_per_mille")
+    if isinstance(backdrop_name, str) and backdrop_name.strip():
+        trait = {"name": backdrop_name.strip()[:100]}
+        if isinstance(backdrop_rarity, int) and not isinstance(backdrop_rarity, bool) and 0 <= backdrop_rarity <= 1000:
+            trait["rarity_per_mille"] = backdrop_rarity
+        traits["backdrop"] = trait
     return {
+        "traits": traits,
+        "number": number,
         "owned_gift_id": owned_gift_id,
         "model_sticker_file_id": preview_file_id,
         "external_asset_id": slug,
