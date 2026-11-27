@@ -10,7 +10,7 @@
   type MarketplaceOrder = {
     id: string; external_asset_id?: string | null; collection?: string | null; kind: 'listing' | 'buy-order'; title: string; asset_id?: string | null; image_url?: string; asset_type?: 'gift' | 'username' | 'number' | null;
     price: string | number; currency: 'TON' | 'XTR'; status: 'active' | 'matched' | 'cancelled';
-    createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; seller_profile_id?: string | null; asset_traits_json?: string; events?: {type:string;createdAt:number}[];
+    createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; seller_profile_id?: string | null; asset_traits_json?: string; buy_now_enabled?: boolean; events?: {type:string;createdAt:number}[];
   };
   type MarketplaceOffer = { id:string; order_id:string; sender_name:string; amount:string; currency:'TON'|'XTR'; note:string; status:'pending'|'accepted'|'declined'|'withdrawn'; created_at:number; is_mine:boolean; order_title:string; order_owner_id:string; order_owner_name:string; order_status:string; order_kind:'listing'|'buy-order' };
   type MarketplaceDeal = { id:string; order_id:string; offer_id:string; is_seller:boolean; order_title:string; agreed_amount:string; currency:'TON'|'XTR'; status:'payment_not_enabled'|'awaiting_payment'|'payment_pending'|'paid'|'delivery_pending'|'completed'|'disputed'|'cancelled'|'expired'; order_status:string; created_at:number; reservation_active:boolean; payments_enabled:boolean; delivery_completed:boolean; asset_source?:string|null };
@@ -116,6 +116,7 @@
   let offerNote = $state('');
   let offersBusy = $state(false);
   let offerActionBusy = $state('');
+  let buyNowBusy = $state('');
   let starsCheckoutBusy = $state('');
   let tonDeliveryRequest = $state<{dealId:string;sellerWallet:string;transaction:{validUntil:number;network:string;messages:Array<{address:string;amount:string;payload?:string}>}}|null>(null);
   let tonPaymentRequest = $state<{ dealId:string; buyerWallet:string; transaction:{ validUntil:number; network:string; messages:Array<{ address:string; amount:string; payload?:string }> } } | null>(null);
@@ -829,6 +830,7 @@
     const labels: Record<string,string> = {
       deal_created: lang==='ru'?'Создана сделка':'Deal created',
       listing_reserved: lang==='ru'?'Актив зарезервирован':'Listing reserved',
+      payment_not_enabled:event.data.checkout_configured===true?(lang==='ru'?'Защищённая оплата готова':'Protected checkout ready'):(lang==='ru'?'Оплата пока недоступна':'Payment not enabled'),
       deal_payment_requested: lang==='ru'?'Запрошена оплата':'Payment requested',
       payment_intent_created: lang==='ru'?'Создан платёжный счёт':'Payment invoice created',
       payment_pending: lang==='ru'?'Проверка платежа':'Payment pending',
@@ -1194,6 +1196,35 @@
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
     finally { offerActionBusy = ''; }
   }
+  async function buyNow(order: MarketplaceOrder) {
+    if (!signedIn || !authToken) {
+      notice = t.authHint;
+      haptic('error');
+      return;
+    }
+    if (!order.buy_now_enabled || buyNowBusy) return;
+    buyNowBusy = order.id;
+    try {
+      const idempotencyKey = 'buy-' + order.id + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+      const result = await request(
+        '/api/marketplace/orders/' + encodeURIComponent(order.id) + '/buy-now',
+        undefined,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idempotency_key: idempotencyKey }) },
+      );
+      showAssetDetails = false;
+      await Promise.all([loadOffersAndDeals(), loadSellerProfile()]);
+      if (typeof result.deal_id === 'string') expandedDealTimeline = result.deal_id;
+      view = 'profile';
+      haptic('success');
+      notice = lang === 'ru' ? 'Объявление зарезервировано. Продолжи защищённую оплату в профиле.' : 'Listing reserved. Continue to protected checkout in your profile.';
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+      haptic('error');
+    } finally {
+      buyNowBusy = '';
+    }
+  }
+
   async function loadFavorites() {
     if (!signedIn || !authToken) return;
     try {
@@ -2055,7 +2086,11 @@
             {:else}
               <button class="ton-primary offer-submit" disabled={!signedIn} title={!signedIn?(lang==='ru'?'Войди через Telegram, чтобы отправить оффер':'Sign in with Telegram to make an offer'):undefined} onclick={()=>{if(!selectedAsset)return;selectedOfferOrder=selectedAsset;offerAmount=String(selectedAsset.price);offerNote='';showOfferModal=true;showAssetDetails=false;}}>{lang==='ru'?'Сделать оффер':'Make an offer'}</button>
               <button class="report-asset-button" onclick={()=>{const asset=selectedAsset;if(!asset)return;if(!signedIn){notice=t.authHint;haptic('error');return;}startOrderReport(asset.id);}}>{t.reportOrder}</button>
-              <button class="asset-buy-disabled" disabled title={lang==='ru'?'Покупка включится после запуска защищённой оплаты и escrow':'Buying will be enabled after secure payments and escrow are live'}>{lang==='ru'?'Покупка скоро':'Buy · Coming soon'}</button>
+              {#if selectedAsset.buy_now_enabled}
+                <button class="asset-buy-now" type="button" disabled={buyNowBusy===selectedAsset.id || !signedIn} title={!signedIn?(lang==='ru'?'Войди через Telegram, чтобы купить':'Sign in with Telegram to buy'):undefined} onclick={()=>void buyNow(selectedAsset!)}>{buyNowBusy===selectedAsset.id?(lang==='ru'?'Резервируем…':'Reserving…'):(lang==='ru'?'Купить сейчас':'Buy now')}</button>
+              {:else}
+                <button class="asset-buy-disabled" type="button" disabled title={lang==='ru'?'Защищённая оплата для этого объявления пока не настроена':'Protected checkout is not configured for this listing'}>{lang==='ru'?'Покупка недоступна':'Checkout unavailable'}</button>
+              {/if}
             {/if}
           </div>
         </div>

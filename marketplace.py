@@ -1544,6 +1544,33 @@ def _enforce_user_rate_limit(user_id: str, action: str, limit: int, window_secon
             pass
     _enforce_sqlite_user_rate_limit(user_id, action, limit, window_seconds)
 
+def _checkout_enabled_for_order(currency: str, asset_source: str | None, asset_status: str | None) -> bool:
+    """Expose Buy Now only when the matching protected checkout rail is configured."""
+    if not _verified_asset_actions_enabled():
+        return False
+    if currency == "XTR":
+        return (
+            os.getenv("HASSLE_STARS_CHECKOUT_ENABLED", "0") == "1"
+            and os.getenv("HASSLE_STARS_CUSTODY_ACKNOWLEDGED", "0") == "1"
+            and os.getenv("HASSLE_STARS_PAYOUT_MODE", "") == "internal_xtr_credit"
+            and bool(os.getenv("BOT_TOKEN", "").strip())
+            and bool(os.getenv("PAYMENT_SUPPORT_CONTACT", "").strip())
+            and asset_status == "verified"
+        )
+    if currency == "TON":
+        return (
+            os.getenv("HASSLE_TON_CHECKOUT_ENABLED", "0") == "1"
+            and os.getenv("HASSLE_TON_CUSTODY_ACKNOWLEDGED", "0") == "1"
+            and os.getenv("HASSLE_TON_PAYOUT_MODE", "") == "manual_multisig_2_of_3"
+            and bool(os.getenv("HASSLE_TON_TREASURY_ADDRESS", "").strip())
+            and bool(os.getenv("TONAPI_TOKEN", "").strip())
+            and bool(os.getenv("PAYMENT_SUPPORT_CONTACT", "").strip())
+            and asset_source == "ton_nft"
+            and asset_status == "verified"
+        )
+    return False
+
+
 def _order_dict(row: sqlite3.Row, current_user_id: str | None = None) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -1552,6 +1579,16 @@ def _order_dict(row: sqlite3.Row, current_user_id: str | None = None) -> dict[st
         "asset_id": row["asset_id"] if "asset_id" in row.keys() else None,
         "image_url": row["asset_image_url"] if "asset_image_url" in row.keys() else "",
         "asset_traits_json": row["asset_traits_json"] if "asset_traits_json" in row.keys() else "{}",
+        "asset_source": row["asset_source"] if "asset_source" in row.keys() else None,
+        "buy_now_enabled": (
+            row["kind"] == "listing" and row["status"] == "active"
+            and not (current_user_id is not None and row["user_id"] == current_user_id)
+            and _checkout_enabled_for_order(
+                row["currency"],
+                row["asset_source"] if "asset_source" in row.keys() else None,
+                row["asset_status"] if "asset_status" in row.keys() else None,
+            )
+        ),
         "asset_type": row["asset_type"] if "asset_type" in row.keys() else None,
         "price": row["price"],
         "currency": row["currency"],
@@ -2088,7 +2125,7 @@ def create_marketplace_router(
             elif asset_filter:
                 qualified_where += asset_filter
             rows = conn.execute(
-                f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url,
+                f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url, a.source AS asset_source, a.status AS asset_status,
                            COALESCE(t.traits_json, '{{}}') AS asset_traits_json
                     FROM marketplace_orders o
                     LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
@@ -2122,7 +2159,7 @@ def create_marketplace_router(
             if not verified_actions_enabled:
                 verified_filter += " AND o.kind = 'buy-order'"
             rows = conn.execute(
-                f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url,
+                f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url, a.source AS asset_source, a.status AS asset_status,
                            COALESCE(t.traits_json, '{{}}') AS asset_traits_json
                     FROM marketplace_orders o
                     LEFT JOIN user_profiles p ON p.telegram_id = o.user_id

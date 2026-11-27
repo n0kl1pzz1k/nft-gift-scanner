@@ -2516,6 +2516,92 @@ class SharedMarketplaceTests(unittest.TestCase):
             {"deal_created", "listing_reserved", "payment_not_enabled"},
         )
 
+    def test_buy_now_creates_one_idempotent_reservation_only_when_stars_checkout_is_configured(self):
+        seller_headers = {"X-Telegram-Init-Data": "user-a"}
+        buyer_headers = {"X-Telegram-Init-Data": "user-b"}
+        asset = marketplace.register_verified_asset(
+            source="ton_nft",
+            external_asset_id="0:" + "a" * 64,
+            owner_telegram_id="101",
+            title="Buy Now NFT #42",
+            asset_type="gift",
+            image_url="",
+            verification_method="ton_connect_proof",
+            verification_reference="buy-now-verified-ton-nft-reference-42",
+            allow_owner_transfer=True,
+        )
+        created = self.client.post(
+            "/api/marketplace/orders",
+            headers=seller_headers,
+            json={"kind": "listing", "asset_id": asset["id"], "title": "Buy Now NFT #42", "price": "250", "currency": "XTR"},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        order_id = created.json()["item"]["id"]
+        payload = {"idempotency_key": "buy-now-idempotency-0001"}
+
+        with patch.dict(os.environ, {
+            "HASSLE_STARS_CHECKOUT_ENABLED": "0",
+            "HASSLE_STARS_CUSTODY_ACKNOWLEDGED": "0",
+            "HASSLE_STARS_PAYOUT_MODE": "",
+            "BOT_TOKEN": "",
+            "PAYMENT_SUPPORT_CONTACT": "",
+        }):
+            disabled = self.client.post(
+                f"/api/marketplace/orders/{order_id}/buy-now",
+                headers=buyer_headers,
+                json=payload,
+            )
+        self.assertEqual(disabled.status_code, 409, disabled.text)
+        active_listings = self.client.get("/api/marketplace/orders?status=active")
+        self.assertTrue(any(item["id"] == order_id for item in active_listings.json()["items"]))
+
+        with patch.dict(os.environ, {
+            "HASSLE_STARS_CHECKOUT_ENABLED": "1",
+            "HASSLE_STARS_CUSTODY_ACKNOWLEDGED": "1",
+            "HASSLE_STARS_PAYOUT_MODE": "internal_xtr_credit",
+            "BOT_TOKEN": "test-bot-token",
+            "PAYMENT_SUPPORT_CONTACT": "@hassle_support",
+        }):
+            catalog = self.client.get("/api/marketplace/orders?status=active")
+            catalog_item = next(item for item in catalog.json()["items"] if item["id"] == order_id)
+            self.assertTrue(catalog_item["buy_now_enabled"])
+            bought = self.client.post(
+                f"/api/marketplace/orders/{order_id}/buy-now",
+                headers=buyer_headers,
+                json=payload,
+            )
+            self.assertEqual(bought.status_code, 201, bought.text)
+            self.assertTrue(bought.json()["payments_enabled"])
+            self.assertFalse(bought.json()["idempotent_replay"])
+            replay = self.client.post(
+                f"/api/marketplace/orders/{order_id}/buy-now",
+                headers=buyer_headers,
+                json=payload,
+            )
+            self.assertEqual(replay.status_code, 201, replay.text)
+            self.assertTrue(replay.json()["idempotent_replay"])
+            self.assertEqual(replay.json()["deal_id"], bought.json()["deal_id"])
+            different_key = self.client.post(
+                f"/api/marketplace/orders/{order_id}/buy-now",
+                headers=buyer_headers,
+                json={"idempotency_key": "buy-now-idempotency-0002"},
+            )
+            self.assertEqual(different_key.status_code, 409, different_key.text)
+
+        listing = self.client.get("/api/marketplace/orders?status=matched")
+        reserved = next(item for item in listing.json()["items"] if item["id"] == order_id)
+        self.assertEqual(reserved["status"], "matched")
+        buyer_deals = self.client.get("/api/marketplace/deals", headers=buyer_headers)
+        self.assertEqual(len(buyer_deals.json()["items"]), 1)
+        deal = buyer_deals.json()["items"][0]
+        self.assertEqual(deal["id"], bought.json()["deal_id"])
+        self.assertEqual(deal["agreed_amount"], "250")
+        self.assertEqual(deal["currency"], "XTR")
+        seller_notifications = self.client.get("/api/marketplace/notifications", headers=seller_headers)
+        buyer_notifications = self.client.get("/api/marketplace/notifications", headers=buyer_headers)
+        self.assertIn("offer_received", {item["type"] for item in seller_notifications.json()["items"]})
+        self.assertIn("offer_accepted", {item["type"] for item in buyer_notifications.json()["items"]})
+
     def test_offer_creation_rolls_back_when_received_notification_insert_fails(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
         sender_headers = {"X-Telegram-Init-Data": "user-b"}
