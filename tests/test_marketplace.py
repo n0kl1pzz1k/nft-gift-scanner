@@ -2538,11 +2538,18 @@ class SharedMarketplaceTests(unittest.TestCase):
         order_id = created.json()["item"]["id"]
         payload = {"idempotency_key": "buy-now-idempotency-0001"}
 
-        disabled = self.client.post(
-            f"/api/marketplace/orders/{order_id}/buy-now",
-            headers=buyer_headers,
-            json=payload,
-        )
+        with patch.dict(os.environ, {
+            "HASSLE_STARS_CHECKOUT_ENABLED": "0",
+            "HASSLE_STARS_CUSTODY_ACKNOWLEDGED": "0",
+            "HASSLE_STARS_PAYOUT_MODE": "",
+            "BOT_TOKEN": "",
+            "PAYMENT_SUPPORT_CONTACT": "",
+        }):
+            disabled = self.client.post(
+                f"/api/marketplace/orders/{order_id}/buy-now",
+                headers=buyer_headers,
+                json=payload,
+            )
         self.assertEqual(disabled.status_code, 409, disabled.text)
         active_listings = self.client.get("/api/marketplace/orders?status=active")
         self.assertTrue(any(item["id"] == order_id for item in active_listings.json()["items"]))
