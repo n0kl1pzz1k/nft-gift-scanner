@@ -4169,6 +4169,23 @@ class VerifiedAssetTraitPersistenceTests(unittest.TestCase):
         self.assertEqual(traits["symbol"]["name"], "Star")
         self.assertEqual(traits["serial_number"], "93222")
 
+    def test_preserves_official_crafted_model_tier_and_backdrop_colors(self):
+        traits = marketplace._normalize_verified_asset_traits({
+            "traits": {
+                "model": {"name": "Celestial", "rarity": "legendary", "rarity_per_mille": 0},
+                "backdrop": {
+                    "name": "Midnight",
+                    "rarity_per_mille": 25,
+                    "colors": {"center_color": 1122867, "edge_color": 4478310, "symbol_color": 0xFFFFFF, "text_color": 0},
+                },
+            }
+        })
+        self.assertEqual(traits["model"]["rarity_tier"], "legendary")
+        self.assertEqual(traits["backdrop"]["colors"]["center"], "#112233")
+        self.assertEqual(traits["backdrop"]["colors"]["edge"], "#445566")
+        self.assertEqual(traits["backdrop"]["colors"]["symbol"], "#FFFFFF")
+        self.assertEqual(traits["backdrop"]["colors"]["text"], "#000000")
+
     def test_does_not_invent_missing_traits_or_rarity(self):
         traits = marketplace._normalize_verified_asset_traits({"attributes": [{"type": "model", "value": "Unknown"}]})
         self.assertEqual(traits, {"model": {"name": "Unknown"}})
