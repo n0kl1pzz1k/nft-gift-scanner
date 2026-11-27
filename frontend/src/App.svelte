@@ -1590,7 +1590,7 @@
          </header>
          <div class="market-period-label"><span></span>{lang==='ru'?'ПОСЛЕДНИЕ 24 ЧАСА':'LAST 24 HOURS'}</div>
          <div class="market-activity-kpis">
-           <article class="market-kpi market-kpi-primary"><small>{lang==='ru'?'Объём торгов':'Trading volume'}</small><strong>{Number(marketplaceStats.volume_ton_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})} <i>GRAM</i></strong><span>{lang==='ru'?'По завершённым сделкам':'Based on completed trades'}</span></article>
+           <article class="market-kpi market-kpi-primary"><small>{lang==='ru'?'Объём торгов':'Trading volume'}</small><strong>{Number(marketplaceStats.volume_ton_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})} <span class="gram-amount"><GramToken size={16}/> GRAM</span></strong><span>{lang==='ru'?'По завершённым сделкам':'Based on completed trades'}</span></article>
            <article class="market-kpi"><small>{lang==='ru'?'Объём в Stars':'Stars volume'}</small><strong>{Number(marketplaceStats.volume_stars_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} <i>⭐</i></strong><span>{lang==='ru'?'Отдельно от TON':'Reported separately from GRAM'}</span></article>
            <article class="market-kpi"><small>{lang==='ru'?'Завершённые сделки':'Completed trades'}</small><strong>{Number(marketplaceStats.completed_trades_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</strong><span>{lang==='ru'?'За 24 часа':'In the last 24 hours'}</span></article>
            <article class="market-kpi"><small>{lang==='ru'?'Активные объявления':'Active listings'}</small><strong>{Number(marketplaceStats.active_listings||0).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</strong><span>{lang==='ru'?'Сейчас на площадке':'Currently on the marketplace'}</span></article>
@@ -1604,8 +1604,8 @@
                {#each marketplaceStats.collections as collection (collection.collection)}
                  <article class="market-collection-row">
                    <div class="market-collection-identity"><img class="collection-monogram" src="/brand/hassle-mark.webp?v=224" alt="HASSLE"/><div><strong>{collection.collection}</strong><small>{collection.active_listings} {lang==='ru'?'активных лотов':'active listings'} · {collection.trades_24h} {lang==='ru'?'закрытых позиций за 24ч':'matched in 24h'}</small></div></div>
-                   <div class="market-collection-metric"><small>{lang==='ru'?'Флор':'Floor'}</small><strong>{collection.floor_ton===null?'—':Number(collection.floor_ton).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})+' GRAM'}</strong>{#if collection.floor_stars!==null}<span>{Number(collection.floor_stars).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} ⭐</span>{/if}</div>
-                   <div class="market-collection-metric market-collection-volume"><small>{lang==='ru'?'Оборот за 24ч':'24h volume'}</small><strong>{Number(collection.volume_ton_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})} GRAM</strong>{#if collection.volume_stars_24h}<span>{Number(collection.volume_stars_24h).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} ⭐</span>{/if}</div>
+                   <div class="market-collection-metric"><small>{lang==='ru'?'Флор':'Floor'}</small><strong>{collection.floor_ton===null?'—':Number(collection.floor_ton).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})}</strong>{#if collection.floor_ton!==null}<small class="gram-amount"><GramToken size={13}/> GRAM</small>{/if}{#if collection.floor_stars!==null}<span>{Number(collection.floor_stars).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} ⭐</span>{/if}</div>
+                   <div class="market-collection-metric market-collection-volume"><small>{lang==='ru'?'Оборот за 24ч':'24h volume'}</small><strong>{Number(collection.volume_ton_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})}</strong><small class="gram-amount"><GramToken size={13}/> GRAM</small>{#if collection.volume_stars_24h}<span>{Number(collection.volume_stars_24h).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} ⭐</span>{/if}</div>
                  </article>
                {/each}
              </div>
@@ -1614,7 +1614,7 @@
            {/if}
          </section>
          <section class="market-longterm-stats">
-           <div><small>{lang==='ru'?'Общий оборот GRAM':'All-time GRAM volume'}</small><strong>{Number(marketplaceStats.volume_ton||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})} GRAM</strong></div>
+           <div><small>{lang==='ru'?'Общий оборот GRAM':'All-time GRAM volume'}</small><strong>{Number(marketplaceStats.volume_ton||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})}</strong><small class="gram-amount"><GramToken size={13}/> GRAM</small></div>
            <div><small>{lang==='ru'?'Общий оборот Stars':'All-time Stars volume'}</small><strong>{Number(marketplaceStats.volume_stars||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} ⭐</strong></div>
            <div><small>{lang==='ru'?'Всего позиций':'Total positions'}</small><strong>{Number(marketplaceStats.total_orders||0).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</strong></div>
            <div><small>{lang==='ru'?'Заявки покупателей':'Buy requests'}</small><strong>{Number(marketplaceStats.active_buy_requests||0).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</strong></div>
@@ -1743,7 +1743,7 @@
           {#if offers.length}
             {#each visibleOffers.slice(0,12) as offer (offer.id)}
               <article class="profile-trade-row">
-                <div><strong>{offer.order_title}</strong><small>{offer.is_mine?(lang==='ru'?'Мой оффер':'Sent by me'):(lang==='ru'?'Входящий оффер':'Received offer')} · {offer.amount} {offer.currency==='XTR'?'Stars':'GRAM'} · {offerStatusLabel(offer.status)}</small></div>
+                <div><strong>{offer.order_title}</strong><small>{offer.is_mine?(lang==='ru'?'Мой оффер':'Sent by me'):(lang==='ru'?'Входящий оффер':'Received offer')} · {#if offer.currency==='XTR'}{offer.amount} ⭐{:else}<span class="gram-amount"><GramToken size={14}/>{offer.amount}</span>{/if} · {offerStatusLabel(offer.status)}</small></div>
                 {#if offer.status==='pending' && offer.is_mine}
                   <div class="profile-trade-actions"><button type="button" onclick={()=>startEditOffer(offer)}>{lang==='ru'?'Изменить':'Edit'}</button><button type="button" onclick={()=>respondToOffer(offer.id,'withdraw')} disabled={offerActionBusy===offer.id}>{lang==='ru'?'Отозвать':'Withdraw'}</button></div>
                 {:else if offer.status==='pending' && !offer.is_mine && offer.order_kind==='listing'}
@@ -1759,7 +1759,7 @@
           {#if deals.length}
             {#each deals.slice(0,12) as deal (deal.id)}
               <article class="profile-deal-row">
-                <div class="profile-deal-main"><strong>{deal.order_title}</strong><small>{deal.is_seller?(lang==='ru'?'Ты продавец':'You are the seller'):(lang==='ru'?'Ты покупатель':'You are the buyer')} · {deal.agreed_amount} {deal.currency==='XTR'?'Stars':'GRAM'}</small><span>{dealStatusLabel(deal.status)}</span></div>
+                <div class="profile-deal-main"><strong>{deal.order_title}</strong><small>{deal.is_seller?(lang==='ru'?'Ты продавец':'You are the seller'):(lang==='ru'?'Ты покупатель':'You are the buyer')} · {#if deal.currency==='XTR'}{deal.agreed_amount} ⭐{:else}<span class="gram-amount"><GramToken size={14}/>{deal.agreed_amount}</span>{/if}</small><span>{dealStatusLabel(deal.status)}</span></div>
                 <div class="profile-deal-actions">
                   <button type="button" onclick={()=>toggleDealTimeline(deal.id)}>{expandedDealTimeline===deal.id?(lang==='ru'?'Скрыть журнал':'Hide log'):(lang==='ru'?'Журнал':'Timeline')}</button>
                   {#if deal.status==='paid' || deal.status==='delivery_pending'}<button type="button" onclick={()=>openDealDispute(deal.id)} disabled={disputeBusy===deal.id}>{lang==='ru'?'Спор':'Dispute'}</button>{/if}
@@ -1793,7 +1793,7 @@
                    <strong>{settlement.currency==='XTR'?'Telegram Stars':'GRAM'}</strong>
                    <small>{settlement.status==='pending_manual_payout'?(lang==='ru'?'Ожидает ручной выплаты через мультиподпись 2 из 3':'Awaiting manual 2-of-3 multisig payout'):(lang==='ru'?'Внутреннее начисление Stars. Автоматический вывод недоступен.':'Internal Stars credit. Automatic withdrawal is unavailable.')}</small>
                  </div>
-                 <div class="activity-row-value"><strong>{settlement.amount} {settlement.currency==='XTR'?'⭐':'GRAM'}</strong></div>
+                 <div class="activity-row-value"><strong>{#if settlement.currency==='XTR'}{settlement.amount} ⭐{:else}<span class="gram-amount"><GramToken size={14}/>{settlement.amount}</span>{/if}</strong></div>
                </div>
              {/each}
            </div>
@@ -1816,7 +1816,7 @@
               <div class="activity-row">
                 <span class="activity-marker"></span>
                 <div class="activity-row-main"><strong>{activityLabel(item)}</strong><span>{item.title}</span><small>{item.actor_name} · {new Date(item.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</small></div>
-                <div class="activity-row-value"><strong>{item.amount} {item.currency==='XTR'?'⭐':'GRAM'}</strong><small>{item.order_id}</small></div>
+                <div class="activity-row-value"><strong>{#if item.currency==='XTR'}{item.amount} ⭐{:else}<span class="gram-amount"><GramToken size={14}/>{item.amount}</span>{/if}</strong><small>{item.order_id}</small></div>
               </div>
             {/each}
           </div>
@@ -1940,7 +1940,7 @@
             </div>
             <div class="eyebrow">HASSLE NFT · ASSET</div><h2 id="asset-detail-title">{selectedAsset.title}</h2>
             <div class="asset-detail-meta"><span>ID <b>#{selectedAsset.id}</b></span><span>{lang==='ru'?'Продавец':'Seller'} <b>{selectedAsset.owner}</b></span></div>
-            <div class="asset-detail-price"><small>{lang==='ru'?'Цена продавца':'Seller price'}</small><strong>{selectedAsset.price} {selectedAsset.currency==='XTR'?'Stars':'GRAM'}</strong></div>
+            <div class="asset-detail-price"><small>{lang==='ru'?'Цена продавца':'Seller price'}</small><strong>{#if selectedAsset.currency==='XTR'}{selectedAsset.price} Stars{:else}<span class="gram-amount"><GramToken size={18}/>{selectedAsset.price}</span>{/if}</strong></div>
             {#if selectedAsset.note}<p class="asset-detail-note">{selectedAsset.note}</p>{/if}
             <div class="asset-detail-unavailable"><strong>{lang==='ru'?'Характеристики актива':'Asset traits'}</strong><span>{lang==='ru'?'Метаданные и traits появятся после подключения источника NFT-метаданных.':'Metadata and traits will appear after an NFT metadata source is connected.'}</span></div>
             {#if selectedAsset.isMine}
