@@ -17,7 +17,7 @@ from typing import Callable, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Query
 
-from marketplace import _enforce_user_rate_limit, _verified_asset_actions_enabled, _test_unverified_assets_allowed, _migrate_legacy_marketplace_table_names, _checkout_enabled_for_order
+from marketplace import _enforce_user_rate_limit, _verified_asset_actions_enabled, _test_unverified_assets_allowed, _migrate_legacy_marketplace_table_names, _checkout_enabled_for_order, _order_dict
 from database import begin_write, select_for_update, require_sqlite_connection, db as _database_db
 from pydantic import BaseModel, Field, field_validator
 from marketplace_payments import list_escrow_events
