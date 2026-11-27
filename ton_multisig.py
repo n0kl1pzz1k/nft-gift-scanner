@@ -197,7 +197,8 @@ def _read_hashmap_cells(cell, *, key_bits: int = 8) -> list[tuple[int, Any]]:
             key = int("".join(str(bit) for bit in prefix), 2) if prefix else 0
             entries.append((key, value))
             return
-        slice_.end_parse()
+        if slice_.bits or slice_.ref_offset:
+            raise ValueError("Malformed TON action dictionary fork node")
         if len(node.refs) != 2:
             raise ValueError("Malformed TON action dictionary fork")
         walk(node.refs[0], remaining - 1, prefix + [0])
