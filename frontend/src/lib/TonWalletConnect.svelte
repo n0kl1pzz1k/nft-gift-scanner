@@ -284,12 +284,12 @@
         <strong>{copy.verified}</strong>
         <small>{address.slice(0, 8)}…{address.slice(-8)}</small>
       </div>
-      <span class="ton-wallet-network">TON</span>
+      <span class="ton-wallet-network">GRAM</span>
       <button class="ton-wallet-disconnect" type="button" onclick={revokeWallet} disabled={busy}>{busy ? '…' : copy.disconnect}</button>
     </div>
   {:else}
     <button class="ton-wallet-button" type="button" onclick={connectWallet} disabled={busy || !authToken || !tonConnect}>
-      <span class="ton-wallet-symbol">◈</span>
+      <GramToken size={20} />
       {busy ? (tonConnect ? copy.waiting : copy.loading) : (status === 'connected' ? copy.waiting : copy.connect)}
     </button>
   {/if}
