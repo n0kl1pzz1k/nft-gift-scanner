@@ -10,6 +10,7 @@ from ton_multisig_transactions import (
     OP_ORDER_APPROVE,
     build_new_order_payload,
     build_order_approve_payload,
+    build_native_gram_transfer_actions_boc,
 )
 
 
@@ -89,6 +90,34 @@ class MultisigTransactionBodyTests(unittest.TestCase):
                 expiration_date=1700003600,
                 now=1700000000,
             )
+
+    def test_builds_native_gram_payout_action_and_decodes_it(self):
+        actions_boc = build_native_gram_transfer_actions_boc(
+            "0:" + "33" * 32,
+            2_500_000_000,
+            "HASSLE NFT payout deal-123",
+        )
+        result = build_new_order_payload(
+            actions_boc,
+            signer_index=0,
+            signer_addresses=["0:" + "01" * 32, "0:" + "02" * 32, "0:" + "03" * 32],
+            expiration_date=1700003600,
+            now=1700000000,
+        )
+        self.assertEqual(result["action_count"], 1)
+        action = result["actions"][0]
+        self.assertEqual(action["body_kind"], "comment")
+        self.assertEqual(action["comment"], "HASSLE NFT payout deal-123")
+        self.assertEqual(action["recipient"], "0:" + "33" * 32)
+        self.assertEqual(action["amount_nano"], "2500000000")
+        self.assertEqual(action["send_mode"], 1)
+        self.assertFalse(result["approval_safe"])
+
+    def test_native_gram_payout_rejects_zero_and_invalid_destination(self):
+        with self.assertRaises(ValueError):
+            build_native_gram_transfer_actions_boc("0:" + "33" * 32, 0, "memo")
+        with self.assertRaises(ValueError):
+            build_native_gram_transfer_actions_boc("invalid", 1, "memo")
 
     def test_builds_approval_body_with_official_opcode(self):
         result = build_order_approve_payload(signer_index=2)
