@@ -34,9 +34,22 @@ TON Connect securely links a dApp to a user's wallet and lets the app request si
 ### Telegram Stars
 Telegram's official digital-goods payment flow requires XTR invoices, pre_checkout validation, successful_payment processing, and storage of telegram_payment_charge_id for possible refunds. Stars are a Telegram payment/reward unit, not native GRAM. Do not silently convert Stars into withdrawable GRAM or describe Stars as a crypto deposit. Offer Stars as a separate direct checkout rail only where Telegram policy permits.
 
+## Platform-policy boundary: Telegram Mini App vs external web marketplace
+
+This is a mandatory product architecture boundary, not a cosmetic payment toggle.
+
+Telegram's official digital-goods policy says digital goods and services sold inside bots and Mini Apps must be paid exclusively in Telegram Stars (XTR), and explicitly says cryptocurrency payments are not permitted for those in-app digital-goods sales. A Telegram Mini App must not route a user to TON/GRAM checkout, label a crypto deposit as an in-app purchase balance, or indirectly debit a GRAM wallet balance for an in-app digital-goods purchase.
+
+Therefore HASSLE must separate its checkout surfaces:
+- Telegram Mini App: Stars-only checkout for digital gifts/NFT-related digital goods where permitted by Telegram. The Mini App may connect a wallet for supported blockchain ownership/import/export interactions, but must not use that wallet or an internal GRAM balance to settle an in-app digital-goods sale.
+- External HASSLE web marketplace: may offer GRAM-denominated deposit, escrow, purchase and payout flows, subject to applicable law, wallet/provider rules and the platform's own terms. The external web checkout must be a real separate web surface, not a disguised Telegram Mini App checkout.
+- Shared account identity and inventory may be synchronized only where lawful and consistent with Telegram policies. Keep separate payment ledgers and clearly labeled balances (GRAM vs XTR); never convert or commingle them implicitly.
+
+If HASSLE chooses to remain Telegram-Mini-App-only, then GRAM can be shown as an external wallet asset or used for permitted on-chain operations, but not as the payment currency for buying digital gifts inside that Mini App. Product requirements must accept this boundary.
+
 ## Recommended HASSLE design
 
-Use two asset rails and one common marketplace ledger.
+Use two asset rails and one common marketplace ledger, with the separate Telegram/web checkout boundary above.
 
 ### A. GRAM deposit and internal balance
 1. User proves wallet ownership through TON Proof and links the wallet to their Telegram account.
