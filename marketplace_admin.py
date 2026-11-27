@@ -81,6 +81,35 @@ def create_marketplace_admin_router(verify_admin):
                 "verified": False,
             }
 
+    @router.get("/treasury/orders")
+    async def treasury_orders(
+        limit: int = Query(default=20, ge=1, le=50),
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """List recent child orders only after exact on-chain treasury verification."""
+        admin_user(x_telegram_init_data, "treasury_read")
+        expected_address = os.getenv("HASSLE_TON_MULTISIG_EXPECTED_ADDRESS", "").strip()
+        if not expected_address:
+            return {"status": "configuration_missing", "items": []}
+        try:
+            from ton_multisig import (
+                fetch_ton_multisig_config,
+                fetch_ton_multisig_orders,
+                is_two_of_three_multisig,
+            )
+            config = await fetch_ton_multisig_config(expected_address)
+            if not is_two_of_three_multisig(config, expected_address):
+                return {"status": "treasury_not_verified", "items": []}
+            items = await fetch_ton_multisig_orders(
+                expected_address,
+                int(config["next_order_seqno"]),
+                limit=limit,
+            )
+            return {"status": "verified", "items": items}
+        except Exception:
+            # RPC errors and malformed data fail closed; never expose guessed orders.
+            return {"status": "unavailable", "items": []}
+
     @router.get("/overview")
     async def overview(x_telegram_init_data: str | None = Header(default=None)):
         admin_user(x_telegram_init_data)
