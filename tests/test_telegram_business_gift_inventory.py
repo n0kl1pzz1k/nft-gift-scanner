@@ -302,6 +302,8 @@ class TelegramBusinessGiftImportApiTests(unittest.TestCase):
                 "gift_url": "https://t.me/nft/PlushPepe-42",
                 "send_date": "1760000000",
                 "model_sticker_file_id": "model-preview-file",
+                "traits": {"model": {"name": "Neon", "rarity_per_mille": 125}},
+                "number": 42,
             }],
         }
         with patch.object(app, "fetch_business_account_gifts", new=AsyncMock(return_value=snapshot)):
@@ -317,6 +319,9 @@ class TelegramBusinessGiftImportApiTests(unittest.TestCase):
         self.assertEqual(ref["gift_slug"], "PlushPepe-42")
         preview_ref = marketplace.get_telegram_business_gift_preview_ref(asset_id, "101")
         self.assertEqual(preview_ref["model_sticker_file_id"], "model-preview-file")
+        with marketplace._db() as conn:
+            traits_row = conn.execute("SELECT traits_json FROM verified_asset_traits WHERE asset_id = ?", (asset_id,)).fetchone()
+        self.assertEqual(__import__("json").loads(traits_row["traits_json"])["model"]["name"], "Neon")
 
     def test_primary_telegram_import_prefers_business_when_view_permission_is_granted(self):
         marketplace.upsert_telegram_business_connection({
