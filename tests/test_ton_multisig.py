@@ -203,7 +203,7 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
         from tonsdk.boc import Builder, begin_dict
         action = Builder().store_uint(0xDEADBEEF, 32).end_cell()
         dictionary = begin_dict(8)
-        dictionary.store_cell(0, action)
+        dictionary.store_ref(0, action)
         boc = base64.b64encode(dictionary.end_dict().to_boc(False)).decode()
         from ton_multisig import decode_multisig_order_actions
         decoded = decode_multisig_order_actions(boc)
