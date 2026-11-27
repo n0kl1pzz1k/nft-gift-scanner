@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fade } from 'svelte/transition';
+  import GramToken from './GramToken.svelte';
 
   type AssetOrder = {
     id: string;
@@ -58,12 +59,12 @@
     <div class="asset-title-row"><button class="asset-title-button" onclick={onOpen}>{order.title}</button><span class="asset-id">#{order.id.slice(-5)}</span></div>
     <p class="asset-owner">{#if sellerProfileId}<button class="asset-seller-link" onclick={onSeller}>{order.owner}</button>{:else}{order.owner}{/if}{order.note ? ' · ' + order.note : ''}</p>
     <div class="asset-card-footer">
-      <div><small>{lang === 'ru' ? 'Цена' : 'Price'}</small><strong>{order.price} <span>{order.currency === 'XTR' ? 'Stars' : 'TON'}</span></strong></div>
+      <div><small>{lang === 'ru' ? 'Цена' : 'Price'}</small><strong>{order.price} {#if order.currency === 'XTR'}<span>Stars</span>{:else}<span class="asset-gram-price"><GramToken size={16}/> GRAM</span>{/if}</strong></div>
       {#if isMine}
         <button class="asset-offer-button" onclick={onManage}>{lang === 'ru' ? 'Управлять' : 'Manage listing'}</button>
       {:else}
         <div class="asset-card-actions">
-          <button class="asset-buy-disabled" disabled title={lang==='ru'?'Покупка включится после запуска защищённой оплаты':'Buying will be enabled after secure payments launch'}>{lang==='ru'?'Купить':'Buy'}</button>
+          <button class="asset-details-button" type="button" onclick={onOpen}>{lang==='ru'?'Подробнее':'Details'}</button>
           <button class="asset-offer-button" onclick={onOffer} disabled={!canOffer} title={!canOffer ? (lang === 'ru' ? 'Войди через Telegram, чтобы отправить оффер' : 'Sign in with Telegram to make an offer') : undefined}>{canOffer ? (lang === 'ru' ? 'Оффер' : 'Offer') : (lang === 'ru' ? 'Войти' : 'Sign in')}</button>
         </div>
       {/if}
