@@ -671,17 +671,19 @@ def create_marketplace_offers_router(
         with _db() as conn:
             begin_write(conn, f"order:{order_id}")
             order = conn.execute(
-                select_for_update(conn, """
-                    SELECT o.*, a.source AS asset_source, a.status AS asset_status
-                    FROM marketplace_orders o
-                    LEFT JOIN verified_assets a ON a.id = o.asset_id
-                    WHERE o.id = ?
-                """),
+                select_for_update(conn, "SELECT * FROM marketplace_orders WHERE id = ?"),
                 (order_id,),
             ).fetchone()
             if order is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Marketplace listing not found")
+            asset = conn.execute(
+                """SELECT source, status FROM verified_assets
+                   WHERE id = ? AND owner_telegram_id = ? AND status = 'verified'""",
+                (order["asset_id"], order["user_id"]),
+            ).fetchone() if order["asset_id"] else None
+            asset_source = asset["source"] if asset is not None else None
+            asset_status = asset["status"] if asset is not None else None
 
             existing = conn.execute(
                 "SELECT id, status FROM marketplace_deals WHERE offer_id = ?",
@@ -705,20 +707,14 @@ def create_marketplace_offers_router(
                 raise HTTPException(status_code=403, detail="You cannot buy your own listing")
             if not _checkout_enabled_for_order(
                 str(order["currency"]),
-                order["asset_source"],
-                order["asset_status"],
+                asset_source,
+                asset_status,
             ):
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Protected checkout is not enabled for this listing yet")
-            if not _test_unverified_assets_allowed():
-                verified = conn.execute(
-                    """SELECT 1 FROM verified_assets
-                       WHERE id = ? AND owner_telegram_id = ? AND status = 'verified'""",
-                    (order["asset_id"], order["user_id"]),
-                ).fetchone()
-                if verified is None:
-                    conn.rollback()
-                    raise HTTPException(status_code=409, detail="Buy Now requires a currently verified seller asset")
+            if asset is None:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Buy Now requires a currently verified seller asset")
 
             amount = Decimal(str(order["price"]))
             if not amount.is_finite() or amount <= 0:
