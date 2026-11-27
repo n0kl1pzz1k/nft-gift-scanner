@@ -21,7 +21,7 @@ class TelegramGiftInventoryError(ValueError):
     """Telegram returned an unusable or incomplete inventory response."""
 
 
-def normalise_owned_gift(raw: Any) -> dict[str, str] | None:
+def normalise_owned_gift(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict) or raw.get("type") != "unique":
         return None
     gift = raw.get("gift")
