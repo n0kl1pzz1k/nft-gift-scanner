@@ -878,14 +878,6 @@ def create_marketplace_offers_router(
             if not _checkout_enabled_for_order(str(buy_order["currency"]), asset["source"], asset["status"]):
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Protected checkout is not configured for this buy request")
-            already_listed = conn.execute(
-                """SELECT id FROM marketplace_orders
-                   WHERE asset_id = ? AND status IN ('active', 'matched') LIMIT 1""",
-                (payload.asset_id,),
-            ).fetchone()
-            if already_listed is not None:
-                conn.rollback()
-                raise HTTPException(status_code=409, detail="This asset is already listed or reserved")
             duplicate = conn.execute(
                 """SELECT id FROM marketplace_orders
                    WHERE source_buy_order_id = ? AND asset_id = ? AND status IN ('active', 'matched')
@@ -895,6 +887,14 @@ def create_marketplace_offers_router(
             if duplicate is not None:
                 conn.commit()
                 return {"response_order_id": duplicate["id"], "already_responded": True}
+            already_listed = conn.execute(
+                """SELECT id FROM marketplace_orders
+                   WHERE asset_id = ? AND status IN ('active', 'matched') LIMIT 1""",
+                (payload.asset_id,),
+            ).fetchone()
+            if already_listed is not None:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="This asset is already listed or reserved")
             response_id = "ord-" + uuid.uuid4().hex[:16]
             owner_name = str(user.get("first_name") or user.get("username") or "Telegram user")[:64]
             conn.execute(
