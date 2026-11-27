@@ -161,7 +161,7 @@ async def fetch_business_account_gifts(
         timeout=httpx.Timeout(15.0, connect=5.0),
         follow_redirects=False,
     )
-    items: list[dict[str, str]] = []
+    items: list[dict[str, Any]] = []
     seen: set[str] = set()
     offset = ""
     complete = False
