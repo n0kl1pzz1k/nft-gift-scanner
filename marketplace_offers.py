@@ -11,7 +11,7 @@ import json
 import sqlite3
 import time
 import uuid
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Callable, Literal
 
@@ -716,7 +716,11 @@ def create_marketplace_offers_router(
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Buy Now requires a currently verified seller asset")
 
-            amount = Decimal(str(order["price"]))
+            try:
+                amount = Decimal(str(order["price"]))
+            except (InvalidOperation, ValueError):
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="The listing has an invalid asking price")
             if not amount.is_finite() or amount <= 0:
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="The listing has an invalid asking price")
