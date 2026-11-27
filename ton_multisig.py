@@ -197,12 +197,28 @@ def decode_multisig_order_getter(payload: Any) -> dict[str, Any]:
             ).bytes_hash().hex()
         except Exception as exc:
             raise ValueError("TONAPI returned a malformed order action cell") from exc
+    if approvals_mask is not None and approvals_mask < 0:
+        raise ValueError("TONAPI returned a negative order approvals mask")
+    if approvals_num is not None and approvals_num < 0:
+        raise ValueError("TONAPI returned a negative order approvals count")
+    if threshold is not None and (threshold < 1 or threshold > len(signers)):
+        raise ValueError("Multisig order threshold does not match its signer set")
+    if approvals_mask is not None and approvals_mask.bit_length() > len(signers):
+        raise ValueError("Multisig order approvals mask references an unknown signer")
+    if approvals_num is not None and approvals_mask is not None:
+        if approvals_num != approvals_mask.bit_count():
+            raise ValueError("Multisig order approval count does not match its approval mask")
+    approvals = [
+        {"address": signer, "approved": bool(approvals_mask & (1 << index))}
+        for index, signer in enumerate(signers)
+    ] if approvals_mask is not None else []
     return {
         "multisig": multisig,
         "order_seqno": seqno,
         "threshold": threshold,
-        "executed": bool(executed_value) if executed_value is not None else None,
+        "sent_for_execution": bool(executed_value) if executed_value is not None else None,
         "signers": signers,
+        "approvals": approvals,
         "approvals_num": approvals_num,
         "approvals_mask": str(approvals_mask) if approvals_mask is not None else None,
         "expiration_date": expiration_date,
