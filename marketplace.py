@@ -616,8 +616,8 @@ def get_telegram_business_connection_id(telegram_id: str | int) -> str | None:
     with _db() as conn:
         row = conn.execute(
             """SELECT business_connection_id FROM telegram_business_connections
-               WHERE telegram_id = ? AND is_enabled = 1
-                 AND can_view_gifts_and_stars = 1""",
+               WHERE telegram_id = ? AND is_enabled = TRUE
+                 AND can_view_gifts_and_stars = TRUE""",
             (owner_id,),
         ).fetchone()
     return str(row["business_connection_id"]) if row else None
@@ -687,7 +687,7 @@ def get_telegram_business_gift_preview_ref(asset_id: str, owner_telegram_id: str
                 AND c.business_connection_id = r.business_connection_id
                JOIN verified_assets a ON a.id = r.asset_id
                WHERE r.asset_id = ? AND r.owner_telegram_id = ?
-                 AND c.is_enabled = 1 AND c.can_view_gifts_and_stars = 1
+                 AND c.is_enabled = TRUE AND c.can_view_gifts_and_stars = TRUE
                  AND a.owner_telegram_id = ? AND a.status = 'verified'""",
             (str(asset_id), owner_id, owner_id),
         ).fetchone()
@@ -707,7 +707,7 @@ def get_telegram_business_gift_ref(asset_id: str, owner_telegram_id: str | int) 
                 AND c.business_connection_id = r.business_connection_id
                JOIN verified_assets a ON a.id = r.asset_id
                WHERE r.asset_id = ? AND r.owner_telegram_id = ?
-                 AND c.is_enabled = 1 AND c.can_transfer_and_upgrade_gifts = 1
+                 AND c.is_enabled = TRUE AND c.can_transfer_and_upgrade_gifts = TRUE
                  AND a.owner_telegram_id = ? AND a.status = 'verified'""",
             (str(asset_id), owner_id, owner_id),
         ).fetchone()
