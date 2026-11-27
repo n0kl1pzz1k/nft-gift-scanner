@@ -2217,6 +2217,7 @@ def create_marketplace_router(
                     MIN(CASE WHEN status='active' AND kind='listing' AND currency='XTR' THEN CAST(price AS REAL) END) AS floor_stars,
                     COUNT(*) AS total_orders
                 FROM marketplace_orders
+                WHERE target_buyer_id IS NULL
             """).fetchone()
             active_rows = conn.execute("""
                 SELECT o.title, COALESCE(o.asset_type, a.asset_type) AS asset_type,
