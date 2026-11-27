@@ -1055,16 +1055,6 @@ class SharedMarketplaceTests(unittest.TestCase):
                     "utime": int(time.time()),
                     "out_msgs": [{"destination": seller_address, "value": "9000000000"}],
                 }
-        class FakeOldPayoutResponse(FakePayoutResponse):
-            def json(self):
-                body = super().json()
-                body["utime"] = int(time.time()) - 3600
-                return body
-
-        class FakeOldPayoutClient(FakePayoutClient):
-            async def get(self, url, headers):
-                return FakeOldPayoutResponse()
-
         class FakePayoutClient:
             def __init__(self, **kwargs):
                 pass
@@ -1074,6 +1064,16 @@ class SharedMarketplaceTests(unittest.TestCase):
                 return False
             async def get(self, url, headers):
                 return FakePayoutResponse()
+
+        class FakeOldPayoutResponse(FakePayoutResponse):
+            def json(self):
+                body = super().json()
+                body["utime"] = int(time.time()) - 3600
+                return body
+
+        class FakeOldPayoutClient(FakePayoutClient):
+            async def get(self, url, headers):
+                return FakeOldPayoutResponse()
 
         class FakeWrongDestinationResponse:
             def raise_for_status(self):
