@@ -713,6 +713,9 @@ def create_marketplace_offers_router(
             if order["kind"] != "listing" or order["status"] != "active":
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="This listing is no longer available for direct purchase")
+            if order["target_buyer_id"] and str(order["target_buyer_id"]) != buyer_id:
+                conn.rollback()
+                raise HTTPException(status_code=403, detail="This private response is reserved for another buyer")
             if str(order["user_id"]) == buyer_id:
                 conn.rollback()
                 raise HTTPException(status_code=403, detail="You cannot buy your own listing")
@@ -749,6 +752,21 @@ def create_marketplace_offers_router(
                 if buyer_id not in wallet_ids or str(order["user_id"]) not in wallet_ids:
                     conn.rollback()
                     raise HTTPException(status_code=409, detail="Both buyer and seller must link a verified TON mainnet wallet before Buy Now")
+
+            parent_buy_order = None
+            if order["source_buy_order_id"]:
+                parent_buy_order = conn.execute(
+                    select_for_update(conn, "SELECT id, user_id, status, kind FROM marketplace_orders WHERE id = ?"),
+                    (order["source_buy_order_id"],),
+                ).fetchone()
+                if (
+                    parent_buy_order is None
+                    or parent_buy_order["kind"] != "buy-order"
+                    or str(parent_buy_order["user_id"]) != buyer_id
+                    or parent_buy_order["status"] != "active"
+                ):
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="The original buy request is no longer active")
 
             open_deal = conn.execute(
                 """SELECT id FROM marketplace_deals
@@ -791,6 +809,15 @@ def create_marketplace_offers_router(
             if reserved.rowcount != 1:
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Listing reservation lost a concurrent update")
+            if parent_buy_order is not None:
+                parent_reserved = conn.execute(
+                    """UPDATE marketplace_orders SET status='matched', updated_at=?
+                       WHERE id=? AND status='active'""",
+                    (now, parent_buy_order["id"]),
+                )
+                if parent_reserved.rowcount != 1:
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="The original buy request was reserved by another response")
             conn.execute(
                 """UPDATE marketplace_offers SET status='declined', updated_at=?
                    WHERE order_id=? AND id<>? AND status='pending'""",
