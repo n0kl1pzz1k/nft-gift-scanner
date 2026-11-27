@@ -184,6 +184,12 @@ test('mobile marketplace typography keeps seller handles readable without horizo
   await expect(seller).toContainText('@collector_name');
   await expect(seller).toHaveCSS('font-size', '11px');
   await expect(page.locator('.asset-gram-price svg').first()).toBeVisible();
+  await page.locator('.filter-open-button').click();
+  const collectionFilter = page.getByLabel('Фильтр по коллекции');
+  await expect(collectionFilter).toBeVisible();
+  await collectionFilter.fill('Eternal Rose');
+  await page.getByRole('button', { name: 'Показать результаты' }).click();
+  await expect(seller).toContainText('@collector_name');
   const metrics = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
     document: document.documentElement.scrollWidth,
