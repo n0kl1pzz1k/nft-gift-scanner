@@ -23,7 +23,7 @@
         </svg>
       </div>
       <div class="boot-coin-face boot-coin-back">
-        <span>TON</span>
+        <span>GRAM</span>
       </div>
     </div>
     <div class="boot-floor-ring"></div>
@@ -62,8 +62,8 @@
   .boot-coin-face:before{position:absolute;inset:5%;border:1px solid #d5f5ff80;border-radius:50%;content:"";box-shadow:inset 0 0 0 3px #ffffff12,inset 0 0 18px #fff3}
   .boot-coin-face:after{position:absolute;inset:-20%;content:"";background:linear-gradient(112deg,transparent 32%,#ffffffa8 47%,#ffffff18 52%,transparent 63%);transform:translateX(-90%);animation:boot-shine 4.8s ease-in-out infinite}
   .boot-coin-front svg{position:relative;z-index:1;width:47%;height:47%;fill:#e9fbff;filter:drop-shadow(0 3px 5px #002b4b99)}
-  .boot-coin-back{transform:rotateY(180deg) translateZ(8px);background:radial-gradient(circle at 35% 25%,#e6ddff,#9a83e9 23%,#5140a3 58%,#211b58 100%)}
-  .boot-coin-back span{font:900 clamp(18px,5vw,27px)/1 Inter,system-ui,sans-serif;letter-spacing:.18em;color:#f6f1ff;text-shadow:0 2px 8px #1c145d}
+  .boot-coin-back{transform:rotateY(180deg) translateZ(8px);background:linear-gradient(145deg,#58bdff,#147ed2 62%,#0863ae)}
+  .boot-coin-back span{font:900 clamp(18px,5vw,27px)/1 Inter,system-ui,sans-serif;letter-spacing:.18em;color:#fff;text-shadow:0 2px 8px #07518d}
   .boot-floor-ring{position:absolute;bottom:2%;width:75%;height:17%;border:1px solid #61d7ff70;border-radius:50%;transform:rotateX(72deg);box-shadow:0 0 20px #39b9f533,inset 0 0 18px #39b9f522;animation:boot-ring 3s ease-in-out infinite}
   .boot-brand{position:absolute;top:calc(50% + min(35vw,160px));z-index:4;text-align:center;transform:translateY(-8px)}
   .boot-wordmark{font:800 clamp(21px,5vw,27px)/1 Inter,system-ui,sans-serif;letter-spacing:.22em;text-shadow:0 0 24px #48baff35}
