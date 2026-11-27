@@ -1292,7 +1292,7 @@ def create_marketplace_offers_router(
             charge_id = str(intent["provider_reference"])
             amount = str(intent["amount"])
             requested_event = conn.execute(
-                """SELECT event_key FROM marketplace_escrow_events
+                """SELECT event_key, created_at FROM marketplace_escrow_events
                    WHERE deal_id = ? AND event_type = 'refund_requested' LIMIT 1""",
                 (deal_id,),
             ).fetchone()
@@ -1515,6 +1515,12 @@ def create_marketplace_offers_router(
                 account_value = account_value.get("address")
             if normalise_ton_address(str(account_value or "")) != treasury_raw:
                 raise HTTPException(status_code=409, detail="Refund transaction was not sent by the configured treasury")
+            try:
+                refund_utime = int(transaction.get("utime") or 0)
+            except (TypeError, ValueError, OverflowError):
+                refund_utime = 0
+            if refund_utime < int(requested_event["created_at"]) or refund_utime > int(time.time()) + 60:
+                raise HTTPException(status_code=409, detail="TON refund transaction must be mined after this deal's approved refund request")
             expected_nano = int(Decimal(amount) * Decimal(1_000_000_000))
             refunded = False
             for message in transaction.get("out_msgs", []) if isinstance(transaction.get("out_msgs"), list) else []:
@@ -1878,11 +1884,18 @@ def create_marketplace_offers_router(
                    ORDER BY lt.created_at DESC LIMIT 2""",
                 (deal_id, seller_id),
             ).fetchall()
-            if seller_wallet is None or len(payable) != 1:
+            payable_event = conn.execute(
+                """SELECT created_at FROM marketplace_escrow_events
+                   WHERE deal_id=? AND event_type='seller_credit_recorded'
+                   ORDER BY created_at DESC LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            if seller_wallet is None or len(payable) != 1 or payable_event is None:
                 conn.rollback()
-                raise HTTPException(status_code=409, detail="A single recorded TON seller payable and an active verified seller wallet are required")
+                raise HTTPException(status_code=409, detail="A single recorded TON seller payable, its release timestamp and an active verified seller wallet are required")
             payable_amount = str(payable[0]["amount"])
             payment_intent_id = str(payment_intent["id"])
+            payout_eligible_after = int(payable_event["created_at"])
             if Decimal(payable_amount) != Decimal(str(payment_intent["amount"])):
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Seller payable does not match the confirmed TON payment amount")
@@ -1911,6 +1924,12 @@ def create_marketplace_offers_router(
                 raise HTTPException(status_code=409, detail="TON has not confirmed a successful seller payout")
             if normalise_ton_address(str(account_value or "")) != treasury_raw:
                 raise HTTPException(status_code=409, detail="Payout transaction was not sent by the configured treasury")
+            try:
+                payout_utime = int(transaction.get("utime") or 0)
+            except (TypeError, ValueError, OverflowError):
+                payout_utime = 0
+            if payout_utime < payout_eligible_after or payout_utime > int(time.time()) + 60:
+                raise HTTPException(status_code=409, detail="TON payout transaction must be mined after this deal's seller credit is recorded")
             expected_nano = int(Decimal(payable_amount) * Decimal(1_000_000_000))
             paid = False
             for message in transaction.get("out_msgs", []) if isinstance(transaction.get("out_msgs"), list) else []:
