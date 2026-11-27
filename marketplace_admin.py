@@ -13,10 +13,10 @@ def create_marketplace_admin_router(verify_admin):
     router = APIRouter(prefix="/api/marketplace/admin", tags=["marketplace-admin"])
 
     permissions = {
-        "owner": {"dashboard", "users_read", "users_manage", "assets_read", "assets_moderate", "reports", "reconciliation_read", "deals_read"},
+        "owner": {"dashboard", "users_read", "users_manage", "assets_read", "assets_moderate", "reports", "reconciliation_read", "deals_read", "treasury_read"},
         "moderator": {"dashboard", "assets_read", "assets_moderate", "reports"},
         "support": {"dashboard", "users_read", "users_manage", "reports", "deals_read"},
-        "finance": {"dashboard", "reconciliation_read", "deals_read"},
+        "finance": {"dashboard", "reconciliation_read", "deals_read", "treasury_read"},
     }
 
     def admin_user(credential, permission="dashboard"):
@@ -34,6 +34,52 @@ def create_marketplace_admin_router(verify_admin):
         admin = admin_user(x_telegram_init_data)
         role = admin.get("admin_role", "owner")
         return {"telegram_id": str(admin["id"]), "role": role, "permissions": sorted(permissions[role])}
+
+    @router.get("/treasury")
+    async def treasury_status(x_telegram_init_data: str | None = Header(default=None)):
+        """Read-only on-chain status for the pinned HASSLE 2-of-3 treasury."""
+        admin_user(x_telegram_init_data, "treasury_read")
+        expected_address = os.getenv("HASSLE_TON_MULTISIG_EXPECTED_ADDRESS", "").strip()
+        code_hash = os.getenv("HASSLE_TON_MULTISIG_CODE_HASH", "").strip().lower()
+        data_hash = os.getenv("HASSLE_TON_MULTISIG_DATA_HASH", "").strip().lower()
+        if not (expected_address and code_hash and data_hash):
+            return {
+                "status": "configuration_missing",
+                "network": "mainnet",
+                "address": expected_address or None,
+                "threshold": 2,
+                "signer_count": 3,
+                "proposer_count": 0,
+                "next_order_seqno": None,
+                "verified": False,
+            }
+        try:
+            from ton_multisig import fetch_ton_multisig_config, is_two_of_three_multisig
+            config = await fetch_ton_multisig_config(expected_address)
+            verified = is_two_of_three_multisig(config, expected_address)
+            return {
+                "status": "verified" if verified else "configuration_mismatch",
+                "network": "mainnet",
+                "address": expected_address,
+                "threshold": config.get("threshold"),
+                "signer_count": len(config.get("signers", [])),
+                "proposer_count": len(config.get("proposers", [])),
+                "next_order_seqno": config.get("next_order_seqno"),
+                "verified": verified,
+            }
+        except Exception:
+            # Never turn an RPC outage, uninitialized address, or malformed getter
+            # response into a false "deployed" or "verified" treasury state.
+            return {
+                "status": "unavailable",
+                "network": "mainnet",
+                "address": expected_address,
+                "threshold": 2,
+                "signer_count": 3,
+                "proposer_count": 0,
+                "next_order_seqno": None,
+                "verified": False,
+            }
 
     @router.get("/overview")
     async def overview(x_telegram_init_data: str | None = Header(default=None)):
