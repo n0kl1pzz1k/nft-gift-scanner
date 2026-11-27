@@ -336,7 +336,6 @@
   }
   .ton-wallet-button:active { transform: scale(.985); }
   .ton-wallet-button:disabled { opacity: .55; cursor: wait; }
-  .ton-wallet-symbol { font-size: 21px; color: #55e1ca; }
   .ton-wallet-verified { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .ton-wallet-check { display: grid; place-items: center; width: 28px; height: 28px; flex: 0 0 28px; border-radius: 50%; color: #071b17; background: #5de0be; font-weight: 900; }
   .ton-wallet-address { display: grid; gap: 2px; min-width: 0; }
