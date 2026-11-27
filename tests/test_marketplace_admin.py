@@ -79,6 +79,19 @@ class MarketplaceAdminConsoleTests(unittest.TestCase):
         self.assertEqual(response.json()["threshold"], 2)
         self.assertEqual(response.json()["signer_count"], 3)
 
+    def test_treasury_orders_are_empty_when_contract_is_not_configured(self):
+        with patch.dict(os.environ, {
+            "HASSLE_TON_MULTISIG_EXPECTED_ADDRESS": "",
+            "HASSLE_TON_MULTISIG_CODE_HASH": "",
+            "HASSLE_TON_MULTISIG_DATA_HASH": "",
+        }, clear=False):
+            response = self.client.get(
+                "/api/marketplace/admin/treasury/orders",
+                headers=self.headers(self.admin_token),
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"status": "configuration_missing", "items": []})
+
     def test_treasury_status_requires_finance_or_owner_permission(self):
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_ROLES": "9001:moderator"}):
             response = self.client.get(
