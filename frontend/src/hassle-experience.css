@@ -246,3 +246,7 @@ button:not(:disabled):active{transform:translateY(1px)!important}
 .asset-card-trait small{font-size:8px;letter-spacing:.07em;font-weight:800;color:var(--text-muted,#8e9bb2)}
 .asset-card-trait b{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .asset-card-trait em{font-style:normal;color:var(--accent,#8faeff);font-variant-numeric:tabular-nums}
+
+
+.asset-card-trait-swatch,.asset-trait-swatch{display:inline-block;flex:0 0 12px;width:12px;height:12px;border:1px solid rgba(255,255,255,.3);border-radius:4px;box-shadow:0 1px 5px rgba(0,0,0,.24)}
+.asset-trait-chip em{font-size:9px;font-style:normal;font-weight:800;letter-spacing:.04em;color:var(--accent,#8faeff)}
