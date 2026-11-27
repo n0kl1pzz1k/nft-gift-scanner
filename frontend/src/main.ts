@@ -2,6 +2,7 @@ import { mount } from 'svelte';
 import App from './App.svelte';
 import './app.css';
 import './premium.css';
+import './hassle-experience.css';
 
 const targetElement = document.getElementById('app');
 
