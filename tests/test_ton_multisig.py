@@ -187,7 +187,7 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(orders[0]["order_seqno"], 4)
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0].url.path, f"/v2/blockchain/accounts/{TREASURY}/methods/get_order_address")
-        self.assertEqual(calls[0].read().decode(), '{"args":[{"type":"num","value":"4"}]}')
+        self.assertEqual(calls[0].read().decode(), '{"args":[{"type":"tinyint","value":"4"}]}')
         self.assertEqual(calls[1].url.path, f"/v2/blockchain/accounts/{order_address}/methods/get_order_data")
 
     async def test_fetches_multisig_configuration_using_contract_getter(self):
