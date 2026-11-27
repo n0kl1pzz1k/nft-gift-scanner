@@ -69,6 +69,8 @@
   let verifiedAssets = $state<VerifiedAsset[]>([]);
   let giftPreviewUrls = $state<Record<string,string>>({});
   let verifiedAssetsLoading = $state(false);
+  let telegramOwnershipSnapshotComplete = $state(false);
+  let lastOwnershipRefreshAt = 0;
   let inventoryFilter = $state<'all'|'telegram_gift'|'ton_nft'>('all');
   let inventoryListingFilter = $state<'all'|'listed'|'unlisted'>('all');
   let assetListingEnabled = $state(false);
@@ -215,7 +217,7 @@
   const publicBuyRequests = $derived(orders.filter(order => order.kind === 'buy-order' && order.status === 'active').sort((a,b) => b.createdAt-a.createdAt));
   const myListings = $derived(orders.filter(order => order.isMine).sort((a, b) => b.createdAt - a.createdAt));
   const invalidPriceRange = $derived(marketCurrency !== 'all' && ((marketMinPrice !== '' && (!Number.isFinite(Number(marketMinPrice)) || Number(marketMinPrice) < 0)) || (marketMaxPrice !== '' && (!Number.isFinite(Number(marketMaxPrice)) || Number(marketMaxPrice) < 0)) || (marketMinPrice !== '' && marketMaxPrice !== '' && Number(marketMinPrice) > Number(marketMaxPrice))));
-  const hasMarketFilters = $derived(Boolean(marketSearch.trim() || assetTypeFilter !== 'all' || marketCurrency !== 'all' || marketMinPrice !== '' || marketMaxPrice !== ''));
+  const hasMarketFilters = $derived(Boolean(marketSearch.trim() || marketCollectionSearch.trim() || marketNftIdSearch.trim() || assetTypeFilter !== 'all' || marketCurrency !== 'all' || marketMinPrice !== '' || marketMaxPrice !== ''));
   function resetMarketFilters() {
     marketSearch = '';
     marketCollectionSearch = '';
@@ -252,6 +254,7 @@
     });
   });
   const inventoryAssets = $derived(orders.filter(order => order.isMine && order.kind === 'listing'));
+  const visibleVerifiedAssets = $derived(verifiedAssets.filter(asset => asset.source !== 'telegram_gift' || telegramOwnershipSnapshotComplete));
   const tonFloor = $derived(marketplaceStats.floor_ton && marketplaceStats.floor_ton > 0 ? marketplaceStats.floor_ton.toFixed(2) : '—');
   const starsFloor = $derived(marketplaceStats.floor_stars && marketplaceStats.floor_stars > 0 ? marketplaceStats.floor_stars.toFixed(0) : '—');
   function assetTypeOf(order: MarketplaceOrder): AssetTypeFilter | 'unknown' {
@@ -284,7 +287,7 @@
     notice = '';
     try { window.scrollTo(0, 0); } catch {}
     if (signedIn) {
-      void Promise.all([loadSellerProfile(), loadVerifiedInventory(), loadOffersAndDeals()])
+      void Promise.all([loadSellerProfile(), refreshOwnershipInventory(), loadOffersAndDeals()])
         .catch(error => { notice = error instanceof Error ? error.message : String(error); });
       return;
     }
@@ -450,7 +453,7 @@
         ? (count ? `Проверено TON NFT: ${count}` : 'В подключённом TON-кошельке не найдены NFT, выпущенные в блокчейне TON.')
         : (count ? `TON NFTs verified: ${count}` : 'No NFTs minted on TON were found in the connected wallet.');
       if (result.ownership_scan_complete === false) {
-        tonNftImportMessage += lang === 'ru' ? ' Проверка продолжится при следующем обновлении.' : ' The scan was partial; refresh again later.';
+        tonNftImportMessage += lang === 'ru' ? ' Проверка продолжится при следующем обновлении.' : ' Ownership verification was incomplete; refresh again later.';
       }
     } catch (e) {
       tonNftImportMessage = e instanceof Error ? e.message : String(e);
@@ -476,15 +479,17 @@
     businessGiftImportMessage = '';
     try {
       const result = await request('/api/marketplace/assets/import-business-gifts', undefined, { method: 'POST' });
+      telegramOwnershipSnapshotComplete = result.ownership_scan_complete === true;
       await loadVerifiedInventory();
       const count = Number(result.imported) || 0;
       businessGiftImportMessage = lang === 'ru'
         ? (count ? `Импортировано из Telegram Business: ${count}` : 'В бизнес-аккаунте нет коллекционных подарков.')
         : (count ? `Imported from Telegram Business: ${count}` : 'No collectible gifts found in the business account.');
       if (result.ownership_scan_complete === false) {
-        businessGiftImportMessage += lang === 'ru' ? ' Сканирование неполное, повтори позже.' : ' The scan was partial; refresh again later.';
+        businessGiftImportMessage += lang === 'ru' ? ' Проверка владения не завершена, повтори позже.' : ' The scan was partial; refresh again later.';
       }
     } catch (e) {
+      telegramOwnershipSnapshotComplete = false;
       businessGiftImportMessage = e instanceof Error ? e.message : String(e);
     } finally {
       businessGiftImportBusy = false;
@@ -504,20 +509,39 @@
     telegramGiftImportMessage = '';
     try {
       const result = await request('/api/marketplace/assets/import-telegram', undefined, { method: 'POST' });
+      telegramOwnershipSnapshotComplete = result.ownership_scan_complete === true;
       await loadVerifiedInventory();
       const count = Number(result.imported) || 0;
       telegramGiftImportMessage = lang === 'ru'
         ? (count ? 'Подтверждено коллекционных подарков: ' + count : 'Коллекционные подарки Telegram не найдены. Обычные подарки без уникального ID не добавляются.')
         : (count ? 'Verified collectible gifts: ' + count : 'No collectible Telegram gifts found. Regular gifts without a stable item ID are not imported.');
       if (result.ownership_scan_complete === false) {
-        telegramGiftImportMessage += lang === 'ru' ? ' Сканирование неполное; попробуй позже.' : ' The scan was partial; try again later.';
+        telegramGiftImportMessage += lang === 'ru' ? ' Проверка владения не завершена; попробуй позже.' : ' Ownership verification was incomplete; try again later.';
       }
     } catch (e) {
+      telegramOwnershipSnapshotComplete = false;
       telegramGiftImportMessage = e instanceof Error ? e.message : String(e);
     } finally {
       telegramGiftImportBusy = false;
     }
   }
+  async function refreshOwnershipInventory() {
+    if (!signedIn || !authToken) {
+      await loadVerifiedInventory();
+      return;
+    }
+    const now = Date.now();
+    if (telegramOwnershipSnapshotComplete && now - lastOwnershipRefreshAt < 45_000) {
+      await loadVerifiedInventory();
+      return;
+    }
+    lastOwnershipRefreshAt = now;
+    telegramOwnershipSnapshotComplete = false;
+    await importTelegramGifts();
+    if (walletConnected) await importTonWalletAssets();
+    await loadVerifiedInventory();
+  }
+
   function startAssetListing(asset: VerifiedAsset) {
     if (!assetListingEnabled || asset.active_listing_id) return;
     selectedInventoryAsset = asset;
@@ -1377,6 +1401,8 @@
     } catch {
       authToken = '';
       signedIn = false;
+      telegramOwnershipSnapshotComplete = false;
+      lastOwnershipRefreshAt = 0;
       walletConnected = false;
       isAdmin = false;
       try { sessionStorage.removeItem('hassle-nft-session-v1'); } catch {}
@@ -1423,6 +1449,8 @@
       isAdmin = false;
       signedIn = false;
       authToken = '';
+      telegramOwnershipSnapshotComplete = false;
+      lastOwnershipRefreshAt = 0;
       try { sessionStorage.removeItem('hassle-nft-session-v1'); } catch {}
       telegramUser = '';
       telegramPhoto = '';
@@ -1528,7 +1556,7 @@
           <div class="section-title"><div><div class="eyebrow">MARKETPLACE</div><h2>{lang==='ru'?'Активы продавца':'Seller assets'}</h2></div><button class="refresh-button" onclick={()=>view='orders'}>{lang==='ru'?'Назад':'Back'}</button></div>
           {#if publicSellerProfile.listings.length}
             <div class="orders-list">{#each publicSellerProfile.listings as listing (listing.id)}
-              <article class="order-card"><div class="order-icon">↗</div><div class="order-main"><div class="order-kind">{lang==='ru'?'Предложение':'Listing'}</div><h3>{listing.title}</h3><p>{listing.note || (lang==='ru'?'Без комментария':'No note')} · {new Date(listing.createdAt*1000).toLocaleDateString(lang==='ru'?'ru-RU':'en-US')}</p></div><div class="order-price"><strong>{listing.price} {listing.currency==='XTR'?'Stars':'GRAM'}</strong><span class="status-active">{t.active}</span></div></article>
+              <article class="order-card"><div class="order-icon">↗</div><div class="order-main"><div class="order-kind">{lang==='ru'?'Предложение':'Listing'}</div><h3>{listing.title}</h3><p>{listing.note || (lang==='ru'?'Без комментария':'No note')} · {new Date(listing.createdAt*1000).toLocaleDateString(lang==='ru'?'ru-RU':'en-US')}</p></div><div class="order-price"><strong>{#if listing.currency==='XTR'}{listing.price} Stars{:else}<span class="gram-amount"><GramToken size={14}/>{listing.price}</span>{/if}</strong><span class="status-active">{t.active}</span></div></article>
             {/each}</div>
           {:else}<div class="state-panel">{lang==='ru'?'У продавца пока нет активов на продаже.':'This seller has no active assets for sale yet.'}</div>{/if}
         </section>
@@ -1543,7 +1571,7 @@
         </div>
         <div class="market-category-rail" aria-label={lang==='ru'?'Категории':'Categories'}><button class:chosen={assetTypeFilter==='all'} onclick={()=>assetTypeFilter='all'}>{lang==='ru'?'Все':'All'}</button><button class:chosen={assetTypeFilter==='gift'} onclick={()=>assetTypeFilter='gift'}>{lang==='ru'?'Подарки':'Gifts'}</button><button class:chosen={assetTypeFilter==='username'} onclick={()=>assetTypeFilter='username'}>Username</button><button class:chosen={assetTypeFilter==='number'} onclick={()=>assetTypeFilter='number'}>+888</button></div>
         <div class="market-toolbar">
-          <label class="market-search market-search-primary"><span class="market-search-icon"><svg viewBox="0 0 24 24" fill="none"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg></span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label={lang==='ru'?'Поиск активов':'Search assets'}/></label>
+          <label class="market-search market-search-primary"><span class="market-search-icon"><svg viewBox="0 0 24 24" fill="none"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg></span><input type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false" bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label={lang==='ru'?'Поиск активов':'Search assets'}/></label>
           <button class="filter-open-button" type="button" onclick={()=>showFilterSheet=true}><span class="filter-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M7 12h10M10 17h4"/></svg></span>{lang==='ru'?'Фильтры':'Filters'}{#if hasMarketFilters}<i>•</i>{/if}</button>
         </div>
         {#if showFilterSheet}
@@ -1556,6 +1584,8 @@
                 <label>{lang==='ru'?'Валюта':'Currency'}<select class="form-input" bind:value={marketCurrency}><option value="all">{lang==='ru'?'Любая':'Any'}</option><option value="TON">GRAM</option><option value="XTR">Stars</option></select></label>
                 <label>{lang==='ru'?'Цена от':'Min price'}<input class="form-input" type="number" min="0" step="any" bind:value={marketMinPrice} disabled={marketCurrency==='all'} placeholder="0" inputmode="decimal"/></label>
                 <label>{lang==='ru'?'Цена до':'Max price'}<input class="form-input" type="number" min="0" step="any" bind:value={marketMaxPrice} disabled={marketCurrency==='all'} placeholder="∞" inputmode="decimal"/></label>
+                <label>{lang==='ru'?'Коллекция':'Collection'}<input class="form-input" type="search" bind:value={marketCollectionSearch} placeholder={lang==='ru'?'Например, Eternal Rose':'e.g. Eternal Rose'} aria-label={lang==='ru'?'Фильтр по коллекции':'Filter by collection'}/></label>
+                <label>{lang==='ru'?'Номер NFT / ID':'NFT number / ID'}<input class="form-input" type="search" inputmode="numeric" bind:value={marketNftIdSearch} placeholder="#93222" aria-label={lang==='ru'?'Фильтр по номеру NFT':'Filter by NFT number'}/></label>
                 <label class="filter-sheet-wide">{lang==='ru'?'Сортировка':'Sort'}<select class="form-input" bind:value={marketSort}><option value="recent">{lang==='ru'?'Сначала новые':'Newest'}</option><option value="price-low">{lang==='ru'?'Сначала дешевле':'Price: low to high'}</option><option value="price-high">{lang==='ru'?'Сначала дороже':'Price: high to low'}</option><option value="id-low">NFT ID ↑</option><option value="id-high">NFT ID ↓</option></select></label>
               </div>
               <div class="filter-sheet-actions"><button class="filter-reset-button" type="button" onclick={()=>{resetMarketFilters();showFilterSheet=false;}}>{lang==='ru'?'Сбросить':'Reset'}</button><button class="ton-primary" type="button" onclick={()=>showFilterSheet=false}>{lang==='ru'?'Показать результаты':'Show results'}</button></div>
@@ -1590,7 +1620,7 @@
          </header>
          <div class="market-period-label"><span></span>{lang==='ru'?'ПОСЛЕДНИЕ 24 ЧАСА':'LAST 24 HOURS'}</div>
          <div class="market-activity-kpis">
-           <article class="market-kpi market-kpi-primary"><small>{lang==='ru'?'Объём торгов':'Trading volume'}</small><strong>{Number(marketplaceStats.volume_ton_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})} <i>GRAM</i></strong><span>{lang==='ru'?'По завершённым сделкам':'Based on completed trades'}</span></article>
+           <article class="market-kpi market-kpi-primary"><small>{lang==='ru'?'Объём торгов':'Trading volume'}</small><strong>{Number(marketplaceStats.volume_ton_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})} <span class="gram-amount"><GramToken size={16}/> GRAM</span></strong><span>{lang==='ru'?'По завершённым сделкам':'Based on completed trades'}</span></article>
            <article class="market-kpi"><small>{lang==='ru'?'Объём в Stars':'Stars volume'}</small><strong>{Number(marketplaceStats.volume_stars_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} <i>⭐</i></strong><span>{lang==='ru'?'Отдельно от TON':'Reported separately from GRAM'}</span></article>
            <article class="market-kpi"><small>{lang==='ru'?'Завершённые сделки':'Completed trades'}</small><strong>{Number(marketplaceStats.completed_trades_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</strong><span>{lang==='ru'?'За 24 часа':'In the last 24 hours'}</span></article>
            <article class="market-kpi"><small>{lang==='ru'?'Активные объявления':'Active listings'}</small><strong>{Number(marketplaceStats.active_listings||0).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</strong><span>{lang==='ru'?'Сейчас на площадке':'Currently on the marketplace'}</span></article>
@@ -1602,11 +1632,11 @@
            {:else if marketplaceStats.collections?.length}
              <div class="market-collection-list">
                {#each marketplaceStats.collections as collection (collection.collection)}
-                 <article class="market-collection-row">
-                   <div class="market-collection-identity"><img class="collection-monogram" src="/brand/hassle-mark.webp?v=224" alt="HASSLE"/><div><strong>{collection.collection}</strong><small>{collection.active_listings} {lang==='ru'?'активных лотов':'active listings'} · {collection.trades_24h} {lang==='ru'?'закрытых позиций за 24ч':'matched in 24h'}</small></div></div>
-                   <div class="market-collection-metric"><small>{lang==='ru'?'Флор':'Floor'}</small><strong>{collection.floor_ton===null?'—':Number(collection.floor_ton).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})+' GRAM'}</strong>{#if collection.floor_stars!==null}<span>{Number(collection.floor_stars).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} ⭐</span>{/if}</div>
-                   <div class="market-collection-metric market-collection-volume"><small>{lang==='ru'?'Оборот за 24ч':'24h volume'}</small><strong>{Number(collection.volume_ton_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})} GRAM</strong>{#if collection.volume_stars_24h}<span>{Number(collection.volume_stars_24h).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} ⭐</span>{/if}</div>
-                 </article>
+                 <button type="button" class="market-collection-row" onclick={()=>{marketCollectionSearch=collection.collection;marketSearch="";view="orders";showFilterSheet=false;}}>
+                   <div class="market-collection-identity"><img class="collection-monogram" src={orders.find(order=>order.collection===collection.collection && order.image_url)?.image_url || "/brand/hassle-mark.webp?v=224"} alt={collection.collection} loading="lazy"/><div><strong>{collection.collection}</strong><small>{collection.active_listings} {lang==='ru'?'активных лотов':'active listings'} · {collection.trades_24h} {lang==='ru'?'закрытых позиций за 24ч':'matched in 24h'}</small></div></div>
+                   <div class="market-collection-metric"><small>{lang==='ru'?'Флор':'Floor'}</small><strong>{collection.floor_ton===null?'—':Number(collection.floor_ton).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})}</strong>{#if collection.floor_ton!==null}<small class="gram-amount"><GramToken size={13}/> GRAM</small>{/if}{#if collection.floor_stars!==null}<span>{Number(collection.floor_stars).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} ⭐</span>{/if}</div>
+                   <div class="market-collection-metric market-collection-volume"><small>{lang==='ru'?'Оборот за 24ч':'24h volume'}</small><strong>{Number(collection.volume_ton_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})}</strong><small class="gram-amount"><GramToken size={13}/> GRAM</small>{#if collection.volume_stars_24h}<span>{Number(collection.volume_stars_24h).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} ⭐</span>{/if}</div>
+                 </button>
                {/each}
              </div>
            {:else}
@@ -1614,7 +1644,7 @@
            {/if}
          </section>
          <section class="market-longterm-stats">
-           <div><small>{lang==='ru'?'Общий оборот GRAM':'All-time GRAM volume'}</small><strong>{Number(marketplaceStats.volume_ton||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})} GRAM</strong></div>
+           <div><small>{lang==='ru'?'Общий оборот GRAM':'All-time GRAM volume'}</small><strong>{Number(marketplaceStats.volume_ton||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})}</strong><small class="gram-amount"><GramToken size={13}/> GRAM</small></div>
            <div><small>{lang==='ru'?'Общий оборот Stars':'All-time Stars volume'}</small><strong>{Number(marketplaceStats.volume_stars||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} ⭐</strong></div>
            <div><small>{lang==='ru'?'Всего позиций':'Total positions'}</small><strong>{Number(marketplaceStats.total_orders||0).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</strong></div>
            <div><small>{lang==='ru'?'Заявки покупателей':'Buy requests'}</small><strong>{Number(marketplaceStats.active_buy_requests||0).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</strong></div>
@@ -1643,28 +1673,28 @@
           {/if}
           <button class="refresh-button" type="button" onclick={loadTelegramBusinessStatus}>{lang==='ru'?'Проверить подключение':'Check connection'} ↻</button>
         </div>
-        <TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления TON и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for TON to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletAddress=address;walletConnected=Boolean(address);}} />{#if walletConnected}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTonWalletAssets} disabled={tonNftImportBusy}>{tonNftImportBusy?(lang==='ru'?'Сканируем блокчейн…':'Scanning the blockchain…'):(lang==='ru'?'↓ Загрузить NFT из TON':'↓ Import NFTs from TON')}</button>{/if}{#if tonNftImportMessage}<p class="ton-wallet-message">{tonNftImportMessage}</p>{/if}</div></div>
-       {#if verifiedAssetsLoading}
+        <TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления TON и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for TON to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletAddress=address;walletConnected=Boolean(address);}} />{#if walletConnected}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTonWalletAssets} disabled={tonNftImportBusy}>{tonNftImportBusy?(lang==='ru'?'Проверяем NFT в TON…':'Verifying TON NFTs…'):(lang==='ru'?'↓ Загрузить NFT из TON':'↓ Import NFTs from TON')}</button>{/if}{#if tonNftImportMessage}<p class="ton-wallet-message">{tonNftImportMessage}</p>{/if}</div></div>
+       {#if verifiedAssets.some(asset=>asset.source==='telegram_gift') && !telegramOwnershipSnapshotComplete}<div class="ownership-verification-notice" role="status">{lang==='ru'?'Подарки Telegram временно скрыты: актуальное владение ещё не подтверждено. Нажми «Обновить», чтобы проверить аккаунт.':'Telegram gifts are temporarily hidden because current ownership has not been confirmed. Tap Refresh to verify your account.'}</div>{/if}{#if verifiedAssetsLoading}
          <div class="inventory-empty-state"><span class="state-icon">◌</span><strong>{lang==='ru'?'Проверяем инвентарь…':'Checking inventory…'}</strong></div>
-       {:else if verifiedAssets.length}
+       {:else if visibleVerifiedAssets.length}
          <div class="inventory-toolbar">
              <div class="inventory-toolbar-groups">
                <div class="inventory-filter-group" role="group" aria-label={lang==='ru'?'Источник активов':'Asset source'}>
-                 <button class:active={inventoryFilter==='all'} type="button" onclick={()=>inventoryFilter='all'}>{lang==='ru'?'Все источники':'All sources'} <span>{verifiedAssets.length}</span></button>
-                 <button class:active={inventoryFilter==='telegram_gift'} type="button" onclick={()=>inventoryFilter='telegram_gift'}>Telegram <span>{verifiedAssets.filter(asset=>asset.source==='telegram_gift').length}</span></button>
-                 <button class:active={inventoryFilter==='ton_nft'} type="button" onclick={()=>inventoryFilter='ton_nft'}>TON NFT <span>{verifiedAssets.filter(asset=>asset.source==='ton_nft').length}</span></button>
+                 <button class:active={inventoryFilter==='all'} type="button" onclick={()=>inventoryFilter='all'}>{lang==='ru'?'Все источники':'All sources'} <span>{visibleVerifiedAssets.length}</span></button>
+                 <button class:active={inventoryFilter==='telegram_gift'} type="button" onclick={()=>inventoryFilter='telegram_gift'}>Telegram <span>{visibleVerifiedAssets.filter(asset=>asset.source==='telegram_gift').length}</span></button>
+                 <button class:active={inventoryFilter==='ton_nft'} type="button" onclick={()=>inventoryFilter='ton_nft'}>TON NFT <span>{visibleVerifiedAssets.filter(asset=>asset.source==='ton_nft').length}</span></button>
                </div>
                <div class="inventory-filter-group inventory-status-tabs" role="group" aria-label={lang==='ru'?'Статус объявления':'Listing status'}>
                  <button class:active={inventoryListingFilter==='all'} type="button" onclick={()=>inventoryListingFilter='all'}>{lang==='ru'?'Все':'All'}</button>
-                 <button class:active={inventoryListingFilter==='listed'} type="button" onclick={()=>inventoryListingFilter='listed'}>{lang==='ru'?'Выставленные':'Listed'} <span>{verifiedAssets.filter(asset=>Boolean(asset.active_listing_id)).length}</span></button>
-                 <button class:active={inventoryListingFilter==='unlisted'} type="button" onclick={()=>inventoryListingFilter='unlisted'}>{lang==='ru'?'Не выставленные':'Unlisted'} <span>{verifiedAssets.filter(asset=>!asset.active_listing_id).length}</span></button>
+                 <button class:active={inventoryListingFilter==='listed'} type="button" onclick={()=>inventoryListingFilter='listed'}>{lang==='ru'?'Выставленные':'Listed'} <span>{visibleVerifiedAssets.filter(asset=>Boolean(asset.active_listing_id)).length}</span></button>
+                 <button class:active={inventoryListingFilter==='unlisted'} type="button" onclick={()=>inventoryListingFilter='unlisted'}>{lang==='ru'?'Не выставленные':'Unlisted'} <span>{visibleVerifiedAssets.filter(asset=>!asset.active_listing_id).length}</span></button>
                </div>
              </div>
-             <button class="refresh-button" type="button" onclick={loadVerifiedInventory} disabled={verifiedAssetsLoading}>{lang==='ru'?'Обновить':'Refresh'} ↻</button>
+             <button class="refresh-button" type="button" onclick={refreshOwnershipInventory} disabled={verifiedAssetsLoading || telegramGiftImportBusy || businessGiftImportBusy || tonNftImportBusy}>{lang==='ru'?'Обновить':'Refresh'} ↻</button>
            </div>
-         {#if verifiedAssets.filter(asset=>(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))).length}
+         {#if visibleVerifiedAssets.filter(asset=>(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))).length}
          <div class="verified-inventory-list">
-           {#each verifiedAssets.filter(asset=>(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))) as asset (asset.id)}
+           {#each visibleVerifiedAssets.filter(asset=>(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))) as asset (asset.id)}
              <article class="verified-inventory-item">
                {#if assetPreviewUrl(asset)}<img src={assetPreviewUrl(asset)} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder"><span>HASSLE</span><small>{asset.source==='telegram_gift'?(lang==='ru'?'КОЛЛЕКЦИОННЫЙ ПОДАРОК':'COLLECTIBLE GIFT'):asset.asset_type==='username'?'TELEGRAM USERNAME':asset.asset_type==='number'?'ANONYMOUS NUMBER':'VERIFIED ASSET'}</small></div>{/if}
                <div class="verified-inventory-details">
@@ -1690,7 +1720,7 @@
        {/if}
       {:else if view==='favorites'}
       <section class="page-heading compact-heading favorites-heading"><div><div class="eyebrow">HASSLE NFT</div><h1>{t.favoritesTitle}</h1></div><button class="refresh-button" onclick={()=>view='orders'}>{lang==='ru'?'Назад в маркет':'Back to market'}</button></section>
-      {#if favoriteOrders.length}<div class="orders-list">{#each favoriteOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{order.owner}</p></div><div class="order-price"><strong>{order.price} {order.currency==='XTR'?'Stars':'GRAM'}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div><button class="heart-button hearted" onclick={()=>toggleFavoriteOrder(order)}>♥</button></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='orders'}>{lang==='ru'?'К активам':'Browse assets'}</button></div>{/if}
+      {#if favoriteOrders.length}<div class="orders-list">{#each favoriteOrders as order (order.id)}<article class="order-card"><div class="order-icon">{order.kind==='listing'?'↗':'⌕'}</div><div class="order-main"><div class="order-kind">{order.kind==='listing'?t.sell:t.buy}</div><h3>{order.title}</h3><p>{order.owner}</p></div><div class="order-price"><strong>{#if order.currency==='XTR'}{order.price} Stars{:else}<span class="gram-amount"><GramToken size={14}/>{order.price}</span>{/if}</strong><span class={'status-'+order.status}>{order.status==='active'?t.active:order.status==='matched'?t.matched:t.cancelled}</span></div><button class="heart-button hearted" onclick={()=>toggleFavoriteOrder(order)}>♥</button></article>{/each}</div>{:else}<div class="state-panel">{t.noFavorites}<button class="search-button" onclick={()=>view='orders'}>{lang==='ru'?'К активам':'Browse assets'}</button></div>{/if}
     {:else if view==='profile'}
       <section class="page-heading compact-heading"><div class="eyebrow">ACCOUNT</div><h1>{t.profile}</h1></section>
       <section class="profile-layout" data-profile-view><article class="profile-card profile-main"><div class="profile-avatar">{#if telegramPhoto}<img src={telegramPhoto} alt="Profile"/>{:else}<span>{telegramUser?telegramUser.slice(0,1).toUpperCase():'G'}</span>{/if}</div><div><h2>{telegramUser||t.guest}</h2><p>{signedIn?t.signed:t.authHint}</p>{#if telegramUsername}<small class="profile-handle">{telegramUsername}</small>{/if}{#if telegramPremium}<span class="profile-premium">TELEGRAM PREMIUM</span>{/if}</div>{#if !signedIn}<button class="publish-button" onclick={()=>telegramLogin()} disabled={authBusy}>{authBusy?(lang==='ru'?'Подтверждаем…':'Verifying…'):t.signIn+' →'}</button>{:else}<span class="telegram-verified-state">✓ {lang==='ru'?'Подтверждено':'Verified'}</span>{/if}</article>
@@ -1706,7 +1736,7 @@
         <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">TON CONNECT · PROOF</div><h2>{lang==='ru'?'TON-кошелёк':'TON wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления TON и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for TON to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletAddress=address;walletConnected=Boolean(address);}} /></div>
       </article>
       <article class="profile-card profile-inventory-card">
-        <div class="profile-inventory-heading"><div><div class="eyebrow">YOUR COLLECTION</div><h2>{lang==='ru'?'Подарки и инвентарь':'Gifts & inventory'}</h2><small>{verifiedAssets.length} {lang==='ru'?'подтверждённых активов':'verified assets'}</small></div><button class="refresh-button" type="button" onclick={loadVerifiedInventory} disabled={verifiedAssetsLoading}>↻</button></div>
+        <div class="profile-inventory-heading"><div><div class="eyebrow">YOUR COLLECTION</div><h2>{lang==='ru'?'Подарки и инвентарь':'Gifts & inventory'}</h2><small>{visibleVerifiedAssets.length} {lang==='ru'?'подтверждённых активов':'verified assets'}</small></div><button class="refresh-button" type="button" onclick={refreshOwnershipInventory} disabled={verifiedAssetsLoading || telegramGiftImportBusy || businessGiftImportBusy || tonNftImportBusy}>↻</button></div>
         <div class="profile-import-actions">
           <button type="button" class="profile-import-button" onclick={importTelegramGifts} disabled={!signedIn || telegramGiftImportBusy}>{telegramGiftImportBusy?'…':(lang==='ru'?'＋ Импорт Telegram':'＋ Import Telegram')}</button>
           <button type="button" class="profile-import-button" onclick={importBusinessGifts} disabled={!signedIn || !telegramBusinessStatus.gift_import_ready || businessGiftImportBusy}>{businessGiftImportBusy?'…':(lang==='ru'?'Business gifts':'Business gifts')}</button>
@@ -1716,11 +1746,11 @@
         {#if telegramGiftImportMessage}<p class="profile-import-message">{telegramGiftImportMessage}</p>{/if}
         {#if businessGiftImportMessage}<p class="profile-import-message">{businessGiftImportMessage}</p>{/if}
         {#if tonNftImportMessage}<p class="profile-import-message">{tonNftImportMessage}</p>{/if}
-        {#if verifiedAssetsLoading}
+        {#if verifiedAssets.some(asset=>asset.source==='telegram_gift') && !telegramOwnershipSnapshotComplete}<div class="ownership-verification-notice" role="status">{lang==='ru'?'Подарки Telegram временно скрыты: актуальное владение ещё не подтверждено. Нажми «Обновить», чтобы проверить аккаунт.':'Telegram gifts are temporarily hidden because current ownership has not been confirmed. Tap Refresh to verify your account.'}</div>{/if}{#if verifiedAssetsLoading}
           <div class="profile-inventory-empty">{lang==='ru'?'Обновляем инвентарь…':'Refreshing inventory…'}</div>
-        {:else if verifiedAssets.length}
+        {:else if visibleVerifiedAssets.length}
           <div class="profile-inventory-list">
-            {#each verifiedAssets as asset (asset.id)}
+            {#each visibleVerifiedAssets as asset (asset.id)}
               <article class="profile-asset-row">
                 {#if assetPreviewUrl(asset)}<img src={assetPreviewUrl(asset)} alt={asset.title} loading="lazy"/>{:else}<img class="profile-asset-placeholder" src="/brand/hassle-mark.webp?v=224" alt="HASSLE NFT"/>{/if}
                 <div class="profile-asset-copy"><strong>{asset.title}</strong><small>{asset.source==='telegram_gift'?'Telegram Gift':asset.source==='ton_nft'?'TON NFT':asset.asset_type==='username'?'Username':'+888'} · {asset.active_listing_id?(lang==='ru'?'На продаже':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</small></div>
@@ -1743,7 +1773,7 @@
           {#if offers.length}
             {#each visibleOffers.slice(0,12) as offer (offer.id)}
               <article class="profile-trade-row">
-                <div><strong>{offer.order_title}</strong><small>{offer.is_mine?(lang==='ru'?'Мой оффер':'Sent by me'):(lang==='ru'?'Входящий оффер':'Received offer')} · {offer.amount} {offer.currency==='XTR'?'Stars':'GRAM'} · {offerStatusLabel(offer.status)}</small></div>
+                <div><strong>{offer.order_title}</strong><small>{offer.is_mine?(lang==='ru'?'Мой оффер':'Sent by me'):(lang==='ru'?'Входящий оффер':'Received offer')} · {#if offer.currency==='XTR'}{offer.amount} ⭐{:else}<span class="gram-amount"><GramToken size={14}/>{offer.amount}</span>{/if} · {offerStatusLabel(offer.status)}</small></div>
                 {#if offer.status==='pending' && offer.is_mine}
                   <div class="profile-trade-actions"><button type="button" onclick={()=>startEditOffer(offer)}>{lang==='ru'?'Изменить':'Edit'}</button><button type="button" onclick={()=>respondToOffer(offer.id,'withdraw')} disabled={offerActionBusy===offer.id}>{lang==='ru'?'Отозвать':'Withdraw'}</button></div>
                 {:else if offer.status==='pending' && !offer.is_mine && offer.order_kind==='listing'}
@@ -1759,7 +1789,7 @@
           {#if deals.length}
             {#each deals.slice(0,12) as deal (deal.id)}
               <article class="profile-deal-row">
-                <div class="profile-deal-main"><strong>{deal.order_title}</strong><small>{deal.is_seller?(lang==='ru'?'Ты продавец':'You are the seller'):(lang==='ru'?'Ты покупатель':'You are the buyer')} · {deal.agreed_amount} {deal.currency==='XTR'?'Stars':'GRAM'}</small><span>{dealStatusLabel(deal.status)}</span></div>
+                <div class="profile-deal-main"><strong>{deal.order_title}</strong><small>{deal.is_seller?(lang==='ru'?'Ты продавец':'You are the seller'):(lang==='ru'?'Ты покупатель':'You are the buyer')} · {#if deal.currency==='XTR'}{deal.agreed_amount} ⭐{:else}<span class="gram-amount"><GramToken size={14}/>{deal.agreed_amount}</span>{/if}</small><span>{dealStatusLabel(deal.status)}</span></div>
                 <div class="profile-deal-actions">
                   <button type="button" onclick={()=>toggleDealTimeline(deal.id)}>{expandedDealTimeline===deal.id?(lang==='ru'?'Скрыть журнал':'Hide log'):(lang==='ru'?'Журнал':'Timeline')}</button>
                   {#if deal.status==='paid' || deal.status==='delivery_pending'}<button type="button" onclick={()=>openDealDispute(deal.id)} disabled={disputeBusy===deal.id}>{lang==='ru'?'Спор':'Dispute'}</button>{/if}
@@ -1790,10 +1820,10 @@
                <div class="activity-row">
                  <span class="activity-marker"></span>
                  <div class="activity-row-main">
-                   <strong>{settlement.currency==='XTR'?'Telegram Stars':'GRAM'}</strong>
+                   <strong>{#if settlement.currency==='XTR'}Telegram Stars{:else}<span class="gram-amount"><GramToken size={14}/>GRAM</span>{/if}</strong>
                    <small>{settlement.status==='pending_manual_payout'?(lang==='ru'?'Ожидает ручной выплаты через мультиподпись 2 из 3':'Awaiting manual 2-of-3 multisig payout'):(lang==='ru'?'Внутреннее начисление Stars. Автоматический вывод недоступен.':'Internal Stars credit. Automatic withdrawal is unavailable.')}</small>
                  </div>
-                 <div class="activity-row-value"><strong>{settlement.amount} {settlement.currency==='XTR'?'⭐':'GRAM'}</strong></div>
+                 <div class="activity-row-value"><strong>{#if settlement.currency==='XTR'}{settlement.amount} ⭐{:else}<span class="gram-amount"><GramToken size={14}/>{settlement.amount}</span>{/if}</strong></div>
                </div>
              {/each}
            </div>
@@ -1816,7 +1846,7 @@
               <div class="activity-row">
                 <span class="activity-marker"></span>
                 <div class="activity-row-main"><strong>{activityLabel(item)}</strong><span>{item.title}</span><small>{item.actor_name} · {new Date(item.created_at*1000).toLocaleString(lang==='ru'?'ru-RU':'en-US')}</small></div>
-                <div class="activity-row-value"><strong>{item.amount} {item.currency==='XTR'?'⭐':'GRAM'}</strong><small>{item.order_id}</small></div>
+                <div class="activity-row-value"><strong>{#if item.currency==='XTR'}{item.amount} ⭐{:else}<span class="gram-amount"><GramToken size={14}/>{item.amount}</span>{/if}</strong><small>{item.order_id}</small></div>
               </div>
             {/each}
           </div>
@@ -1851,7 +1881,7 @@
           {/if}
           {#if adminPermissions.includes('users_read')}
           <div class="notification-heading"><h3>{lang==='ru'?'Пользователи':'Users'}</h3></div>
-          <div class="report-actions admin-user-search-row"><input class="form-input admin-user-search" bind:value={adminUserSearch} placeholder={lang==='ru'?'Telegram ID или @username':'Telegram ID or @username'} /><button class="refresh-button" onclick={searchAdminUsers}>{lang==='ru'?'Найти':'Search'}</button></div>
+          <div class="report-actions admin-user-search-row"><input class="form-input admin-user-search" type="search" inputmode="search" autocomplete="off" autocapitalize="off" spellcheck="false" bind:value={adminUserSearch} placeholder={lang==='ru'?'Telegram ID или @username':'Telegram ID or @username'} aria-label={lang==='ru'?'Поиск пользователя по Telegram ID или username':'Find user by Telegram ID or username'} /><button class="refresh-button" onclick={searchAdminUsers}>{lang==='ru'?'Найти':'Search'}</button></div>
           {#each adminUsers as user (String(user.telegram_id))}
             <div class="activity-row admin-user-row"><div class="activity-row-main"><strong>{user.first_name || 'Telegram user'} {user.username ? '@'+user.username : ''}</strong><small>ID {user.telegram_id} · {lang==='ru'?'активных сессий':'active sessions'}: {user.active_sessions}</small></div><button class="cancel-button" onclick={()=>revokeAdminUserSessions(String(user.telegram_id))}>{lang==='ru'?'Завершить сессии':'Revoke sessions'}</button></div>
           {/each}
@@ -1940,7 +1970,7 @@
             </div>
             <div class="eyebrow">HASSLE NFT · ASSET</div><h2 id="asset-detail-title">{selectedAsset.title}</h2>
             <div class="asset-detail-meta"><span>ID <b>#{selectedAsset.id}</b></span><span>{lang==='ru'?'Продавец':'Seller'} <b>{selectedAsset.owner}</b></span></div>
-            <div class="asset-detail-price"><small>{lang==='ru'?'Цена продавца':'Seller price'}</small><strong>{selectedAsset.price} {selectedAsset.currency==='XTR'?'Stars':'GRAM'}</strong></div>
+            <div class="asset-detail-price"><small>{lang==='ru'?'Цена продавца':'Seller price'}</small><strong>{#if selectedAsset.currency==='XTR'}{selectedAsset.price} Stars{:else}<span class="gram-amount"><GramToken size={18}/>{selectedAsset.price}</span>{/if}</strong></div>
             {#if selectedAsset.note}<p class="asset-detail-note">{selectedAsset.note}</p>{/if}
             <div class="asset-detail-unavailable"><strong>{lang==='ru'?'Характеристики актива':'Asset traits'}</strong><span>{lang==='ru'?'Метаданные и traits появятся после подключения источника NFT-метаданных.':'Metadata and traits will appear after an NFT metadata source is connected.'}</span></div>
             {#if selectedAsset.isMine}
@@ -2041,7 +2071,7 @@
             <button class="modal-close" onclick={()=>showOfferModal=false} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={offerSubmitBusy}>×</button>
             <div class="eyebrow">HASSLE NFT · OFFER</div>
             <h2 id="offer-title">{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Ответить покупателю':'Respond to buyer'):(lang==='ru'?'Предложить цену':'Make an offer')}</h2>
-            <div class="offer-asset-preview"><span>{assetTypeOf(selectedOfferOrder)==='username'?'＠':assetTypeOf(selectedOfferOrder)==='number'?'888':assetTypeOf(selectedOfferOrder)==='gift'?'NFT':'ASSET'}</span><div><strong>{selectedOfferOrder.title}</strong><small>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Бюджет покупателя':'Buyer budget'):(lang==='ru'?'Цена продавца':'Seller price')}: {selectedOfferOrder.price} {selectedOfferOrder.currency==='XTR'?'⭐':'GRAM'}</small></div></div>
+            <div class="offer-asset-preview"><span>{assetTypeOf(selectedOfferOrder)==='username'?'＠':assetTypeOf(selectedOfferOrder)==='number'?'888':assetTypeOf(selectedOfferOrder)==='gift'?'NFT':'ASSET'}</span><div><strong>{selectedOfferOrder.title}</strong><small>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Бюджет покупателя':'Buyer budget'):(lang==='ru'?'Цена продавца':'Seller price')}: {#if selectedOfferOrder.currency==='XTR'}{selectedOfferOrder.price} ⭐{:else}<span class="gram-amount"><GramToken size={13}/>{selectedOfferOrder.price}</span>{/if}</small></div></div>
             <label>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Твоя цена покупателю':'Your price to buyer'):(lang==='ru'?'Твоё предложение':'Your offer')}<input class="form-input" type="number" min="0.01" step={selectedOfferOrder.currency==='XTR'?'1':'0.01'} bind:value={offerAmount} placeholder={selectedOfferOrder.currency==='XTR'?'100':'1.25'}/></label>
             <label>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Опиши предлагаемый актив':'Describe the asset you offer'):(lang==='ru'?'Сообщение продавцу':'Message to seller')}<textarea class="form-input note-input" bind:value={offerNote} maxlength="300" placeholder={selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Название, коллекция и детали актива (обязательно)':'Asset name, collection and details (required)'):(lang==='ru'?'Необязательно':'Optional')}></textarea></label>
             <button class="ton-primary offer-submit" disabled={offerSubmitBusy || selectedOfferOrder.kind==='buy-order'} onclick={async()=>{if(!selectedOfferOrder || selectedOfferOrder.kind==='buy-order')return;offerSubmitBusy=true;try{const sent=await createOffer(selectedOfferOrder.id);if(sent){showOfferModal=false;selectedOfferOrder=null;}}finally{offerSubmitBusy=false;}}}>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Ответы временно отключены':'Responses unavailable'):offerSubmitBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendOffer+' →'}</button>
