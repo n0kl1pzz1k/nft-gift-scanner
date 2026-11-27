@@ -1297,6 +1297,9 @@ def create_marketplace_offers_router(
                 (deal_id,),
             ).fetchone()
             expected_refund_key = f"{deal_id}:stars-refund-requested:{payload.idempotency_key}"
+            refund_requested_at = (
+                int(requested_event["created_at"]) if requested_event is not None else int(time.time())
+            )
             if requested_event is not None and requested_event["event_key"] != expected_refund_key:
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="A refund is already in progress; retry with the original idempotency key")
@@ -1519,7 +1522,7 @@ def create_marketplace_offers_router(
                 refund_utime = int(transaction.get("utime") or 0)
             except (TypeError, ValueError, OverflowError):
                 refund_utime = 0
-            if refund_utime < int(requested_event["created_at"]) or refund_utime > int(time.time()) + 60:
+            if refund_utime < refund_requested_at or refund_utime > int(time.time()) + 60:
                 raise HTTPException(status_code=409, detail="TON refund transaction must be mined after this deal's approved refund request")
             expected_nano = int(Decimal(amount) * Decimal(1_000_000_000))
             refunded = False
