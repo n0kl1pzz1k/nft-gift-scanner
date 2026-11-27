@@ -2227,13 +2227,47 @@
         <div class="modal-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget && !offerSubmitBusy)showOfferModal=false;}}>
           <div class="sell-modal offer-modal" role="dialog" aria-modal="true" aria-labelledby="offer-title">
             <button class="modal-close" onclick={()=>showOfferModal=false} aria-label={lang==='ru'?'Закрыть':'Close'} disabled={offerSubmitBusy}>×</button>
-            <div class="eyebrow">HASSLE NFT · OFFER</div>
-            <h2 id="offer-title">{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Ответить покупателю':'Respond to buyer'):(lang==='ru'?'Предложить цену':'Make an offer')}</h2>
-            <div class="offer-asset-preview"><span>{assetTypeOf(selectedOfferOrder)==='username'?'＠':assetTypeOf(selectedOfferOrder)==='number'?'888':assetTypeOf(selectedOfferOrder)==='gift'?'NFT':'ASSET'}</span><div><strong>{selectedOfferOrder.title}</strong><small>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Бюджет покупателя':'Buyer budget'):(lang==='ru'?'Цена продавца':'Seller price')}: {#if selectedOfferOrder.currency==='XTR'}{selectedOfferOrder.price} ⭐{:else}<span class="gram-amount"><GramToken size={13}/>{selectedOfferOrder.price}</span>{/if}</small></div></div>
-            <label>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Твоя цена покупателю':'Your price to buyer'):(lang==='ru'?'Твоё предложение':'Your offer')}<input class="form-input" type="number" min="0.01" step={selectedOfferOrder.currency==='XTR'?'1':'0.01'} bind:value={offerAmount} placeholder={selectedOfferOrder.currency==='XTR'?'100':'1.25'}/></label>
-            <label>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Опиши предлагаемый актив':'Describe the asset you offer'):(lang==='ru'?'Сообщение продавцу':'Message to seller')}<textarea class="form-input note-input" bind:value={offerNote} maxlength="300" placeholder={selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Название, коллекция и детали актива (обязательно)':'Asset name, collection and details (required)'):(lang==='ru'?'Необязательно':'Optional')}></textarea></label>
-            <button class="ton-primary offer-submit" disabled={offerSubmitBusy || selectedOfferOrder.kind==='buy-order'} onclick={async()=>{if(!selectedOfferOrder || selectedOfferOrder.kind==='buy-order')return;offerSubmitBusy=true;try{const sent=await createOffer(selectedOfferOrder.id);if(sent){showOfferModal=false;selectedOfferOrder=null;}}finally{offerSubmitBusy=false;}}}>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Ответы временно отключены':'Responses unavailable'):offerSubmitBusy?(lang==='ru'?'Отправляем…':'Sending…'):t.sendOffer+' →'}</button>
-            <small class="sell-modal-hint">{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Ответы на заявки покупателей временно отключены. Сначала подключим привязку конкретного проверенного актива и безопасное резервирование.':'Seller responses to buy requests are temporarily unavailable until a specific verified asset can be bound and safely reserved.'):(lang==='ru'?'Оффер отправится владельцу актива. Это не перевод средств и не завершение сделки.':'The offer goes to the asset owner. It does not transfer funds or complete a trade.')}</small>
+            <div class="eyebrow">HASSLE NFT · {selectedOfferOrder.kind==='buy-order'?(selectedOfferOrder.isMine?'BUY REQUEST RESPONSES':'PRIVATE RESPONSE'):'OFFER'}</div>
+            {#if selectedOfferOrder.kind==='buy-order' && selectedOfferOrder.isMine}
+              <h2 id="offer-title">{lang==='ru'?'Ответы продавцов':'Seller responses'}</h2>
+              <div class="offer-asset-preview"><span>⌕</span><div><strong>{selectedOfferOrder.title}</strong><small>{lang==='ru'?'Бюджет':'Maximum budget'}: {selectedOfferOrder.price} {selectedOfferOrder.currency==='XTR'?'Stars':'GRAM'}</small></div></div>
+              {#if buyOrderResponsesBusy}
+                <div class="state-panel"><small>{lang==='ru'?'Загружаем ответы…':'Loading responses…'}</small></div>
+              {:else if buyOrderResponses.length===0}
+                <div class="state-panel"><strong>{lang==='ru'?'Ответов пока нет':'No seller responses yet'}</strong><small>{lang==='ru'?'Когда продавец предложит подтверждённый актив, он появится здесь.':'Verified seller responses will appear here.'}</small></div>
+              {:else}
+                <div class="buy-order-response-list">
+                  {#each buyOrderResponses as response (response.id)}
+                    <div class="buy-order-response-card">
+                      <div class="buy-order-response-art">{#if response.image_url}<img src={response.image_url} alt={response.title}/>{:else}<img src="/brand/hassle-mark.webp" alt="HASSLE NFT"/>{/if}</div>
+                      <div class="buy-order-response-copy"><strong>{response.title}</strong><small>{response.owner}</small><b>{response.price} {response.currency==='XTR'?'Stars':'GRAM'}</b><small>{response.status==='matched'?(lang==='ru'?'Зарезервировано':'Reserved'):(lang==='ru'?'Доступно':'Available')}</small></div>
+                      <button type="button" class="asset-details-button" onclick={()=>{selectedAsset=response;showAssetDetails=true;showOfferModal=false;}}>{lang==='ru'?'Открыть':'Open'}</button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+              <button type="button" class="asset-details-button" onclick={()=>void loadBuyOrderResponses(selectedOfferOrder!.id)} disabled={buyOrderResponsesBusy}>{lang==='ru'?'Обновить ответы':'Refresh responses'} ↻</button>
+            {:else}
+              <h2 id="offer-title">{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Ответить на заявку':'Respond to buy request'):(lang==='ru'?'Предложить цену':'Make an offer')}</h2>
+              <div class="offer-asset-preview"><span>{assetTypeOf(selectedOfferOrder)==='username'?'＠':assetTypeOf(selectedOfferOrder)==='number'?'888':assetTypeOf(selectedOfferOrder)==='gift'?'NFT':'ASSET'}</span><div><strong>{selectedOfferOrder.title}</strong><small>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Максимальный бюджет':'Buyer maximum'):(lang==='ru'?'Цена продавца':'Seller price')}: {#if selectedOfferOrder.currency==='XTR'}{selectedOfferOrder.price} ⭐{:else}<span class="gram-amount"><GramToken size={13}/>{selectedOfferOrder.price}</span>{/if}</small></div></div>
+              {#if selectedOfferOrder.kind==='buy-order'}
+                <label>{lang==='ru'?'Подтверждённый актив':'Verified asset'}
+                  <select class="form-input" bind:value={offerAssetId}>
+                    <option value="">{lang==='ru'?'Выбери актив из инвентаря':'Choose an asset from inventory'}</option>
+                    {#each verifiedAssets.filter(asset=>!asset.active_listing_id && (!selectedOfferOrder.asset_type || asset.asset_type===selectedOfferOrder.asset_type) && (selectedOfferOrder.currency!=='TON' || asset.source==='ton_nft')) as asset (asset.id)}
+                      <option value={asset.id}>{asset.title}</option>
+                    {/each}
+                  </select>
+                </label>
+                {#if !verifiedAssets.some(asset=>!asset.active_listing_id && (!selectedOfferOrder.asset_type || asset.asset_type===selectedOfferOrder.asset_type) && (selectedOfferOrder.currency!=='TON' || asset.source==='ton_nft'))}
+                  <small class="sell-modal-hint">{lang==='ru'?'Нет подходящих подтверждённых активов. Для заявки в GRAM нужен TON NFT.':'No eligible verified assets. GRAM requests require a TON NFT.'}</small>
+                {/if}
+              {/if}
+              <label>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Твоя цена покупателю':'Your price to buyer'):(lang==='ru'?'Твоё предложение':'Your offer')}<input class="form-input" type="number" min="0.01" max={selectedOfferOrder.kind==='buy-order'?Number(selectedOfferOrder.price):undefined} step={selectedOfferOrder.currency==='XTR'?'1':'0.01'} bind:value={offerAmount} placeholder={selectedOfferOrder.currency==='XTR'?'100':'1.25'}/></label>
+              <label>{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Сообщение покупателю':'Message to buyer'):(lang==='ru'?'Сообщение продавцу':'Message to seller')}<textarea class="form-input note-input" bind:value={offerNote} maxlength="300" placeholder={lang==='ru'?'Необязательно':'Optional'}></textarea></label>
+              <button class="ton-primary offer-submit" disabled={offerSubmitBusy || (selectedOfferOrder.kind==='buy-order' && !offerAssetId)} onclick={async()=>{if(!selectedOfferOrder)return;offerSubmitBusy=true;try{const sent=await createOffer(selectedOfferOrder.id);if(sent){showOfferModal=false;selectedOfferOrder=null;}}finally{offerSubmitBusy=false;}}}>{offerSubmitBusy?(lang==='ru'?'Отправляем…':'Sending…'):selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Отправить ответ →':'Send response →'):t.sendOffer+' →'}</button>
+              <small class="sell-modal-hint">{selectedOfferOrder.kind==='buy-order'?(lang==='ru'?'Создаётся закрытое объявление только для владельца заявки. Покупка проходит через защищённый checkout.':'A private listing is created for the buy-request owner only. Purchase uses protected checkout.'):(lang==='ru'?'Оффер отправится владельцу актива. Это не перевод средств и не завершение сделки.':'The offer goes to the asset owner. It does not transfer funds or complete a trade.')}</small>
+            {/if}
           </div>
         </div>
       {/if}
