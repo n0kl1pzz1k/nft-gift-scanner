@@ -159,6 +159,197 @@ def _parse_stack_address(item: Any) -> str:
         raise ValueError("TONAPI returned a malformed order address") from exc
 
 
+
+def _read_hashmap_cells(cell, *, key_bits: int = 8) -> list[tuple[int, Any]]:
+    """Read a direct Hashmap(key_bits, ^Cell), used by Multisig V2 order actions."""
+    entries: list[tuple[int, Any]] = []
+
+    def read_label(slice_, remaining: int) -> list[int]:
+        first = slice_.read_bit()
+        if first == 0:
+            length = 0
+            while slice_.read_bit() == 1:
+                length += 1
+            if length > remaining:
+                raise ValueError("Invalid TON action dictionary label length")
+            return list(slice_.read_bits(length))
+        second = slice_.read_bit()
+        width = math.ceil(math.log2(remaining + 1))
+        if second == 0:
+            length = slice_.read_uint(width) if width else 0
+            if length > remaining:
+                raise ValueError("Invalid TON action dictionary label length")
+            return list(slice_.read_bits(length))
+        repeated = slice_.read_bit()
+        length = slice_.read_uint(width) if width else 0
+        if length > remaining:
+            raise ValueError("Invalid TON action dictionary label length")
+        return [repeated] * length
+
+    def walk(node, remaining: int, prefix: list[int]) -> None:
+        slice_ = node.begin_parse()
+        prefix = prefix + read_label(slice_, remaining)
+        remaining -= len(prefix) - len(prefix[:len(prefix) - 0]) if False else 0
+        # The remaining key width is based on the full prefix, including the path
+        # bits supplied by the caller.
+        remaining = key_bits - len(prefix)
+        if remaining == 0:
+            value = slice_.read_ref()
+            slice_.end_parse()
+            key = int("".join(str(bit) for bit in prefix), 2) if prefix else 0
+            entries.append((key, value))
+            return
+        slice_.end_parse()
+        if len(node.refs) != 2:
+            raise ValueError("Malformed TON action dictionary fork")
+        walk(node.refs[0], remaining - 1, prefix + [0])
+        walk(node.refs[1], remaining - 1, prefix + [1])
+
+    walk(cell, key_bits, [])
+    entries.sort(key=lambda item: item[0])
+    if [key for key, _ in entries] != list(range(len(entries))):
+        raise ValueError("TON multisig action indexes are not sequential")
+    return entries
+
+
+def _cell_to_address_list(cell) -> list[str]:
+    return _read_hashmap_addresses(
+        base64.b64encode(cell.to_boc(False)).decode("ascii")
+    )
+
+
+def _parse_relaxed_internal_message(message_cell) -> dict[str, Any]:
+    """Decode internal MessageRelaxed header and body fingerprint."""
+    from tonsdk.utils import Address
+
+    message = message_cell.begin_parse()
+    if message.read_uint(1) != 0:
+        raise ValueError("Only internal treasury messages are supported for review")
+    ihr_disabled = bool(message.read_bit())
+    bounce = bool(message.read_bit())
+    bounced = bool(message.read_bit())
+    source = message.read_msg_addr()
+    destination = message.read_msg_addr()
+    if destination is None or not isinstance(destination, Address):
+        raise ValueError("Treasury message destination is not a standard internal address")
+    amount = message.read_coins()
+    extra_currencies = bool(message.read_bit())
+    if extra_currencies:
+        message.read_ref()
+    ihr_fee = message.read_coins()
+    forward_fee = message.read_coins()
+    created_lt = message.read_uint(64)
+    created_at = message.read_uint(32)
+    has_state_init = bool(message.read_bit())
+    if has_state_init:
+        raise ValueError("Treasury message with StateInit requires separate review")
+    body_in_ref = bool(message.read_bit())
+    if body_in_ref:
+        body = message.read_ref()
+        message.end_parse()
+        body_slice = body.begin_parse()
+        body_op = body_slice.read_uint(32) if body_slice.bits >= 32 else None
+        body_hash = body.bytes_hash().hex()
+    else:
+        body_op = message.read_uint(32) if message.bits >= 32 else None
+        body_hash = None
+    source_text = None
+    if isinstance(source, Address):
+        source_text = f"{int(source.wc)}:{bytes(source.hash_part).hex()}"
+    return {
+        "message_kind": "internal",
+        "source": source_text,
+        "recipient": f"{int(destination.wc)}:{bytes(destination.hash_part).hex()}",
+        "amount_nano": str(amount),
+        "ihr_disabled": ihr_disabled,
+        "bounce": bounce,
+        "bounced": bounced,
+        "extra_currencies": extra_currencies,
+        "ihr_fee_nano": str(ihr_fee),
+        "forward_fee_nano": str(forward_fee),
+        "created_lt": str(created_lt),
+        "created_at": created_at,
+        "body_op": body_op,
+        "body_hash": body_hash,
+    }
+
+
+def decode_multisig_order_actions(order_cell_boc: str) -> dict[str, Any]:
+    """Decode the official Multisig V2 order Hashmap(8, ^Cell) action layout.
+
+    Decoding is descriptive only. No action is marked safe to approve: transfer
+    destinations, message bodies and governance changes still require policy review.
+    """
+    from tonsdk.boc import Cell
+
+    if not isinstance(order_cell_boc, str) or not order_cell_boc:
+        raise ValueError("Order action cell is missing")
+    try:
+        root = Cell.one_from_boc(base64.b64decode(order_cell_boc, validate=True))
+        entries = _read_hashmap_cells(root, key_bits=8)
+    except Exception as exc:
+        raise ValueError("Malformed Multisig V2 order action dictionary") from exc
+    if not entries:
+        raise ValueError("Multisig V2 order contains no actions")
+    if len(entries) > 255:
+        raise ValueError("Multisig V2 order exceeds the 255-action limit")
+
+    actions: list[dict[str, Any]] = []
+    for index, action_cell in entries:
+        action = action_cell.begin_parse()
+        opcode = action.read_uint(32)
+        if opcode == 0xF1381E5B:  # actions::send_message
+            mode = action.read_uint(8)
+            message_cell = action.read_ref()
+            action.end_parse()
+            message = _parse_relaxed_internal_message(message_cell)
+            actions.append({
+                "index": index,
+                "kind": "send_message",
+                "opcode": f"0x{opcode:08x}",
+                "send_mode": mode,
+                **message,
+                "review_required": True,
+                "approval_safe": False,
+                "review_reason": "Message body and destination policy require independent validation",
+            })
+        elif opcode == 0x1D0CFBD3:  # actions::update_multisig_params
+            threshold = action.read_uint(8)
+            signer_cell = action.read_ref()
+            signers = _cell_to_address_list(signer_cell)
+            has_proposers = bool(action.read_bit())
+            proposers = _cell_to_address_list(action.read_ref()) if has_proposers else []
+            action.end_parse()
+            if not signers or threshold < 1 or threshold > len(signers):
+                raise ValueError("Multisig governance action has an invalid threshold or signer set")
+            actions.append({
+                "index": index,
+                "kind": "update_multisig_params",
+                "opcode": f"0x{opcode:08x}",
+                "threshold": threshold,
+                "signers": signers,
+                "proposers": proposers,
+                "review_required": True,
+                "approval_safe": False,
+                "review_reason": "Governance changes are never auto-approved",
+            })
+        else:
+            actions.append({
+                "index": index,
+                "kind": "unknown",
+                "opcode": f"0x{opcode:08x}",
+                "review_required": True,
+                "approval_safe": False,
+                "review_reason": "Unknown action opcode",
+            })
+    return {
+        "actions": actions,
+        "action_count": len(actions),
+        "actions_decoded": True,
+        "approval_safe": False,
+    }
+
+
 def decode_multisig_order_getter(payload: Any) -> dict[str, Any]:
     """Decode the official Multisig V2 get_order_data getter metadata."""
     if not isinstance(payload, dict) or payload.get("success") is not True:
@@ -186,17 +377,23 @@ def decode_multisig_order_getter(payload: Any) -> dict[str, Any]:
     if not has_order and not (isinstance(order_item, dict) and order_item.get("type") == "null"):
         raise ValueError("TONAPI returned an invalid order action cell")
     payload_hash = None
+    decoded_actions: dict[str, Any] = {
+        "actions": [],
+        "action_count": 0,
+        "actions_decoded": False,
+        "approval_safe": False,
+    }
     if has_order:
         from tonsdk.boc import Cell
         payload_boc = order_item.get("cell")
         if not isinstance(payload_boc, str) or not payload_boc:
             raise ValueError("TONAPI returned an empty order action cell")
         try:
-            payload_hash = Cell.one_from_boc(
-                base64.b64decode(payload_boc, validate=True)
-            ).bytes_hash().hex()
+            payload_cell = Cell.one_from_boc(base64.b64decode(payload_boc, validate=True))
+            payload_hash = payload_cell.bytes_hash().hex()
+            decoded_actions = decode_multisig_order_actions(payload_boc)
         except Exception as exc:
-            raise ValueError("TONAPI returned a malformed order action cell") from exc
+            raise ValueError("TONAPI returned an invalid or unsupported order action cell") from exc
     if approvals_mask is not None and approvals_mask < 0:
         raise ValueError("TONAPI returned a negative order approvals mask")
     if approvals_num is not None and approvals_num < 0:
@@ -224,6 +421,7 @@ def decode_multisig_order_getter(payload: Any) -> dict[str, Any]:
         "expiration_date": expiration_date,
         "has_order_payload": has_order,
         "order_payload_hash": payload_hash,
+        **decoded_actions,
     }
 
 
