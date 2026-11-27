@@ -1324,3 +1324,75 @@ button:focus-visible,a:focus-visible{outline:2px solid #65c5ff!important;outline
   .asset-card,.asset-gift-image,.nav-item,.mobile-nav button,.ton-primary,.publish-button,.search-button,.asset-offer-button{transition:none!important}
   .asset-card:hover{transform:none!important}
 }
+
+
+/* HASSLE UX finish pass: readable density, premium surfaces, clear action hierarchy. */
+.page-heading{max-width:1120px}
+.page-heading h1{letter-spacing:-.045em!important;font-weight:760!important}
+.page-heading p{max-width:620px;line-height:1.65!important}
+.market-heading-row{align-items:flex-end!important;gap:18px!important}
+.market-heading-row h2{letter-spacing:-.035em!important;font-weight:760!important}
+.market-meta{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.market-currency-legend{display:inline-flex;align-items:center;gap:6px;color:#c5d8e9!important;font-weight:650!important}
+.asset-card{overflow:hidden!important;isolation:isolate}
+.asset-art{position:relative!important;display:grid;place-items:center;min-height:180px;overflow:hidden!important}
+.asset-art:before{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 12%,rgba(180,225,255,.16),transparent 56%),linear-gradient(180deg,rgba(255,255,255,.035),transparent 42%,rgba(0,0,0,.18));z-index:0}
+.asset-art>*{z-index:1}
+.asset-gift-image{width:100%;height:100%;object-fit:contain!important;padding:15px!important;filter:drop-shadow(0 14px 22px rgba(0,0,0,.28))}
+.asset-brand-art{width:48px!important;height:48px!important;opacity:.72!important;filter:drop-shadow(0 8px 18px rgba(0,0,0,.25))}
+.asset-at,.asset-number{font-weight:780!important;letter-spacing:-.055em!important;text-shadow:0 10px 24px rgba(0,0,0,.25)}
+.asset-art-username strong{font-size:clamp(20px,2.1vw,27px)!important;letter-spacing:-.045em!important;color:#f4f9ff!important;text-shadow:0 8px 24px rgba(0,0,0,.32)}
+.asset-art-username small,.asset-art-number small{letter-spacing:.16em!important;font-size:9px!important;color:rgba(226,241,255,.66)!important}
+.asset-card-content{padding:14px 15px 15px!important;gap:10px!important}
+.asset-title-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.asset-title-button{font-size:15px!important;letter-spacing:-.02em!important;font-weight:720!important;text-align:left!important}
+.asset-owner{font-size:11px!important;line-height:1.45!important;min-height:16px}
+.asset-card-traits{display:flex;gap:6px;flex-wrap:wrap}
+.asset-card-trait{min-width:0;max-width:calc(50% - 3px);padding:6px 8px!important;border-radius:9px!important;background:rgba(4,12,22,.55)!important;border:1px solid rgba(139,190,232,.12)!important}
+.asset-card-trait b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#dceeff!important;font-size:10px!important}
+.asset-card-trait small,.asset-card-trait em{font-size:8px!important;letter-spacing:.08em!important;color:#809bb4!important}
+.asset-card-footer{align-items:flex-end!important;gap:8px!important;padding-top:11px!important}
+.asset-card-footer>div>small{font-size:10px!important;color:#91a7bc!important}
+.asset-card-footer>div>strong{display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:16px!important;letter-spacing:-.025em!important}
+.asset-card-actions{display:flex;align-items:center;gap:6px}
+.asset-offer-button,.asset-details-button{min-height:36px!important;padding:0 11px!important;border-radius:10px!important;font-size:11px!important;font-weight:720!important;white-space:nowrap}
+.asset-details-button{background:rgba(150,194,228,.08)!important;border:1px solid rgba(150,194,228,.17)!important}
+.asset-type-pill{font-size:9px!important;font-weight:750!important;letter-spacing:.045em!important;backdrop-filter:blur(12px)}
+.asset-favorite{width:34px!important;height:34px!important;display:grid;place-items:center;backdrop-filter:blur(12px)}
+.market-filter-sheet,.gift-modal,.hassle-info-sheet,.sell-modal{box-shadow:0 28px 90px rgba(0,0,0,.58),inset 0 1px rgba(255,255,255,.04)!important;backdrop-filter:blur(24px)}
+.profile-layout{gap:16px!important}
+.profile-card{border-radius:18px!important}
+.profile-main{padding:20px!important}
+.account-stat{border-radius:14px!important;padding:14px!important}
+.account-stat small{color:#8ea4b9!important;font-size:10px!important}
+.account-stat strong{font-size:23px!important;letter-spacing:-.04em!important}
+.gram-profile-card,.wallet-card{border-radius:18px!important}
+.profile-trades-details{border:1px solid rgba(132,177,221,.14)!important;border-radius:16px!important;background:linear-gradient(145deg,#111e2e,#0b1420)!important;overflow:hidden}
+.profile-trades-details>summary{padding:17px 18px!important;cursor:pointer}
+.profile-trades-details>summary strong{color:#edf7ff!important}
+.profile-trades-content{padding:0 16px 16px!important}
+.verified-inventory-item,.profile-asset-row{background:linear-gradient(145deg,rgba(20,35,53,.9),rgba(10,18,29,.94))!important;border:1px solid rgba(132,177,221,.13)!important;border-radius:15px!important;padding:12px!important;transition:border-color .2s ease,transform .2s ease!important}
+.verified-inventory-item:hover,.profile-asset-row:hover{border-color:rgba(69,184,255,.32)!important}
+.inventory-filter-group button{border-radius:10px!important;transition:background .18s ease,color .18s ease,border-color .18s ease!important}
+.inventory-filter-group button.active{background:rgba(69,184,255,.15)!important;border-color:rgba(69,184,255,.32)!important;color:#c9edff!important}
+.form-input,.market-search input,.inventory-trait-search{min-height:44px!important;border-radius:11px!important}
+button:disabled{cursor:not-allowed!important;filter:saturate(.55)!important;opacity:.55!important}
+.toast{box-shadow:0 16px 45px rgba(0,0,0,.38)!important;backdrop-filter:blur(18px)}
+@media(max-width:720px){
+  .market-heading-row{align-items:flex-start!important;flex-direction:column!important}
+  .market-heading-row>.refresh-button{align-self:stretch!important}
+  .asset-art{min-height:145px}
+  .asset-card-content{padding:11px!important}
+  .asset-card-footer>div>strong{font-size:14px!important}
+  .asset-offer-button,.asset-details-button{min-height:33px!important;padding:0 8px!important}
+  .profile-main{align-items:center!important}
+  .account-stats-grid{gap:9px!important}
+}
+@media(max-width:390px){
+  .asset-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .asset-card-content{padding:9px!important}
+  .asset-card-footer{align-items:flex-start!important;flex-direction:column!important}
+  .asset-card-actions{width:100%}
+  .asset-card-actions button{flex:1}
+  .asset-title-button{font-size:13px!important}
+}
