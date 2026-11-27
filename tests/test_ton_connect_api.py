@@ -76,6 +76,47 @@ class TonConnectApiTests(unittest.TestCase):
         self.assertEqual(audit["target_type"], "wallet")
         self.assertEqual(__import__("json").loads(audit["metadata_json"]), {"network": "-239"})
 
+    def test_auth_and_ton_proof_requests_reject_oversized_fields(self):
+        oversized_auth = self.client.post(
+            "/api/auth/telegram",
+            json={"init_data": "x" * 8193},
+        )
+        self.assertEqual(oversized_auth.status_code, 422)
+
+        headers = {"X-Telegram-Init-Data": self.session}
+        challenge = self.client.post("/api/ton-proof/payload", headers=headers).json()["payload"]
+        request = {
+            "address": "0:" + "a" * 64,
+            "network": "-239",
+            "public_key": "b" * 64,
+            "state_init": "c3RhdGU=",
+            "proof": {
+                "timestamp": 1800000000,
+                "domain": {"lengthBytes": 40, "value": "hassle-nft-market.fj7kmzkhn9.workers.dev"},
+                "signature": "c2ln",
+                "payload": challenge,
+            },
+        }
+        oversized_address = {**request, "address": "a" * 129}
+        with patch.object(app, "verify_ton_proof") as verifier:
+            response = self.client.post("/api/ton-proof/verify", headers=headers, json=oversized_address)
+        self.assertEqual(response.status_code, 422)
+        verifier.assert_not_called()
+
+        oversized_domain = {
+            **request,
+            "proof": {
+                **request["proof"],
+                "domain": {"lengthBytes": 129, "value": "d" * 129},
+            },
+        }
+        response = self.client.post("/api/ton-proof/verify", headers=headers, json=oversized_domain)
+        self.assertEqual(response.status_code, 422)
+
+        oversized_state_init = {**request, "state_init": "A" * 16385}
+        response = self.client.post("/api/ton-proof/verify", headers=headers, json=oversized_state_init)
+        self.assertEqual(response.status_code, 422)
+
     def test_ton_proof_challenge_is_rate_limited_per_account(self):
         with patch.object(app, "_enforce_user_rate_limit") as limiter:
             response = self.client.post(
