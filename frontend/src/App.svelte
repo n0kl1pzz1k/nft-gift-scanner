@@ -69,6 +69,8 @@
   let verifiedAssets = $state<VerifiedAsset[]>([]);
   let giftPreviewUrls = $state<Record<string,string>>({});
   let verifiedAssetsLoading = $state(false);
+  let telegramOwnershipSnapshotComplete = $state(false);
+  let lastOwnershipRefreshAt = 0;
   let inventoryFilter = $state<'all'|'telegram_gift'|'ton_nft'>('all');
   let inventoryListingFilter = $state<'all'|'listed'|'unlisted'>('all');
   let assetListingEnabled = $state(false);
@@ -252,6 +254,7 @@
     });
   });
   const inventoryAssets = $derived(orders.filter(order => order.isMine && order.kind === 'listing'));
+  const visibleVerifiedAssets = $derived(verifiedAssets.filter(asset => asset.source !== 'telegram_gift' || telegramOwnershipSnapshotComplete));
   const tonFloor = $derived(marketplaceStats.floor_ton && marketplaceStats.floor_ton > 0 ? marketplaceStats.floor_ton.toFixed(2) : '—');
   const starsFloor = $derived(marketplaceStats.floor_stars && marketplaceStats.floor_stars > 0 ? marketplaceStats.floor_stars.toFixed(0) : '—');
   function assetTypeOf(order: MarketplaceOrder): AssetTypeFilter | 'unknown' {
@@ -284,7 +287,7 @@
     notice = '';
     try { window.scrollTo(0, 0); } catch {}
     if (signedIn) {
-      void Promise.all([loadSellerProfile(), loadVerifiedInventory(), loadOffersAndDeals()])
+      void Promise.all([loadSellerProfile(), refreshOwnershipInventory(), loadOffersAndDeals()])
         .catch(error => { notice = error instanceof Error ? error.message : String(error); });
       return;
     }
@@ -476,6 +479,7 @@
     businessGiftImportMessage = '';
     try {
       const result = await request('/api/marketplace/assets/import-business-gifts', undefined, { method: 'POST' });
+      telegramOwnershipSnapshotComplete = result.ownership_scan_complete === true;
       await loadVerifiedInventory();
       const count = Number(result.imported) || 0;
       businessGiftImportMessage = lang === 'ru'
@@ -485,6 +489,7 @@
         businessGiftImportMessage += lang === 'ru' ? ' Проверка владения не завершена, повтори позже.' : ' The scan was partial; refresh again later.';
       }
     } catch (e) {
+      telegramOwnershipSnapshotComplete = false;
       businessGiftImportMessage = e instanceof Error ? e.message : String(e);
     } finally {
       businessGiftImportBusy = false;
@@ -504,6 +509,7 @@
     telegramGiftImportMessage = '';
     try {
       const result = await request('/api/marketplace/assets/import-telegram', undefined, { method: 'POST' });
+      telegramOwnershipSnapshotComplete = result.ownership_scan_complete === true;
       await loadVerifiedInventory();
       const count = Number(result.imported) || 0;
       telegramGiftImportMessage = lang === 'ru'
@@ -513,11 +519,29 @@
         telegramGiftImportMessage += lang === 'ru' ? ' Проверка владения не завершена; попробуй позже.' : ' Ownership verification was incomplete; try again later.';
       }
     } catch (e) {
+      telegramOwnershipSnapshotComplete = false;
       telegramGiftImportMessage = e instanceof Error ? e.message : String(e);
     } finally {
       telegramGiftImportBusy = false;
     }
   }
+  async function refreshOwnershipInventory() {
+    if (!signedIn || !authToken) {
+      await loadVerifiedInventory();
+      return;
+    }
+    const now = Date.now();
+    if (now - lastOwnershipRefreshAt < 45_000) {
+      await loadVerifiedInventory();
+      return;
+    }
+    lastOwnershipRefreshAt = now;
+    telegramOwnershipSnapshotComplete = false;
+    await importTelegramGifts();
+    if (walletConnected) await importTonWalletAssets();
+    await loadVerifiedInventory();
+  }
+
   function startAssetListing(asset: VerifiedAsset) {
     if (!assetListingEnabled || asset.active_listing_id) return;
     selectedInventoryAsset = asset;
@@ -1653,8 +1677,8 @@
              <div class="inventory-toolbar-groups">
                <div class="inventory-filter-group" role="group" aria-label={lang==='ru'?'Источник активов':'Asset source'}>
                  <button class:active={inventoryFilter==='all'} type="button" onclick={()=>inventoryFilter='all'}>{lang==='ru'?'Все источники':'All sources'} <span>{verifiedAssets.length}</span></button>
-                 <button class:active={inventoryFilter==='telegram_gift'} type="button" onclick={()=>inventoryFilter='telegram_gift'}>Telegram <span>{verifiedAssets.filter(asset=>asset.source==='telegram_gift').length}</span></button>
-                 <button class:active={inventoryFilter==='ton_nft'} type="button" onclick={()=>inventoryFilter='ton_nft'}>TON NFT <span>{verifiedAssets.filter(asset=>asset.source==='ton_nft').length}</span></button>
+                 <button class:active={inventoryFilter==='telegram_gift'} type="button" onclick={()=>inventoryFilter='telegram_gift'}>Telegram <span>{visibleVerifiedAssets.filter(asset=>asset.source==='telegram_gift').length}</span></button>
+                 <button class:active={inventoryFilter==='ton_nft'} type="button" onclick={()=>inventoryFilter='ton_nft'}>TON NFT <span>{visibleVerifiedAssets.filter(asset=>asset.source==='ton_nft').length}</span></button>
                </div>
                <div class="inventory-filter-group inventory-status-tabs" role="group" aria-label={lang==='ru'?'Статус объявления':'Listing status'}>
                  <button class:active={inventoryListingFilter==='all'} type="button" onclick={()=>inventoryListingFilter='all'}>{lang==='ru'?'Все':'All'}</button>
@@ -1662,11 +1686,11 @@
                  <button class:active={inventoryListingFilter==='unlisted'} type="button" onclick={()=>inventoryListingFilter='unlisted'}>{lang==='ru'?'Не выставленные':'Unlisted'} <span>{verifiedAssets.filter(asset=>!asset.active_listing_id).length}</span></button>
                </div>
              </div>
-             <button class="refresh-button" type="button" onclick={loadVerifiedInventory} disabled={verifiedAssetsLoading}>{lang==='ru'?'Обновить':'Refresh'} ↻</button>
+             <button class="refresh-button" type="button" onclick={refreshOwnershipInventory} disabled={verifiedAssetsLoading || telegramGiftImportBusy || businessGiftImportBusy || tonNftImportBusy}>{lang==='ru'?'Обновить':'Refresh'} ↻</button>
            </div>
-         {#if verifiedAssets.filter(asset=>(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))).length}
+         {#if visibleVerifiedAssets.filter(asset=>(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))).length}
          <div class="verified-inventory-list">
-           {#each verifiedAssets.filter(asset=>(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))) as asset (asset.id)}
+           {#each visibleVerifiedAssets.filter(asset=>(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))) as asset (asset.id)}
              <article class="verified-inventory-item">
                {#if assetPreviewUrl(asset)}<img src={assetPreviewUrl(asset)} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder"><span>HASSLE</span><small>{asset.source==='telegram_gift'?(lang==='ru'?'КОЛЛЕКЦИОННЫЙ ПОДАРОК':'COLLECTIBLE GIFT'):asset.asset_type==='username'?'TELEGRAM USERNAME':asset.asset_type==='number'?'ANONYMOUS NUMBER':'VERIFIED ASSET'}</small></div>{/if}
                <div class="verified-inventory-details">
@@ -1708,7 +1732,7 @@
         <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">TON CONNECT · PROOF</div><h2>{lang==='ru'?'TON-кошелёк':'TON wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления TON и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for TON to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletAddress=address;walletConnected=Boolean(address);}} /></div>
       </article>
       <article class="profile-card profile-inventory-card">
-        <div class="profile-inventory-heading"><div><div class="eyebrow">YOUR COLLECTION</div><h2>{lang==='ru'?'Подарки и инвентарь':'Gifts & inventory'}</h2><small>{verifiedAssets.length} {lang==='ru'?'подтверждённых активов':'verified assets'}</small></div><button class="refresh-button" type="button" onclick={loadVerifiedInventory} disabled={verifiedAssetsLoading}>↻</button></div>
+        <div class="profile-inventory-heading"><div><div class="eyebrow">YOUR COLLECTION</div><h2>{lang==='ru'?'Подарки и инвентарь':'Gifts & inventory'}</h2><small>{visibleVerifiedAssets.length} {lang==='ru'?'подтверждённых активов':'verified assets'}</small></div><button class="refresh-button" type="button" onclick={loadVerifiedInventory} disabled={verifiedAssetsLoading}>↻</button></div>
         <div class="profile-import-actions">
           <button type="button" class="profile-import-button" onclick={importTelegramGifts} disabled={!signedIn || telegramGiftImportBusy}>{telegramGiftImportBusy?'…':(lang==='ru'?'＋ Импорт Telegram':'＋ Import Telegram')}</button>
           <button type="button" class="profile-import-button" onclick={importBusinessGifts} disabled={!signedIn || !telegramBusinessStatus.gift_import_ready || businessGiftImportBusy}>{businessGiftImportBusy?'…':(lang==='ru'?'Business gifts':'Business gifts')}</button>
@@ -1722,7 +1746,7 @@
           <div class="profile-inventory-empty">{lang==='ru'?'Обновляем инвентарь…':'Refreshing inventory…'}</div>
         {:else if verifiedAssets.length}
           <div class="profile-inventory-list">
-            {#each verifiedAssets as asset (asset.id)}
+            {#each visibleVerifiedAssets as asset (asset.id)}
               <article class="profile-asset-row">
                 {#if assetPreviewUrl(asset)}<img src={assetPreviewUrl(asset)} alt={asset.title} loading="lazy"/>{:else}<img class="profile-asset-placeholder" src="/brand/hassle-mark.webp?v=224" alt="HASSLE NFT"/>{/if}
                 <div class="profile-asset-copy"><strong>{asset.title}</strong><small>{asset.source==='telegram_gift'?'Telegram Gift':asset.source==='ton_nft'?'TON NFT':asset.asset_type==='username'?'Username':'+888'} · {asset.active_listing_id?(lang==='ru'?'На продаже':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</small></div>
