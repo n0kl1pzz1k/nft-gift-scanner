@@ -830,6 +830,7 @@
     const labels: Record<string,string> = {
       deal_created: lang==='ru'?'Создана сделка':'Deal created',
       listing_reserved: lang==='ru'?'Актив зарезервирован':'Listing reserved',
+      payment_not_enabled:lang==='ru'?'Оплата пока недоступна':'Payment not enabled',
       deal_payment_requested: lang==='ru'?'Запрошена оплата':'Payment requested',
       payment_intent_created: lang==='ru'?'Создан платёжный счёт':'Payment invoice created',
       payment_pending: lang==='ru'?'Проверка платежа':'Payment pending',
