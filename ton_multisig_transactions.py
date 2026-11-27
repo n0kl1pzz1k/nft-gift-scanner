@@ -47,7 +47,7 @@ def _validate_marketplace_actions(order_cell: Cell) -> dict[str, Any]:
     for action in actions:
         if action.get("kind") != "send_message":
             raise ValueError("Governance and unknown actions cannot be proposed as marketplace transfers")
-        if action.get("message_kind") not in {"nft_transfer", "jetton_transfer"}:
+        if action.get("body_kind") not in {"nft_transfer", "jetton_transfer"}:
             raise ValueError("Only decoded NFT and Jetton transfers can be prepared for marketplace review")
         if not action.get("body_fields_decoded") or not action.get("asset_recipient"):
             raise ValueError("Transfer recipient could not be decoded safely")
