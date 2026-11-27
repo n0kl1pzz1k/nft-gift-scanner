@@ -213,3 +213,7 @@ button:disabled:hover{transform:none!important;filter:saturate(.35)!important}
 button[aria-busy="true"]{cursor:progress!important;opacity:.72!important}
 button:not(:disabled):active{transform:translateY(1px)!important}
 .form-input:disabled,input:disabled,select:disabled,textarea:disabled{cursor:not-allowed!important;opacity:.48!important;background:#0b1118!important;color:#8291a1!important}
+
+.market-collection-row{width:100%!important;text-align:left!important;appearance:none!important;-webkit-appearance:none!important;border-top:0!important;border-left:0!important;border-right:0!important;background:transparent!important;color:inherit!important;cursor:pointer!important;transition:background .16s ease,border-color .16s ease!important}
+.market-collection-row:hover{background:rgba(48,161,245,.055)!important;border-bottom-color:rgba(48,161,245,.28)!important}
+.market-collection-row:focus-visible{outline:2px solid var(--hx-blue)!important;outline-offset:3px!important}
