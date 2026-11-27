@@ -1274,6 +1274,18 @@ def _normalize_verified_asset_traits(item: dict[str, Any]) -> dict[str, Any]:
             trait["image_url"] = image
         if isinstance(rarity, (int, float)) and not isinstance(rarity, bool) and 0 <= rarity <= 1000:
             trait["rarity_percent"] = round(float(rarity) / 10, 2)
+        tier = value.get("rarity") if isinstance(value, dict) else None
+        if canonical == "model" and tier in {"uncommon", "rare", "epic", "legendary"}:
+            trait["rarity_tier"] = tier
+        colors = value.get("colors") if isinstance(value, dict) and canonical == "backdrop" else None
+        if isinstance(colors, dict):
+            safe_colors = {}
+            for color_key, output_key in (("center_color", "center"), ("edge_color", "edge"), ("symbol_color", "symbol"), ("text_color", "text")):
+                color_value = colors.get(color_key)
+                if isinstance(color_value, int) and not isinstance(color_value, bool) and 0 <= color_value <= 0xFFFFFF:
+                    safe_colors[output_key] = f"#{color_value:06X}"
+            if safe_colors:
+                trait["colors"] = safe_colors
         if trait:
             result[canonical] = trait
     serial = item.get("number") or item.get("serial_number") or item.get("serial")
