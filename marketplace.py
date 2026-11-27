@@ -650,25 +650,35 @@ def save_telegram_business_gift_ref(
 
 
 def prune_telegram_business_gift_refs(
-    *, owner_telegram_id: str, business_connection_id: str, active_owned_gift_ids: set[str],
+    *, owner_telegram_id: str, business_connection_id: str,
+    active_owned_gift_ids: set[str], active_gift_slugs: set[str] | None = None,
 ) -> None:
     """Remove stale transfer handles only after a complete provider snapshot."""
     owner_id = str(owner_telegram_id).strip()
     if not owner_id.isdigit() or not business_connection_id:
         raise ValueError("A verified Business account is required")
     with _db() as conn:
-        # A complete Telegram snapshot is authoritative for Business-owned gifts.
-        # Revoke the marketplace asset itself, not just its transfer handle, or
-        # stale gifts remain visible forever in /assets/me after they leave Telegram.
-        stale_rows = conn.execute(
-            """SELECT asset_id FROM telegram_business_gift_refs
-               WHERE owner_telegram_id = ? AND business_connection_id = ?
-                 AND owned_gift_id NOT IN ({})""".format(
-                     ",".join("?" for _ in active_owned_gift_ids) if active_owned_gift_ids else "''"
-                 ),
-            (owner_id, business_connection_id, *sorted(active_owned_gift_ids)),
-        ).fetchall()
-        stale_asset_ids = [str(row["asset_id"]) for row in stale_rows if row["asset_id"]]
+        # A complete Business snapshot is authoritative for this Telegram
+        # account's unique gifts. Reconcile by public gift slug as well as the
+        # private owned_gift_id: older versions deleted stale refs without
+        # revoking their verified_assets rows, leaving orphaned phantom gifts.
+        active_slugs = {str(value).strip() for value in (active_gift_slugs or set()) if str(value).strip()}
+        if active_slugs:
+            placeholders = ",".join("?" for _ in active_slugs)
+            stale_rows = conn.execute(
+                f"""SELECT id FROM verified_assets
+                    WHERE source = 'telegram_gift' AND owner_telegram_id = ?
+                      AND status = 'verified' AND external_asset_id NOT IN ({placeholders})""",
+                (owner_id, *sorted(active_slugs)),
+            ).fetchall()
+        else:
+            stale_rows = conn.execute(
+                """SELECT id FROM verified_assets
+                   WHERE source = 'telegram_gift' AND owner_telegram_id = ?
+                     AND status = 'verified'""",
+                (owner_id,),
+            ).fetchall()
+        stale_asset_ids = [str(row["id"]) for row in stale_rows if row["id"]]
         if stale_asset_ids:
             placeholders = ",".join("?" for _ in stale_asset_ids)
             conn.execute(
