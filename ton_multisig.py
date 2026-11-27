@@ -304,24 +304,18 @@ def _decode_known_message_body(body_slice, opcode: int | None) -> dict[str, Any]
 
 def _parse_relaxed_internal_message(message_cell) -> dict[str, Any]:
     """Decode internal MessageRelaxed header and body fingerprint."""
-    from tonsdk.utils import Address
-
     message = message_cell.begin_parse()
     if message.read_uint(1) != 0:
         raise ValueError("Only internal treasury messages are supported for review")
     ihr_disabled = bool(message.read_bit())
     bounce = bool(message.read_bit())
     bounced = bool(message.read_bit())
-    source_tag = message.preload_uint(2)
-    if source_tag not in (0, 2):
-        raise ValueError("Treasury message source uses an unsupported address format")
-    source = message.read_msg_addr()
-    destination_tag = message.preload_uint(2)
-    if destination_tag != 2:
-        raise ValueError("Treasury message destination is not addr_std")
-    destination = message.read_msg_addr()
-    if destination is None or not isinstance(destination, Address):
-        raise ValueError("Treasury message destination is not a standard internal address")
+    source = _read_standard_message_address(
+        message, "Treasury message source", allow_none=True
+    )
+    destination = _read_standard_message_address(
+        message, "Treasury message destination"
+    )
     amount = message.read_coins()
     extra_currencies = bool(message.read_bit())
     if extra_currencies:
@@ -345,13 +339,10 @@ def _parse_relaxed_internal_message(message_cell) -> dict[str, Any]:
         body_op = body_slice.read_uint(32) if len(body_slice.bits) >= 32 else None
         body_hash = None
     body_fields = _decode_known_message_body(body_slice, body_op)
-    source_text = None
-    if isinstance(source, Address):
-        source_text = f"{int(source.wc)}:{bytes(source.hash_part).hex()}"
     return {
         "message_kind": "internal",
-        "source": source_text,
-        "recipient": f"{int(destination.wc)}:{bytes(destination.hash_part).hex()}",
+        "source": source,
+        "recipient": destination,
         "amount_nano": str(amount),
         "ihr_disabled": ihr_disabled,
         "bounce": bounce,
