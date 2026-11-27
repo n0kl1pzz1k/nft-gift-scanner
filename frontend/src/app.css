@@ -583,7 +583,7 @@ html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202
 @media(max-width:520px){.inventory-connect-panel{align-items:flex-start;padding:17px;gap:13px}.inventory-connect-icon{flex-basis:46px;height:46px;border-radius:14px;font-size:24px}.inventory-connect-panel h2{font-size:16px}.inventory-connect-panel p{font-size:11px}}
 
 
-/* HASSLE NFT: the TON coin is a visible, decorative background element only. */
+/* HASSLE NFT: GRAM coin background, matching the product token mark. */
 .market-app{
   position:relative;
   isolation:isolate;
@@ -601,7 +601,8 @@ html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202
   border-radius:50%;
   background:
     linear-gradient(145deg,rgba(255,255,255,.16),rgba(0,20,58,.24)),
-    url("https://s3.coinmarketcap.com/static/img/portraits/6304d4f7dcf54d0fb59743ba.png") center/100% 100% no-repeat;
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 320'%3E%3Cpath d='M99 85H221C229 85 236 89 241 96L257 145C260 152 258 158 252 164L168 247C163 252 157 252 152 247L66 163C60 157 59 151 63 144L94 95C96 89 102 85 109 85Z' fill='white'/%3E%3Cpath d='M184 109C187 109 189 111 190 115L199 139L222 148C227 150 227 156 222 158L199 167L190 190C188 195 181 195 179 190L170 167L147 158C142 156 142 150 147 148L170 139L179 115C180 111 182 109 184 109Z' fill='%2330A1F5'/%3E%3C/svg%3E") center/52% 52% no-repeat,
+    linear-gradient(145deg,#58bdff,#30A1F5 48%,#0875ca);
   box-shadow:
     inset 0 0 0 5px rgba(207,237,255,.22),
     inset 0 -24px 42px rgba(0,14,48,.48),
