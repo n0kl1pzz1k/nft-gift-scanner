@@ -670,6 +670,33 @@ async def get_verified_gift_preview(asset_id: str, x_telegram_init_data: str | N
     )
 
 
+@app.get("/api/marketplace/public-assets/{asset_id}/preview")
+async def get_public_verified_gift_preview(asset_id: str, request: Request):
+    # Public thumbnails are only available for currently active listings.
+    # Rate-limit by source IP and never expose Telegram file IDs to clients.
+    client_ip = request.client.host if request.client else "unknown"
+    _enforce_user_rate_limit(f"public:{client_ip}", "public_gift_preview", 60, 60)
+    preview_ref = get_public_telegram_business_gift_preview_ref(asset_id)
+    if not preview_ref:
+        raise HTTPException(status_code=404, detail="Public gift preview not found")
+    file_id = str(preview_ref.get("model_sticker_file_id") or "")
+    if not file_id:
+        raise HTTPException(status_code=404, detail="Telegram has no static preview for this gift model")
+    try:
+        image_data, media_type = await fetch_sticker_preview(file_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="Telegram gift preview is temporarily unavailable", headers={"Retry-After": "30"}) from exc
+    return Response(
+        content=image_data,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "public, max-age=300",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        },
+    )
+
+
 @app.post("/api/marketplace/assets/import-telegram")
 async def import_telegram_gifts(x_telegram_init_data: str | None = Header(default=None)):
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
