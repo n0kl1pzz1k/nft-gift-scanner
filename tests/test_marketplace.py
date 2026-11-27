@@ -821,8 +821,25 @@ class SharedMarketplaceTests(unittest.TestCase):
                 return {
                     "success": True,
                     "account": treasury,
+                    "utime": int(time.time()),
                     "out_msgs": [{"destination":buyer_wallet,"value":"9000000000"}],
                 }
+
+        class FakeOldTonResponse(FakeTonResponse):
+            def json(self):
+                body = super().json()
+                body["utime"] = int(time.time()) - 3600
+                return body
+
+        class FakeOldTonClient:
+            def __init__(self, **kwargs):
+                pass
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return False
+            async def get(self, url, headers):
+                return FakeOldTonResponse()
 
         class FakeTonClient:
             def __init__(self, **kwargs):
@@ -834,6 +851,16 @@ class SharedMarketplaceTests(unittest.TestCase):
             async def get(self, url, headers):
                 self.url = url
                 return FakeTonResponse()
+
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS":"202,303","TONAPI_TOKEN":"test-tonapi-token"}), patch(
+            "marketplace_offers._require_ton_multisig_2_of_3", new=AsyncMock(return_value=None),
+        ), patch("httpx.AsyncClient", FakeOldTonClient):
+            old_transfer = self.client.post(
+                f"/api/marketplace/admin/deals/{deal_id}/execute-ton-refund",
+                headers={"X-Telegram-Init-Data":"user-b"},
+                json={"transaction_hash":"ab"*32,"idempotency_key":"ton-refund-execute-001"},
+            )
+        self.assertEqual(old_transfer.status_code, 409, old_transfer.text)
 
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_IDS":"202,303","TONAPI_TOKEN":"test-tonapi-token"}), patch(
             "marketplace_offers._require_ton_multisig_2_of_3", new=AsyncMock(return_value=None),
@@ -1025,8 +1052,19 @@ class SharedMarketplaceTests(unittest.TestCase):
                 return {
                     "success": True,
                     "account": treasury,
+                    "utime": int(time.time()),
                     "out_msgs": [{"destination": seller_address, "value": "9000000000"}],
                 }
+        class FakeOldPayoutResponse(FakePayoutResponse):
+            def json(self):
+                body = super().json()
+                body["utime"] = int(time.time()) - 3600
+                return body
+
+        class FakeOldPayoutClient(FakePayoutClient):
+            async def get(self, url, headers):
+                return FakeOldPayoutResponse()
+
         class FakePayoutClient:
             def __init__(self, **kwargs):
                 pass
@@ -1087,6 +1125,16 @@ class SharedMarketplaceTests(unittest.TestCase):
                 json={"transaction_hash":"ba"*32,"idempotency_key":"seller-payout-wrong-destination"},
             )
         self.assertEqual(wrong_destination.status_code, 409, wrong_destination.text)
+        with patch.dict(os.environ, payout_flags), patch(
+            "marketplace_offers._require_ton_multisig_2_of_3", new=AsyncMock(return_value=None),
+        ), patch("httpx.AsyncClient", FakeOldPayoutClient):
+            old_payout = self.client.post(
+                f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
+                headers={"X-Telegram-Init-Data":"user-b"},
+                json={"transaction_hash":"aa"*32,"idempotency_key":"seller-payout-old-transfer"},
+            )
+        self.assertEqual(old_payout.status_code, 409, old_payout.text)
+
         with patch.dict(os.environ, payout_flags), patch(
             "marketplace_offers._require_ton_multisig_2_of_3", new=AsyncMock(return_value=None),
         ), patch("httpx.AsyncClient", FakePayoutClient):
