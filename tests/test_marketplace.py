@@ -2596,6 +2596,10 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(deal["id"], bought.json()["deal_id"])
         self.assertEqual(deal["agreed_amount"], "250")
         self.assertEqual(deal["currency"], "XTR")
+        seller_notifications = self.client.get("/api/marketplace/notifications", headers=seller_headers)
+        buyer_notifications = self.client.get("/api/marketplace/notifications", headers=buyer_headers)
+        self.assertIn("offer_received", {item["type"] for item in seller_notifications.json()["items"]})
+        self.assertIn("offer_accepted", {item["type"] for item in buyer_notifications.json()["items"]})
 
     def test_offer_creation_rolls_back_when_received_notification_insert_fails(self):
         owner_headers = {"X-Telegram-Init-Data": "user-a"}
