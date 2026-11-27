@@ -839,7 +839,7 @@
       escrow_funded: lang==='ru'?'Средства учтены в эскроу-журнале':'Escrow journal funded',
       asset_transfer_requested: lang==='ru'?'Подготовлена передача актива':'Asset transfer requested',
       asset_transfer_submitted: lang==='ru'?'Кошелёк отправил транзакцию':'Wallet transaction submitted',
-      asset_transfer_confirmed: lang==='ru'?'Новый владелец подтверждён в блокчейне':'New owner verified on TON',
+      asset_transfer_confirmed: lang==='ru'?'Новый владелец подтверждён в блокчейне':'New owner verified on the blockchain',
       deal_completed: lang==='ru'?'Сделка завершена':'Deal completed',
       deal_disputed: lang==='ru'?'Открыт спор':'Dispute opened',
       deal_cancelled: lang==='ru'?'Сделка отменена':'Deal cancelled',
@@ -1898,7 +1898,7 @@
                   <button type="button" onclick={()=>toggleDealTimeline(deal.id)}>{expandedDealTimeline===deal.id?(lang==='ru'?'Скрыть журнал':'Hide log'):(lang==='ru'?'Журнал':'Timeline')}</button>
                   {#if deal.status==='paid' || deal.status==='delivery_pending'}<button type="button" onclick={()=>openDealDispute(deal.id)} disabled={disputeBusy===deal.id}>{lang==='ru'?'Спор':'Dispute'}</button>{/if}
                   {#if (deal.status==='paid' || deal.status==='delivery_pending') && deal.is_seller && deal.asset_source==='telegram_gift'}<button type="button" onclick={()=>transferTelegramBusinessGift(deal.id)} disabled={businessGiftDeliveryBusy===deal.id}>{lang==='ru'?'Передать подарок':'Transfer gift'}</button>{/if}
-                  {#if deal.status==='paid' && deal.is_seller && deal.asset_source==='ton_nft'}<button type="button" onclick={()=>prepareTonNftDelivery(deal.id)} disabled={tonDeliveryBusy===deal.id}>{lang==='ru'?'Подготовить передачу':'Prepare transfer'}</button>{:else if deal.status==='delivery_pending' && !deal.is_seller && deal.asset_source==='ton_nft'}<button type="button" onclick={()=>verifyTonNftDelivery(deal.id)} disabled={tonDeliveryBusy===deal.id}>{lang==='ru'?'Проверить TON':'Verify TON'}</button>{/if}
+                  {#if deal.status==='paid' && deal.is_seller && deal.asset_source==='ton_nft'}<button type="button" onclick={()=>prepareTonNftDelivery(deal.id)} disabled={tonDeliveryBusy===deal.id}>{lang==='ru'?'Подготовить передачу':'Prepare transfer'}</button>{:else if deal.status==='delivery_pending' && !deal.is_seller && deal.asset_source==='ton_nft'}<button type="button" onclick={()=>verifyTonNftDelivery(deal.id)} disabled={tonDeliveryBusy===deal.id}>{lang==='ru'?'Проверить блокчейн':'Verify on-chain status'}</button>{/if}
                   {#if deal.status==='payment_not_enabled' && !deal.is_seller && deal.payments_enabled && deal.currency==='TON'}<button type="button" onclick={()=>startTonCheckout(deal.id)} disabled={tonDeliveryBusy===deal.id}>{lang==='ru'?'Оплатить GRAM':'Pay GRAM'}</button>{/if}
                   {#if deal.status==='payment_not_enabled' && !deal.is_seller && deal.payments_enabled && deal.currency==='XTR'}<button type="button" onclick={()=>startStarsCheckout(deal.id)} disabled={starsCheckoutBusy===deal.id}>{lang==='ru'?'Оплатить Stars':'Pay Stars'}</button>{/if}
                   {#if deal.status==='awaiting_payment' && !deal.is_seller && deal.payments_enabled && deal.currency==='TON'}<button type="button" onclick={()=>startTonCheckout(deal.id)} disabled={tonDeliveryBusy===deal.id}>{lang==='ru'?'Продолжить оплату':'Continue payment'}</button>{/if}
