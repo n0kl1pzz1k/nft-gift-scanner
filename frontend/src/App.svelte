@@ -1130,30 +1130,73 @@
     } catch (e) { notice = e instanceof Error ? e.message : String(e); }
   }
 
+  async function loadBuyOrderResponses(orderId: string) {
+    if (!signedIn || !authToken) { buyOrderResponses = []; return; }
+    buyOrderResponsesBusy = true;
+    try {
+      const data = await request('/api/marketplace/orders/' + encodeURIComponent(orderId) + '/responses');
+      buyOrderResponses = Array.isArray(data.items) ? data.items as MarketplaceOrder[] : [];
+    } catch (e) {
+      buyOrderResponses = [];
+      notice = e instanceof Error ? e.message : String(e);
+    } finally {
+      buyOrderResponsesBusy = false;
+    }
+  }
+
   async function createOffer(orderId: string): Promise<boolean> {
     if (!signedIn || !authToken) {
-      notice = lang === 'ru' ? 'Войди через Telegram, чтобы отправить оффер.' : 'Sign in with Telegram to send an offer.';
+      notice = lang === 'ru' ? 'Войди через Telegram, чтобы отправить ответ.' : 'Sign in with Telegram to respond.';
       return false;
     }
     const amount = Number(offerAmount);
-    if (!Number.isFinite(amount) || amount <= 0 || (selectedOfferOrder?.currency === 'XTR' && !Number.isInteger(amount)) || (selectedOfferOrder?.kind === 'buy-order' && !offerNote.trim())) {
+    if (!Number.isFinite(amount) || amount <= 0 ||
+        (selectedOfferOrder?.currency === 'XTR' && !Number.isInteger(amount)) ||
+        (selectedOfferOrder?.kind === 'buy-order' && amount > Number(selectedOfferOrder.price))) {
       notice = selectedOfferOrder?.kind === 'buy-order'
-        ? (lang === 'ru' ? 'Опиши актив, который предлагаешь покупателю.' : 'Describe the asset you are offering to the buyer.')
+        ? (lang === 'ru' ? 'Цена ответа должна быть положительной и не превышать бюджет покупателя.' : 'Response price must be positive and within the buyer budget.')
         : selectedOfferOrder?.currency === 'XTR'
           ? (lang === 'ru' ? 'Сумма оффера в Stars должна быть целым числом.' : 'Star offers must be a whole number.')
           : (lang === 'ru' ? 'Укажи положительную сумму оффера.' : 'Enter a positive offer amount.');
       return false;
     }
     try {
-      await request('/api/marketplace/offers', undefined, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order_id:orderId,amount,note:offerNote.trim()}) });
-      offerAmount = ''; offerNote = '';
+      if (selectedOfferOrder?.kind === 'buy-order') {
+        if (!offerAssetId) {
+          notice = lang === 'ru' ? 'Выбери подтверждённый актив из своего инвентаря.' : 'Select a verified asset from your inventory.';
+          return false;
+        }
+        await request('/api/marketplace/orders/' + encodeURIComponent(orderId) + '/respond', undefined, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({asset_id:offerAssetId,price:amount,note:offerNote.trim()}),
+        });
+        offerAssetId = '';
+        offerAmount = '';
+        offerNote = '';
+        haptic('success');
+        notice = lang === 'ru'
+          ? 'Ответ отправлен покупателю. NFT доступен только владельцу заявки.'
+          : 'Response sent. This NFT listing is visible only to the buy-request owner.';
+        await Promise.all([loadMarketplace(), loadVerifiedInventory(), loadOffersAndDeals()]);
+        return true;
+      }
+      await request('/api/marketplace/offers', undefined, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({order_id:orderId,amount,note:offerNote.trim()}),
+      });
+      offerAmount = '';
+      offerNote = '';
       haptic('success');
-      notice = selectedOfferOrder?.kind === 'buy-order'
-        ? (lang === 'ru' ? 'Ответное предложение отправлено покупателю. Это ещё не резерв и не сделка.' : 'Your seller response was sent. It is not a reservation or a completed trade.')
-        : (lang === 'ru' ? 'Оффер отправлен владельцу актива.' : 'Offer sent to the asset owner.');
+      notice = lang === 'ru' ? 'Оффер отправлен владельцу актива.' : 'Offer sent to the asset owner.';
       await loadOffersAndDeals();
       return true;
-    } catch (e) { notice = e instanceof Error ? e.message : String(e); haptic('error'); return false; }
+    } catch (e) {
+      notice = e instanceof Error ? e.message : String(e);
+      haptic('error');
+      return false;
+    }
   }
 
   function startEditOffer(offer: MarketplaceOffer) {
