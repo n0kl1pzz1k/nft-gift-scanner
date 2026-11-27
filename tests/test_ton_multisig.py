@@ -159,7 +159,18 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(order["expiration_date"], 2000000000)
         self.assertTrue(order["has_order_payload"])
         self.assertRegex(order["order_payload_hash"], r"^[0-9a-f]{64}$")
-        self.assertFalse(order["executed"])
+        self.assertFalse(order["sent_for_execution"])
+        self.assertEqual(order["approvals"], [
+            {"address": SIGNERS[0], "approved": True},
+            {"address": SIGNERS[1], "approved": True},
+            {"address": SIGNERS[2], "approved": False},
+        ])
+
+    def test_rejects_order_approval_count_that_disagrees_with_mask(self):
+        payload = order_getter_payload(8)
+        payload["stack"][6]["num"] = "1"
+        with self.assertRaises(ValueError):
+            decode_multisig_order_getter(payload)
 
     def test_order_getter_rejects_malformed_stack(self):
         with self.assertRaises(ValueError):
