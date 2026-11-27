@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import time
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Header, HTTPException, Query
 
 import marketplace
 from database import begin_write, select_for_update
@@ -80,6 +80,81 @@ def create_marketplace_admin_router(verify_admin):
                 "next_order_seqno": None,
                 "verified": False,
             }
+
+    @router.post("/treasury/orders/prepare")
+    async def prepare_treasury_order(
+        request: dict = Body(...),
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Prepare an unsigned Multisig V2 new_order transaction for TON Connect."""
+        admin_user(x_telegram_init_data, "treasury_read")
+        expected_address = os.getenv("HASSLE_TON_MULTISIG_EXPECTED_ADDRESS", "").strip()
+        if not expected_address:
+            raise HTTPException(status_code=409, detail="Treasury is not configured")
+        wallet_address = request.get("wallet_address")
+        action_boc = request.get("actions_boc")
+        expiration_date = request.get("expiration_date")
+        if not isinstance(wallet_address, str) or not wallet_address.strip():
+            raise HTTPException(status_code=422, detail="A connected signer wallet address is required")
+        if not isinstance(action_boc, str) or not action_boc:
+            raise HTTPException(status_code=422, detail="Multisig action cell BOC is required")
+        if isinstance(expiration_date, bool) or not isinstance(expiration_date, int):
+            raise HTTPException(status_code=422, detail="A valid order expiration is required")
+        try:
+            from ton_multisig import (
+                _raw_address,
+                fetch_ton_multisig_config,
+                is_two_of_three_multisig,
+            )
+            from ton_multisig_transactions import build_new_order_payload
+
+            config = await fetch_ton_multisig_config(expected_address)
+            if not is_two_of_three_multisig(config, expected_address):
+                raise HTTPException(status_code=409, detail="On-chain treasury verification failed")
+            signers = config.get("signers")
+            if not isinstance(signers, list) or len(signers) != 3:
+                raise HTTPException(status_code=409, detail="Treasury signer set is invalid")
+            connected_raw = _raw_address(wallet_address)
+            signer_index = next(
+                (index for index, signer in enumerate(signers)
+                 if _raw_address(str(signer)) == connected_raw),
+                None,
+            )
+            if signer_index is None:
+                raise HTTPException(status_code=403, detail="Connected wallet is not a configured treasury signer")
+            prepared = build_new_order_payload(
+                action_boc,
+                signer_index=signer_index,
+                signer_addresses=signers,
+                expiration_date=expiration_date,
+            )
+            return {
+                "status": "prepared_unsigned",
+                "network": "-239",
+                "treasury_address": expected_address,
+                "transaction": {
+                    "validUntil": expiration_date,
+                    "network": "-239",
+                    "messages": [{
+                        "address": expected_address,
+                        "amount": prepared["attached_value_nano"],
+                        "payload": prepared["payload"],
+                    }],
+                },
+                "review": {
+                    "payload_sha256": prepared["payload_sha256"],
+                    "action_count": prepared["action_count"],
+                    "actions": prepared["actions"],
+                    "approval_safe": False,
+                    "requires_independent_signer_review": True,
+                },
+            }
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Treasury could not be verified") from exc
 
     @router.get("/treasury/orders")
     async def treasury_orders(
