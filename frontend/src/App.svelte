@@ -10,7 +10,7 @@
   type MarketplaceOrder = {
     id: string; external_asset_id?: string | null; collection?: string | null; kind: 'listing' | 'buy-order'; title: string; asset_id?: string | null; image_url?: string; asset_type?: 'gift' | 'username' | 'number' | null;
     price: string | number; currency: 'TON' | 'XTR'; status: 'active' | 'matched' | 'cancelled';
-    createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; seller_profile_id?: string | null; asset_traits_json?: string; buy_now_enabled?: boolean; events?: {type:string;createdAt:number}[];
+    createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; seller_profile_id?: string | null; asset_traits_json?: string; buy_now_enabled?: boolean; target_buyer_id?: string | null; source_buy_order_id?: string | null; source_buy_order_status?: string | null; response_count?: number; events?: {type:string;createdAt:number}[];
   };
   type MarketplaceOffer = { id:string; order_id:string; sender_name:string; amount:string; currency:'TON'|'XTR'; note:string; status:'pending'|'accepted'|'declined'|'withdrawn'; created_at:number; is_mine:boolean; order_title:string; order_owner_id:string; order_owner_name:string; order_status:string; order_kind:'listing'|'buy-order' };
   type MarketplaceDeal = { id:string; order_id:string; offer_id:string; is_seller:boolean; order_title:string; agreed_amount:string; currency:'TON'|'XTR'; status:'payment_not_enabled'|'awaiting_payment'|'payment_pending'|'paid'|'delivery_pending'|'completed'|'disputed'|'cancelled'|'expired'; order_status:string; created_at:number; reservation_active:boolean; payments_enabled:boolean; delivery_completed:boolean; asset_source?:string|null };
@@ -114,6 +114,9 @@
   let publicSellerBusy = $state(false);
   let offerAmount = $state('');
   let offerNote = $state('');
+  let offerAssetId = $state('');
+  let buyOrderResponses = $state<MarketplaceOrder[]>([]);
+  let buyOrderResponsesBusy = $state(false);
   let offersBusy = $state(false);
   let offerActionBusy = $state('');
   let buyNowBusy = $state('');
