@@ -512,6 +512,8 @@ async def fetch_ton_multisig_orders(
                 order = decode_multisig_order_getter(order_payload)
                 if order["multisig"] != _raw_address(address) or order["order_seqno"] != seqno:
                     raise ValueError("Order contract does not belong to the requested multisig sequence")
+                if not order["has_order_payload"] or order["threshold"] is None:
+                    continue
                 orders.append({
                     "address": order_address,
                     **order,
