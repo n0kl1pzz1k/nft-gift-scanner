@@ -184,6 +184,15 @@ test('mobile marketplace typography keeps seller handles readable without horizo
   await expect(seller).toContainText('@collector_name');
   await expect(seller).toHaveCSS('font-size', '11px');
   await expect(page.locator('.asset-gram-price svg').first()).toBeVisible();
+  const metrics = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    document: document.documentElement.scrollWidth,
+    searchFont: getComputedStyle(document.querySelector('.market-search input')!).fontSize,
+    sellerColor: getComputedStyle(document.querySelector('.asset-owner')!).color,
+  }));
+  expect(metrics.document).toBeLessThanOrEqual(metrics.viewport);
+  expect(metrics.searchFont).toBe('16px');
+  expect(metrics.sellerColor).not.toBe('rgb(0, 0, 0)');
   await page.locator('.filter-open-button').click();
   const collectionFilter = page.getByLabel('Фильтр по коллекции');
   await expect(collectionFilter).toBeVisible();
@@ -197,15 +206,7 @@ test('mobile marketplace typography keeps seller handles readable without horizo
   await page.getByRole('button', { name: 'Показать результаты' }).click();
   await expect(page.locator('.market-empty')).toContainText('По этим фильтрам ничего не найдено');
   await expect(page.locator('.market-empty-reset')).toBeVisible();
-  const metrics = await page.evaluate(() => ({
-    viewport: document.documentElement.clientWidth,
-    document: document.documentElement.scrollWidth,
-    searchFont: getComputedStyle(document.querySelector('.market-search input')!).fontSize,
-    sellerColor: getComputedStyle(document.querySelector('.asset-owner')!).color,
-  }));
-  expect(metrics.document).toBeLessThanOrEqual(metrics.viewport);
-  expect(metrics.searchFont).toBe('16px');
-  expect(metrics.sellerColor).not.toBe('rgb(0, 0, 0)');
+
 });
 
 
