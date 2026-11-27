@@ -875,6 +875,9 @@ def create_marketplace_offers_router(
             if buy_order["currency"] == "TON" and asset["source"] != "ton_nft":
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="TON buy requests can only be fulfilled with a verified TON NFT")
+            if not _checkout_enabled_for_order(str(buy_order["currency"]), asset["source"], asset["status"]):
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Protected checkout is not configured for this buy request")
             already_listed = conn.execute(
                 """SELECT id FROM marketplace_orders
                    WHERE asset_id = ? AND status IN ('active', 'matched') LIMIT 1""",
