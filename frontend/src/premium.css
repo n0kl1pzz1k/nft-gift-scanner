@@ -208,3 +208,7 @@ button:disabled{filter:saturate(.55)!important;cursor:not-allowed!important}
 .asset-details-button{min-height:34px!important;padding:0 10px!important;border-radius:9px!important;border:1px solid rgba(133,191,238,.22)!important;background:rgba(48,161,245,.10)!important;color:#9bd4ff!important;font-size:10px!important;font-weight:750!important}
 .asset-card-actions{display:flex;align-items:center;gap:6px}
 @media(max-width:620px){.market-live-stats{gap:7px;margin-bottom:14px}.market-live-stats>div{padding:10px 9px;border-radius:11px}.market-live-stats span{font-size:9px}.market-live-stats strong{font-size:16px}.asset-details-button{min-height:32px!important;padding:0 8px!important;font-size:9px!important}}
+
+.market-currency-legend{display:inline-flex!important;align-items:center!important;gap:6px!important;color:#a8bdd1!important;font-weight:700!important}
+.market-currency-legend .gram-token-icon{width:15px!important;height:15px!important;filter:none!important}
+.market-currency-legend i{font-style:normal!important;color:#52667c!important}
