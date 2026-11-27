@@ -1218,6 +1218,81 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(transactions, 1)
         self.assertEqual(entries, 2)
 
+    def test_ton_payment_rejects_exact_transfer_after_invoice_expiry(self):
+        deal_id, seller_wallet, buyer_wallet = self._create_ton_deal_with_verified_wallets()
+        treasury = "0:" + "aa" * 32
+        flags = {
+            "HASSLE_TON_CHECKOUT_ENABLED": "1",
+            "HASSLE_TON_CUSTODY_ACKNOWLEDGED": "1",
+            "HASSLE_TON_PAYOUT_MODE": "manual_multisig_2_of_3",
+            "HASSLE_TON_TREASURY_ADDRESS": treasury,
+            "TONAPI_TOKEN": "test-tonapi-token",
+            "PAYMENT_SUPPORT_CONTACT": "@hassle_support",
+        }
+        with patch.dict(os.environ, flags), patch(
+            "marketplace_offers._require_ton_multisig_2_of_3", new=AsyncMock(return_value=None),
+        ), patch(
+            "ton_nft_inventory.fetch_nft_owner",
+            new=AsyncMock(return_value={"owner_address": seller_wallet, "is_scam": False}),
+        ):
+            checkout = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/ton-checkout",
+                headers={"X-Telegram-Init-Data": "user-b"},
+                json={"idempotency_key": "ton-expiry-window"},
+            )
+        self.assertEqual(checkout.status_code, 200, checkout.text)
+        memo = checkout.json()["memo"]
+        expires_at = int(checkout.json()["expires_at"])
+
+        class FakeTonResponse:
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {"transactions": [{
+                    "hash": "ton-chain-transaction-after-expiry",
+                    "success": True,
+                    "utime": expires_at + 1,
+                    "in_msg": {
+                        "source": buyer_wallet,
+                        "destination": treasury,
+                        "value": "9000000000",
+                        "decoded_body": {"text": memo},
+                    },
+                }]}
+
+        class FakeTonClient:
+            def __init__(self, **kwargs):
+                pass
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return False
+            async def get(self, url, headers):
+                return FakeTonResponse()
+
+        with patch.dict(os.environ, flags), patch("httpx.AsyncClient", FakeTonClient):
+            response = self.client.post(
+                f"/api/marketplace/deals/{deal_id}/ton-payment/confirm",
+                headers={"X-Telegram-Init-Data": "user-b"},
+                json={"idempotency_key": "ton-expired-payment"},
+            )
+        self.assertEqual(response.status_code, 409, response.text)
+        with marketplace_offers._db() as conn:
+            deal = conn.execute(
+                "SELECT status FROM marketplace_deals WHERE id=?", (deal_id,)
+            ).fetchone()
+            intent = conn.execute(
+                "SELECT status FROM marketplace_payment_intents WHERE deal_id=? AND provider='ton'",
+                (deal_id,),
+            ).fetchone()
+            ledger = conn.execute(
+                "SELECT COUNT(*) FROM marketplace_ledger_transactions WHERE reference_id=?",
+                (deal_id,),
+            ).fetchone()[0]
+        self.assertEqual(deal["status"], "payment_pending")
+        self.assertEqual(intent["status"], "pending")
+        self.assertEqual(ledger, 0)
+
     def test_stars_precheckout_binds_user_amount_and_deal_and_is_one_time(self):
         deal_id, invoice_payload, intent_id = self._create_stars_deal_with_intent()
         ok, reason = validate_stars_pre_checkout(
