@@ -200,3 +200,36 @@ test('mobile marketplace typography keeps seller handles readable without horizo
   expect(metrics.searchFont).toBe('16px');
   expect(metrics.sellerColor).not.toBe('rgb(0, 0, 0)');
 });
+
+
+test('profile revalidates Telegram ownership and hides a gift no longer in the account', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await stubTelegramAndApi(page, true);
+  let businessImportCompleted = false;
+  await page.route('https://hassle-nft-market.up.railway.app/api/telegram-business/status', async route => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      connected: true, can_view_gifts_and_stars: true, can_transfer_and_upgrade_gifts: true,
+      can_transfer_stars: true, gift_import_ready: true, gift_transfer_ready: true
+    }) });
+  });
+  await page.route('https://hassle-nft-market.up.railway.app/api/marketplace/assets/me', async route => {
+    const items = businessImportCompleted ? [] : [{
+      id: 'stale-asset-1', source: 'telegram_gift', external_asset_id: 'JollyChimp-93222',
+      title: 'Jolly Chimp #93222', asset_type: 'gift', image_url: '', verified_at: 1795737600,
+      active_listing_id: null
+    }];
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items, listing_enabled: false }) });
+  });
+  await page.route('https://hassle-nft-market.up.railway.app/api/marketplace/assets/import-business-gifts', async route => {
+    businessImportCompleted = true;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      imported: 0, items: [], ownership_scan_complete: true, telegram_gifts_seen: 0, supported_unique_gifts: 0
+    }) });
+  });
+  await page.goto('/');
+  await expect(page.locator('.market-app')).toHaveAttribute('data-auth-state', 'authenticated', { timeout: 15000 });
+  await page.locator('.mobile-nav button[data-nav-id="profile"]').click();
+  await expect(page.locator('.profile-inventory-empty')).toContainText('Инвентарь пока пуст');
+  await expect(page.locator('.profile-inventory-list')).toHaveCount(0);
+  await expect(page.locator('.profile-inventory-card')).not.toContainText('Jolly Chimp #93222');
+});
