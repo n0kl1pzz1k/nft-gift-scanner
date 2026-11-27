@@ -2115,6 +2115,9 @@ class SharedMarketplaceTests(unittest.TestCase):
             verification_method="ton_connect_proof",
             verification_reference="one-time-server-verification-reference",
         )
+        marketplace.save_verified_asset_traits(asset["id"], {
+            "attributes": [{"trait_type": "Model", "value": "Neon", "rarity_per_mille": 125}]
+        }, source="tonapi")
         with patch.dict(os.environ, {"HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "false"}):
             verified = self.client.post(
                 "/api/marketplace/orders", headers={"X-Telegram-Init-Data": "user-a"},
@@ -2132,6 +2135,10 @@ class SharedMarketplaceTests(unittest.TestCase):
         titles = [item["title"] for item in catalog.json()["items"]]
         self.assertIn("Verified catalogue gift", titles)
         self.assertNotIn("Legacy unverified listing", titles)
+        verified_listing = next(item for item in catalog.json()["items"] if item["title"] == "Verified catalogue gift")
+        traits = json.loads(verified_listing["asset_traits_json"])
+        self.assertEqual(traits["model"]["name"], "Neon")
+        self.assertEqual(traits["model"]["rarity_percent"], 12.5)
 
     def test_buy_request_does_not_require_owned_asset(self):
         with patch.dict(os.environ, {"HASSLE_TEST_ALLOW_UNVERIFIED_ASSETS": "false"}):
