@@ -50,6 +50,7 @@ class ApiContractTests(unittest.TestCase):
                 "/api/marketplace/admin/deals/{deal_id}/execute-refund",
                 "/api/marketplace/admin/deals/{deal_id}/execute-ton-refund",
                 "/api/marketplace/admin/deals/{deal_id}/execute-seller-release",
+                "/api/marketplace/admin/deals/{deal_id}/prepare-gram-seller-payout",
                 "/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
             },
         )
