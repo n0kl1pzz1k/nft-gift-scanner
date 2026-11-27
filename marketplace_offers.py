@@ -320,6 +320,17 @@ class CreateOffer(BaseModel):
         return value
 
 
+class BuyOrderResponseRequest(BaseModel):
+    asset_id: str = Field(min_length=4, max_length=128)
+    price: Decimal
+    note: str = Field(default="", max_length=300)
+
+    @field_validator("asset_id", "note")
+    @classmethod
+    def trim_response_text(cls, value: str) -> str:
+        return value.strip()
+
+
 class BuyNowRequest(BaseModel):
     idempotency_key: str = Field(min_length=8, max_length=128)
 
@@ -807,6 +818,144 @@ def create_marketplace_offers_router(
             "payments_enabled": True,
             "idempotent_replay": False,
         }
+
+    @router.post("/orders/{order_id}/respond", status_code=201)
+    async def respond_to_buy_order(
+        order_id: str,
+        payload: BuyOrderResponseRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Create a private verified listing visible only to the buy-order owner and responding seller."""
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        seller_id = str(user["id"])
+        _enforce_user_rate_limit(seller_id, "buy_order_response", 8)
+        if not _verified_asset_actions_enabled():
+            raise HTTPException(status_code=409, detail="Verified inventory is required to respond to buy requests")
+        try:
+            price = Decimal(str(payload.price))
+        except (InvalidOperation, ValueError):
+            raise HTTPException(status_code=422, detail="A valid response price is required")
+        if not price.is_finite() or price <= 0:
+            raise HTTPException(status_code=422, detail="Response price must be greater than zero")
+        now = int(time.time())
+        with _db() as conn:
+            begin_write(conn, f"order:{order_id}", f"asset:{payload.asset_id}")
+            buy_order = conn.execute(
+                select_for_update(conn, "SELECT * FROM marketplace_orders WHERE id = ?"),
+                (order_id,),
+            ).fetchone()
+            if buy_order is None or buy_order["kind"] != "buy-order":
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Buy request not found")
+            if buy_order["status"] != "active":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="This buy request is no longer accepting responses")
+            buyer_id = str(buy_order["user_id"])
+            if buyer_id == seller_id:
+                conn.rollback()
+                raise HTTPException(status_code=403, detail="You cannot respond to your own buy request")
+            maximum = Decimal(str(buy_order["price"]))
+            if not maximum.is_finite() or price > maximum:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Your response price cannot exceed the buyer's maximum")
+            if buy_order["currency"] == "XTR" and price != price.to_integral_value():
+                conn.rollback()
+                raise HTTPException(status_code=422, detail="Telegram Stars prices must be whole numbers")
+            asset = conn.execute(
+                select_for_update(conn, """SELECT * FROM verified_assets
+                   WHERE id = ? AND owner_telegram_id = ? AND status = 'verified'"""),
+                (payload.asset_id, seller_id),
+            ).fetchone()
+            if asset is None:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Select an asset currently verified in your inventory")
+            if buy_order["asset_type"] and asset["asset_type"] != buy_order["asset_type"]:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="The selected asset does not match the requested asset type")
+            if buy_order["currency"] == "TON" and asset["source"] != "ton_nft":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="TON buy requests can only be fulfilled with a verified TON NFT")
+            already_listed = conn.execute(
+                """SELECT id FROM marketplace_orders
+                   WHERE asset_id = ? AND status IN ('active', 'matched') LIMIT 1""",
+                (payload.asset_id,),
+            ).fetchone()
+            if already_listed is not None:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="This asset is already listed or reserved")
+            duplicate = conn.execute(
+                """SELECT id FROM marketplace_orders
+                   WHERE source_buy_order_id = ? AND asset_id = ? AND status IN ('active', 'matched')
+                   LIMIT 1""",
+                (order_id, payload.asset_id),
+            ).fetchone()
+            if duplicate is not None:
+                conn.commit()
+                return {"response_order_id": duplicate["id"], "already_responded": True}
+            response_id = "ord-" + uuid.uuid4().hex[:16]
+            owner_name = str(user.get("first_name") or user.get("username") or "Telegram user")[:64]
+            conn.execute(
+                """INSERT INTO marketplace_orders
+                   (id, user_id, owner_name, kind, title, price, currency, status,
+                    created_at, updated_at, note, asset_type, asset_id, target_buyer_id, source_buy_order_id)
+                   VALUES (?, ?, ?, 'listing', ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)""",
+                (response_id, seller_id, owner_name, asset["title"], format(price, "f"),
+                 buy_order["currency"], now, now, payload.note.strip()[:300],
+                 asset["asset_type"], payload.asset_id, buyer_id, order_id),
+            )
+            conn.execute(
+                """INSERT INTO marketplace_order_events (order_id, actor_user_id, event_type, created_at)
+                   VALUES (?, ?, 'created', ?)""",
+                (response_id, seller_id, now),
+            )
+            conn.commit()
+        return {"response_order_id": response_id, "already_responded": False}
+
+    @router.get("/orders/{order_id}/responses")
+    async def list_buy_order_responses(
+        order_id: str,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        viewer_id = str(user["id"])
+        _enforce_user_rate_limit(viewer_id, "list_buy_order_responses", 30)
+        with _db() as conn:
+            buy_order = conn.execute(
+                "SELECT id, user_id, kind FROM marketplace_orders WHERE id = ?",
+                (order_id,),
+            ).fetchone()
+            if buy_order is None or buy_order["kind"] != "buy-order":
+                raise HTTPException(status_code=404, detail="Buy request not found")
+            is_buyer = str(buy_order["user_id"]) == viewer_id
+            seller_filter = "" if is_buyer else " AND o.user_id = ?"
+            params: tuple[Any, ...] = (order_id, str(buy_order["user_id"])) if is_buyer else (
+                order_id, str(buy_order["user_id"]), viewer_id
+            )
+            if not is_buyer:
+                seller_response = conn.execute(
+                    """SELECT 1 FROM marketplace_orders
+                       WHERE source_buy_order_id = ? AND user_id = ? LIMIT 1""",
+                    (order_id, viewer_id),
+                ).fetchone()
+                if seller_response is None:
+                    raise HTTPException(status_code=403, detail="You cannot view responses to this buy request")
+            rows = conn.execute(
+                f"""SELECT o.*, p.profile_id AS seller_profile_id,
+                           a.image_url AS asset_image_url, a.source AS asset_source, a.status AS asset_status,
+                           COALESCE(t.traits_json, '{{}}') AS asset_traits_json,
+                           bo.status AS source_buy_order_status
+                    FROM marketplace_orders o
+                    LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
+                    LEFT JOIN verified_assets a ON a.id = o.asset_id
+                       AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
+                    LEFT JOIN verified_asset_traits t ON t.asset_id = a.id
+                    LEFT JOIN marketplace_orders bo ON bo.id = o.source_buy_order_id
+                    WHERE o.source_buy_order_id = ? AND o.target_buyer_id = ?{seller_filter}
+                      AND o.status IN ('active', 'matched')
+                    ORDER BY o.created_at DESC""",
+                params,
+            ).fetchall()
+        return {"items": [_order_dict(row, viewer_id) for row in rows]}
 
     @router.get("/offers")
     async def list_offers(
