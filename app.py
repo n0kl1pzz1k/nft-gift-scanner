@@ -359,6 +359,34 @@ async def telegram_auth(payload: TelegramAuthRequest):
         "user": profile,
     }
 
+@app.get("/api/marketplace/balance/me")
+async def marketplace_balance_me(x_telegram_init_data: str | None = Header(default=None)):
+    """Return the authenticated seller balance from immutable ledger entries."""
+    from decimal import Decimal
+
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    account_id = str(user["id"])
+    try:
+        with marketplace._db() as connection:
+            rows = connection.execute(
+                """SELECT direction, amount FROM marketplace_ledger_entries
+                   WHERE account_type = 'seller_payable' AND account_id = ? AND currency = 'TON'""
+                (account_id,),
+            ).fetchall()
+        balance = Decimal("0")
+        for row in rows:
+            amount = Decimal(str(row["amount"]))
+            balance += amount if row["direction"] == "credit" else -amount
+        if balance < 0:
+            logging.getLogger("hassle_nft.ledger").error("Negative seller balance detected for %s", account_id)
+            raise HTTPException(status_code=503, detail="Ledger balance requires reconciliation")
+        return {"currency": "TON", "display_currency": "GRAM", "balance": format(balance, "f")}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logging.getLogger("hassle_nft.ledger").exception("Unable to read seller ledger balance")
+        raise HTTPException(status_code=503, detail="Ledger balance is temporarily unavailable") from exc
+
 @app.get("/api/auth/me")
 async def telegram_me(x_telegram_init_data: str | None = Header(default=None)):
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
