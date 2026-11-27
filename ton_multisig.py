@@ -185,6 +185,18 @@ def decode_multisig_order_getter(payload: Any) -> dict[str, Any]:
     has_order = isinstance(order_item, dict) and order_item.get("type") == "cell"
     if not has_order and not (isinstance(order_item, dict) and order_item.get("type") == "null"):
         raise ValueError("TONAPI returned an invalid order action cell")
+    payload_hash = None
+    if has_order:
+        from tonsdk.boc import Cell
+        payload_boc = order_item.get("cell")
+        if not isinstance(payload_boc, str) or not payload_boc:
+            raise ValueError("TONAPI returned an empty order action cell")
+        try:
+            payload_hash = Cell.one_from_boc(
+                base64.b64decode(payload_boc, validate=True)
+            ).bytes_hash().hex()
+        except Exception as exc:
+            raise ValueError("TONAPI returned a malformed order action cell") from exc
     return {
         "multisig": multisig,
         "order_seqno": seqno,
@@ -195,6 +207,7 @@ def decode_multisig_order_getter(payload: Any) -> dict[str, Any]:
         "approvals_mask": str(approvals_mask) if approvals_mask is not None else None,
         "expiration_date": expiration_date,
         "has_order_payload": has_order,
+        "order_payload_hash": payload_hash,
     }
 
 
