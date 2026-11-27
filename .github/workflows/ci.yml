@@ -41,7 +41,7 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
       - name: Compile all backend modules
-        run: python -m compileall -q app.py bot.py database.py marketplace.py marketplace_admin.py marketplace_offers.py ton_connect.py db_backup.py db_schema_audit.py db_sql_compat_audit.py db_transaction_audit.py db_rowcount_audit.py db_migration_preflight.py db_restore.py db_postgres_migration_plan.py db_postgres_ddl_plan.py db_postgres_data_migration.py db_postgres_schema_apply.py db_postgres_shadow_migration.py db_postgres_compat.py ton_multisig.py scripts/smoke_load.py tests
+        run: python -m compileall -q app.py bot.py database.py marketplace.py marketplace_admin.py marketplace_offers.py ton_connect.py db_backup.py db_schema_audit.py db_sql_compat_audit.py db_transaction_audit.py db_rowcount_audit.py db_migration_preflight.py db_restore.py db_postgres_migration_plan.py db_postgres_ddl_plan.py db_postgres_data_migration.py db_postgres_schema_apply.py db_postgres_shadow_migration.py db_postgres_compat.py ton_multisig.py ton_multisig_transactions.py scripts/smoke_load.py tests
       - name: Install test runner
         run: pip install pytest
       - name: Run API and database migration regression tests
