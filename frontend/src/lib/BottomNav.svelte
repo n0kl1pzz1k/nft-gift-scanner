@@ -2,6 +2,21 @@
   type NavId = 'orders' | 'auctions' | 'offers' | 'profile';
   type Props = { active: NavId; lang: 'ru' | 'en'; onNavigate: (id: NavId) => void };
   let { active, lang, onNavigate }: Props = $props();
+  let lastTouchProfileAt = 0;
+  function handlePointerDown(event: PointerEvent, id: NavId) {
+    if (id !== 'profile' || event.pointerType !== 'touch') return;
+    lastTouchProfileAt = Date.now();
+    onNavigate(id);
+  }
+  function handleClick(event: MouseEvent, id: NavId) {
+    // iOS Telegram WebView can lose the synthetic click after a touch. The
+    // pointerdown above already navigated; ignore only its follow-up click.
+    if (id === 'profile' && event.detail > 0 && Date.now() - lastTouchProfileAt < 900) {
+      lastTouchProfileAt = 0;
+      return;
+    }
+    onNavigate(id);
+  }
   const items: {id: NavId; label: string}[] = $derived([
     {id:'orders',label:lang === 'ru' ? 'Маркет' : 'Market'},
     {id:'auctions',label:lang === 'ru' ? 'Аукционы' : 'Auctions'},
@@ -11,7 +26,7 @@
 </script>
 <nav class="mobile-nav" aria-label="Primary navigation">
   {#each items as item}
-    <button type="button" class:active={active === item.id} onclick={() => onNavigate(item.id)} aria-current={active === item.id ? 'page' : undefined}>
+    <button type="button" data-nav-id={item.id} class:active={active === item.id} onpointerdown={(event) => handlePointerDown(event, item.id)} onclick={(event) => handleClick(event, item.id)} aria-current={active === item.id ? 'page' : undefined}>
       <span class="nav-icon" aria-hidden="true">
         {#if item.id === 'orders'}
           <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="6" height="6" rx="1.2"/><rect x="14" y="4" width="6" height="6" rx="1.2"/><rect x="4" y="14" width="6" height="6" rx="1.2"/><rect x="14" y="14" width="6" height="6" rx="1.2"/></svg>
