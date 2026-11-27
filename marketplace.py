@@ -2183,6 +2183,7 @@ def create_marketplace_router(
                 verified_filter += " AND o.kind = 'buy-order'"
             rows = conn.execute(
                 f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url, a.source AS asset_source, a.status AS asset_status,
+                           (SELECT COUNT(*) FROM marketplace_orders r WHERE r.source_buy_order_id = o.id AND r.status IN ('active', 'matched')) AS response_count,
                            COALESCE(t.traits_json, '{{}}') AS asset_traits_json,
                            bo.status AS source_buy_order_status
                     FROM marketplace_orders o
