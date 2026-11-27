@@ -10,7 +10,9 @@ from tonsdk.utils import Address
 
 from ton_multisig import (
     decode_multisig_v2_getter,
+    decode_multisig_order_getter,
     fetch_ton_multisig_config,
+    fetch_ton_multisig_orders,
     is_two_of_three_multisig,
 )
 
@@ -62,6 +64,29 @@ def multisig_env():
         "HASSLE_TON_MULTISIG_EXPECTED_ADDRESS": TREASURY,
         "HASSLE_TON_MULTISIG_CODE_HASH": CODE_HASH,
         "HASSLE_TON_MULTISIG_DATA_HASH": DATA_HASH,
+    }
+
+
+def address_stack(address):
+    cell = Builder().store_address(Address(address)).end_cell()
+    return {"type": "slice", "cell": base64.b64encode(cell.to_boc(False)).decode()}
+
+
+def order_getter_payload(seqno=0):
+    return {
+        "success": True,
+        "exit_code": 0,
+        "stack": [
+            address_stack(TREASURY),
+            {"type": "num", "num": str(seqno)},
+            {"type": "num", "num": "2"},
+            {"type": "num", "num": "0"},
+            {"type": "cell", "cell": dictionary_boc(SIGNERS)},
+            {"type": "num", "num": "0x3"},
+            {"type": "num", "num": "2"},
+            {"type": "num", "num": "2000000000"},
+            {"type": "cell", "cell": base64.b64encode(Cell().to_boc(False)).decode()},
+        ],
     }
 
 
@@ -122,6 +147,47 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
             config = decode_multisig_v2_getter(getter_payload(proposers=[SIGNERS[0]]), TREASURY)
             config.update({"code_hash": CODE_HASH, "data_hash": DATA_HASH})
             self.assertFalse(is_two_of_three_multisig(config, TREASURY))
+
+    def test_decodes_order_getter_metadata(self):
+        from ton_multisig import decode_multisig_order_getter
+        order = decode_multisig_order_getter(order_getter_payload(7))
+        self.assertEqual(order["multisig"], TREASURY)
+        self.assertEqual(order["order_seqno"], 7)
+        self.assertEqual(order["threshold"], 2)
+        self.assertEqual(order["approvals_num"], 2)
+        self.assertEqual(order["approvals_mask"], "3")
+        self.assertEqual(order["expiration_date"], 2000000000)
+        self.assertTrue(order["has_order_payload"])
+        self.assertFalse(order["executed"])
+
+    def test_order_getter_rejects_malformed_stack(self):
+        with self.assertRaises(ValueError):
+            decode_multisig_order_getter({"success": True, "exit_code": 0, "stack": []})
+
+    async def test_lists_recent_orders_from_official_getters(self):
+        calls = []
+        order_address = "0:" + "b" * 64
+        def handler(request):
+            calls.append(request)
+            if request.url.path.endswith("/get_order_address"):
+                return httpx.Response(200, json={
+                    "success": True, "exit_code": 0,
+                    "stack": [address_stack(order_address)],
+                })
+            return httpx.Response(200, json=order_getter_payload(4))
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://tonapi.io",
+        )
+        with patch.dict(os.environ, {"TONAPI_TOKEN": "test-token"}):
+            orders = await fetch_ton_multisig_orders(TREASURY, 5, limit=1, client=client)
+        await client.aclose()
+        self.assertEqual(len(orders), 1)
+        self.assertEqual(orders[0]["address"], order_address)
+        self.assertEqual(orders[0]["order_seqno"], 4)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0].url.path, f"/v2/blockchain/accounts/{TREASURY}/methods/get_order_address")
+        self.assertEqual(calls[1].url.path, f"/v2/blockchain/accounts/{order_address}/methods/get_order_data")
 
     async def test_fetches_multisig_configuration_using_contract_getter(self):
         calls = []
