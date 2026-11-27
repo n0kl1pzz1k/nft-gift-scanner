@@ -2520,19 +2520,20 @@ class SharedMarketplaceTests(unittest.TestCase):
         seller_headers = {"X-Telegram-Init-Data": "user-a"}
         buyer_headers = {"X-Telegram-Init-Data": "user-b"}
         asset = marketplace.register_verified_asset(
-            source="telegram_gift",
-            external_asset_id="BuyNowGift-42",
+            source="ton_nft",
+            external_asset_id="0:" + "a" * 64,
             owner_telegram_id="101",
-            title="Buy Now Gift #42",
+            title="Buy Now NFT #42",
             asset_type="gift",
             image_url="",
-            verification_method="telegram_gift_owner",
-            verification_reference="buy-now-verified-gift-reference-42",
+            verification_method="ton_connect_proof",
+            verification_reference="buy-now-verified-ton-nft-reference-42",
+            allow_owner_transfer=True,
         )
         created = self.client.post(
             "/api/marketplace/orders",
             headers=seller_headers,
-            json={"kind": "listing", "asset_id": asset["id"], "title": "Buy Now Gift #42", "price": "250", "currency": "XTR"},
+            json={"kind": "listing", "asset_id": asset["id"], "title": "Buy Now NFT #42", "price": "250", "currency": "XTR"},
         )
         self.assertEqual(created.status_code, 201, created.text)
         order_id = created.json()["item"]["id"]
