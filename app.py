@@ -370,8 +370,8 @@ async def marketplace_balance_me(x_telegram_init_data: str | None = Header(defau
         with marketplace._db() as connection:
             rows = connection.execute(
                 """SELECT direction, amount FROM marketplace_ledger_entries
-                   WHERE account_type = 'seller_payable' AND account_id = ? AND currency = 'TON'""
-                (account_id,),
+                   WHERE account_type = 'seller_payable' AND account_id = ? AND currency = 'TON'"""
+                , (account_id,),
             ).fetchall()
         balance = Decimal("0")
         for row in rows:
