@@ -236,7 +236,7 @@ test('profile revalidates Telegram ownership and hides a gift no longer in the a
   await page.goto('/');
   await expect(page.locator('.market-app')).toHaveAttribute('data-auth-state', 'authenticated', { timeout: 15000 });
   await page.locator('.mobile-nav button[data-nav-id="profile"]').click();
-  await expect(page.locator('.profile-inventory-empty')).toContainText('Инвентарь пока пуст');
+  await expect(page.locator('.profile-inventory-card .profile-inventory-empty')).toContainText('Инвентарь пока пуст');
   await expect(page.locator('.profile-inventory-list')).toHaveCount(0);
   await expect(page.locator('.profile-inventory-card')).not.toContainText('Jolly Chimp #93222');
 });
