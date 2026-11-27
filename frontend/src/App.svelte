@@ -2124,7 +2124,7 @@
                   </div>
                 {/each}
               </div>
-            {:else}
+            {:else if selectedAsset.kind!=='buy-order'}
               <div class="asset-detail-unavailable"><strong>{lang==='ru'?'Характеристики актива':'Asset traits'}</strong><span>{lang==='ru'?'Источник не предоставил характеристики для этого предмета.':'No collectible attributes were provided by the source for this item.'}</span></div>
             {/if}
             {#if selectedAsset.kind==='buy-order' && selectedAsset.isMine}
