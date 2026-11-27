@@ -32,15 +32,15 @@
   });
 
   const copy = $derived({
-    connect: lang === 'ru' ? 'Подключить TON-кошелёк' : 'Connect TON wallet',
-    loading: lang === 'ru' ? 'Загружаем TON Connect…' : 'Loading TON Connect…',
+    connect: lang === 'ru' ? 'Подключить GRAM-кошелёк' : 'Connect GRAM wallet',
+    loading: lang === 'ru' ? 'Подготавливаем кошелёк…' : 'Preparing wallet…',
     verify: lang === 'ru' ? 'Подтвердить кошелёк' : 'Verify wallet',
     verified: lang === 'ru' ? 'Кошелёк подтверждён' : 'Wallet verified',
     disconnect: lang === 'ru' ? 'Отключить' : 'Disconnect',
     disconnectFailed: lang === 'ru' ? 'Не удалось отключить кошелёк. Попробуй ещё раз.' : 'Could not disconnect the wallet. Please try again.',
     waiting: lang === 'ru' ? 'Ожидаем подтверждение в кошельке…' : 'Confirm the request in your wallet…',
     signIn: lang === 'ru' ? 'Сначала подтверди Telegram-профиль' : 'Verify your Telegram profile first',
-    unsupported: lang === 'ru' ? 'Этот кошелёк не поддерживает TON Proof. Попробуй Tonkeeper или другой совместимый кошелёк.' : 'This wallet does not support TON Proof. Try Tonkeeper or another compatible wallet.',
+    unsupported: lang === 'ru' ? 'Этот кошелёк не поддерживает криптографическое подтверждение владения. Попробуй Tonkeeper или другой совместимый кошелёк.' : 'This wallet does not support cryptographic ownership proof. Try Tonkeeper or another compatible wallet.',
     failed: lang === 'ru' ? 'Не удалось подтвердить кошелёк. Подключи его заново.' : 'Wallet verification failed. Please reconnect.',
   });
 
@@ -137,8 +137,8 @@
         if (!active) return;
         status = 'error';
         message = lang === 'ru'
-          ? 'TON Connect не загрузился в этом WebView. Обнови Telegram и попробуй позже.'
-          : 'TON Connect could not load in this WebView. Update Telegram and try again.';
+          ? 'Не удалось загрузить подключение кошелька в этом WebView. Обнови Telegram и попробуй позже.'
+          : 'Wallet connection could not load in this WebView. Update Telegram and try again.';
       })
       .finally(() => {
         if (active) busy = false;
@@ -234,8 +234,8 @@
       const result = await tonConnect.sendTransaction(deliveryRequest.transaction);
       await onDeliverySent(deliveryRequest.dealId, result.boc);
       message = lang === 'ru'
-        ? 'Транзакция отправлена. Покупатель сможет подтвердить передачу после обновления TON.'
-        : 'Transaction submitted. The buyer can verify delivery once TON updates.';
+        ? 'Транзакция отправлена. Покупатель сможет подтвердить передачу после обновления блокчейна.'
+        : 'Transaction submitted. The buyer can verify delivery once the blockchain updates.';
     } catch (error) {
       message = error instanceof Error ? error.message : (lang === 'ru' ? 'Кошелёк отклонил или не отправил транзакцию.' : 'Wallet rejected or failed to submit the transaction.');
       status = 'error';
@@ -319,7 +319,7 @@
         {lang === 'ru' ? 'Подключить кошелёк для подписи' : 'Reconnect wallet to sign transfer'}
       </button>
     {/if}
-    <p class="ton-wallet-message">{lang === 'ru' ? 'Подтверди перевод NFT в своём TON-кошельке. HASSLE NFT не получает доступ к ключам.' : 'Approve the NFT transfer in your TON wallet. HASSLE NFT never receives your keys.'}</p>
+    <p class="ton-wallet-message">{lang === 'ru' ? 'Подтверди перевод NFT в своём GRAM-кошельке. HASSLE NFT не получает доступ к ключам.' : 'Approve the NFT transfer in your GRAM wallet. HASSLE NFT never receives your keys.'}</p>
   {/if}
   {#if message}
     <p class:ton-wallet-error={status === 'error'} class="ton-wallet-message">{message}</p>
