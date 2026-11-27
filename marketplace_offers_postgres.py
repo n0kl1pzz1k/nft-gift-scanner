@@ -351,11 +351,11 @@ def verify_postgres_offer_schema(connection: Any) -> dict[str, Any]:
     """Verify the complete offers/deals table and index contract."""
     expected_columns = {
         "marketplace_offers": {
-            "id", "order_id", "sender_user_id", "sender_name", "amount",
+            "id", "order_id", "asset_id", "sender_user_id", "sender_name", "amount",
             "currency", "note", "status", "created_at", "updated_at",
         },
         "marketplace_deals": {
-            "id", "order_id", "offer_id", "listing_owner_id", "offer_sender_id",
+            "id", "order_id", "asset_id", "offer_id", "listing_owner_id", "offer_sender_id",
             "agreed_amount", "currency", "created_at", "status",
         },
         "marketplace_deal_events": {
@@ -496,6 +496,7 @@ def initialize_postgres_offer_schema(connection: Any) -> dict[str, Any]:
     statements = (
         """CREATE TABLE IF NOT EXISTS marketplace_offers (
             id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES marketplace_orders(id),
+            asset_id TEXT REFERENCES verified_assets(id),
             sender_user_id TEXT NOT NULL, sender_name TEXT NOT NULL, amount TEXT NOT NULL,
             currency TEXT NOT NULL CHECK (currency IN ('TON', 'XTR')),
             note TEXT NOT NULL DEFAULT '',
@@ -506,12 +507,15 @@ def initialize_postgres_offer_schema(connection: Any) -> dict[str, Any]:
         "CREATE INDEX IF NOT EXISTS idx_marketplace_offers_status ON marketplace_offers(status, created_at DESC)",
         """CREATE TABLE IF NOT EXISTS marketplace_deals (
             id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES marketplace_orders(id),
+            asset_id TEXT REFERENCES verified_assets(id),
             offer_id TEXT NOT NULL UNIQUE REFERENCES marketplace_offers(id),
             listing_owner_id TEXT NOT NULL, offer_sender_id TEXT NOT NULL,
             agreed_amount TEXT NOT NULL, currency TEXT NOT NULL CHECK (currency IN ('TON', 'XTR')),
             created_at BIGINT NOT NULL, status TEXT NOT NULL DEFAULT 'payment_not_enabled'
             CHECK (status IN ('payment_not_enabled', 'awaiting_payment', 'payment_pending',
                 'paid', 'delivery_pending', 'completed', 'disputed', 'cancelled', 'expired')))""",
+        "ALTER TABLE marketplace_offers ADD COLUMN IF NOT EXISTS asset_id TEXT REFERENCES verified_assets(id)",
+        "ALTER TABLE marketplace_deals ADD COLUMN IF NOT EXISTS asset_id TEXT REFERENCES verified_assets(id)",
         "ALTER TABLE marketplace_deals ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'payment_not_enabled'",
         """
         DO $migration$
