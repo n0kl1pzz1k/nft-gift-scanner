@@ -65,6 +65,36 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.db_patch.stop()
         self.temp_dir.cleanup()
 
+    def test_telegram_user_gift_sync_persists_verified_traits(self):
+        assets = marketplace.sync_telegram_gift_assets(
+            owner_telegram_id="101",
+            gifts=[{
+                "external_asset_id": "JollyChimp-93222",
+                "title": "Jolly Chimp #93222",
+                "asset_type": "gift",
+                "image_url": "",
+                "number": 93222,
+                "traits": {
+                    "model": {"name": "Neon", "rarity_per_mille": 125, "rarity": "legendary"},
+                    "symbol": {"name": "Star", "rarity_per_mille": 50},
+                    "backdrop": {"name": "Midnight", "rarity_per_mille": 25,
+                                 "colors": {"center_color": 1122867, "edge_color": 4478310}},
+                },
+            }],
+            complete=True,
+        )
+        self.assertEqual(len(assets), 1)
+        with marketplace._db() as conn:
+            row = conn.execute(
+                "SELECT traits_json FROM verified_asset_traits WHERE asset_id = ?",
+                (assets[0]["id"],),
+            ).fetchone()
+        traits = json.loads(row["traits_json"])
+        self.assertEqual(traits["model"]["name"], "Neon")
+        self.assertEqual(traits["model"]["rarity_tier"], "legendary")
+        self.assertEqual(traits["backdrop"]["colors"]["center"], "#112233")
+        self.assertEqual(traits["serial_number"], "93222")
+
     def _create_stars_deal_with_intent(self):
         seller_headers = {"X-Telegram-Init-Data": "user-a"}
         buyer_headers = {"X-Telegram-Init-Data": "user-b"}

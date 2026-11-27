@@ -21,7 +21,7 @@ class TelegramGiftInventoryError(ValueError):
     """Telegram returned an unusable or incomplete inventory response."""
 
 
-def normalise_owned_gift(raw: Any) -> dict[str, str] | None:
+def normalise_owned_gift(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict) or raw.get("type") != "unique":
         return None
     gift = raw.get("gift")
@@ -37,7 +37,36 @@ def normalise_owned_gift(raw: Any) -> dict[str, str] | None:
     number = gift.get("number")
     if isinstance(number, bool) or not isinstance(number, int) or number < 1:
         return None
+    traits: dict[str, Any] = {}
+    for key in ("model", "symbol"):
+        component = gift.get(key) if isinstance(gift.get(key), dict) else {}
+        name = component.get("name")
+        rarity = component.get("rarity_per_mille")
+        if isinstance(name, str) and name.strip():
+            trait: dict[str, Any] = {"name": name.strip()[:100]}
+            if isinstance(rarity, int) and not isinstance(rarity, bool) and 0 <= rarity <= 1000:
+                trait["rarity_per_mille"] = rarity
+            tier = component.get("rarity")
+            if key == "model" and tier in {"uncommon", "rare", "epic", "legendary"}:
+                trait["rarity"] = tier
+            traits[key] = trait
+    backdrop = gift.get("backdrop") if isinstance(gift.get("backdrop"), dict) else {}
+    backdrop_name = backdrop.get("name")
+    if isinstance(backdrop_name, str) and backdrop_name.strip():
+        trait = {"name": backdrop_name.strip()[:100]}
+        rarity = backdrop.get("rarity_per_mille")
+        if isinstance(rarity, int) and not isinstance(rarity, bool) and 0 <= rarity <= 1000:
+            trait["rarity_per_mille"] = rarity
+        colors = backdrop.get("colors") if isinstance(backdrop.get("colors"), dict) else {}
+        safe_colors = {key: value for key, value in colors.items()
+                       if key in {"center_color", "edge_color", "symbol_color", "text_color"}
+                       and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 0xFFFFFF}
+        if safe_colors:
+            trait["colors"] = safe_colors
+        traits["backdrop"] = trait
     return {
+        "traits": traits,
+        "number": number,
         "external_asset_id": slug,
         "title": f"{base_name} #{number}"[:120],
         "asset_type": "gift",

@@ -37,6 +37,26 @@ class TelegramGiftInventoryTests(unittest.IsolatedAsyncioTestCase):
             "gift": {"name": "Burned-1", "number": 1, "base_name": "Gift", "is_burned": True},
         }))
 
+    def test_preserves_model_symbol_backdrop_rarity_and_palette(self):
+        item = normalise_owned_gift({
+            "type": "unique",
+            "gift": {
+                "name": "JollyChimp-93222", "number": 93222, "base_name": "Jolly Chimp",
+                "model": {"name": "Neon", "rarity_per_mille": 125, "rarity": "legendary"},
+                "symbol": {"name": "Star", "rarity_per_mille": 50},
+                "backdrop": {
+                    "name": "Midnight", "rarity_per_mille": 25,
+                    "colors": {"center_color": 1122867, "edge_color": 4478310},
+                },
+            },
+        })
+        self.assertEqual(item["traits"]["model"]["name"], "Neon")
+        self.assertEqual(item["traits"]["model"]["rarity"], "legendary")
+        self.assertEqual(item["traits"]["symbol"]["name"], "Star")
+        self.assertEqual(item["traits"]["backdrop"]["name"], "Midnight")
+        self.assertEqual(item["traits"]["backdrop"]["colors"]["center_color"], 1122867)
+        self.assertEqual(item["number"], 93222)
+
     async def test_fetches_and_paginates_user_gifts_through_official_bot_api(self):
         calls = []
 

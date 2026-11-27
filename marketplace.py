@@ -1384,7 +1384,7 @@ def sync_ton_nft_assets(*, owner_telegram_id: str, wallets: list[dict[str, Any]]
 
 
 def sync_telegram_gift_assets(*, owner_telegram_id: str,
-                              gifts: list[dict[str, str]], complete: bool) -> list[dict[str, Any]]:
+                              gifts: list[dict[str, Any]], complete: bool) -> list[dict[str, Any]]:
     """Persist unique gifts returned by Telegram for the authenticated Telegram user."""
     owner_id = str(owner_telegram_id).strip()
     if not owner_id.isdigit():
