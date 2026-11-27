@@ -802,10 +802,10 @@ html[data-telegram-color-scheme="light"] .asset-detail-price strong{color:#17202
 @media(max-width:420px){.verified-inventory-item{align-items:flex-start;gap:10px;padding:10px}.verified-inventory-item img,.verified-inventory-placeholder{width:58px;height:58px;flex-basis:58px}.verified-inventory-title-row{align-items:flex-start;flex-direction:column;gap:4px}}
 
 
-/* HASSLE NFT finishing pass: floating TON coin ambience and mobile polish. */
+/* HASSLE NFT finishing pass: floating GRAM coin ambience and mobile polish. */
 body{position:relative;isolation:isolate;overflow-x:hidden}
 body::before{
-  content:"TON";
+  content:"GRAM";
   position:fixed;
   z-index:-1;
   top:23vh;
