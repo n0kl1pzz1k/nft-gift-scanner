@@ -106,7 +106,7 @@ class MultisigTransactionBodyTests(unittest.TestCase):
         )
         self.assertEqual(result["action_count"], 1)
         action = result["actions"][0]
-        self.assertEqual(action["body_kind"], "comment")
+        self.assertEqual(action["body_kind"], "text_comment")
         self.assertEqual(action["comment"], "HASSLE NFT payout deal-123")
         self.assertEqual(action["recipient"], "0:" + "33" * 32)
         self.assertEqual(action["amount_nano"], "2500000000")
