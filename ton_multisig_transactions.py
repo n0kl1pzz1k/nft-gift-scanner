@@ -11,7 +11,8 @@ import hashlib
 import time
 from typing import Any
 
-from tonsdk.boc import Cell
+from tonsdk.boc import Cell, DictBuilder
+from tonsdk.utils import Address
 
 from ton_multisig import decode_multisig_order_actions
 
@@ -132,3 +133,59 @@ def build_order_approve_payload(*, signer_index: int, signer_count: int = 3, que
         "signer_index": str(signer_index),
         "attached_value_nano": str(APPROVAL_ATTACHED_NANO),
     }
+
+
+def build_native_gram_transfer_actions_boc(
+    destination: str,
+    amount_nano: int,
+    memo: str,
+) -> str:
+    """Build one strict native-GRAM payout action for Multisig V2 review.
+
+    The amount is the native chain coin in nano units. This function only
+    creates an unsigned action dictionary; it never submits a transaction.
+    """
+    if isinstance(amount_nano, bool) or not isinstance(amount_nano, int):
+        raise ValueError("GRAM amount must be an integer number of nano units")
+    if amount_nano <= 0 or amount_nano >= (1 << 120):
+        raise ValueError("GRAM amount is outside the supported coin range")
+    if not isinstance(memo, str):
+        raise ValueError("GRAM transfer memo must be text")
+    memo_bytes = memo.encode("utf-8")
+    if not memo_bytes or len(memo_bytes) > 120 or any(byte < 32 for byte in memo_bytes):
+        raise ValueError("GRAM transfer memo must be 1..120 printable UTF-8 bytes")
+    try:
+        recipient = Address(destination)
+    except Exception as exc:
+        raise ValueError("Invalid GRAM payout destination") from exc
+    if recipient.wc != 0:
+        raise ValueError("Only workchain-0 GRAM payout destinations are supported")
+
+    body = Cell()
+    body.bits.write_uint(0, 32)  # standard text comment opcode
+    body.bits.write_bytes(memo_bytes)
+
+    message = Cell()
+    message.bits.write_bit(0)  # internal message
+    message.bits.write_bit(1)  # ihr_disabled
+    message.bits.write_bit(0)  # bounce disabled for a wallet payout
+    message.bits.write_bit(0)  # not bounced
+    message.bits.write_address(None)  # source is filled by the multisig
+    message.bits.write_address(recipient)
+    message.bits.write_coins(amount_nano)
+    message.bits.write_bit(0)  # no extra currencies
+    message.bits.write_coins(0)  # ihr_fee
+    message.bits.write_coins(0)  # fwd_fee
+    message.bits.write_uint(0, 64)  # created_lt
+    message.bits.write_uint(0, 32)  # created_at
+    message.bits.write_bit(0)  # no StateInit
+    message.bits.write_bit(1)  # body in reference
+    message.refs.append(body)
+
+    action = Cell()
+    action.bits.write_uint(0xF1381E5B, 32)  # actions::send_message
+    action.bits.write_uint(1, 8)  # PAY_GAS_SEPARATELY, fail closed on action error
+    action.refs.append(message)
+
+    actions = DictBuilder(8).store_ref(0, action).end_cell()
+    return base64.b64encode(actions.to_boc(False)).decode("ascii")
