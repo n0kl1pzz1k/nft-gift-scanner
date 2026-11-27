@@ -43,7 +43,7 @@ class MultisigTransactionBodyTests(unittest.TestCase):
         message.refs.append(body)
         action = Cell()
         action.bits.write_uint(0xF1381E5B, 32)
-        action.bits.write_uint(3, 8)
+        action.bits.write_uint(1, 8)
         action.refs.append(message)
         actions = DictBuilder(8).store_ref(0, action).end_cell()
         return base64.b64encode(actions.to_boc(False)).decode("ascii")
