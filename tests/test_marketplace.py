@@ -4132,3 +4132,56 @@ class RequestBodyLimitTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(raised.exception.status_code, 400)
             self.assertEqual(request.yielded, 0)
 
+
+class VerifiedAssetTraitPersistenceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_patch = patch.object(
+            marketplace, "DB_PATH",
+            os.path.join(self.temp_dir.name, "asset-traits.sqlite3"),
+        )
+        self.db_patch.start()
+        marketplace.init_marketplace_db()
+
+    def tearDown(self):
+        self.db_patch.stop()
+        self.temp_dir.cleanup()
+
+    def test_normalizes_official_collectible_traits_and_permille_rarity(self):
+        traits = marketplace._normalize_verified_asset_traits({
+            "attributes": [
+                {"type": "model", "value": "Neon", "rarity_per_mille": 125},
+                {"trait_type": "backdrop", "value": "Blue", "rarity_permille": 10},
+                {"type": "symbol", "value": "Star"},
+            ],
+            "number": 93222,
+        })
+        self.assertEqual(traits["model"]["name"], "Neon")
+        self.assertEqual(traits["model"]["rarity_percent"], 12.5)
+        self.assertEqual(traits["backdrop"]["rarity_percent"], 1.0)
+        self.assertEqual(traits["symbol"]["name"], "Star")
+        self.assertEqual(traits["serial_number"], "93222")
+
+    def test_does_not_invent_missing_traits_or_rarity(self):
+        traits = marketplace._normalize_verified_asset_traits({"attributes": [{"type": "model", "value": "Unknown"}]})
+        self.assertEqual(traits, {"model": {"name": "Unknown"}})
+        self.assertEqual(marketplace._normalize_verified_asset_traits({}), {})
+
+    def test_empty_provider_snapshot_does_not_erase_existing_metadata(self):
+        asset = marketplace.register_verified_asset(
+            source="ton_nft", external_asset_id="0:" + "a" * 64,
+            owner_telegram_id="101", title="Collectible #1", asset_type="gift",
+            image_url="", verification_method="ton_connect_proof",
+            verification_reference="verified-trait-storage-reference-123",
+        )
+        marketplace.save_verified_asset_traits(asset["id"], {
+            "attributes": [{"type": "model", "value": "Neon", "rarity_per_mille": 125}]
+        }, source="tonapi")
+        marketplace.save_verified_asset_traits(asset["id"], {}, source="tonapi")
+        with marketplace._db() as conn:
+            row = conn.execute(
+                "SELECT traits_json, metadata_source FROM verified_asset_traits WHERE asset_id = ?",
+                (asset["id"],),
+            ).fetchone()
+        self.assertEqual(json.loads(row["traits_json"])["model"]["name"], "Neon")
+        self.assertEqual(row["metadata_source"], "tonapi")
