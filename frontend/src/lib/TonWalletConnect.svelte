@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { TonConnectUI as TonConnectUIInstance } from '@tonconnect/ui';
+  import GramToken from './GramToken.svelte';
 
   type Props = {
     api: string;
@@ -295,11 +296,11 @@
   {#if paymentRequest && status === 'verified' && address === paymentRequest.buyerWallet}
     {#if paymentSubmitted}
       <button class="ton-wallet-button inventory-import-button" type="button" onclick={verifyTonPayment} disabled={busy}>
-        {busy ? '…' : (lang === 'ru' ? 'Проверить оплату TON' : 'Verify TON payment')}
+        {busy ? '…' : (lang === 'ru' ? 'Проверить оплату GRAM' : 'Verify GRAM payment')}
       </button>
     {:else if tonConnect?.wallet}
       <button class="ton-wallet-button inventory-import-button" type="button" onclick={sendTonPayment} disabled={busy}>
-        {busy ? '…' : (lang === 'ru' ? 'Оплатить TON из кошелька' : 'Pay with TON wallet')}
+        <GramToken size={17}/> {busy ? '…' : (lang === 'ru' ? 'Оплатить GRAM из кошелька' : 'Pay with GRAM')}
       </button>
     {:else}
       <button class="ton-wallet-button inventory-import-button" type="button" onclick={connectWallet} disabled={busy}>
