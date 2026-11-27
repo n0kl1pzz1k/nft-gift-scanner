@@ -748,9 +748,17 @@ def create_marketplace_offers_router(
             conn.execute(
                 """INSERT INTO marketplace_offers
                    (id, order_id, sender_user_id, sender_name, amount, currency, note, status, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, '', 'accepted', ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, '', 'pending', ?, ?)""",
                 (offer_id, order_id, buyer_id, sender_name, format(amount, "f"), order["currency"], now, now),
             )
+            accepted_offer = conn.execute(
+                """UPDATE marketplace_offers SET status='accepted', updated_at=?
+                   WHERE id=? AND status='pending'""",
+                (now, offer_id),
+            )
+            if accepted_offer.rowcount != 1:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Buy Now offer could not be accepted atomically")
             deal_id = "deal-" + uuid.uuid4().hex[:20]
             conn.execute(
                 """INSERT INTO marketplace_deals
