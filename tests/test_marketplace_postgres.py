@@ -25,10 +25,10 @@ def test_postgres_core_marketplace_schema_bootstrap_is_idempotent_and_verified()
         second = initialize_postgres_marketplace_schema(adapter)
         assert first["verified"] is True
         assert second["verified"] is True
-        assert first["tables_verified"] == 18
+        assert first["tables_verified"] == 19
         assert first["columns_verified"] > 0
         assert second["columns_verified"] == first["columns_verified"]
-        assert first["indexes_verified"] == 18
+        assert first["indexes_verified"] == 19
         assert first["triggers_verified"] == 13
 
         adapter.execute(
