@@ -52,6 +52,8 @@ def _validate_marketplace_actions(order_cell: Cell) -> dict[str, Any]:
             raise ValueError("Only decoded NFT and Jetton transfers can be prepared for marketplace review")
         if not action.get("body_fields_decoded") or not action.get("asset_recipient"):
             raise ValueError("Transfer recipient could not be decoded safely")
+        if action.get("send_mode") != 1:
+            raise ValueError("Treasury messages must use PAY_GAS_SEPARATELY without IGNORE_ERRORS")
         if action.get("extra_currencies"):
             raise ValueError("Extra-currency messages are not supported")
     return decoded
