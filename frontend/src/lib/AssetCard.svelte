@@ -4,6 +4,10 @@
 
   type AssetOrder = {
     id: string;
+    kind?: 'listing' | 'buy-order';
+    isMine?: boolean;
+    response_count?: number;
+    source_buy_order_id?: string | null;
     title: string;
     image_url?: string;
     asset_traits_json?: string;
@@ -80,12 +84,18 @@
     {/if}
     <div class="asset-card-footer">
       <div><small>{lang === 'ru' ? 'Цена' : 'Price'}</small><strong>{order.price} {#if order.currency === 'XTR'}<span>Stars</span>{:else}<span class="asset-gram-price"><GramToken size={16}/> GRAM</span>{/if}</strong></div>
-      {#if isMine}
+      {#if order.kind === 'buy-order' && isMine}
+        <button class="asset-offer-button" onclick={onManage}>{lang === 'ru' ? 'Ответы (' + (order.response_count || 0) + ')' : 'Responses (' + (order.response_count || 0) + ')'}</button>
+      {:else if order.kind === 'buy-order'}
+        <button class="asset-offer-button" onclick={onOffer} disabled={!canOffer} title={!canOffer ? (lang === 'ru' ? 'Войди через Telegram, чтобы ответить' : 'Sign in with Telegram to respond') : undefined}>{canOffer ? (lang === 'ru' ? 'Ответить' : 'Respond') : (lang === 'ru' ? 'Войти' : 'Sign in')}</button>
+      {:else if isMine}
         <button class="asset-offer-button" onclick={onManage}>{lang === 'ru' ? 'Управлять' : 'Manage listing'}</button>
       {:else}
         <div class="asset-card-actions">
           <button class="asset-details-button" type="button" onclick={onOpen}>{lang==='ru'?'Подробнее':'Details'}</button>
-          <button class="asset-offer-button" onclick={onOffer} disabled={!canOffer} title={!canOffer ? (lang === 'ru' ? 'Войди через Telegram, чтобы отправить оффер' : 'Sign in with Telegram to make an offer') : undefined}>{canOffer ? (lang === 'ru' ? 'Оффер' : 'Offer') : (lang === 'ru' ? 'Войти' : 'Sign in')}</button>
+          {#if !order.source_buy_order_id}
+            <button class="asset-offer-button" onclick={onOffer} disabled={!canOffer} title={!canOffer ? (lang === 'ru' ? 'Войди через Telegram, чтобы отправить оффер' : 'Sign in with Telegram to make an offer') : undefined}>{canOffer ? (lang === 'ru' ? 'Оффер' : 'Offer') : (lang === 'ru' ? 'Войти' : 'Sign in')}</button>
+          {/if}
         </div>
       {/if}
     </div>
