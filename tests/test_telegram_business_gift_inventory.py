@@ -491,5 +491,22 @@ class TelegramBusinessGiftImportApiTests(unittest.TestCase):
         self.assertIsNotNone(marketplace.get_telegram_business_gift_ref(asset["id"], "101"))
 
 
+
+    def test_normalises_model_symbol_backdrop_and_official_rarity(self):
+        item = normalise_business_owned_gift({
+            "type": "unique", "owned_gift_id": "owned-traits-1",
+            "gift": {
+                "name": "JollyChimp-93222", "base_name": "Jolly Chimp", "number": 93222,
+                "model": {"name": "Neon", "rarity_per_mille": 125},
+                "symbol": {"name": "Star", "rarity_per_mille": 50},
+                "backdrop": {"name": "Blue", "rarity_per_mille": 10},
+            },
+        })
+        self.assertEqual(item["traits"]["model"]["name"], "Neon")
+        self.assertEqual(item["traits"]["model"]["rarity_per_mille"], 125)
+        self.assertEqual(item["traits"]["symbol"]["name"], "Star")
+        self.assertEqual(item["traits"]["backdrop"]["name"], "Blue")
+        self.assertEqual(item["number"], 93222)
+
 if __name__ == "__main__":
     unittest.main()
