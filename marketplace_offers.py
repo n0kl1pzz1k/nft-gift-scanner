@@ -3001,7 +3001,16 @@ def create_marketplace_offers_router(
             for tx in transactions if isinstance(transactions, list) else []:
                 if not isinstance(tx, dict) or tx.get("success") is not True:
                     continue
-                if int(tx.get("utime") or 0) < int(intent["created_at"]) - 60:
+                try:
+                    transaction_utime = int(tx.get("utime") or 0)
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                # A matching memo and amount are not enough: the transfer must
+                # have landed within this invoice's validity window.
+                if (
+                    transaction_utime < int(intent["created_at"]) - 60
+                    or transaction_utime > int(intent["expires_at"])
+                ):
                     continue
                 incoming = tx.get("in_msg") if isinstance(tx.get("in_msg"), dict) else {}
                 try:
