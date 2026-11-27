@@ -451,8 +451,9 @@ def expire_unpaid_marketplace_deals(
     skipped_paid = 0
     with _db() as conn:
         candidates = conn.execute(
-            """SELECT d.id, d.order_id
+            """SELECT d.id, d.order_id, o.source_buy_order_id
                FROM marketplace_deals d
+               JOIN marketplace_orders o ON o.id = d.order_id
                WHERE d.status IN ('payment_not_enabled', 'awaiting_payment', 'payment_pending')
                  AND COALESCE(
                      (SELECT MAX(pi.expires_at) FROM marketplace_payment_intents pi
@@ -466,7 +467,11 @@ def expire_unpaid_marketplace_deals(
         for candidate in candidates:
             deal_id = str(candidate["id"])
             order_id = str(candidate["order_id"])
-            begin_write(conn, f"deal:{deal_id}", f"order:{order_id}")
+            source_buy_order_id = candidate["source_buy_order_id"]
+            lock_keys = [f"deal:{deal_id}", f"order:{order_id}"]
+            if source_buy_order_id:
+                lock_keys.append(f"order:{source_buy_order_id}")
+            begin_write(conn, *lock_keys)
             deal = conn.execute(
                 select_for_update(conn, "SELECT * FROM marketplace_deals WHERE id = ?"),
                 (deal_id,),
@@ -502,6 +507,12 @@ def expire_unpaid_marketplace_deals(
             )
             if released_order.rowcount == 1:
                 released += 1
+                if source_buy_order_id:
+                    conn.execute(
+                        """UPDATE marketplace_orders SET status='active', updated_at=?
+                           WHERE id=? AND status='matched' AND kind='buy-order'""",
+                        (timestamp, source_buy_order_id),
+                    )
             conn.commit()
             expired += 1
     return {"expired_deals": expired, "reservations_released": released, "skipped_confirmed_payment": skipped_paid}
@@ -1194,12 +1205,21 @@ def create_marketplace_offers_router(
         _enforce_user_rate_limit(actor_id, "deal_action", 10)
         now = int(time.time())
         with _db() as conn:
-            initial = conn.execute("SELECT order_id FROM marketplace_deals WHERE id = ?", (deal_id,)).fetchone()
+            initial = conn.execute(
+                """SELECT d.order_id, o.source_buy_order_id
+                   FROM marketplace_deals d JOIN marketplace_orders o ON o.id = d.order_id
+                   WHERE d.id = ?""",
+                (deal_id,),
+            ).fetchone()
             if initial is None:
                 raise HTTPException(status_code=404, detail="Deal not found")
-            begin_write(conn, f"order:{initial['order_id']}", f"deal:{deal_id}")
+            lock_keys = [f"order:{initial['order_id']}", f"deal:{deal_id}"]
+            if initial["source_buy_order_id"]:
+                lock_keys.append(f"order:{initial['source_buy_order_id']}")
+            begin_write(conn, *lock_keys)
             deal = conn.execute(
-                select_for_update(conn, """SELECT d.*, o.status AS order_status
+                select_for_update(conn, """SELECT d.*, o.status AS order_status,
+                          o.source_buy_order_id
                    FROM marketplace_deals d JOIN marketplace_orders o ON o.id = d.order_id
                    WHERE d.id = ?"""),
                 (deal_id,),
@@ -1233,6 +1253,12 @@ def create_marketplace_offers_router(
             if released.rowcount != 1:
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="Reservation could not be released safely")
+            if deal["source_buy_order_id"]:
+                conn.execute(
+                    """UPDATE marketplace_orders SET status='active', updated_at=?
+                       WHERE id=? AND status='matched' AND kind='buy-order'""",
+                    (now, deal["source_buy_order_id"]),
+                )
             conn.execute(
                 """INSERT INTO marketplace_deal_lifecycle_events
                    (id, deal_id, order_id, actor_user_id, event_type, event_data, created_at)
