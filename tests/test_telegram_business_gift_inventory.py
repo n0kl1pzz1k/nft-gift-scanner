@@ -502,15 +502,17 @@ class TelegramBusinessGiftImportApiTests(unittest.TestCase):
             "type": "unique", "owned_gift_id": "owned-traits-1",
             "gift": {
                 "name": "JollyChimp-93222", "base_name": "Jolly Chimp", "number": 93222,
-                "model": {"name": "Neon", "rarity_per_mille": 125},
+                "model": {"name": "Neon", "rarity_per_mille": 125, "rarity": "legendary"},
                 "symbol": {"name": "Star", "rarity_per_mille": 50},
-                "backdrop": {"name": "Blue", "rarity_per_mille": 10},
+                "backdrop": {"name": "Blue", "rarity_per_mille": 10, "colors": {"center_color": 1122867, "edge_color": 4478310}},
             },
         })
         self.assertEqual(item["traits"]["model"]["name"], "Neon")
         self.assertEqual(item["traits"]["model"]["rarity_per_mille"], 125)
+        self.assertEqual(item["traits"]["model"]["rarity"], "legendary")
         self.assertEqual(item["traits"]["symbol"]["name"], "Star")
         self.assertEqual(item["traits"]["backdrop"]["name"], "Blue")
+        self.assertEqual(item["traits"]["backdrop"]["colors"]["center_color"], 1122867)
         self.assertEqual(item["number"], 93222)
 
 if __name__ == "__main__":
