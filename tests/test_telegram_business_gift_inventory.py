@@ -302,6 +302,8 @@ class TelegramBusinessGiftImportApiTests(unittest.TestCase):
                 "gift_url": "https://t.me/nft/PlushPepe-42",
                 "send_date": "1760000000",
                 "model_sticker_file_id": "model-preview-file",
+                "traits": {"model": {"name": "Neon", "rarity_per_mille": 125}},
+                "number": 42,
             }],
         }
         with patch.object(app, "fetch_business_account_gifts", new=AsyncMock(return_value=snapshot)):
@@ -317,6 +319,9 @@ class TelegramBusinessGiftImportApiTests(unittest.TestCase):
         self.assertEqual(ref["gift_slug"], "PlushPepe-42")
         preview_ref = marketplace.get_telegram_business_gift_preview_ref(asset_id, "101")
         self.assertEqual(preview_ref["model_sticker_file_id"], "model-preview-file")
+        with marketplace._db() as conn:
+            traits_row = conn.execute("SELECT traits_json FROM verified_asset_traits WHERE asset_id = ?", (asset_id,)).fetchone()
+        self.assertEqual(__import__("json").loads(traits_row["traits_json"])["model"]["name"], "Neon")
 
     def test_primary_telegram_import_prefers_business_when_view_permission_is_granted(self):
         marketplace.upsert_telegram_business_connection({
@@ -490,6 +495,25 @@ class TelegramBusinessGiftImportApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertIsNotNone(marketplace.get_telegram_business_gift_ref(asset["id"], "101"))
 
+
+
+    def test_normalises_model_symbol_backdrop_and_official_rarity(self):
+        item = normalise_business_owned_gift({
+            "type": "unique", "owned_gift_id": "owned-traits-1",
+            "gift": {
+                "name": "JollyChimp-93222", "base_name": "Jolly Chimp", "number": 93222,
+                "model": {"name": "Neon", "rarity_per_mille": 125, "rarity": "legendary"},
+                "symbol": {"name": "Star", "rarity_per_mille": 50},
+                "backdrop": {"name": "Blue", "rarity_per_mille": 10, "colors": {"center_color": 1122867, "edge_color": 4478310}},
+            },
+        })
+        self.assertEqual(item["traits"]["model"]["name"], "Neon")
+        self.assertEqual(item["traits"]["model"]["rarity_per_mille"], 125)
+        self.assertEqual(item["traits"]["model"]["rarity"], "legendary")
+        self.assertEqual(item["traits"]["symbol"]["name"], "Star")
+        self.assertEqual(item["traits"]["backdrop"]["name"], "Blue")
+        self.assertEqual(item["traits"]["backdrop"]["colors"]["center_color"], 1122867)
+        self.assertEqual(item["number"], 93222)
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,11 +6,11 @@
   import BottomNav from './lib/BottomNav.svelte';
   import TonWalletConnect from './lib/TonWalletConnect.svelte';
 
-  type VerifiedAsset = { id:string; source:string; external_asset_id:string; title:string; asset_type:'gift'|'username'|'number'; image_url:string; verified_at:number; active_listing_id:string|null };
+  type VerifiedAsset = { id:string; source:string; external_asset_id:string; title:string; asset_type:'gift'|'username'|'number'; image_url:string; verified_at:number; active_listing_id:string|null; traits_json?:string };
   type MarketplaceOrder = {
     id: string; external_asset_id?: string | null; collection?: string | null; kind: 'listing' | 'buy-order'; title: string; asset_id?: string | null; image_url?: string; asset_type?: 'gift' | 'username' | 'number' | null;
     price: string | number; currency: 'TON' | 'XTR'; status: 'active' | 'matched' | 'cancelled';
-    createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; seller_profile_id?: string | null; events?: {type:string;createdAt:number}[];
+    createdAt: number; updatedAt: number; owner: string; isMine: boolean; note?: string; seller_profile_id?: string | null; asset_traits_json?: string; events?: {type:string;createdAt:number}[];
   };
   type MarketplaceOffer = { id:string; order_id:string; sender_name:string; amount:string; currency:'TON'|'XTR'; note:string; status:'pending'|'accepted'|'declined'|'withdrawn'; created_at:number; is_mine:boolean; order_title:string; order_owner_id:string; order_owner_name:string; order_status:string; order_kind:'listing'|'buy-order' };
   type MarketplaceDeal = { id:string; order_id:string; offer_id:string; is_seller:boolean; order_title:string; agreed_amount:string; currency:'TON'|'XTR'; status:'payment_not_enabled'|'awaiting_payment'|'payment_pending'|'paid'|'delivery_pending'|'completed'|'disputed'|'cancelled'|'expired'; order_status:string; created_at:number; reservation_active:boolean; payments_enabled:boolean; delivery_completed:boolean; asset_source?:string|null };
@@ -53,6 +53,8 @@
   let marketSort = $state<'recent'|'price-low'|'price-high'|'id-low'|'id-high'>('recent');
   let marketCollectionSearch = $state('');
   let marketNftIdSearch = $state('');
+  let marketTraitKey = $state<'all'|'model'|'symbol'|'backdrop'>('all');
+  let marketTraitValue = $state('');
   let nftBackground = $state<'midnight'|'violet'|'blue'|'emerald'|'rose'|'gold'>('midnight');
   let marketCurrency = $state<'all'|'TON'|'XTR'>('all');
   let marketMinPrice = $state('');
@@ -73,6 +75,8 @@
   let lastOwnershipRefreshAt = 0;
   let inventoryFilter = $state<'all'|'telegram_gift'|'ton_nft'>('all');
   let inventoryListingFilter = $state<'all'|'listed'|'unlisted'>('all');
+  let inventoryTraitFilter = $state<'all'|'model'|'symbol'|'backdrop'>('all');
+  let inventoryTraitQuery = $state('');
   let assetListingEnabled = $state(false);
   let selectedInventoryAsset = $state<VerifiedAsset | null>(null);
   let tonNftImportBusy = $state(false);
@@ -217,11 +221,13 @@
   const publicBuyRequests = $derived(orders.filter(order => order.kind === 'buy-order' && order.status === 'active').sort((a,b) => b.createdAt-a.createdAt));
   const myListings = $derived(orders.filter(order => order.isMine).sort((a, b) => b.createdAt - a.createdAt));
   const invalidPriceRange = $derived(marketCurrency !== 'all' && ((marketMinPrice !== '' && (!Number.isFinite(Number(marketMinPrice)) || Number(marketMinPrice) < 0)) || (marketMaxPrice !== '' && (!Number.isFinite(Number(marketMaxPrice)) || Number(marketMaxPrice) < 0)) || (marketMinPrice !== '' && marketMaxPrice !== '' && Number(marketMinPrice) > Number(marketMaxPrice))));
-  const hasMarketFilters = $derived(Boolean(marketSearch.trim() || marketCollectionSearch.trim() || marketNftIdSearch.trim() || assetTypeFilter !== 'all' || marketCurrency !== 'all' || marketMinPrice !== '' || marketMaxPrice !== ''));
+  const hasMarketFilters = $derived(Boolean(marketSearch.trim() || marketCollectionSearch.trim() || marketNftIdSearch.trim() || marketTraitKey !== 'all' || marketTraitValue.trim() || assetTypeFilter !== 'all' || marketCurrency !== 'all' || marketMinPrice !== '' || marketMaxPrice !== ''));
   function resetMarketFilters() {
     marketSearch = '';
     marketCollectionSearch = '';
     marketNftIdSearch = '';
+    marketTraitKey = 'all';
+    marketTraitValue = '';
     assetTypeFilter = 'all';
     marketCurrency = 'all';
     marketMinPrice = '';
@@ -235,6 +241,10 @@
       const query = marketSearch.trim().toLocaleLowerCase();
       const collectionQuery = marketCollectionSearch.trim().toLocaleLowerCase();
       const nftIdQuery = marketNftIdSearch.trim().toLocaleLowerCase();
+      const traitValueQuery = marketTraitValue.trim().toLocaleLowerCase();
+      const traits = listingTraits(order);
+      const matchesTraitKey = marketTraitKey === 'all' || traits.some(trait => trait.key === marketTraitKey);
+      const matchesTraitValue = !traitValueQuery || traits.some(trait => trait.name.toLocaleLowerCase().includes(traitValueQuery));
       const matchesType = assetTypeFilter === 'all' || type === assetTypeFilter;
       const matchesCurrency = marketCurrency === 'all' || order.currency === marketCurrency;
       const price = Number(order.price);
@@ -242,7 +252,7 @@
       const matchesMax = marketCurrency === 'all' || !marketMaxPrice || price <= Number(marketMaxPrice);
       const haystack = [order.collection || '', order.title, order.owner, order.note || ''].join(' ').toLocaleLowerCase();
       const idHaystack = [order.id, order.asset_id || '', order.external_asset_id || ''].join(' ').toLocaleLowerCase();
-      return matchesType && matchesCurrency && matchesMin && matchesMax && (!query || haystack.includes(query)) && (!collectionQuery || haystack.includes(collectionQuery)) && (!nftIdQuery || idHaystack.includes(nftIdQuery));
+      return matchesType && matchesCurrency && matchesMin && matchesMax && matchesTraitKey && matchesTraitValue && (!query || haystack.includes(query)) && (!collectionQuery || haystack.includes(collectionQuery)) && (!nftIdQuery || idHaystack.includes(nftIdQuery));
     });
     return [...filtered].sort((a,b) => {
       if (marketSort === 'recent') return b.createdAt-a.createdAt;
@@ -255,6 +265,15 @@
   });
   const inventoryAssets = $derived(orders.filter(order => order.isMine && order.kind === 'listing'));
   const visibleVerifiedAssets = $derived(verifiedAssets.filter(asset => asset.source !== 'telegram_gift' || telegramOwnershipSnapshotComplete));
+  const inventoryFilteredAssets = $derived(visibleVerifiedAssets.filter(asset => {
+    const sourceMatch = inventoryFilter === 'all' || asset.source === inventoryFilter;
+    const statusMatch = inventoryListingFilter === 'all' || (inventoryListingFilter === 'listed' ? Boolean(asset.active_listing_id) : !asset.active_listing_id);
+    const traits = assetTraits(asset);
+    const traitMatch = inventoryTraitFilter === 'all' || traits.some(trait => trait.key === inventoryTraitFilter);
+    const query = inventoryTraitQuery.trim().toLocaleLowerCase();
+    const queryMatch = !query || traits.some(trait => trait.name.toLocaleLowerCase().includes(query));
+    return sourceMatch && statusMatch && traitMatch && queryMatch;
+  }));
   const tonFloor = $derived(marketplaceStats.floor_ton && marketplaceStats.floor_ton > 0 ? marketplaceStats.floor_ton.toFixed(2) : '—');
   const starsFloor = $derived(marketplaceStats.floor_stars && marketplaceStats.floor_stars > 0 ? marketplaceStats.floor_stars.toFixed(0) : '—');
   function assetTypeOf(order: MarketplaceOrder): AssetTypeFilter | 'unknown' {
@@ -402,6 +421,28 @@
     } catch {
       telegramBusinessStatus = {connected:false,can_view_gifts_and_stars:false,can_transfer_and_upgrade_gifts:false,can_transfer_stars:false,gift_import_ready:false,gift_transfer_ready:false};
     }
+  }
+
+
+  function listingTraits(order: MarketplaceOrder): { key:string; name:string }[] {
+    try {
+      const data = JSON.parse(order.asset_traits_json || '{}');
+      return ['model','symbol','backdrop'].flatMap(key => {
+        const trait = data?.[key];
+        return trait && typeof trait.name === 'string' ? [{ key, name: trait.name }] : [];
+      });
+    } catch { return []; }
+  }
+
+  function assetTraits(asset: VerifiedAsset): { key:string; name:string; rarity?:number; tier?:string; colors?:{center?:string;edge?:string} }[] {
+    try {
+      const data = JSON.parse(asset.traits_json || '{}');
+      return ['model','symbol','backdrop'].flatMap(key => {
+        const trait = data?.[key];
+        if (!trait || typeof trait.name !== 'string') return [];
+        return [{ key, name: trait.name, rarity: typeof trait.rarity_percent === 'number' ? trait.rarity_percent : undefined, tier: typeof trait.rarity_tier === 'string' ? trait.rarity_tier : undefined, colors: trait.colors && typeof trait.colors === 'object' ? trait.colors : undefined }];
+      });
+    } catch { return []; }
   }
 
   function assetPreviewUrl(asset: { id: string; image_url?: string | null } | null) {
@@ -1586,6 +1627,8 @@
                 <label>{lang==='ru'?'Цена до':'Max price'}<input class="form-input" type="number" min="0" step="any" bind:value={marketMaxPrice} disabled={marketCurrency==='all'} placeholder="∞" inputmode="decimal"/></label>
                 <label>{lang==='ru'?'Коллекция':'Collection'}<input class="form-input" type="search" bind:value={marketCollectionSearch} placeholder={lang==='ru'?'Например, Eternal Rose':'e.g. Eternal Rose'} aria-label={lang==='ru'?'Фильтр по коллекции':'Filter by collection'}/></label>
                 <label>{lang==='ru'?'Номер NFT / ID':'NFT number / ID'}<input class="form-input" type="search" inputmode="numeric" bind:value={marketNftIdSearch} placeholder="#93222" aria-label={lang==='ru'?'Фильтр по номеру NFT':'Filter by NFT number'}/></label>
+                 <label>{lang==='ru'?'Характеристика':'Trait'}<select class="form-input" bind:value={marketTraitKey}><option value="all">{lang==='ru'?'Любая':'Any'}</option><option value="model">Model</option><option value="symbol">Symbol</option><option value="backdrop">Backdrop</option></select></label>
+                 <label>{lang==='ru'?'Значение свойства':'Trait value'}<input class="form-input" type="search" bind:value={marketTraitValue} placeholder={lang==='ru'?'Например, Neon':'e.g. Neon'} aria-label={lang==='ru'?'Поиск значения свойства':'Search trait value'}/></label>
                 <label class="filter-sheet-wide">{lang==='ru'?'Сортировка':'Sort'}<select class="form-input" bind:value={marketSort}><option value="recent">{lang==='ru'?'Сначала новые':'Newest'}</option><option value="price-low">{lang==='ru'?'Сначала дешевле':'Price: low to high'}</option><option value="price-high">{lang==='ru'?'Сначала дороже':'Price: high to low'}</option><option value="id-low">NFT ID ↑</option><option value="id-high">NFT ID ↓</option></select></label>
               </div>
               <div class="filter-sheet-actions"><button class="filter-reset-button" type="button" onclick={()=>{resetMarketFilters();showFilterSheet=false;}}>{lang==='ru'?'Сбросить':'Reset'}</button><button class="ton-primary" type="button" onclick={()=>showFilterSheet=false}>{lang==='ru'?'Показать результаты':'Show results'}</button></div>
@@ -1692,9 +1735,18 @@
              </div>
              <button class="refresh-button" type="button" onclick={refreshOwnershipInventory} disabled={verifiedAssetsLoading || telegramGiftImportBusy || businessGiftImportBusy || tonNftImportBusy}>{lang==='ru'?'Обновить':'Refresh'} ↻</button>
            </div>
-         {#if visibleVerifiedAssets.filter(asset=>(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))).length}
+           <div class="inventory-trait-toolbar">
+             <div class="inventory-filter-group" role="group" aria-label={lang==='ru'?'Характеристики NFT':'NFT traits'}>
+               <button class:active={inventoryTraitFilter==='all'} type="button" onclick={()=>inventoryTraitFilter='all'}>{lang==='ru'?'Все свойства':'All traits'}</button>
+               <button class:active={inventoryTraitFilter==='model'} type="button" onclick={()=>inventoryTraitFilter='model'}>Model</button>
+               <button class:active={inventoryTraitFilter==='symbol'} type="button" onclick={()=>inventoryTraitFilter='symbol'}>Symbol</button>
+               <button class:active={inventoryTraitFilter==='backdrop'} type="button" onclick={()=>inventoryTraitFilter='backdrop'}>Backdrop</button>
+             </div>
+             <input class="inventory-trait-search" type="search" bind:value={inventoryTraitQuery} placeholder={lang==='ru'?'Найти свойство…':'Search trait…'} aria-label={lang==='ru'?'Поиск по характеристикам':'Search NFT traits'} />
+           </div>
+         {#if inventoryFilteredAssets.length}(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))).length}
          <div class="verified-inventory-list">
-           {#each visibleVerifiedAssets.filter(asset=>(inventoryFilter==='all'||asset.source===inventoryFilter)&&(inventoryListingFilter==='all'||(inventoryListingFilter==='listed'?Boolean(asset.active_listing_id):!asset.active_listing_id))) as asset (asset.id)}
+           {#each inventoryFilteredAssets as asset (asset.id)}
              <article class="verified-inventory-item">
                {#if assetPreviewUrl(asset)}<img src={assetPreviewUrl(asset)} alt={asset.title} loading="lazy" />{:else}<div class="verified-inventory-placeholder"><span>HASSLE</span><small>{asset.source==='telegram_gift'?(lang==='ru'?'КОЛЛЕКЦИОННЫЙ ПОДАРОК':'COLLECTIBLE GIFT'):asset.asset_type==='username'?'TELEGRAM USERNAME':asset.asset_type==='number'?'ANONYMOUS NUMBER':'VERIFIED ASSET'}</small></div>{/if}
                <div class="verified-inventory-details">
@@ -1753,7 +1805,7 @@
             {#each visibleVerifiedAssets as asset (asset.id)}
               <article class="profile-asset-row">
                 {#if assetPreviewUrl(asset)}<img src={assetPreviewUrl(asset)} alt={asset.title} loading="lazy"/>{:else}<img class="profile-asset-placeholder" src="/brand/hassle-mark.webp?v=224" alt="HASSLE NFT"/>{/if}
-                <div class="profile-asset-copy"><strong>{asset.title}</strong><small>{asset.source==='telegram_gift'?'Telegram Gift':asset.source==='ton_nft'?'TON NFT':asset.asset_type==='username'?'Username':'+888'} · {asset.active_listing_id?(lang==='ru'?'На продаже':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</small></div>
+                <div class="profile-asset-copy"><strong>{asset.title}</strong><small>{asset.source==='telegram_gift'?'Telegram Gift':asset.source==='ton_nft'?'TON NFT':asset.asset_type==='username'?'Username':'+888'} · {asset.active_listing_id?(lang==='ru'?'На продаже':'Listed'):(lang==='ru'?'В инвентаре':'In inventory')}</small>{#if assetTraits(asset).length}<div class="asset-trait-chips profile-traits">{#each assetTraits(asset) as trait (trait.key)}<span class="asset-trait-chip">{#if trait.key==='backdrop' && trait.colors?.center}<i class="asset-trait-swatch" style={'background:linear-gradient(135deg,'+trait.colors.center+','+(trait.colors.edge||trait.colors.center)+')'}></i>{/if}<small>{trait.key.toUpperCase()}</small><b>{trait.name}</b>{#if trait.tier}<em>{trait.tier.toUpperCase()}</em>{:else if trait.rarity!==undefined}<em>{trait.rarity}%</em>{/if}</span>{/each}</div>{/if}</div>
                 {#if asset.active_listing_id}
                   {#if orders.find(order=>order.id===asset.active_listing_id)}<button class="profile-asset-action" type="button" onclick={()=>{const listing=orders.find(order=>order.id===asset.active_listing_id);if(listing)startEditOrder(listing);}}>{lang==='ru'?'Управлять':'Manage'}</button>{:else}<span class="profile-asset-listed">{lang==='ru'?'Выставлен':'Listed'}</span>{/if}
                 {:else if asset.source==='telegram_gift'}<span class="profile-asset-listed">{lang==='ru'?'Передача не готова':'Transfer pending'}</span>

@@ -144,6 +144,23 @@ class TonNftInventoryProviderTests(unittest.IsolatedAsyncioTestCase):
         await client.aclose()
         self.assertIsNone(result["owner_address"])
 
+    async def test_preserves_upstream_collectible_attributes_for_trait_storage(self):
+        item = {
+            "address": NFT,
+            "owner": {"address": WALLET, "is_scam": False},
+            "metadata": {
+                "name": "TON collectible",
+                "attributes": [
+                    {"trait_type": "Model", "value": "Neon"},
+                    {"trait_type": "Backdrop", "value": "Blue"},
+                ],
+            },
+            "trust": "whitelist",
+        }
+        result = _normalise_nft(item, WALLET)
+        self.assertEqual(result["attributes"][0]["trait_type"], "Model")
+        self.assertEqual(result["attributes"][1]["value"], "Blue")
+
     async def test_untrusted_image_schemes_are_not_rendered(self):
         item = {
             "address": NFT,

@@ -58,7 +58,35 @@ def normalise_business_owned_gift(raw: Any) -> dict[str, Any] | None:
     next_transfer_date = raw.get("next_transfer_date")
     if isinstance(next_transfer_date, bool) or not isinstance(next_transfer_date, int) or next_transfer_date < 0:
         next_transfer_date = None
+    traits = {}
+    for key, component in (("model", model), ("symbol", symbol)):
+        name = component.get("name")
+        rarity = component.get("rarity_per_mille")
+        if isinstance(name, str) and name.strip():
+            trait = {"name": name.strip()[:100]}
+            if isinstance(rarity, int) and not isinstance(rarity, bool) and 0 <= rarity <= 1000:
+                trait["rarity_per_mille"] = rarity
+            tier = component.get("rarity")
+            if key == "model" and tier in {"uncommon", "rare", "epic", "legendary"}:
+                trait["rarity"] = tier
+            traits[key] = trait
+    backdrop = gift.get("backdrop") if isinstance(gift.get("backdrop"), dict) else {}
+    backdrop_name = backdrop.get("name")
+    backdrop_rarity = backdrop.get("rarity_per_mille")
+    if isinstance(backdrop_name, str) and backdrop_name.strip():
+        trait = {"name": backdrop_name.strip()[:100]}
+        if isinstance(backdrop_rarity, int) and not isinstance(backdrop_rarity, bool) and 0 <= backdrop_rarity <= 1000:
+            trait["rarity_per_mille"] = backdrop_rarity
+        colors = backdrop.get("colors") if isinstance(backdrop.get("colors"), dict) else {}
+        safe_colors = {key: value for key, value in colors.items()
+                       if key in {"center_color", "edge_color", "symbol_color", "text_color"}
+                       and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 0xFFFFFF}
+        if safe_colors:
+            trait["colors"] = safe_colors
+        traits["backdrop"] = trait
     return {
+        "traits": traits,
+        "number": number,
         "owned_gift_id": owned_gift_id,
         "model_sticker_file_id": preview_file_id,
         "external_asset_id": slug,
@@ -142,7 +170,7 @@ async def fetch_business_account_gifts(
         timeout=httpx.Timeout(15.0, connect=5.0),
         follow_redirects=False,
     )
-    items: list[dict[str, str]] = []
+    items: list[dict[str, Any]] = []
     seen: set[str] = set()
     offset = ""
     complete = False

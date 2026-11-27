@@ -6,6 +6,7 @@
     id: string;
     title: string;
     image_url?: string;
+    asset_traits_json?: string;
     asset_type?: 'gift' | 'username' | 'number' | null;
     owner: string;
     price: string | number;
@@ -34,6 +35,17 @@
       ? order.asset_type
       : 'unknown';
   }
+  function collectibleTraits(): { key:string; name:string; rarity?:number; tier?:string; colors?:{center?:string;edge?:string} }[] {
+    try {
+      const data = JSON.parse(order.asset_traits_json || '{}');
+      return ['model','symbol','backdrop'].flatMap(key => {
+        const trait = data?.[key];
+        if (!trait || typeof trait.name !== 'string') return [];
+        return [{ key, name: trait.name, rarity: typeof trait.rarity_percent === 'number' ? trait.rarity_percent : undefined, tier: typeof trait.rarity_tier === 'string' ? trait.rarity_tier : undefined, colors: trait.colors && typeof trait.colors === 'object' ? trait.colors : undefined }];
+      });
+    } catch { return []; }
+  }
+  const traits = $derived(collectibleTraits());
   const kind = $derived(assetType(order));
   const typeLabel = $derived(kind === 'number'
     ? (lang === 'ru' ? 'Номер 888' : 'Anonymous number')
@@ -59,6 +71,13 @@
   <div class="asset-card-content">
     <div class="asset-title-row"><button class="asset-title-button" onclick={onOpen}>{order.title}</button><span class="asset-id">#{order.id.slice(-5)}</span></div>
     <p class="asset-owner">{#if sellerProfileId}<button class="asset-seller-link" onclick={onSeller}>{order.owner}</button>{:else}{order.owner}{/if}{order.note ? ' · ' + order.note : ''}</p>
+    {#if traits.length}
+      <div class="asset-card-traits" aria-label={lang==='ru'?'Характеристики NFT':'NFT traits'}>
+        {#each traits as trait (trait.key)}
+          <span class="asset-card-trait">{#if trait.key==='backdrop' && trait.colors?.center}<i class="asset-card-trait-swatch" style={'background:linear-gradient(135deg,'+trait.colors.center+','+(trait.colors.edge||trait.colors.center)+')'}></i>{/if}<small>{trait.key==='model'?'MODEL':trait.key==='symbol'?'SYMBOL':'BACKDROP'}</small><b>{trait.name}</b>{#if trait.tier}<em>{trait.tier.toUpperCase()}</em>{:else if trait.rarity!==undefined}<em>{trait.rarity}%</em>{/if}</span>
+        {/each}
+      </div>
+    {/if}
     <div class="asset-card-footer">
       <div><small>{lang === 'ru' ? 'Цена' : 'Price'}</small><strong>{order.price} {#if order.currency === 'XTR'}<span>Stars</span>{:else}<span class="asset-gram-price"><GramToken size={16}/> GRAM</span>{/if}</strong></div>
       {#if isMine}

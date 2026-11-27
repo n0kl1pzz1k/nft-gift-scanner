@@ -93,7 +93,7 @@ def _https_image(value: Any) -> str:
     return value
 
 
-def _normalise_nft(item: dict[str, Any], wallet_address: str) -> dict[str, str] | None:
+def _normalise_nft(item: dict[str, Any], wallet_address: str) -> dict[str, Any] | None:
     if not isinstance(item, dict):
         return None
     owner = item.get("owner")
@@ -148,6 +148,7 @@ def _normalise_nft(item: dict[str, Any], wallet_address: str) -> dict[str, str] 
         "wallet_address": wallet_address,
         "title": title,
         "image_url": image_url,
+        "attributes": metadata.get("attributes") if isinstance(metadata.get("attributes"), (list, dict)) else [],
         "collection_address": raw_collection_address,
         "trust": str(item.get("trust") or "none"),
         "collection_verified": "true" if item.get("verified") is True else "false",

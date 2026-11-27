@@ -359,6 +359,14 @@ def init_marketplace_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_verified_assets_owner_status
             ON verified_assets(owner_telegram_id, status, verified_at DESC);
+        CREATE TABLE IF NOT EXISTS verified_asset_traits (
+            asset_id TEXT PRIMARY KEY,
+            traits_json TEXT NOT NULL DEFAULT '{}',
+            metadata_source TEXT NOT NULL DEFAULT 'upstream',
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY(asset_id) REFERENCES verified_assets(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_verified_asset_traits_updated ON verified_asset_traits(updated_at DESC);
         CREATE TRIGGER IF NOT EXISTS verified_assets_metadata_immutable
         BEFORE UPDATE OF source, external_asset_id, owner_telegram_id, title, asset_type,
                          image_url, verification_method, verification_reference_hash, verified_at
@@ -1231,6 +1239,75 @@ def register_verified_asset(*, source: str, external_asset_id: str, owner_telegr
             "image_url": image_url, "status": "verified", "verified_at": now}
 
 
+
+def _normalize_verified_asset_traits(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize trusted upstream collectible attributes without inventing rarity."""
+    raw = item.get("traits") or item.get("attributes") or item.get("gift_attributes") or {}
+    if isinstance(raw, list):
+        source = {}
+        for entry in raw:
+            if not isinstance(entry, dict):
+                continue
+            key = str(entry.get("type") or entry.get("trait_type") or entry.get("name") or "").strip().lower()
+            if key:
+                source[key] = {"value": entry.get("value"), "rarity_per_mille": entry.get("rarity_per_mille", entry.get("rarity_permille"))}
+    elif isinstance(raw, dict):
+        source = raw
+    else:
+        source = {}
+    aliases = {"model": ("model", "gift_model"), "symbol": ("symbol", "pattern", "gift_symbol"), "backdrop": ("backdrop", "background", "gift_backdrop")}
+    result: dict[str, Any] = {}
+    for canonical, keys in aliases.items():
+        value = next((source[k] for k in keys if k in source), None)
+        if value is None:
+            continue
+        if isinstance(value, dict):
+            name = value.get("name") or value.get("value") or value.get("title")
+            image = value.get("image") or value.get("image_url") or value.get("thumbnail")
+            rarity = value.get("rarity_per_mille", value.get("rarity_permille"))
+        else:
+            name, image, rarity = value, None, None
+        trait: dict[str, Any] = {}
+        if isinstance(name, (str, int, float)) and str(name).strip():
+            trait["name"] = str(name).strip()[:100]
+        if isinstance(image, str) and image.startswith("https://") and len(image) <= 2048:
+            trait["image_url"] = image
+        if isinstance(rarity, (int, float)) and not isinstance(rarity, bool) and 0 <= rarity <= 1000:
+            trait["rarity_percent"] = round(float(rarity) / 10, 2)
+        tier = value.get("rarity") if isinstance(value, dict) else None
+        if canonical == "model" and tier in {"uncommon", "rare", "epic", "legendary"}:
+            trait["rarity_tier"] = tier
+        colors = value.get("colors") if isinstance(value, dict) and canonical == "backdrop" else None
+        if isinstance(colors, dict):
+            safe_colors = {}
+            for color_key, output_key in (("center_color", "center"), ("edge_color", "edge"), ("symbol_color", "symbol"), ("text_color", "text")):
+                color_value = colors.get(color_key)
+                if isinstance(color_value, int) and not isinstance(color_value, bool) and 0 <= color_value <= 0xFFFFFF:
+                    safe_colors[output_key] = f"#{color_value:06X}"
+            if safe_colors:
+                trait["colors"] = safe_colors
+        if trait:
+            result[canonical] = trait
+    serial = item.get("number") or item.get("serial_number") or item.get("serial")
+    if isinstance(serial, (str, int)) and str(serial).strip():
+        result["serial_number"] = str(serial).strip()[:40]
+    return result
+
+
+def save_verified_asset_traits(asset_id: str, item: dict[str, Any], *, source: str = "upstream") -> None:
+    traits = _normalize_verified_asset_traits(item)
+    if not traits:
+        return
+    with _db() as conn:
+        conn.execute(
+            """INSERT INTO verified_asset_traits(asset_id, traits_json, metadata_source, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(asset_id) DO UPDATE SET traits_json=excluded.traits_json,
+                 metadata_source=excluded.metadata_source, updated_at=excluded.updated_at""",
+            (asset_id, json.dumps(traits, sort_keys=True, separators=(",", ":")), source[:40], int(time.time())),
+        )
+
+
 def get_verified_asset_owner(source: str, external_asset_id: str) -> str | None:
     """Return the current registry owner for one exact upstream asset identity."""
     safe_source = str(source or "").strip()
@@ -1248,7 +1325,7 @@ def get_verified_asset_owner(source: str, external_asset_id: str) -> str | None:
 
 
 def sync_ton_nft_assets(*, owner_telegram_id: str, wallets: list[dict[str, Any]],
-                          nft_items: list[dict[str, str]], complete: bool) -> list[dict[str, Any]]:
+                          nft_items: list[dict[str, Any]], complete: bool) -> list[dict[str, Any]]:
     """Persist provider-derived NFT snapshots and revoke stale ownership only on complete scans."""
     owner_id = str(owner_telegram_id).strip()
     if not owner_id.isdigit():
@@ -1272,7 +1349,7 @@ def sync_ton_nft_assets(*, owner_telegram_id: str, wallets: list[dict[str, Any]]
             raise ValueError("Fragment assets require a successful TON contract verification")
         if not verification_reference:
             verification_reference = f"tonapi-owner-index:{evidence_wallet}:{address}:{int(time.time())}"
-        registered.append(register_verified_asset(
+        asset = register_verified_asset(
             source="ton_nft",
             external_asset_id=address,
             owner_telegram_id=owner_id,
@@ -1282,7 +1359,9 @@ def sync_ton_nft_assets(*, owner_telegram_id: str, wallets: list[dict[str, Any]]
             verification_method="ton_connect_proof",
             verification_reference=verification_reference,
             allow_owner_transfer=True,
-        ))
+        )
+        save_verified_asset_traits(asset["id"], item, source="tonapi")
+        registered.append(asset)
     if complete:
         now = int(time.time())
         with _db() as conn:
@@ -1323,7 +1402,7 @@ def sync_telegram_gift_assets(*, owner_telegram_id: str,
             continue
         # The official Bot API response is scoped to the ID from verified WebApp initData.
         # Only unique gifts have a stable item identifier; regular gifts are not guessed.
-        registered.append(register_verified_asset(
+        asset = register_verified_asset(
             source="telegram_gift",
             external_asset_id=external_id,
             owner_telegram_id=owner_id,
@@ -1336,7 +1415,9 @@ def sync_telegram_gift_assets(*, owner_telegram_id: str,
                 f"{str(item.get('send_date') or '')}:{int(time.time())}"
             ),
             allow_owner_transfer=True,
-        ))
+        )
+        save_verified_asset_traits(asset["id"], item, source="telegram")
+        registered.append(asset)
     if complete:
         now = int(time.time())
         with _db() as conn:
@@ -1470,6 +1551,7 @@ def _order_dict(row: sqlite3.Row, current_user_id: str | None = None) -> dict[st
         "title": row["title"],
         "asset_id": row["asset_id"] if "asset_id" in row.keys() else None,
         "image_url": row["asset_image_url"] if "asset_image_url" in row.keys() else "",
+        "asset_traits_json": row["asset_traits_json"] if "asset_traits_json" in row.keys() else "{}",
         "asset_type": row["asset_type"] if "asset_type" in row.keys() else None,
         "price": row["price"],
         "currency": row["currency"],
@@ -1591,10 +1673,12 @@ def create_marketplace_router(
             rows = conn.execute(
                 """SELECT a.id, a.source, a.external_asset_id, a.title, a.asset_type,
                           a.image_url, a.verified_at,
+                          COALESCE(t.traits_json, '{}') AS traits_json,
                           (SELECT o.id FROM marketplace_orders o
                            WHERE o.asset_id = a.id AND o.status = 'active'
                            ORDER BY o.created_at DESC LIMIT 1) AS active_listing_id
                    FROM verified_assets a
+                   LEFT JOIN verified_asset_traits t ON t.asset_id = a.id
                    WHERE a.owner_telegram_id = ? AND a.status = 'verified'
                    ORDER BY a.verified_at DESC LIMIT 200""",
                 (owner_id,),
@@ -2004,11 +2088,13 @@ def create_marketplace_router(
             elif asset_filter:
                 qualified_where += asset_filter
             rows = conn.execute(
-                f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url
+                f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url,
+                           COALESCE(t.traits_json, '{{}}') AS asset_traits_json
                     FROM marketplace_orders o
                     LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
                     LEFT JOIN verified_assets a ON a.id = o.asset_id
                        AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
+                    LEFT JOIN verified_asset_traits t ON t.asset_id = a.id
                     {qualified_where}
                     ORDER BY o.created_at DESC LIMIT ? OFFSET ?""",
                 (*values, limit, offset),
@@ -2036,11 +2122,13 @@ def create_marketplace_router(
             if not verified_actions_enabled:
                 verified_filter += " AND o.kind = 'buy-order'"
             rows = conn.execute(
-                f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url
+                f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url,
+                           COALESCE(t.traits_json, '{{}}') AS asset_traits_json
                     FROM marketplace_orders o
                     LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
                     LEFT JOIN verified_assets a ON a.id = o.asset_id
                        AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
+                    LEFT JOIN verified_asset_traits t ON t.asset_id = a.id
                     WHERE o.user_id = ?{verified_filter}
                     ORDER BY o.created_at DESC LIMIT 200""",
                 (str(user["id"]),),
