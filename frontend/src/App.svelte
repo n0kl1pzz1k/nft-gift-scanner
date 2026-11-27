@@ -47,6 +47,8 @@
   let showAboutModal = $state(false);
   let view = $state<View>('orders');
   let profileTab = $state<'account'|'inventory'|'admin'>('account');
+  let gramBalance = $state('0');
+  let gramBalanceLoading = $state(false);
   let marketSearch = $state('');
   let marketplaceLoading = $state(true);
   let marketError = $state('');
@@ -310,7 +312,7 @@
     notice = '';
     try { window.scrollTo(0, 0); } catch {}
     if (signedIn) {
-      void Promise.all([loadSellerProfile(), refreshOwnershipInventory(), loadOffersAndDeals()])
+      void Promise.all([loadSellerProfile(), loadGramBalance(), refreshOwnershipInventory(), loadOffersAndDeals()])
         .catch(error => { notice = error instanceof Error ? error.message : String(error); });
       return;
     }
@@ -726,6 +728,20 @@
     }
   }
 
+  async function loadGramBalance() {
+    if (!signedIn || !authToken) { gramBalance = '0'; gramBalanceLoading = false; return; }
+    gramBalanceLoading = true;
+    try {
+      const data = await request('/api/marketplace/balance/me');
+      const numericBalance = Number(data.balance);
+      if (data.display_currency !== 'GRAM' || typeof data.balance !== 'string' || !Number.isFinite(numericBalance) || numericBalance < 0) {
+        throw new Error('Invalid ledger balance response');
+      }
+      gramBalance = data.balance;
+    } catch (error) {
+      notice = error instanceof Error ? error.message : String(error);
+    } finally { gramBalanceLoading = false; }
+  }
   async function loadSellerProfile() {
     if (!signedIn) { sellerProfile = null; sellerDisplayName = ''; sellerBio = ''; return; }
     try {
@@ -1482,6 +1498,7 @@
       await loadFavorites();
       await loadOffersAndDeals();
       await loadSellerProfile();
+      await loadGramBalance();
       await loadVerifiedInventory();
       return true;
     } catch {
@@ -1841,7 +1858,7 @@
         {/each}
       </div>
       <article class="profile-card gram-profile-card">
-        <div class="gram-profile-mark"><GramToken size={34} class="gram-token-icon" /></div><div class="gram-profile-copy"><div class="eyebrow">HASSLE BALANCE</div><h2>GRAM</h2><strong>{lang==='ru'?'Баланс пока не подключён':'Balance not connected'}</strong><div class="gram-profile-actions"><button type="button" onclick={()=>gramAction='deposit'}>{lang==='ru'?'＋ Пополнить':'＋ Deposit'}</button><button type="button" onclick={()=>gramAction='withdraw'}>{lang==='ru'?'↗ Вывести':'↗ Withdraw'}</button></div><small>{lang==='ru'?'Внутренний ledger ещё не активирован. Реальные суммы не подменяются заглушками.':'The internal ledger is not active. No placeholder balance is shown.'}</small></div><button class="refresh-button" type="button" onclick={()=>showGramInfo=true}>{lang==='ru'?'Подробнее':'Details'}</button>
+        <div class="gram-profile-mark"><GramToken size={34} class="gram-token-icon" /></div><div class="gram-profile-copy"><div class="eyebrow">HASSLE BALANCE</div><h2>GRAM</h2><strong>{gramBalanceLoading?'…':gramBalance+' GRAM'}</strong><div class="gram-profile-actions"><button type="button" onclick={()=>gramAction='deposit'}>{lang==='ru'?'＋ Пополнить':'＋ Deposit'}</button><button type="button" onclick={()=>gramAction='withdraw'}>{lang==='ru'?'↗ Вывести':'↗ Withdraw'}</button></div><small>{lang==='ru'?'Баланс рассчитан по подтверждённым записям серверного ledger.':'Balance is calculated from confirmed server ledger entries.'}</small></div><button class="refresh-button" type="button" onclick={()=>showGramInfo=true}>{lang==='ru'?'Подробнее':'Details'}</button>
       </article>
       <article class="profile-card wallet-card">
         <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">WALLET CONNECT · PROOF</div><h2>{lang==='ru'?'GRAM-кошелёк':'GRAM wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления блокчейна и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for the blockchain to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletAddress=address;walletConnected=Boolean(address);}} /></div>
