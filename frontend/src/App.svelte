@@ -2066,7 +2066,7 @@
               <p>{lang==='ru'?'Сеть':'Network'}: Mainnet · {lang==='ru'?'Порог':'Threshold'}: {adminTreasury.threshold}/3 · {lang==='ru'?'Подписанты':'Signers'}: {adminTreasury.signer_count} · Proposers: {adminTreasury.proposer_count}</p>
               {#if adminTreasury.address}<small>{adminTreasury.address}</small>{/if}
               {#if adminTreasury.next_order_seqno!==null}<small>Next order: {adminTreasury.next_order_seqno}</small>{/if}
-              <p>{lang==='ru'?'Это только проверка состояния. Создание и исполнение ордеров пока не включено.':'Read-only status only. Order creation and execution are not enabled yet.'}</p>
+              <p>{lang==='ru'?'Здесь можно подготовить неподписанный ордер выплаты. Подпись и исполнение заблокированы до развёртывания и проверки контракта.':'Unsigned payout orders can be prepared here. Signing and execution remain blocked until the contract is deployed and verified.'}</p>
             </div>
             <div class="notification-heading"><h3>{lang==='ru'?'Подготовка выплаты продавцу':'Prepare seller payout'}</h3></div>
             <div class="state-panel">
