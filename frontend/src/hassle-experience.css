@@ -65,7 +65,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .asset-title-row{display:flex!important;align-items:flex-start!important;justify-content:space-between!important;gap:6px!important}
 .asset-title-button{min-width:0!important;color:#f5f8fc!important;font-size:13px!important;font-weight:800!important;line-height:1.35!important;text-align:left!important;overflow-wrap:anywhere!important}
 .asset-id{flex:0 0 auto!important;color:#78899a!important;font-size:10px!important;font-variant-numeric:tabular-nums}
-.asset-owner{margin:0!important;color:#a5b1bf!important;font-size:11px!important;line-height:1.45!important;overflow-wrap:anywhere!important}
+.asset-owner{margin:0!important;color:#b6c3d1!important;font-size:12px!important;line-height:1.45!important;overflow-wrap:anywhere!important}
 .asset-seller-link{color:#b9dfff!important;font-size:inherit!important;font-weight:650!important;text-decoration:none!important}
 .asset-card-footer{display:flex!important;align-items:flex-end!important;justify-content:space-between!important;gap:8px!important;margin-top:4px!important}
 .asset-card-footer>div small{display:block!important;color:#8190a0!important;font-size:10px!important}
@@ -153,7 +153,7 @@ textarea.form-input{min-height:110px!important;resize:vertical!important}
  .asset-card{border-radius:14px!important}
  .asset-card-content{padding:10px!important;gap:7px!important}
  .asset-title-button{font-size:12px!important}
- .asset-owner{font-size:10px!important}
+ .asset-owner{font-size:11px!important}
  .asset-card-footer{align-items:flex-start!important;flex-direction:column!important}
  .asset-card-footer>div strong{font-size:13px!important}
  .asset-card-actions{width:100%!important}
@@ -182,3 +182,11 @@ textarea.form-input{min-height:110px!important;resize:vertical!important}
 .market-collection-metric .gram-amount{font-size:10px!important;color:var(--hx-muted)!important}
 .activity-row-value .gram-amount{justify-content:flex-end!important}
 .asset-detail-price .gram-amount{font-size:inherit!important;font-weight:inherit!important}
+
+/* Seller identity and trade metadata must remain legible on every surface */
+.public-seller-identity h2,.public-seller-identity p,.profile-main h2{color:var(--hx-ink)!important}
+.public-seller-identity p,.public-seller-identity small,.seller-reputation-note{color:var(--hx-muted)!important}
+.order-main p{color:#aab8c7!important;overflow-wrap:anywhere!important}
+.order-price .gram-amount{font-size:13px!important;font-weight:800!important}
+.profile-trade-row>div:first-child small,.profile-deal-main small{color:#b4c1ce!important;line-height:1.55!important}
+.profile-handle{display:inline-flex!important;align-items:center!important;color:#b8dfff!important;font-size:12px!important;font-weight:750!important;letter-spacing:.01em!important}
