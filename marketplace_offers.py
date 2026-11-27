@@ -17,7 +17,7 @@ from typing import Callable, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Query
 
-from marketplace import _enforce_user_rate_limit, _verified_asset_actions_enabled, _test_unverified_assets_allowed, _migrate_legacy_marketplace_table_names
+from marketplace import _enforce_user_rate_limit, _verified_asset_actions_enabled, _test_unverified_assets_allowed, _migrate_legacy_marketplace_table_names, _checkout_enabled_for_order
 from database import begin_write, select_for_update, require_sqlite_connection, db as _database_db
 from pydantic import BaseModel, Field, field_validator
 from marketplace_payments import list_escrow_events
@@ -317,6 +317,18 @@ class CreateOffer(BaseModel):
     def validate_amount(cls, value: Decimal) -> Decimal:
         if not value.is_finite() or value <= 0 or value > Decimal("1000000000"):
             raise ValueError("Offer amount must be a positive number")
+        return value
+
+
+class BuyNowRequest(BaseModel):
+    idempotency_key: str = Field(min_length=8, max_length=128)
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def clean_idempotency_key(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 8:
+            raise ValueError("A valid idempotency key is required")
         return value
 
 
