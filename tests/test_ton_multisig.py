@@ -158,6 +158,7 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(order["approvals_mask"], "3")
         self.assertEqual(order["expiration_date"], 2000000000)
         self.assertTrue(order["has_order_payload"])
+        self.assertRegex(order["order_payload_hash"], r"^[0-9a-f]{64}$")
         self.assertFalse(order["executed"])
 
     def test_order_getter_rejects_malformed_stack(self):
