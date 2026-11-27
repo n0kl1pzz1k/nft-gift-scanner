@@ -248,7 +248,7 @@ async def fetch_ton_multisig_orders(
                     session,
                     address,
                     "get_order_address",
-                    [{"type": "num", "num": str(seqno)}],
+                    [{"type": "num", "value": str(seqno)}],
                     headers,
                 )
                 stack = address_payload.get("stack")
