@@ -134,6 +134,146 @@ def decode_multisig_v2_getter(payload: Any, expected_address: str) -> dict[str, 
     }
 
 
+
+def _parse_optional_number(item: Any, field: str) -> int | None:
+    if isinstance(item, dict) and item.get("type") == "null":
+        return None
+    return _parse_stack_number(item)
+
+
+def _parse_stack_address(item: Any) -> str:
+    from tonsdk.boc import Cell
+
+    if not isinstance(item, dict) or item.get("type") not in {"slice", "cell"}:
+        raise ValueError("TONAPI returned an invalid order address")
+    boc = item.get("cell")
+    if not isinstance(boc, str) or not boc:
+        raise ValueError("TONAPI returned an empty order address")
+    try:
+        cell = Cell.one_from_boc(base64.b64decode(boc, validate=True))
+        address = cell.begin_parse().read_msg_addr()
+        if address is None:
+            raise ValueError("TONAPI returned an empty order address")
+        return f"{int(address.wc)}:{bytes(address.hash_part).hex()}"
+    except Exception as exc:
+        raise ValueError("TONAPI returned a malformed order address") from exc
+
+
+def decode_multisig_order_getter(payload: Any) -> dict[str, Any]:
+    """Decode the official Multisig V2 get_order_data getter metadata."""
+    if not isinstance(payload, dict) or payload.get("success") is not True:
+        raise ValueError("TONAPI could not execute get_order_data")
+    if payload.get("exit_code") != 0:
+        raise ValueError("Multisig V2 order getter failed")
+    stack = payload.get("stack")
+    if not isinstance(stack, list) or len(stack) != 9:
+        raise ValueError("TONAPI returned an unexpected order getter stack")
+    multisig = _parse_stack_address(stack[0])
+    seqno = _parse_stack_number(stack[1])
+    threshold = _parse_optional_number(stack[2], "threshold")
+    executed_value = _parse_optional_number(stack[3], "executed")
+    signers_item = stack[4]
+    signers = []
+    if isinstance(signers_item, dict) and signers_item.get("type") == "cell":
+        signers = _read_hashmap_addresses(signers_item.get("cell"))
+    elif not (isinstance(signers_item, dict) and signers_item.get("type") == "null"):
+        raise ValueError("TONAPI returned an invalid order signer dictionary")
+    approvals_mask = _parse_optional_number(stack[5], "approvals")
+    approvals_num = _parse_optional_number(stack[6], "approvals_num")
+    expiration_date = _parse_optional_number(stack[7], "expiration_date")
+    order_item = stack[8]
+    has_order = isinstance(order_item, dict) and order_item.get("type") == "cell"
+    if not has_order and not (isinstance(order_item, dict) and order_item.get("type") == "null"):
+        raise ValueError("TONAPI returned an invalid order action cell")
+    return {
+        "multisig": multisig,
+        "order_seqno": seqno,
+        "threshold": threshold,
+        "executed": bool(executed_value) if executed_value is not None else None,
+        "signers": signers,
+        "approvals_num": approvals_num,
+        "approvals_mask": str(approvals_mask) if approvals_mask is not None else None,
+        "expiration_date": expiration_date,
+        "has_order_payload": has_order,
+    }
+
+
+async def _run_get_method(
+    session: httpx.AsyncClient,
+    address: str,
+    method: str,
+    stack: list[dict[str, str]] | None = None,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    response = await session.post(
+        f"/v2/blockchain/accounts/{_raw_address(address)}/methods/{method}",
+        headers=headers or {},
+        json={"args": stack or []},
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict) or payload.get("success") is not True or payload.get("exit_code") != 0:
+        raise ValueError(f"TONAPI getter {method} failed")
+    return payload
+
+
+async def fetch_ton_multisig_orders(
+    address: str,
+    next_order_seqno: int,
+    *,
+    limit: int = 20,
+    client: httpx.AsyncClient | None = None,
+) -> list[dict[str, Any]]:
+    """Read recent child Order contracts; this function never submits transactions."""
+    if isinstance(next_order_seqno, bool) or not isinstance(next_order_seqno, int) or next_order_seqno < 0:
+        raise ValueError("Invalid multisig order sequence number")
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 50:
+        raise ValueError("Order listing limit must be between 1 and 50")
+    token = os.getenv("TONAPI_TOKEN", "").strip()
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    owns_client = client is None
+    session = client or httpx.AsyncClient(
+        base_url=TONAPI_BASE_URL,
+        timeout=httpx.Timeout(12.0, connect=5.0),
+        follow_redirects=False,
+    )
+    try:
+        orders: list[dict[str, Any]] = []
+        first = max(0, next_order_seqno - limit)
+        for seqno in range(first, next_order_seqno):
+            try:
+                address_payload = await _run_get_method(
+                    session,
+                    address,
+                    "get_order_address",
+                    [{"type": "num", "num": str(seqno)}],
+                    headers,
+                )
+                stack = address_payload.get("stack")
+                if not isinstance(stack, list) or len(stack) != 1:
+                    raise ValueError("TONAPI returned an unexpected get_order_address stack")
+                order_address = _parse_stack_address(stack[0])
+                order_payload = await _run_get_method(
+                    session, order_address, "get_order_data", [], headers
+                )
+                order = decode_multisig_order_getter(order_payload)
+                if order["multisig"] != _raw_address(address) or order["order_seqno"] != seqno:
+                    raise ValueError("Order contract does not belong to the requested multisig sequence")
+                orders.append({
+                    "address": order_address,
+                    **order,
+                })
+            except (httpx.HTTPStatusError, ValueError, KeyError, TypeError):
+                # Expired/pruned/non-deployed child contracts are omitted. A malformed
+                # result is never represented as a valid order.
+                continue
+        return orders
+    finally:
+        if owns_client:
+            await session.aclose()
+
 def is_two_of_three_multisig(config: Any, expected_address: str) -> bool:
     """Accept only the pre-derived treasury, exact code/data hashes and owner signers."""
     if not isinstance(config, dict):
