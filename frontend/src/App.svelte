@@ -168,6 +168,9 @@
   let adminReconciliation = $state<{payments:Array<Record<string,unknown>>;transfers:Array<Record<string,unknown>>}>({payments:[],transfers:[]});
   let adminTreasury = $state<any>(null);
   let adminTreasuryOrders = $state<Array<Record<string,unknown>>>([]);
+  let treasuryPayoutDealId = $state('');
+  let treasuryPayoutBusy = $state(false);
+  let treasuryPreparedPayout = $state<Record<string,any> | null>(null);
   let adminUserSearch = $state('');
   let adminBusy = $state(false);
   let adminRole = $state('owner');
@@ -1362,6 +1365,33 @@
     finally { orderEditBusy = false; }
   }
 
+  async function prepareGramSellerPayout() {
+    if (!isAdmin || !adminPermissions.includes('treasury_read') || !walletConnected || !walletAddress || treasuryPayoutBusy) {
+      notice = lang === 'ru' ? 'Подключи подтверждённый кошелёк одного из трёх подписантов мультисига.' : 'Connect a TON-Proof verified wallet belonging to one of the three multisig signers.';
+      return;
+    }
+    const dealId = treasuryPayoutDealId.trim();
+    if (!dealId) {
+      notice = lang === 'ru' ? 'Укажи ID завершённой сделки.' : 'Enter a completed deal ID.';
+      return;
+    }
+    treasuryPayoutBusy = true;
+    treasuryPreparedPayout = null;
+    try {
+      const result = await request('/api/marketplace/admin/deals/' + encodeURIComponent(dealId) + '/prepare-gram-seller-payout', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet_address: walletAddress }),
+      });
+      treasuryPreparedPayout = result as Record<string,any>;
+      notice = lang === 'ru' ? 'Неподписанный ордер подготовлен. Проверь все реквизиты независимо.' : 'Unsigned order prepared. Independently verify every transaction detail.';
+    } catch (error) {
+      notice = error instanceof Error ? error.message : String(error);
+    } finally {
+      treasuryPayoutBusy = false;
+    }
+  }
+
   async function loadAdminOverview() {
     if (!isAdmin || adminBusy) return;
     adminBusy = true;
@@ -2037,6 +2067,24 @@
               {#if adminTreasury.address}<small>{adminTreasury.address}</small>{/if}
               {#if adminTreasury.next_order_seqno!==null}<small>Next order: {adminTreasury.next_order_seqno}</small>{/if}
               <p>{lang==='ru'?'Это только проверка состояния. Создание и исполнение ордеров пока не включено.':'Read-only status only. Order creation and execution are not enabled yet.'}</p>
+            </div>
+            <div class="notification-heading"><h3>{lang==='ru'?'Подготовка выплаты продавцу':'Prepare seller payout'}</h3></div>
+            <div class="state-panel">
+              <p>{lang==='ru'?'Введи ID завершённой GRAM-сделки. Сервер проверит платёж, запись начисления и кошелёк продавца, затем сформирует только неподписанный ордер.':'Enter a completed GRAM deal ID. The server verifies payment, seller ledger credit and seller wallet, then creates an unsigned order only.'}</p>
+              <input class="form-input" type="text" autocomplete="off" spellcheck="false" bind:value={treasuryPayoutDealId} placeholder={lang==='ru'?'ID сделки':'Deal ID'} aria-label={lang==='ru'?'ID сделки для выплаты':'Deal ID for payout'} />
+              <small>{lang==='ru'?'Кошелёк подписанта':'Connected signer wallet'}: {walletConnected ? walletAddress : (lang==='ru'?'не подключён':'not connected')}</small>
+              <button class="match-button" type="button" onclick={prepareGramSellerPayout} disabled={treasuryPayoutBusy || !walletConnected || adminTreasury?.status !== 'verified'}>{treasuryPayoutBusy ? '…' : (lang==='ru'?'Проверить сделку и подготовить ордер':'Verify deal and prepare order')}</button>
+              {#if treasuryPreparedPayout}
+                <div class="account-stat" aria-live="polite">
+                  <strong>{lang==='ru'?'Ордер подготовлен, но не подписан':'Order prepared, not signed'}</strong>
+                  <p>{treasuryPreparedPayout.amount} GRAM → {String(treasuryPreparedPayout.seller_wallet || '')}</p>
+                  <small>{String(treasuryPreparedPayout.memo || '')}</small>
+                  <small>{lang==='ru'?'Казначейство':'Treasury'}: {String(treasuryPreparedPayout.treasury_address || '')}</small>
+                  <small>{lang==='ru'?'Хеш payload':'Payload SHA-256'}: {String(treasuryPreparedPayout.review?.payload_sha256 || '')}</small>
+                  <small>{lang==='ru'?'Действий':'Actions'}: {String(treasuryPreparedPayout.review?.action_count ?? 0)} · {lang==='ru'?'Срок':'Expires'}: {treasuryPreparedPayout.transaction?.validUntil ? new Date(Number(treasuryPreparedPayout.transaction.validUntil) * 1000).toLocaleString() : '—'}</small>
+                  <p>{lang==='ru'?'Подпись и отправка отключены до развёртывания и независимой проверки контракта Multisig V2.':'Signing and submission remain disabled until Multisig V2 is deployed and independently verified.'}</p>
+                </div>
+              {/if}
             </div>
             <div class="notification-heading"><h3>{lang==='ru'?'Последние ордера':'Recent orders'} · {adminTreasuryOrders.length}</h3></div>
             {#if adminTreasuryOrders.length === 0}
