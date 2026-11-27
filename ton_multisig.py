@@ -189,9 +189,7 @@ def _read_hashmap_cells(cell, *, key_bits: int = 8) -> list[tuple[int, Any]]:
     def walk(node, remaining: int, prefix: list[int]) -> None:
         slice_ = node.begin_parse()
         prefix = prefix + read_label(slice_, remaining)
-        remaining -= len(prefix) - len(prefix[:len(prefix) - 0]) if False else 0
-        # The remaining key width is based on the full prefix, including the path
-        # bits supplied by the caller.
+        # Remaining key width is based on the full path, including branch bits.
         remaining = key_bits - len(prefix)
         if remaining == 0:
             value = slice_.read_ref()
