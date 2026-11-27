@@ -335,7 +335,9 @@ def init_marketplace_db() -> None:
             status TEXT NOT NULL CHECK(status IN ('active', 'matched', 'cancelled')),
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
-            note TEXT NOT NULL DEFAULT ''
+            note TEXT NOT NULL DEFAULT '',
+            target_buyer_id TEXT,
+            source_buy_order_id TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_marketplace_orders_status_created
             ON marketplace_orders(status, created_at DESC);
@@ -567,7 +569,13 @@ def init_marketplace_db() -> None:
             conn.execute("ALTER TABLE marketplace_orders ADD COLUMN asset_type TEXT CHECK(asset_type IS NULL OR asset_type IN ('gift', 'username', 'number'))")
         if "asset_id" not in order_columns:
             conn.execute("ALTER TABLE marketplace_orders ADD COLUMN asset_id TEXT")
+        if "target_buyer_id" not in order_columns:
+            conn.execute("ALTER TABLE marketplace_orders ADD COLUMN target_buyer_id TEXT")
+        if "source_buy_order_id" not in order_columns:
+            conn.execute("ALTER TABLE marketplace_orders ADD COLUMN source_buy_order_id TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_marketplace_orders_asset ON marketplace_orders(asset_id, status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_marketplace_orders_target_buyer ON marketplace_orders(target_buyer_id, status, created_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_marketplace_orders_source_buy_order ON marketplace_orders(source_buy_order_id, status, created_at DESC)")
         # Never delete marketplace listings during application startup.
         # Any listing removal must be an explicit, owner-authorized operation with
         # a recorded audit event. Startup must preserve all user-owned rows.
