@@ -1543,7 +1543,7 @@
         </div>
         <div class="market-category-rail" aria-label={lang==='ru'?'Категории':'Categories'}><button class:chosen={assetTypeFilter==='all'} onclick={()=>assetTypeFilter='all'}>{lang==='ru'?'Все':'All'}</button><button class:chosen={assetTypeFilter==='gift'} onclick={()=>assetTypeFilter='gift'}>{lang==='ru'?'Подарки':'Gifts'}</button><button class:chosen={assetTypeFilter==='username'} onclick={()=>assetTypeFilter='username'}>Username</button><button class:chosen={assetTypeFilter==='number'} onclick={()=>assetTypeFilter='number'}>+888</button></div>
         <div class="market-toolbar">
-          <label class="market-search market-search-primary"><span class="market-search-icon"><svg viewBox="0 0 24 24" fill="none"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg></span><input bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label={lang==='ru'?'Поиск активов':'Search assets'}/></label>
+          <label class="market-search market-search-primary"><span class="market-search-icon"><svg viewBox="0 0 24 24" fill="none"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg></span><input type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false" bind:value={marketSearch} placeholder={lang==='ru'?'Поиск подарка, username или номера':'Search gifts, usernames or numbers'} aria-label={lang==='ru'?'Поиск активов':'Search assets'}/></label>
           <button class="filter-open-button" type="button" onclick={()=>showFilterSheet=true}><span class="filter-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M7 12h10M10 17h4"/></svg></span>{lang==='ru'?'Фильтры':'Filters'}{#if hasMarketFilters}<i>•</i>{/if}</button>
         </div>
         {#if showFilterSheet}
@@ -1851,7 +1851,7 @@
           {/if}
           {#if adminPermissions.includes('users_read')}
           <div class="notification-heading"><h3>{lang==='ru'?'Пользователи':'Users'}</h3></div>
-          <div class="report-actions admin-user-search-row"><input class="form-input admin-user-search" bind:value={adminUserSearch} placeholder={lang==='ru'?'Telegram ID или @username':'Telegram ID or @username'} /><button class="refresh-button" onclick={searchAdminUsers}>{lang==='ru'?'Найти':'Search'}</button></div>
+          <div class="report-actions admin-user-search-row"><input class="form-input admin-user-search" type="search" inputmode="search" autocomplete="off" autocapitalize="off" spellcheck="false" bind:value={adminUserSearch} placeholder={lang==='ru'?'Telegram ID или @username':'Telegram ID or @username'} aria-label={lang==='ru'?'Поиск пользователя по Telegram ID или username':'Find user by Telegram ID or username'} /><button class="refresh-button" onclick={searchAdminUsers}>{lang==='ru'?'Найти':'Search'}</button></div>
           {#each adminUsers as user (String(user.telegram_id))}
             <div class="activity-row admin-user-row"><div class="activity-row-main"><strong>{user.first_name || 'Telegram user'} {user.username ? '@'+user.username : ''}</strong><small>ID {user.telegram_id} · {lang==='ru'?'активных сессий':'active sessions'}: {user.active_sessions}</small></div><button class="cancel-button" onclick={()=>revokeAdminUserSessions(String(user.telegram_id))}>{lang==='ru'?'Завершить сессии':'Revoke sessions'}</button></div>
           {/each}
