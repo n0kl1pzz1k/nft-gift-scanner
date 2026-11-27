@@ -1498,6 +1498,33 @@ def create_marketplace_offers_router(
             buyer_wallet = str(metadata.get("buyer_wallet") or "")
             amount = str(intent["amount"])
             intent_id = str(intent["id"])
+            requested_event = conn.execute(
+                """SELECT event_key, created_at FROM marketplace_escrow_events
+                   WHERE deal_id=? AND event_type='refund_requested' LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            expected_refund_key = f"{deal_id}:ton-refund-requested:{payload.idempotency_key}"
+            if requested_event is not None and requested_event["event_key"] != expected_refund_key:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="A TON refund is already in progress; retry with the original idempotency key")
+            refund_requested_at = (
+                int(requested_event["created_at"]) if requested_event is not None else int(time.time())
+            )
+            append_escrow_event(
+                conn,
+                deal_id=deal_id,
+                actor_user_id=admin_id,
+                event_type="refund_requested",
+                event_key=expected_refund_key,
+                event_data={
+                    "provider": "ton",
+                    "provider_reference": str(intent["provider_reference"]),
+                    "payment_intent_id": intent_id,
+                    "amount": amount,
+                    "currency": "TON",
+                },
+                now=refund_requested_at,
+            )
             conn.commit()
         try:
             treasury_raw = normalise_ton_address(treasury)
