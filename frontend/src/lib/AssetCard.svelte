@@ -35,13 +35,13 @@
       ? order.asset_type
       : 'unknown';
   }
-  function collectibleTraits(): { key:string; name:string; rarity?:number }[] {
+  function collectibleTraits(): { key:string; name:string; rarity?:number; tier?:string; colors?:{center?:string;edge?:string} }[] {
     try {
       const data = JSON.parse(order.asset_traits_json || '{}');
       return ['model','symbol','backdrop'].flatMap(key => {
         const trait = data?.[key];
         if (!trait || typeof trait.name !== 'string') return [];
-        return [{ key, name: trait.name, rarity: typeof trait.rarity_percent === 'number' ? trait.rarity_percent : undefined }];
+        return [{ key, name: trait.name, rarity: typeof trait.rarity_percent === 'number' ? trait.rarity_percent : undefined, tier: typeof trait.rarity_tier === 'string' ? trait.rarity_tier : undefined, colors: trait.colors && typeof trait.colors === 'object' ? trait.colors : undefined }];
       });
     } catch { return []; }
   }
@@ -74,7 +74,7 @@
     {#if traits.length}
       <div class="asset-card-traits" aria-label={lang==='ru'?'Характеристики NFT':'NFT traits'}>
         {#each traits as trait (trait.key)}
-          <span class="asset-card-trait"><small>{trait.key==='model'?'MODEL':trait.key==='symbol'?'SYMBOL':'BACKDROP'}</small><b>{trait.name}</b>{#if trait.rarity!==undefined}<em>{trait.rarity}%</em>{/if}</span>
+          <span class="asset-card-trait">{#if trait.key==='backdrop' && trait.colors?.center}<i class="asset-card-trait-swatch" style={'background:linear-gradient(135deg,'+trait.colors.center+','+(trait.colors.edge||trait.colors.center)+')'}></i>{/if}<small>{trait.key==='model'?'MODEL':trait.key==='symbol'?'SYMBOL':'BACKDROP'}</small><b>{trait.name}</b>{#if trait.tier}<em>{trait.tier.toUpperCase()}</em>{:else if trait.rarity!==undefined}<em>{trait.rarity}%</em>{/if}</span>
         {/each}
       </div>
     {/if}
