@@ -172,7 +172,17 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
     def test_decodes_send_message_action_and_keeps_approval_blocked(self):
         from tonsdk.boc import Builder, begin_dict
         recipient = "0:" + "c" * 64
-        body = Builder().store_uint(0x5FCC3D14, 32).end_cell()
+        body = (
+            Builder()
+            .store_uint(0x5FCC3D14, 32)
+            .store_uint(9, 64)
+            .store_address(Address(recipient))
+            .store_address(None)
+            .store_bit(0)
+            .store_coins(123)
+            .store_bit(0)
+            .end_cell()
+        )
         message = (
             Builder()
             .store_uint(0, 1)  # internal message
@@ -200,6 +210,9 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(decoded["actions"][0]["amount_nano"], "1234567890")
         self.assertEqual(decoded["actions"][0]["body_op"], 0x5FCC3D14)
         self.assertEqual(decoded["actions"][0]["body_kind"], "nft_transfer")
+        self.assertEqual(decoded["actions"][0]["asset_recipient"], recipient)
+        self.assertEqual(decoded["actions"][0]["forward_amount_nano"], "123")
+        self.assertTrue(decoded["actions"][0]["body_fields_decoded"])
         self.assertEqual(decoded["actions"][1]["index"], 1)
 
     def test_unknown_action_is_never_approval_safe(self):
