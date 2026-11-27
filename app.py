@@ -12,7 +12,7 @@ import marketplace
 from database import list_database_tables, list_database_columns
 from db_schema_audit import build_runtime_inventory, build_postgres_runtime_inventory, build_postgres_migration_gate_summary
 from urllib.parse import parse_qsl, urlsplit
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from fastapi import FastAPI, HTTPException, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -229,27 +229,27 @@ async def _read_limited_request_body(request: Request, max_bytes: int) -> bytes:
     return b"".join(chunks)
 
 class TelegramAuthRequest(BaseModel):
-    init_data: str
+    init_data: str = Field(min_length=1, max_length=8192)
 
 
 class TonProofDomain(BaseModel):
-    lengthBytes: int
-    value: str
+    lengthBytes: int = Field(ge=1, le=128)
+    value: str = Field(min_length=1, max_length=128)
 
 
 class TonProofData(BaseModel):
-    timestamp: int
+    timestamp: int = Field(ge=1)
     domain: TonProofDomain
-    signature: str
-    payload: str
+    signature: str = Field(min_length=1, max_length=256)
+    payload: str = Field(min_length=1, max_length=128)
 
 
 class TonProofVerifyRequest(BaseModel):
-    address: str
-    network: str
-    public_key: str | None = None
+    address: str = Field(min_length=1, max_length=128)
+    network: str = Field(min_length=1, max_length=8)
+    public_key: str | None = Field(default=None, min_length=64, max_length=64)
     proof: TonProofData
-    state_init: str
+    state_init: str = Field(min_length=1, max_length=16384)
 
 
 def _admin_ids() -> set[str]:
