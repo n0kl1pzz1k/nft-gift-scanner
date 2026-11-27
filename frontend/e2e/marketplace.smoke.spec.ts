@@ -121,3 +121,41 @@ test('authenticated profile opens from the mobile tab without waiting on navigat
   await expect(page.locator('[data-profile-view]')).toBeVisible();
   await expect(page.locator('.profile-main')).toContainText('Test User');
 });
+
+test('catalog shows real marketplace metrics and official Gram denomination', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await stubTelegramAndApi(page);
+  await page.goto('/');
+  await expect(page.locator('.market-live-stats')).toBeVisible();
+  await expect(page.locator('.market-live-stats')).toContainText('Активные лоты');
+  await expect(page.locator('.market-category-rail')).toBeVisible();
+  await expect(page.locator('.market-search input')).toHaveCSS('font-size', '16px');
+  await expect(page.locator('.market-currency-legend .gram-token-icon')).toBeVisible();
+});
+
+test('listing details button opens the real asset detail panel', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await stubTelegramAndApi(page);
+  await page.route('https://hassle-nft-market.up.railway.app/api/marketplace/orders**', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: [{
+          id: 'listing-test-12345', asset_id: 'asset-test-12345', kind: 'listing',
+          title: 'Jolly Chimp #93222', asset_type: 'gift', image_url: '',
+          price: '12.5', currency: 'TON', status: 'active', createdAt: 1795737600,
+          updatedAt: 1795737600, owner: '@seller_test', isMine: false,
+          seller_profile_id: null, note: ''
+        }],
+        total: 1
+      })
+    });
+  });
+  await page.goto('/');
+  const details = page.locator('.asset-details-button').first();
+  await expect(details).toBeVisible();
+  await details.click();
+  await expect(page.locator('.asset-detail-modal')).toBeVisible();
+  await expect(page.locator('#asset-detail-title')).toContainText('Jolly Chimp #93222');
+});

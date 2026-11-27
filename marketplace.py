@@ -725,6 +725,28 @@ def get_telegram_business_gift_preview_ref(asset_id: str, owner_telegram_id: str
     return dict(row) if row else None
 
 
+def get_public_telegram_business_gift_preview_ref(asset_id: str) -> dict[str, Any] | None:
+    """Expose a static gift thumbnail only while its verified asset is publicly listed."""
+    with _db() as conn:
+        row = conn.execute(
+            """SELECT r.model_sticker_file_id
+               FROM verified_assets a
+               JOIN telegram_business_gift_refs r ON r.asset_id = a.id
+               JOIN telegram_business_connections c
+                 ON c.telegram_id = r.owner_telegram_id
+                AND c.business_connection_id = r.business_connection_id
+               JOIN marketplace_orders o ON o.asset_id = a.id
+               WHERE a.id = ? AND a.source = 'telegram_gift'
+                 AND a.status = 'verified'
+                 AND c.is_enabled = TRUE AND c.can_view_gifts_and_stars = TRUE
+                 AND o.kind = 'listing' AND o.status = 'active'
+                 AND o.user_id = a.owner_telegram_id
+               ORDER BY o.created_at DESC LIMIT 1""",
+            (str(asset_id),),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def get_telegram_business_gift_ref(asset_id: str, owner_telegram_id: str | int) -> dict[str, Any] | None:
     owner_id = str(owner_telegram_id).strip()
     if not owner_id.isdigit():

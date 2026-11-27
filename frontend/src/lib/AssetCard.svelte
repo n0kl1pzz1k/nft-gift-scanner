@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fade } from 'svelte/transition';
+  import GramToken from './GramToken.svelte';
 
   type AssetOrder = {
     id: string;
@@ -26,6 +27,7 @@
     backgroundColor: 'midnight'|'violet'|'blue'|'emerald'|'rose'|'gold';
   };
   let { order, favorite, lang, sellerProfileId, onSeller, onFavorite, onOffer, onOpen, canOffer, isMine, onManage, backgroundColor }: Props = $props();
+  let failedImageUrl = $state('');
 
   function assetType(order: AssetOrder): 'gift' | 'username' | 'number' | 'unknown' {
     return order.asset_type === 'gift' || order.asset_type === 'username' || order.asset_type === 'number'
@@ -47,7 +49,7 @@
     {:else if kind === 'number'}
       <img class="asset-brand-art" src="/brand/hassle-mark.webp" alt=""/><span class="asset-number">{order.title.replace(/[^0-9+]/g, '') || '888'}</span><small>ANONYMOUS NUMBER</small>
     {:else if kind === 'gift'}
-      {#if order.image_url}<img class="asset-gift-image" src={order.image_url} alt={order.title} loading="lazy" />{:else}<div class="asset-preview-placeholder"><img src="/brand/hassle-mark.webp" alt="HASSLE NFT"/><small>{lang === 'ru' ? 'Ожидается изображение подарка' : 'Gift artwork pending'}</small></div>{/if}
+      {#if order.image_url && failedImageUrl !== order.image_url}<img class="asset-gift-image" src={order.image_url} alt={order.title} loading="lazy" onerror={()=>failedImageUrl=order.image_url || ''} />{:else}<div class="asset-preview-placeholder"><img src="/brand/hassle-mark.webp" alt="HASSLE NFT"/><small>{lang === 'ru' ? 'Ожидается изображение подарка' : 'Gift artwork pending'}</small></div>{/if}
     {:else}
       <div class="asset-preview-placeholder"><img src="/brand/hassle-mark.webp" alt="HASSLE NFT"/><small>{lang === 'ru' ? 'Подтверждённый актив' : 'Verified asset'}</small></div>
     {/if}
@@ -58,12 +60,12 @@
     <div class="asset-title-row"><button class="asset-title-button" onclick={onOpen}>{order.title}</button><span class="asset-id">#{order.id.slice(-5)}</span></div>
     <p class="asset-owner">{#if sellerProfileId}<button class="asset-seller-link" onclick={onSeller}>{order.owner}</button>{:else}{order.owner}{/if}{order.note ? ' · ' + order.note : ''}</p>
     <div class="asset-card-footer">
-      <div><small>{lang === 'ru' ? 'Цена' : 'Price'}</small><strong>{order.price} <span>{order.currency === 'XTR' ? 'Stars' : 'TON'}</span></strong></div>
+      <div><small>{lang === 'ru' ? 'Цена' : 'Price'}</small><strong>{order.price} {#if order.currency === 'XTR'}<span>Stars</span>{:else}<span class="asset-gram-price"><GramToken size={16}/> GRAM</span>{/if}</strong></div>
       {#if isMine}
         <button class="asset-offer-button" onclick={onManage}>{lang === 'ru' ? 'Управлять' : 'Manage listing'}</button>
       {:else}
         <div class="asset-card-actions">
-          <button class="asset-buy-disabled" disabled title={lang==='ru'?'Покупка включится после запуска защищённой оплаты':'Buying will be enabled after secure payments launch'}>{lang==='ru'?'Купить':'Buy'}</button>
+          <button class="asset-details-button" type="button" onclick={onOpen}>{lang==='ru'?'Подробнее':'Details'}</button>
           <button class="asset-offer-button" onclick={onOffer} disabled={!canOffer} title={!canOffer ? (lang === 'ru' ? 'Войди через Telegram, чтобы отправить оффер' : 'Sign in with Telegram to make an offer') : undefined}>{canOffer ? (lang === 'ru' ? 'Оффер' : 'Offer') : (lang === 'ru' ? 'Войти' : 'Sign in')}</button>
         </div>
       {/if}

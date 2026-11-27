@@ -18,7 +18,7 @@ from fastapi import FastAPI, HTTPException, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update, _enforce_user_rate_limit, sync_ton_nft_assets, sync_telegram_gift_assets, get_telegram_business_connection, get_telegram_business_connection_id, register_verified_asset, save_telegram_business_gift_ref, prune_telegram_business_gift_refs, get_telegram_business_gift_preview_ref
+from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update, _enforce_user_rate_limit, sync_ton_nft_assets, sync_telegram_gift_assets, get_telegram_business_connection, get_telegram_business_connection_id, register_verified_asset, save_telegram_business_gift_ref, prune_telegram_business_gift_refs, get_telegram_business_gift_preview_ref, get_public_telegram_business_gift_preview_ref
 from ton_connect import init_ton_connect_db, create_proof_challenge, verify_ton_proof, consume_challenge_and_link_wallet, list_verified_wallets, revoke_verified_wallet
 from ton_nft_inventory import (
     fetch_wallet_nfts,
@@ -664,6 +664,33 @@ async def get_verified_gift_preview(asset_id: str, x_telegram_init_data: str | N
         media_type=media_type,
         headers={
             "Cache-Control": "private, max-age=300",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        },
+    )
+
+
+@app.get("/api/marketplace/public-assets/{asset_id}/preview")
+async def get_public_verified_gift_preview(asset_id: str, request: Request):
+    # Public thumbnails are only available for currently active listings.
+    # Rate-limit by source IP and never expose Telegram file IDs to clients.
+    client_ip = request.client.host if request.client else "unknown"
+    _enforce_user_rate_limit(f"public:{client_ip}", "public_gift_preview", 60, 60)
+    preview_ref = get_public_telegram_business_gift_preview_ref(asset_id)
+    if not preview_ref:
+        raise HTTPException(status_code=404, detail="Public gift preview not found")
+    file_id = str(preview_ref.get("model_sticker_file_id") or "")
+    if not file_id:
+        raise HTTPException(status_code=404, detail="Telegram has no static preview for this gift model")
+    try:
+        image_data, media_type = await fetch_sticker_preview(file_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="Telegram gift preview is temporarily unavailable", headers={"Retry-After": "30"}) from exc
+    return Response(
+        content=image_data,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "public, max-age=300",
             "X-Content-Type-Options": "nosniff",
             "Content-Security-Policy": "default-src 'none'; sandbox",
         },

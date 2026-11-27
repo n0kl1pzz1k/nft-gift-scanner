@@ -232,6 +232,47 @@ class TelegramBusinessGiftImportApiTests(unittest.TestCase):
         self.db_patch.stop()
         self.temp_dir.cleanup()
 
+    def test_public_preview_is_available_only_for_a_verified_active_listing(self):
+        marketplace.upsert_telegram_business_connection({
+            "id": "business-connection-101",
+            "user": {"id": 101},
+            "user_chat_id": 101,
+            "is_enabled": True,
+            "rights": {"can_view_gifts_and_stars": True, "can_transfer_and_upgrade_gifts": True},
+        })
+        asset = marketplace.register_verified_asset(
+            source="telegram_gift", external_asset_id="JollyChimp-93222",
+            owner_telegram_id="101", title="Jolly Chimp #93222", asset_type="gift",
+            image_url="", verification_method="telegram_gift_owner",
+            verification_reference="public-preview-test-reference",
+        )
+        marketplace.save_telegram_business_gift_ref(
+            asset_id=asset["id"], owner_telegram_id="101",
+            business_connection_id="business-connection-101",
+            owned_gift_id="owned-jolly-93222", gift_slug="JollyChimp-93222",
+            model_sticker_file_id="public-model-preview-file",
+        )
+        with marketplace._db() as conn:
+            conn.execute(
+                """INSERT INTO marketplace_orders
+                   (id,user_id,owner_name,kind,title,price,currency,status,created_at,updated_at,note,asset_type,asset_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                ("listing-public-preview", "101", "seller", "listing", "Jolly Chimp #93222",
+                 "12.5", "TON", "active", 100, 100, "", "gift", asset["id"]),
+            )
+        image_bytes = b"RIFF" + bytes.fromhex("04000000") + b"WEBP"
+        with patch.object(app, "fetch_sticker_preview", new=AsyncMock(return_value=(image_bytes, "image/webp"))):
+            response = self.client.get(f"/api/marketplace/public-assets/{asset['id']}/preview")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.content, image_bytes)
+        self.assertEqual(response.headers.get("content-type"), "image/webp")
+        self.assertIn("public", response.headers.get("cache-control", ""))
+
+        with marketplace._db() as conn:
+            conn.execute("UPDATE marketplace_orders SET status = 'cancelled' WHERE id = ?", ("listing-public-preview",))
+        hidden = self.client.get(f"/api/marketplace/public-assets/{asset['id']}/preview")
+        self.assertEqual(hidden.status_code, 404)
+
     def test_import_requires_business_connection_with_view_right(self):
         response = self.client.post(
             "/api/marketplace/assets/import-business-gifts",
