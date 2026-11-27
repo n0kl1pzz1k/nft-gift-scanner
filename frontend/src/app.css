@@ -1247,3 +1247,80 @@ button,a,input,select,textarea,[role=button]{touch-action:manipulation!important
  .admin-user-row .activity-row-main,.admin-user-row .cancel-button{grid-column:1}
  .admin-user-row .cancel-button{width:100%;min-height:44px;white-space:normal}
 }
+
+
+/* HASSLE ART DIRECTION / 2026. One coherent electric-blue visual language. */
+:root{
+  --h-bg:#070b12;
+  --h-panel:#0d1420;
+  --h-panel-2:#121d2b;
+  --h-line:rgba(132,177,221,.14);
+  --h-muted:#8799ad;
+  --h-text:#f2f7fc;
+  --h-accent:#45b8ff;
+  --h-accent-soft:rgba(69,184,255,.12);
+  --h-gradient:linear-gradient(135deg,#39a9f5 0%,#697cff 54%,#a77cff 100%);
+  --h-ease:cubic-bezier(.2,.75,.25,1);
+}
+.market-app{background:#070b12!important;color:var(--h-text)!important}
+.sidebar{background:linear-gradient(180deg,#0b1421 0%,#080d16 100%)!important;border-color:rgba(117,174,222,.12)!important}
+.main-content{background:radial-gradient(ellipse at 68% -12%,rgba(38,151,232,.12),transparent 38%),radial-gradient(ellipse at 8% 38%,rgba(104,91,224,.055),transparent 32%),#070b12!important}
+.topbar{background:rgba(7,11,18,.84)!important;border-color:var(--h-line)!important}
+.brand small,.crumb,.eyebrow{color:#8ba8c2!important}
+.nav-item{color:#91a5b9!important;border-radius:12px!important;transition:background .2s var(--h-ease),color .2s var(--h-ease),border-color .2s var(--h-ease)!important}
+.nav-item.active{color:#eff9ff!important;background:linear-gradient(100deg,rgba(49,159,236,.18),rgba(99,113,255,.08))!important;border-color:rgba(79,177,244,.2)!important;box-shadow:inset 2px 0 #48baff,0 8px 26px #0002!important}
+.page-heading h1,.market-heading-row h2,.section-title h2{color:#f4f8fc!important}
+.page-heading p,.market-heading-row p,.market-meta{color:#8b9caf!important}
+.market-category-rail button{background:#101a28!important;border-color:rgba(133,180,220,.15)!important;color:#a8bbce!important}
+.market-category-rail button.chosen{background:linear-gradient(120deg,#dff4ff,#b9dfff)!important;border-color:#dff4ff!important;color:#071321!important;box-shadow:0 5px 18px #42b9ff20!important}
+.market-toolbar{background:linear-gradient(145deg,rgba(17,29,44,.94),rgba(10,17,27,.94))!important;border-color:rgba(132,177,221,.16)!important;box-shadow:0 12px 35px #0002!important}
+.market-search,.market-select,.price-filter,.filter-open-button{background:#0b1420!important;border-color:rgba(132,177,221,.15)!important;color:#d9e8f4!important}
+.market-search input,.market-select,.price-filter input{color:#edf7ff!important}
+.market-search:focus-within,.market-select:focus,.price-filter:focus-within,.filter-open-button:focus-visible{border-color:#45b8ff!important;box-shadow:0 0 0 3px rgba(69,184,255,.13)!important;outline:0}
+.asset-grid{gap:16px!important}
+.asset-card{position:relative!important;background:linear-gradient(155deg,#142235 0%,#0d1725 58%,#0a111c 100%)!important;border:1px solid rgba(123,181,228,.16)!important;border-radius:17px!important;box-shadow:0 12px 32px rgba(0,0,0,.24),inset 0 1px rgba(255,255,255,.025)!important;transition:transform .28s var(--h-ease),border-color .28s var(--h-ease),box-shadow .28s var(--h-ease)!important}
+.asset-card:after{position:absolute;inset:0;content:"";pointer-events:none;border-radius:inherit;background:linear-gradient(135deg,rgba(95,190,255,.055),transparent 38%,rgba(133,112,255,.035));opacity:.8}
+.asset-art{background:radial-gradient(ellipse at 50% 35%,#244b70 0%,#142b43 48%,#0b1726 100%)!important}
+.asset-art-username,.asset-art-number{background:radial-gradient(ellipse at 50% 35%,#344b77 0%,#1b2944 48%,#101a2b 100%)!important}
+.asset-gift-image{transition:transform .55s var(--h-ease),filter .55s var(--h-ease)!important}
+.asset-type-pill{background:rgba(5,13,23,.72)!important;border-color:rgba(178,220,255,.2)!important;color:#d9efff!important}
+.asset-favorite{background:rgba(5,13,23,.72)!important;border-color:rgba(178,220,255,.2)!important}
+.asset-title-button,.asset-card-content strong{color:#f1f7fc!important}
+.asset-id,.asset-owner,.asset-card-content small{color:#8ea3b8!important}
+.asset-card-footer{border-color:rgba(132,177,221,.13)!important}
+.asset-card-footer>div>strong{color:#f2f8fd!important}
+.asset-gram-price{color:#9edbff!important}
+.asset-gram-price .gram-token-icon,.asset-gram-price svg{filter:drop-shadow(0 0 8px rgba(48,161,245,.32))}
+.ton-primary,.publish-button,.search-button,.asset-offer-button,.inventory-list-button{background:linear-gradient(115deg,#dff5ff 0%,#9bd8ff 48%,#b5baff 100%)!important;color:#071421!important;border:1px solid rgba(225,246,255,.8)!important;box-shadow:0 7px 22px rgba(47,158,228,.15)!important;transition:transform .18s var(--h-ease),filter .18s var(--h-ease),box-shadow .18s var(--h-ease)!important}
+.ton-primary:active,.publish-button:active,.search-button:active,.asset-offer-button:active{transform:translateY(1px) scale(.985)!important}
+.refresh-button,.filter-reset-button,.cancel-button,.match-button,.asset-details-button{background:#132236!important;border-color:rgba(139,190,232,.17)!important;color:#d2e7f8!important}
+.profile-card,.order-card,.create-form,.create-aside,.market-kpi,.market-collections-panel,.market-longterm-stats>div{background:linear-gradient(145deg,#132235,#0c1522)!important;border-color:rgba(132,177,221,.14)!important;box-shadow:0 10px 30px #0002!important}
+.profile-avatar{background:var(--h-gradient)!important}
+.account-stat,.wallet-card,.gram-profile-card,.profile-inventory-card{background:rgba(7,15,25,.72)!important;border-color:rgba(132,177,221,.14)!important}
+.form-input,.filter-input{background:#091321!important;border-color:rgba(132,177,221,.16)!important;color:#eff8ff!important}
+.form-input:focus,.filter-input:focus{border-color:#45b8ff!important;box-shadow:0 0 0 3px rgba(69,184,255,.12)!important}
+.mobile-nav{background:rgba(7,13,22,.94)!important;border-color:rgba(132,177,221,.16)!important;box-shadow:0 -12px 36px rgba(0,0,0,.34)!important}
+.mobile-nav button{color:#7e94aa!important;border-radius:12px!important;transition:background .2s var(--h-ease),color .2s var(--h-ease),transform .2s var(--h-ease)!important}
+.mobile-nav button.active{background:linear-gradient(135deg,rgba(57,169,245,.16),rgba(113,124,255,.12))!important;color:#a9e0ff!important}
+.mobile-nav button.active .nav-icon{filter:drop-shadow(0 0 8px rgba(69,184,255,.22))}
+.toast{background:#10263a!important;border-color:rgba(69,184,255,.32)!important;color:#e5f6ff!important}
+.gift-modal,.hassle-info-sheet,.sell-modal,.market-filter-sheet{background:linear-gradient(145deg,#142235,#0a1421)!important;border-color:rgba(132,177,221,.2)!important}
+.state-panel,.market-empty{background:radial-gradient(ellipse at 50% 0%,rgba(47,159,235,.09),transparent 60%),#0c1624!important;border-color:rgba(132,177,221,.16)!important;color:#d5e5f2!important}
+@media(hover:hover){
+  .asset-card:hover{transform:translateY(-5px)!important;border-color:rgba(86,190,255,.42)!important;box-shadow:0 22px 48px rgba(0,0,0,.38),0 0 0 1px rgba(69,184,255,.08)!important}
+  .asset-card:hover .asset-gift-image{transform:scale(1.035)!important;filter:saturate(1.08)!important}
+  .nav-item:hover{background:rgba(69,184,255,.075)!important;color:#e5f6ff!important}
+}
+button:focus-visible,a:focus-visible{outline:2px solid #65c5ff!important;outline-offset:3px!important}
+@media(max-width:620px){
+  .asset-grid{gap:10px!important}
+  .asset-card{border-radius:14px!important}
+  .asset-card-content{gap:9px!important}
+  .market-toolbar{background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important}
+  .market-search,.filter-open-button{box-shadow:0 5px 18px #0002!important}
+  .mobile-nav{padding-top:9px!important}
+}
+@media(prefers-reduced-motion:reduce){
+  .asset-card,.asset-gift-image,.nav-item,.mobile-nav button,.ton-primary,.publish-button,.search-button,.asset-offer-button{transition:none!important}
+  .asset-card:hover{transform:none!important}
+}
