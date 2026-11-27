@@ -1150,7 +1150,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             new=AsyncMock(side_effect=marketplace_offers.HTTPException(
                 status_code=503, detail="TONAPI temporarily unavailable",
             )),
-        ):
+        ), patch("marketplace_offers._enforce_user_rate_limit"):
             payout_replay = self.client.post(
                 f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
                 headers={"X-Telegram-Init-Data":"user-b"},
