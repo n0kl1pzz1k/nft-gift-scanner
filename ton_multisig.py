@@ -246,10 +246,10 @@ def _parse_relaxed_internal_message(message_cell) -> dict[str, Any]:
         body = message.read_ref()
         message.end_parse()
         body_slice = body.begin_parse()
-        body_op = body_slice.read_uint(32) if body_slice.bits >= 32 else None
+        body_op = body_slice.read_uint(32) if len(body_slice.bits) >= 32 else None
         body_hash = body.bytes_hash().hex()
     else:
-        body_op = message.read_uint(32) if message.bits >= 32 else None
+        body_op = message.read_uint(32) if len(message.bits) >= 32 else None
         body_hash = None
     source_text = None
     if isinstance(source, Address):
