@@ -2,6 +2,7 @@ import base64
 import unittest
 
 from tonsdk.boc import Cell, DictBuilder
+from tonsdk.utils import Address
 
 from ton_multisig_transactions import (
     AUTO_ORDER_SEQNO,
@@ -18,7 +19,7 @@ class MultisigTransactionBodyTests(unittest.TestCase):
         body = Cell()
         body.bits.write_uint(0x5FCC3D14, 32)
         body.bits.write_uint(7, 64)
-        body.bits.write_address(__import__("tonsdk").utils.Address("0:" + "11" * 32))
+        body.bits.write_address(Address("0:" + "11" * 32))
         body.bits.write_address(None)
         body.bits.write_bit(0)  # no custom payload
         body.bits.write_coins(1)
