@@ -182,7 +182,7 @@ test('mobile marketplace typography keeps seller handles readable without horizo
   await page.goto('/');
   const seller = page.locator('.asset-owner').first();
   await expect(seller).toContainText('@collector_name');
-  await expect(seller).toHaveCSS('font-size', '10px');
+  await expect(seller).toHaveCSS('font-size', '11px');
   const metrics = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
     document: document.documentElement.scrollWidth,
