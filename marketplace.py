@@ -1591,6 +1591,7 @@ def _order_dict(row: sqlite3.Row, current_user_id: str | None = None) -> dict[st
         "target_buyer_id": row["target_buyer_id"] if "target_buyer_id" in row.keys() else None,
         "source_buy_order_id": row["source_buy_order_id"] if "source_buy_order_id" in row.keys() else None,
         "source_buy_order_status": row["source_buy_order_status"] if "source_buy_order_status" in row.keys() else None,
+        "response_count": row["response_count"] if "response_count" in row.keys() else 0,
         "buy_now_enabled": (
             row["kind"] == "listing" and row["status"] == "active"
             and not (current_user_id is not None and row["user_id"] == current_user_id)
@@ -2145,6 +2146,7 @@ def create_marketplace_router(
                 qualified_where += asset_filter
             rows = conn.execute(
                 f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url, a.source AS asset_source, a.status AS asset_status,
+                           (SELECT COUNT(*) FROM marketplace_orders r WHERE r.source_buy_order_id = o.id AND r.status IN ('active', 'matched')) AS response_count,
                            COALESCE(t.traits_json, '{{}}') AS asset_traits_json,
                            bo.status AS source_buy_order_status
                     FROM marketplace_orders o
