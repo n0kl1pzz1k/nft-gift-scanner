@@ -450,7 +450,7 @@
         ? (count ? `Проверено TON NFT: ${count}` : 'В подключённом TON-кошельке не найдены NFT, выпущенные в блокчейне TON.')
         : (count ? `TON NFTs verified: ${count}` : 'No NFTs minted on TON were found in the connected wallet.');
       if (result.ownership_scan_complete === false) {
-        tonNftImportMessage += lang === 'ru' ? ' Проверка продолжится при следующем обновлении.' : ' The scan was partial; refresh again later.';
+        tonNftImportMessage += lang === 'ru' ? ' Проверка продолжится при следующем обновлении.' : ' Ownership verification was incomplete; refresh again later.';
       }
     } catch (e) {
       tonNftImportMessage = e instanceof Error ? e.message : String(e);
@@ -482,7 +482,7 @@
         ? (count ? `Импортировано из Telegram Business: ${count}` : 'В бизнес-аккаунте нет коллекционных подарков.')
         : (count ? `Imported from Telegram Business: ${count}` : 'No collectible gifts found in the business account.');
       if (result.ownership_scan_complete === false) {
-        businessGiftImportMessage += lang === 'ru' ? ' Сканирование неполное, повтори позже.' : ' The scan was partial; refresh again later.';
+        businessGiftImportMessage += lang === 'ru' ? ' Проверка владения не завершена, повтори позже.' : ' The scan was partial; refresh again later.';
       }
     } catch (e) {
       businessGiftImportMessage = e instanceof Error ? e.message : String(e);
@@ -510,7 +510,7 @@
         ? (count ? 'Подтверждено коллекционных подарков: ' + count : 'Коллекционные подарки Telegram не найдены. Обычные подарки без уникального ID не добавляются.')
         : (count ? 'Verified collectible gifts: ' + count : 'No collectible Telegram gifts found. Regular gifts without a stable item ID are not imported.');
       if (result.ownership_scan_complete === false) {
-        telegramGiftImportMessage += lang === 'ru' ? ' Сканирование неполное; попробуй позже.' : ' The scan was partial; try again later.';
+        telegramGiftImportMessage += lang === 'ru' ? ' Проверка владения не завершена; попробуй позже.' : ' Ownership verification was incomplete; try again later.';
       }
     } catch (e) {
       telegramGiftImportMessage = e instanceof Error ? e.message : String(e);
