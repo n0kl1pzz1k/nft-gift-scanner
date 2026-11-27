@@ -1082,6 +1082,7 @@ class SharedMarketplaceTests(unittest.TestCase):
                 return {
                     "success": True,
                     "account": treasury,
+                    "utime": int(time.time()),
                     "out_msgs": [{"destination": buyer_address, "value": "9000000000"}],
                 }
         class FakeWrongDestinationClient(FakePayoutClient):
@@ -1094,6 +1095,7 @@ class SharedMarketplaceTests(unittest.TestCase):
                 return {
                     "success": True,
                     "account": treasury,
+                    "utime": int(time.time()),
                     "out_msgs": [{"destination": seller_address, "value": "9000000000", "bounced": True}],
                 }
         class FakeBouncedClient(FakePayoutClient):
@@ -1109,7 +1111,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         }
         with patch.dict(os.environ, payout_flags), patch(
             "marketplace_offers._require_ton_multisig_2_of_3", new=AsyncMock(return_value=None),
-        ), patch("httpx.AsyncClient", FakeBouncedClient):
+        ), patch("marketplace_offers._enforce_user_rate_limit"), patch("httpx.AsyncClient", FakeBouncedClient):
             bounced = self.client.post(
                 f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
                 headers={"X-Telegram-Init-Data":"user-b"},
@@ -1118,7 +1120,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(bounced.status_code, 409, bounced.text)
         with patch.dict(os.environ, payout_flags), patch(
             "marketplace_offers._require_ton_multisig_2_of_3", new=AsyncMock(return_value=None),
-        ), patch("httpx.AsyncClient", FakeWrongDestinationClient):
+        ), patch("marketplace_offers._enforce_user_rate_limit"), patch("httpx.AsyncClient", FakeWrongDestinationClient):
             wrong_destination = self.client.post(
                 f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
                 headers={"X-Telegram-Init-Data":"user-b"},
@@ -1127,7 +1129,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(wrong_destination.status_code, 409, wrong_destination.text)
         with patch.dict(os.environ, payout_flags), patch(
             "marketplace_offers._require_ton_multisig_2_of_3", new=AsyncMock(return_value=None),
-        ), patch("httpx.AsyncClient", FakeOldPayoutClient):
+        ), patch("marketplace_offers._enforce_user_rate_limit"), patch("httpx.AsyncClient", FakeOldPayoutClient):
             old_payout = self.client.post(
                 f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
                 headers={"X-Telegram-Init-Data":"user-b"},
@@ -1137,7 +1139,7 @@ class SharedMarketplaceTests(unittest.TestCase):
 
         with patch.dict(os.environ, payout_flags), patch(
             "marketplace_offers._require_ton_multisig_2_of_3", new=AsyncMock(return_value=None),
-        ), patch("httpx.AsyncClient", FakePayoutClient):
+        ), patch("marketplace_offers._enforce_user_rate_limit"), patch("httpx.AsyncClient", FakePayoutClient):
             payout = self.client.post(
                 f"/api/marketplace/admin/deals/{deal_id}/execute-ton-seller-payout",
                 headers={"X-Telegram-Init-Data":"user-b"},
