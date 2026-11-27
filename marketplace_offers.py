@@ -651,6 +651,155 @@ def create_marketplace_offers_router(
             """, (offer_id,)).fetchone()
         return {"item": _offer_dict(row, actor_id)}
 
+    @router.post("/orders/{order_id}/buy-now", status_code=201)
+    async def buy_now(
+        order_id: str,
+        payload: BuyNowRequest,
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Atomically reserve a verified listing at asking price when protected checkout is configured."""
+        user = _require_user(x_telegram_init_data, verify_telegram_init_data)
+        buyer_id = str(user["id"])
+        _enforce_user_rate_limit(buyer_id, "buy_now", 5)
+        if not _verified_asset_actions_enabled():
+            raise HTTPException(status_code=409, detail="Buy Now requires verified inventory actions")
+        offer_id = "of-" + uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"hassle-buy-now:{order_id}:{buyer_id}:{payload.idempotency_key}",
+        ).hex[:16]
+        now = int(time.time())
+        with _db() as conn:
+            begin_write(conn, f"order:{order_id}")
+            order = conn.execute(
+                select_for_update(conn, """
+                    SELECT o.*, a.source AS asset_source, a.status AS asset_status
+                    FROM marketplace_orders o
+                    LEFT JOIN verified_assets a ON a.id = o.asset_id
+                    WHERE o.id = ?
+                """),
+                (order_id,),
+            ).fetchone()
+            if order is None:
+                conn.rollback()
+                raise HTTPException(status_code=404, detail="Marketplace listing not found")
+
+            existing = conn.execute(
+                "SELECT id, status FROM marketplace_deals WHERE offer_id = ?",
+                (offer_id,),
+            ).fetchone()
+            if existing is not None:
+                conn.commit()
+                return {
+                    "deal_id": existing["id"],
+                    "deal_status": existing["status"],
+                    "offer_id": offer_id,
+                    "payments_enabled": True,
+                    "idempotent_replay": True,
+                }
+
+            if order["kind"] != "listing" or order["status"] != "active":
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="This listing is no longer available for direct purchase")
+            if str(order["user_id"]) == buyer_id:
+                conn.rollback()
+                raise HTTPException(status_code=403, detail="You cannot buy your own listing")
+            if not _checkout_enabled_for_order(
+                str(order["currency"]),
+                order["asset_source"],
+                order["asset_status"],
+            ):
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Protected checkout is not enabled for this listing yet")
+            if not _test_unverified_assets_allowed():
+                verified = conn.execute(
+                    """SELECT 1 FROM verified_assets
+                       WHERE id = ? AND owner_telegram_id = ? AND status = 'verified'""",
+                    (order["asset_id"], order["user_id"]),
+                ).fetchone()
+                if verified is None:
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Buy Now requires a currently verified seller asset")
+
+            amount = Decimal(str(order["price"]))
+            if not amount.is_finite() or amount <= 0:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="The listing has an invalid asking price")
+            if order["currency"] == "XTR" and amount != amount.to_integral_value():
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Telegram Stars prices must be whole numbers")
+
+            if order["currency"] == "TON":
+                wallets = conn.execute(
+                    """SELECT telegram_id FROM verified_wallets
+                       WHERE telegram_id IN (?, ?) AND network = '-239' AND revoked_at IS NULL""",
+                    (buyer_id, str(order["user_id"])),
+                ).fetchall()
+                wallet_ids = {str(row["telegram_id"]) for row in wallets}
+                if buyer_id not in wallet_ids or str(order["user_id"]) not in wallet_ids:
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Both buyer and seller must link a verified TON mainnet wallet before Buy Now")
+
+            open_deal = conn.execute(
+                """SELECT id FROM marketplace_deals
+                   WHERE order_id = ? AND status NOT IN ('cancelled', 'expired', 'completed')""",
+                (order_id,),
+            ).fetchone()
+            if open_deal is not None:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="This listing already has an active reservation")
+
+            sender_name = (user.get("first_name") or user.get("username") or "Telegram user")[:64]
+            conn.execute(
+                """INSERT INTO marketplace_offers
+                   (id, order_id, sender_user_id, sender_name, amount, currency, note, status, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, '', 'accepted', ?, ?)""",
+                (offer_id, order_id, buyer_id, sender_name, format(amount, "f"), order["currency"], now, now),
+            )
+            deal_id = "deal-" + uuid.uuid4().hex[:20]
+            conn.execute(
+                """INSERT INTO marketplace_deals
+                   (id, order_id, offer_id, listing_owner_id, offer_sender_id,
+                    agreed_amount, currency, created_at, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'payment_not_enabled')""",
+                (deal_id, order_id, offer_id, str(order["user_id"]), buyer_id,
+                 format(amount, "f"), order["currency"], now),
+            )
+            reserved = conn.execute(
+                """UPDATE marketplace_orders SET status='matched', updated_at=?
+                   WHERE id=? AND status='active'""",
+                (now, order_id),
+            )
+            if reserved.rowcount != 1:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="Listing reservation lost a concurrent update")
+            conn.execute(
+                """UPDATE marketplace_offers SET status='declined', updated_at=?
+                   WHERE order_id=? AND id<>? AND status='pending'""",
+                (now, order_id, offer_id),
+            )
+            for event_index, (event_type, event_data) in enumerate((
+                ("deal_created", {"offer_id": offer_id, "purchase_type": "buy_now", "payment_status": "not_started"}),
+                ("listing_reserved", {"order_id": order_id, "purchase_type": "buy_now"}),
+                ("payment_not_enabled", {"currency": order["currency"], "checkout_configured": True}),
+            ), start=1):
+                conn.execute(
+                    """INSERT INTO marketplace_deal_events
+                       (id, deal_id, order_id, actor_user_id, event_type, event_data, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (f"de-{event_index:02d}-" + uuid.uuid4().hex[:20], deal_id, order_id,
+                     buyer_id, event_type,
+                     json.dumps(event_data, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                     now),
+                )
+            conn.commit()
+        return {
+            "deal_id": deal_id,
+            "deal_status": "payment_not_enabled",
+            "offer_id": offer_id,
+            "payments_enabled": True,
+            "idempotent_replay": False,
+        }
+
     @router.get("/offers")
     async def list_offers(
         status: str = Query(default="all", pattern="^(pending|accepted|declined|withdrawn|all)$"),
