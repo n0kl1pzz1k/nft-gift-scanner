@@ -235,6 +235,73 @@ def _message_body_kind(opcode: int | None) -> str:
     return known.get(opcode, "unknown_opcode")
 
 
+def _read_standard_message_address(slice_, field: str, *, allow_none: bool = False) -> str | None:
+    tag = slice_.read_uint(2)
+    if tag == 0 and allow_none:
+        return None
+    if tag != 2:
+        raise ValueError(f"{field} is not a standard internal address")
+    if slice_.read_bit():
+        raise ValueError(f"{field} uses unsupported anycast")
+    workchain = slice_.read_int(8)
+    return f"{workchain}:{slice_.read_bytes(32).hex()}"
+
+
+def _decode_known_message_body(body_slice, opcode: int | None) -> dict[str, Any]:
+    fields: dict[str, Any] = {"body_fields_decoded": False}
+    if opcode == 0x5FCC3D14:  # TEP-62 NFT transfer
+        fields["body_query_id"] = str(body_slice.read_uint(64))
+        fields["asset_recipient"] = _read_standard_message_address(body_slice, "NFT new_owner")
+        fields["response_destination"] = _read_standard_message_address(
+            body_slice, "NFT response_destination", allow_none=True
+        )
+        fields["has_custom_payload"] = bool(body_slice.read_bit())
+        if fields["has_custom_payload"]:
+            body_slice.read_ref()
+        fields["forward_amount_nano"] = str(body_slice.read_coins())
+        fields["forward_payload_in_ref"] = bool(body_slice.read_bit())
+        if fields["forward_payload_in_ref"]:
+            body_slice.read_ref()
+        fields["body_fields_decoded"] = True
+    elif opcode == 0x0F8A7EA5:  # TEP-74 Jetton transfer
+        fields["body_query_id"] = str(body_slice.read_uint(64))
+        fields["jetton_amount_nano"] = str(body_slice.read_coins())
+        fields["asset_recipient"] = _read_standard_message_address(body_slice, "Jetton destination")
+        fields["response_destination"] = _read_standard_message_address(
+            body_slice, "Jetton response_destination", allow_none=True
+        )
+        fields["has_custom_payload"] = bool(body_slice.read_bit())
+        if fields["has_custom_payload"]:
+            body_slice.read_ref()
+        fields["forward_ton_amount_nano"] = str(body_slice.read_coins())
+        fields["forward_payload_in_ref"] = bool(body_slice.read_bit())
+        if fields["forward_payload_in_ref"]:
+            body_slice.read_ref()
+        fields["body_fields_decoded"] = True
+    elif opcode == 0x178D4519:  # TEP-74 internal transfer
+        fields["body_query_id"] = str(body_slice.read_uint(64))
+        fields["jetton_amount_nano"] = str(body_slice.read_coins())
+        fields["asset_sender"] = _read_standard_message_address(body_slice, "Jetton sender")
+        fields["response_destination"] = _read_standard_message_address(
+            body_slice, "Jetton response_destination", allow_none=True
+        )
+        fields["forward_ton_amount_nano"] = str(body_slice.read_coins())
+        fields["forward_payload_in_ref"] = bool(body_slice.read_bit())
+        if fields["forward_payload_in_ref"]:
+            body_slice.read_ref()
+        fields["body_fields_decoded"] = True
+    elif opcode == 0x05138D91:  # TEP-62 ownership_assigned
+        fields["body_query_id"] = str(body_slice.read_uint(64))
+        fields["asset_sender"] = _read_standard_message_address(
+            body_slice, "NFT previous_owner"
+        )
+        fields["forward_payload_in_ref"] = bool(body_slice.read_bit())
+        if fields["forward_payload_in_ref"]:
+            body_slice.read_ref()
+        fields["body_fields_decoded"] = True
+    return fields
+
+
 def _parse_relaxed_internal_message(message_cell) -> dict[str, Any]:
     """Decode internal MessageRelaxed header and body fingerprint."""
     from tonsdk.utils import Address
@@ -274,8 +341,10 @@ def _parse_relaxed_internal_message(message_cell) -> dict[str, Any]:
         body_op = body_slice.read_uint(32) if len(body_slice.bits) >= 32 else None
         body_hash = body.bytes_hash().hex()
     else:
-        body_op = message.read_uint(32) if len(message.bits) >= 32 else None
+        body_slice = message
+        body_op = body_slice.read_uint(32) if len(body_slice.bits) >= 32 else None
         body_hash = None
+    body_fields = _decode_known_message_body(body_slice, body_op)
     source_text = None
     if isinstance(source, Address):
         source_text = f"{int(source.wc)}:{bytes(source.hash_part).hex()}"
@@ -295,6 +364,7 @@ def _parse_relaxed_internal_message(message_cell) -> dict[str, Any]:
         "body_op": body_op,
         "body_kind": _message_body_kind(body_op),
         "body_hash": body_hash,
+        **body_fields,
     }
 
 
