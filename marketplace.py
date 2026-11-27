@@ -2145,12 +2145,14 @@ def create_marketplace_router(
                 qualified_where += asset_filter
             rows = conn.execute(
                 f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url, a.source AS asset_source, a.status AS asset_status,
-                           COALESCE(t.traits_json, '{{}}') AS asset_traits_json
+                           COALESCE(t.traits_json, '{{}}') AS asset_traits_json,
+                           bo.status AS source_buy_order_status
                     FROM marketplace_orders o
                     LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
                     LEFT JOIN verified_assets a ON a.id = o.asset_id
                        AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
                     LEFT JOIN verified_asset_traits t ON t.asset_id = a.id
+                     LEFT JOIN marketplace_orders bo ON bo.id = o.source_buy_order_id
                     {qualified_where}
                     ORDER BY o.created_at DESC LIMIT ? OFFSET ?""",
                 (*values, limit, offset),
@@ -2179,12 +2181,14 @@ def create_marketplace_router(
                 verified_filter += " AND o.kind = 'buy-order'"
             rows = conn.execute(
                 f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url, a.source AS asset_source, a.status AS asset_status,
-                           COALESCE(t.traits_json, '{{}}') AS asset_traits_json
+                           COALESCE(t.traits_json, '{{}}') AS asset_traits_json,
+                           bo.status AS source_buy_order_status
                     FROM marketplace_orders o
                     LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
                     LEFT JOIN verified_assets a ON a.id = o.asset_id
                        AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
                     LEFT JOIN verified_asset_traits t ON t.asset_id = a.id
+                     LEFT JOIN marketplace_orders bo ON bo.id = o.source_buy_order_id
                     WHERE o.user_id = ?{verified_filter}
                     ORDER BY o.created_at DESC LIMIT 200""",
                 (str(user["id"]),),
