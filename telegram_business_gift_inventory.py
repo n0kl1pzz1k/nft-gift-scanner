@@ -66,6 +66,9 @@ def normalise_business_owned_gift(raw: Any) -> dict[str, Any] | None:
             trait = {"name": name.strip()[:100]}
             if isinstance(rarity, int) and not isinstance(rarity, bool) and 0 <= rarity <= 1000:
                 trait["rarity_per_mille"] = rarity
+            tier = component.get("rarity")
+            if key == "model" and tier in {"uncommon", "rare", "epic", "legendary"}:
+                trait["rarity"] = tier
             traits[key] = trait
     backdrop = gift.get("backdrop") if isinstance(gift.get("backdrop"), dict) else {}
     backdrop_name = backdrop.get("name")
@@ -74,6 +77,12 @@ def normalise_business_owned_gift(raw: Any) -> dict[str, Any] | None:
         trait = {"name": backdrop_name.strip()[:100]}
         if isinstance(backdrop_rarity, int) and not isinstance(backdrop_rarity, bool) and 0 <= backdrop_rarity <= 1000:
             trait["rarity_per_mille"] = backdrop_rarity
+        colors = backdrop.get("colors") if isinstance(backdrop.get("colors"), dict) else {}
+        safe_colors = {key: value for key, value in colors.items()
+                       if key in {"center_color", "edge_color", "symbol_color", "text_color"}
+                       and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 0xFFFFFF}
+        if safe_colors:
+            trait["colors"] = safe_colors
         traits["backdrop"] = trait
     return {
         "traits": traits,
