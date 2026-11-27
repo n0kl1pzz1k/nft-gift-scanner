@@ -245,7 +245,13 @@ def _parse_relaxed_internal_message(message_cell) -> dict[str, Any]:
     ihr_disabled = bool(message.read_bit())
     bounce = bool(message.read_bit())
     bounced = bool(message.read_bit())
+    source_tag = message.preload_uint(2)
+    if source_tag not in (0, 2):
+        raise ValueError("Treasury message source uses an unsupported address format")
     source = message.read_msg_addr()
+    destination_tag = message.preload_uint(2)
+    if destination_tag != 2:
+        raise ValueError("Treasury message destination is not addr_std")
     destination = message.read_msg_addr()
     if destination is None or not isinstance(destination, Address):
         raise ValueError("Treasury message destination is not a standard internal address")
