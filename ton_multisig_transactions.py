@@ -48,10 +48,28 @@ def _validate_marketplace_actions(order_cell: Cell) -> dict[str, Any]:
     for action in actions:
         if action.get("kind") != "send_message":
             raise ValueError("Governance and unknown actions cannot be proposed as marketplace transfers")
-        if action.get("body_kind") not in {"nft_transfer", "jetton_transfer"}:
-            raise ValueError("Only decoded NFT and Jetton transfers can be prepared for marketplace review")
-        if not action.get("body_fields_decoded") or not action.get("asset_recipient"):
-            raise ValueError("Transfer recipient could not be decoded safely")
+        body_kind = action.get("body_kind")
+        if body_kind not in {"nft_transfer", "jetton_transfer", "comment"}:
+            raise ValueError("Only decoded NFT, Jetton, and memo-bound native GRAM transfers can be prepared")
+        if not action.get("body_fields_decoded"):
+            raise ValueError("Transfer body could not be decoded safely")
+        if body_kind in {"nft_transfer", "jetton_transfer"}:
+            if not action.get("asset_recipient"):
+                raise ValueError("Asset recipient could not be decoded safely")
+        else:
+            memo = action.get("comment")
+            recipient = action.get("recipient")
+            amount_nano = action.get("amount_nano")
+            if (
+                not isinstance(memo, str)
+                or not memo.startswith("HASSLE NFT payout ")
+                or not memo.removeprefix("HASSLE NFT payout ").strip()
+                or not isinstance(recipient, str)
+                or not isinstance(amount_nano, str)
+                or not amount_nano.isdigit()
+                or int(amount_nano) <= 0
+            ):
+                raise ValueError("Native GRAM payout must have a HASSLE deal memo, recipient, and positive amount")
         if action.get("send_mode") != 1:
             raise ValueError("Treasury messages must use PAY_GAS_SEPARATELY without IGNORE_ERRORS")
         if action.get("extra_currencies"):
