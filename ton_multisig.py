@@ -216,6 +216,24 @@ def _cell_to_address_list(cell) -> list[str]:
     )
 
 
+def _message_body_kind(opcode: int | None) -> str:
+    if opcode is None:
+        return "empty_or_short_body"
+    known = {
+        0x00000000: "text_comment",
+        0x5FCC3D14: "nft_transfer",
+        0x05138D91: "nft_ownership_assigned",
+        0x0F8A7EA5: "jetton_transfer",
+        0x178D4519: "jetton_internal_transfer",
+        0x7362D09C: "jetton_transfer_notification",
+        0x595F07BC: "jetton_burn",
+        0x7BDD97DE: "jetton_burn_notification",
+        0x642B7D07: "jetton_mint",
+        0xD53276DB: "jetton_excesses",
+    }
+    return known.get(opcode, "unknown_opcode")
+
+
 def _parse_relaxed_internal_message(message_cell) -> dict[str, Any]:
     """Decode internal MessageRelaxed header and body fingerprint."""
     from tonsdk.utils import Address
@@ -268,6 +286,7 @@ def _parse_relaxed_internal_message(message_cell) -> dict[str, Any]:
         "created_lt": str(created_lt),
         "created_at": created_at,
         "body_op": body_op,
+        "body_kind": _message_body_kind(body_op),
         "body_hash": body_hash,
     }
 
