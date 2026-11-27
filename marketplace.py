@@ -1546,6 +1546,8 @@ def _enforce_user_rate_limit(user_id: str, action: str, limit: int, window_secon
 
 def _checkout_enabled_for_order(currency: str, asset_source: str | None, asset_status: str | None) -> bool:
     """Expose Buy Now only when the matching protected checkout rail is configured."""
+    if not _verified_asset_actions_enabled():
+        return False
     if currency == "XTR":
         return (
             os.getenv("HASSLE_STARS_CHECKOUT_ENABLED", "0") == "1"
