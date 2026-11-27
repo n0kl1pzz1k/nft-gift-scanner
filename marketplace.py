@@ -1588,9 +1588,14 @@ def _order_dict(row: sqlite3.Row, current_user_id: str | None = None) -> dict[st
         "image_url": row["asset_image_url"] if "asset_image_url" in row.keys() else "",
         "asset_traits_json": row["asset_traits_json"] if "asset_traits_json" in row.keys() else "{}",
         "asset_source": row["asset_source"] if "asset_source" in row.keys() else None,
+        "target_buyer_id": row["target_buyer_id"] if "target_buyer_id" in row.keys() else None,
+        "source_buy_order_id": row["source_buy_order_id"] if "source_buy_order_id" in row.keys() else None,
+        "source_buy_order_status": row["source_buy_order_status"] if "source_buy_order_status" in row.keys() else None,
         "buy_now_enabled": (
             row["kind"] == "listing" and row["status"] == "active"
             and not (current_user_id is not None and row["user_id"] == current_user_id)
+            and (not row["source_buy_order_id"] if "source_buy_order_id" in row.keys() else True
+                 or row["source_buy_order_status"] == "active")
             and _checkout_enabled_for_order(
                 row["currency"],
                 row["asset_source"] if "asset_source" in row.keys() else None,
@@ -2121,6 +2126,9 @@ def create_marketplace_router(
         if kind:
             clauses.append("kind = ?")
             values.append(kind)
+        viewer_id = user_id or ""
+        clauses.append("(target_buyer_id IS NULL OR target_buyer_id = ? OR user_id = ?)")
+        values.extend([viewer_id, viewer_id])
         if not verified_actions_enabled:
             clauses.append("kind = ?")
             values.append("buy-order")
