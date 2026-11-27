@@ -1553,6 +1553,7 @@ def _checkout_enabled_for_order(currency: str, asset_source: str | None, asset_s
             and os.getenv("HASSLE_STARS_PAYOUT_MODE", "") == "internal_xtr_credit"
             and bool(os.getenv("BOT_TOKEN", "").strip())
             and bool(os.getenv("PAYMENT_SUPPORT_CONTACT", "").strip())
+            and asset_status == "verified"
         )
     if currency == "TON":
         return (
