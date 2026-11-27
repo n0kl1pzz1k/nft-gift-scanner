@@ -677,14 +677,6 @@ def create_marketplace_offers_router(
             if order is None:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Marketplace listing not found")
-            asset = conn.execute(
-                """SELECT source, status FROM verified_assets
-                   WHERE id = ? AND owner_telegram_id = ? AND status = 'verified'""",
-                (order["asset_id"], order["user_id"]),
-            ).fetchone() if order["asset_id"] else None
-            asset_source = asset["source"] if asset is not None else None
-            asset_status = asset["status"] if asset is not None else None
-
             existing = conn.execute(
                 "SELECT id, status FROM marketplace_deals WHERE offer_id = ?",
                 (offer_id,),
@@ -698,6 +690,14 @@ def create_marketplace_offers_router(
                     "payments_enabled": True,
                     "idempotent_replay": True,
                 }
+
+            asset = conn.execute(
+                select_for_update(conn, """SELECT source, status FROM verified_assets
+                   WHERE id = ? AND owner_telegram_id = ? AND status = 'verified'"""),
+                (order["asset_id"], order["user_id"]),
+            ).fetchone() if order["asset_id"] else None
+            asset_source = asset["source"] if asset is not None else None
+            asset_status = asset["status"] if asset is not None else None
 
             if order["kind"] != "listing" or order["status"] != "active":
                 conn.rollback()
