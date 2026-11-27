@@ -361,7 +361,7 @@ async def telegram_auth(payload: TelegramAuthRequest):
 
 @app.get("/api/marketplace/balance/me")
 async def marketplace_balance_me(x_telegram_init_data: str | None = Header(default=None)):
-    """Return the authenticated seller balance from immutable ledger entries."""
+    """Return spendable user funds separately from unsettled seller proceeds."""
     from decimal import Decimal
 
     user = _authenticate_telegram_credential(x_telegram_init_data or "")
@@ -369,22 +369,35 @@ async def marketplace_balance_me(x_telegram_init_data: str | None = Header(defau
     try:
         with marketplace._db() as connection:
             rows = connection.execute(
-                """SELECT direction, amount FROM marketplace_ledger_entries
-                   WHERE account_type = 'seller_payable' AND account_id = ? AND currency = 'TON'"""
-                , (account_id,),
+                """SELECT account_type, direction, amount
+                   FROM marketplace_ledger_entries
+                   WHERE account_type IN ('user_balance', 'seller_payable')
+                     AND account_id = ? AND currency = 'TON'""",
+                (account_id,),
             ).fetchall()
-        balance = Decimal("0")
+        balances = {"user_balance": Decimal("0"), "seller_payable": Decimal("0")}
         for row in rows:
             amount = Decimal(str(row["amount"]))
-            balance += amount if row["direction"] == "credit" else -amount
-        if balance < 0:
-            logging.getLogger("hassle_nft.ledger").error("Negative seller balance detected for %s", account_id)
+            account_type = str(row["account_type"])
+            if account_type not in balances or amount <= 0:
+                raise ValueError("Unexpected marketplace ledger account or amount")
+            balances[account_type] += amount if row["direction"] == "credit" else -amount
+        if any(value < 0 for value in balances.values()):
+            logging.getLogger("hassle_nft.ledger").error(
+                "Negative account balance detected for Telegram user %s", account_id
+            )
             raise HTTPException(status_code=503, detail="Ledger balance requires reconciliation")
-        return {"currency": "TON", "display_currency": "GRAM", "balance": format(balance, "f")}
+        return {
+            "currency": "TON",
+            "display_currency": "GRAM",
+            "balance": format(balances["user_balance"], "f"),
+            "seller_pending_balance": format(balances["seller_payable"], "f"),
+            "seller_pending_status": "pending_manual_payout" if balances["seller_payable"] else "none",
+        }
     except HTTPException:
         raise
     except Exception as exc:
-        logging.getLogger("hassle_nft.ledger").exception("Unable to read seller ledger balance")
+        logging.getLogger("hassle_nft.ledger").exception("Unable to read marketplace ledger balances")
         raise HTTPException(status_code=503, detail="Ledger balance is temporarily unavailable") from exc
 
 @app.get("/api/auth/me")
