@@ -27,6 +27,7 @@
     backgroundColor: 'midnight'|'violet'|'blue'|'emerald'|'rose'|'gold';
   };
   let { order, favorite, lang, sellerProfileId, onSeller, onFavorite, onOffer, onOpen, canOffer, isMine, onManage, backgroundColor }: Props = $props();
+  let failedImageUrl = $state('');
 
   function assetType(order: AssetOrder): 'gift' | 'username' | 'number' | 'unknown' {
     return order.asset_type === 'gift' || order.asset_type === 'username' || order.asset_type === 'number'
@@ -48,7 +49,7 @@
     {:else if kind === 'number'}
       <img class="asset-brand-art" src="/brand/hassle-mark.webp" alt=""/><span class="asset-number">{order.title.replace(/[^0-9+]/g, '') || '888'}</span><small>ANONYMOUS NUMBER</small>
     {:else if kind === 'gift'}
-      {#if order.image_url}<img class="asset-gift-image" src={order.image_url} alt={order.title} loading="lazy" />{:else}<div class="asset-preview-placeholder"><img src="/brand/hassle-mark.webp" alt="HASSLE NFT"/><small>{lang === 'ru' ? 'Ожидается изображение подарка' : 'Gift artwork pending'}</small></div>{/if}
+      {#if order.image_url && failedImageUrl !== order.image_url}<img class="asset-gift-image" src={order.image_url} alt={order.title} loading="lazy" onerror={()=>failedImageUrl=order.image_url || ''} />{:else}<div class="asset-preview-placeholder"><img src="/brand/hassle-mark.webp" alt="HASSLE NFT"/><small>{lang === 'ru' ? 'Ожидается изображение подарка' : 'Gift artwork pending'}</small></div>{/if}
     {:else}
       <div class="asset-preview-placeholder"><img src="/brand/hassle-mark.webp" alt="HASSLE NFT"/><small>{lang === 'ru' ? 'Подтверждённый актив' : 'Verified asset'}</small></div>
     {/if}
