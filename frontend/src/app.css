@@ -1506,3 +1506,38 @@ button:disabled{cursor:not-allowed!important;filter:saturate(.55)!important;opac
 .nav-item.active{color:var(--h-text-primary)!important}
 .notification-heading>div>strong,.notification-new{color:var(--h-text-accent)!important}
 .seller-link{color:var(--h-text-accent)!important}
+
+/* iOS Telegram Mini App: keep every dialog above the tab bar and inside the viewport. */
+.modal-backdrop,.hassle-sheet-backdrop{
+  z-index:140!important;
+  box-sizing:border-box;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+  padding-top:calc(14px + env(safe-area-inset-top));
+  padding-bottom:calc(94px + env(safe-area-inset-bottom));
+}
+.hassle-sheet-backdrop{
+  place-items:center!important;
+}
+.hassle-info-sheet,.sell-modal,.gift-modal{
+  box-sizing:border-box;
+  max-height:calc(100dvh - 124px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:thin;
+}
+.gram-action-sheet{
+  width:min(440px,100%);
+  min-height:0;
+  padding:clamp(20px,5vw,28px);
+}
+.gram-action-sheet h2{font-size:clamp(22px,6vw,27px);line-height:1.12;overflow-wrap:anywhere}
+.gram-action-sheet p{font-size:clamp(13px,3.7vw,16px);line-height:1.65}
+.gram-profile-copy>strong{display:block;color:#f1f7ff!important;font-size:clamp(23px,5vw,30px);font-variant-numeric:tabular-nums;letter-spacing:-.035em}
+@media(max-width:620px){
+  .modal-backdrop{padding-left:12px;padding-right:12px}
+  .hassle-sheet-backdrop{padding-left:12px;padding-right:12px}
+  .hassle-info-sheet,.sell-modal,.gift-modal{max-height:calc(100dvh - 112px - env(safe-area-inset-top) - env(safe-area-inset-bottom));}
+}
