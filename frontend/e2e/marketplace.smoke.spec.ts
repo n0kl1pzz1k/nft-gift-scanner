@@ -190,6 +190,13 @@ test('mobile marketplace typography keeps seller handles readable without horizo
   await collectionFilter.fill('Eternal Rose');
   await page.getByRole('button', { name: 'Показать результаты' }).click();
   await expect(seller).toContainText('@collector_name');
+  await expect(page.locator('.market-reset-filters')).toBeVisible();
+  await page.locator('.filter-open-button').click();
+  await collectionFilter.fill('');
+  await page.getByLabel('Фильтр по номеру NFT').fill('does-not-exist');
+  await page.getByRole('button', { name: 'Показать результаты' }).click();
+  await expect(page.locator('.market-empty')).toContainText('По этим фильтрам ничего не найдено');
+  await expect(page.locator('.market-empty-reset')).toBeVisible();
   const metrics = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
     document: document.documentElement.scrollWidth,
