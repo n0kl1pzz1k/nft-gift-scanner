@@ -215,6 +215,74 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(decoded["actions"][0]["body_fields_decoded"])
         self.assertEqual(decoded["actions"][1]["index"], 1)
 
+    def test_decodes_governance_update_and_marks_it_unsafe(self):
+        from tonsdk.boc import Builder, begin_dict
+        signer_dictionary = begin_dict(8)
+        for index, signer in enumerate(SIGNERS):
+            signer_dictionary.store_cell(
+                index, Builder().store_address(Address(signer)).end_cell()
+            )
+        signer_cell = signer_dictionary.end_dict()
+        action = (
+            Builder()
+            .store_uint(0x1D0CFBD3, 32)
+            .store_uint(2, 8)
+            .store_ref(signer_cell)
+            .store_bit(0)  # empty proposer dictionary
+            .end_cell()
+        )
+        actions_dictionary = begin_dict(8)
+        actions_dictionary.store_ref(0, action)
+        boc = base64.b64encode(actions_dictionary.end_dict().to_boc(False)).decode()
+        from ton_multisig import decode_multisig_order_actions
+        decoded = decode_multisig_order_actions(boc)
+        self.assertEqual(decoded["actions"][0]["kind"], "update_multisig_params")
+        self.assertEqual(decoded["actions"][0]["threshold"], 2)
+        self.assertEqual(decoded["actions"][0]["signers"], SIGNERS)
+        self.assertEqual(decoded["actions"][0]["proposers"], [])
+        self.assertFalse(decoded["approval_safe"])
+
+    def test_decodes_jetton_transfer_recipient_and_amount(self):
+        from tonsdk.boc import Builder, begin_dict
+        recipient = "0:" + "d" * 64
+        body = (
+            Builder()
+            .store_uint(0x0F8A7EA5, 32)
+            .store_uint(17, 64)
+            .store_coins(987654)
+            .store_address(Address(recipient))
+            .store_address(None)
+            .store_bit(0)
+            .store_coins(123)
+            .store_bit(0)
+            .end_cell()
+        )
+        message = (
+            Builder()
+            .store_uint(0, 1)
+            .store_bit(1).store_bit(1).store_bit(0)
+            .store_address(None)
+            .store_address(Address(SIGNERS[0]))
+            .store_coins(456)
+            .store_bit(0)
+            .store_coins(0).store_coins(0)
+            .store_uint(0, 64).store_uint(0, 32)
+            .store_bit(0)
+            .store_bit(1).store_ref(body)
+            .end_cell()
+        )
+        action = Builder().store_uint(0xF1381E5B, 32).store_uint(3, 8).store_ref(message).end_cell()
+        dictionary = begin_dict(8)
+        dictionary.store_ref(0, action)
+        boc = base64.b64encode(dictionary.end_dict().to_boc(False)).decode()
+        from ton_multisig import decode_multisig_order_actions
+        decoded = decode_multisig_order_actions(boc)
+        self.assertEqual(decoded["actions"][0]["body_kind"], "jetton_transfer")
+        self.assertEqual(decoded["actions"][0]["asset_recipient"], recipient)
+        self.assertEqual(decoded["actions"][0]["jetton_amount_nano"], "987654")
+        self.assertEqual(decoded["actions"][0]["forward_ton_amount_nano"], "123")
+        self.assertFalse(decoded["approval_safe"])
+
     def test_unknown_action_is_never_approval_safe(self):
         from tonsdk.boc import Builder, begin_dict
         action = Builder().store_uint(0xDEADBEEF, 32).end_cell()
