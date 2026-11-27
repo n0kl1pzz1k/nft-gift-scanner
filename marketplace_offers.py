@@ -57,6 +57,7 @@ def init_marketplace_offers_db() -> None:
         CREATE TABLE IF NOT EXISTS marketplace_offers (
             id TEXT PRIMARY KEY,
             order_id TEXT NOT NULL,
+            asset_id TEXT REFERENCES verified_assets(id),
             sender_user_id TEXT NOT NULL,
             sender_name TEXT NOT NULL,
             amount TEXT NOT NULL,
@@ -232,11 +233,12 @@ def init_marketplace_offers_db() -> None:
                     "status" if "status" in legacy_deal_columns
                     else "'payment_not_enabled'"
                 )
+                asset_expression = "asset_id" if "asset_id" in legacy_deal_columns else "NULL"
                 conn.execute(f"""
                     INSERT INTO marketplace_deals_new
-                    (id, order_id, offer_id, listing_owner_id, offer_sender_id,
+                    (id, order_id, asset_id, offer_id, listing_owner_id, offer_sender_id,
                      agreed_amount, currency, created_at, status)
-                    SELECT id, order_id, offer_id, listing_owner_id, offer_sender_id,
+                    SELECT id, order_id, {asset_expression}, offer_id, listing_owner_id, offer_sender_id,
                            agreed_amount, currency, created_at, {status_expression}
                     FROM marketplace_deals
                 """)
@@ -253,6 +255,12 @@ def init_marketplace_offers_db() -> None:
                 raise
             finally:
                 conn.execute("PRAGMA foreign_keys = ON")
+        offer_columns = {row["name"] for row in conn.execute("PRAGMA table_info(marketplace_offers)").fetchall()}
+        if "asset_id" not in offer_columns:
+            conn.execute("ALTER TABLE marketplace_offers ADD COLUMN asset_id TEXT REFERENCES verified_assets(id)")
+        deal_columns = {row["name"] for row in conn.execute("PRAGMA table_info(marketplace_deals)").fetchall()}
+        if "asset_id" not in deal_columns:
+            conn.execute("ALTER TABLE marketplace_deals ADD COLUMN asset_id TEXT REFERENCES verified_assets(id)")
         # Forward-compatible migration for databases created before deal lifecycle state.
         deal_columns = {row["name"] for row in conn.execute("PRAGMA table_info(marketplace_deals)").fetchall()}
         if "status" not in deal_columns:
