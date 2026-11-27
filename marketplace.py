@@ -2077,7 +2077,7 @@ def create_marketplace_router(
                 qualified_where += asset_filter
             rows = conn.execute(
                 f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url,
-                           COALESCE(t.traits_json, '{}') AS asset_traits_json
+                           COALESCE(t.traits_json, '{{}}') AS asset_traits_json
                     FROM marketplace_orders o
                     LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
                     LEFT JOIN verified_assets a ON a.id = o.asset_id
@@ -2111,7 +2111,7 @@ def create_marketplace_router(
                 verified_filter += " AND o.kind = 'buy-order'"
             rows = conn.execute(
                 f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url,
-                           COALESCE(t.traits_json, '{}') AS asset_traits_json
+                           COALESCE(t.traits_json, '{{}}') AS asset_traits_json
                     FROM marketplace_orders o
                     LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
                     LEFT JOIN verified_assets a ON a.id = o.asset_id
