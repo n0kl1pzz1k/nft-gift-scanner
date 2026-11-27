@@ -159,3 +159,37 @@ test('listing details button opens the real asset detail panel', async ({ page }
   await expect(page.locator('.asset-detail-modal')).toBeVisible();
   await expect(page.locator('#asset-detail-title')).toContainText('Jolly Chimp #93222');
 });
+
+test('mobile marketplace typography keeps seller handles readable without horizontal overflow', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await stubTelegramAndApi(page);
+  await page.route('https://hassle-nft-market.up.railway.app/api/marketplace/orders**', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: [{
+          id: 'listing-mobile-12345', asset_id: 'asset-mobile-12345', kind: 'listing',
+          title: 'Eternal Rose #1204', asset_type: 'gift', image_url: '',
+          price: '8.4', currency: 'TON', status: 'active', createdAt: 1795737600,
+          updatedAt: 1795737600, owner: '@collector_name', isMine: false,
+          seller_profile_id: null, note: ''
+        }],
+        total: 1
+      })
+    });
+  });
+  await page.goto('/');
+  const seller = page.locator('.asset-owner').first();
+  await expect(seller).toContainText('@collector_name');
+  await expect(seller).toHaveCSS('font-size', '10px');
+  const metrics = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    document: document.documentElement.scrollWidth,
+    searchFont: getComputedStyle(document.querySelector('.market-search input')!).fontSize,
+    sellerColor: getComputedStyle(document.querySelector('.asset-owner')!).color,
+  }));
+  expect(metrics.document).toBeLessThanOrEqual(metrics.viewport);
+  expect(metrics.searchFont).toBe('16px');
+  expect(metrics.sellerColor).not.toBe('rgb(0, 0, 0)');
+});
