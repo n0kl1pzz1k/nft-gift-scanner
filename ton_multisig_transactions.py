@@ -49,7 +49,7 @@ def _validate_marketplace_actions(order_cell: Cell) -> dict[str, Any]:
         if action.get("kind") != "send_message":
             raise ValueError("Governance and unknown actions cannot be proposed as marketplace transfers")
         body_kind = action.get("body_kind")
-        if body_kind not in {"nft_transfer", "jetton_transfer", "comment"}:
+        if body_kind not in {"nft_transfer", "jetton_transfer", "text_comment"}:
             raise ValueError("Only decoded NFT, Jetton, and memo-bound native GRAM transfers can be prepared")
         if not action.get("body_fields_decoded"):
             raise ValueError("Transfer body could not be decoded safely")
