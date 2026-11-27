@@ -190,3 +190,19 @@ textarea.form-input{min-height:110px!important;resize:vertical!important}
 .order-price .gram-amount{font-size:13px!important;font-weight:800!important}
 .profile-trade-row>div:first-child small,.profile-deal-main small{color:#b4c1ce!important;line-height:1.55!important}
 .profile-handle{display:inline-flex!important;align-items:center!important;color:#b8dfff!important;font-size:12px!important;font-weight:750!important;letter-spacing:.01em!important}
+
+/* Auctions and secondary discovery surfaces */
+.auction-intro-card{position:relative!important;display:grid!important;grid-template-columns:76px minmax(0,1fr) auto!important;align-items:center!important;gap:20px!important;max-width:980px!important;margin:18px 0!important;padding:26px!important;overflow:hidden!important;border:1px solid rgba(48,161,245,.22)!important;border-radius:22px!important;background:radial-gradient(circle at 8% 12%,rgba(48,161,245,.16),transparent 38%),linear-gradient(145deg,#172431,#0c131b 75%)!important;box-shadow:0 24px 70px rgba(0,0,0,.28)!important}
+.auction-emblem{width:72px!important;height:72px!important;display:grid!important;place-items:center!important;border:1px solid rgba(105,216,237,.25)!important;border-radius:21px!important;background:linear-gradient(145deg,rgba(48,161,245,.2),rgba(136,120,255,.1))!important;color:#8bdcff!important;font-size:38px!important;box-shadow:inset 0 1px rgba(255,255,255,.08),0 12px 30px rgba(48,161,245,.12)!important}
+.auction-intro-card h2{margin:8px 0!important;color:#f5f8fc!important;font-size:clamp(18px,2.4vw,25px)!important;font-weight:850!important;letter-spacing:-.035em!important}
+.auction-intro-card p{max-width:620px!important;margin:0!important;color:#aab8c7!important;font-size:13px!important;line-height:1.7!important}
+.auction-status{align-self:start!important;padding:7px 10px!important;border:1px solid rgba(229,194,124,.25)!important;border-radius:999px!important;background:rgba(229,194,124,.09)!important;color:#e5c27c!important;font-size:9px!important;font-weight:850!important;letter-spacing:.14em!important;white-space:nowrap!important}
+.market-collection-row{display:grid!important;grid-template-columns:minmax(0,1fr) auto auto!important;align-items:center!important;gap:18px!important;padding:14px 0!important;border-bottom:1px solid var(--hx-border)!important}
+.collection-monogram{width:52px!important;height:52px!important;object-fit:cover!important;border-radius:14px!important;background:#172330!important;border:1px solid var(--hx-border)!important}
+.market-collection-identity{display:flex!important;align-items:center!important;gap:12px!important;min-width:0!important}
+.market-collection-identity strong{display:block!important;color:#f2f6fb!important;font-size:13px!important;overflow-wrap:anywhere!important}
+.market-collection-identity small{display:block!important;margin-top:4px!important;color:#9eacbb!important;font-size:10px!important;line-height:1.5!important}
+.market-collection-metric strong{display:block!important;color:#f4f8fc!important;font-size:13px!important;font-variant-numeric:tabular-nums!important}
+.market-collection-metric>small:first-child{display:block!important;color:#8292a3!important;font-size:10px!important}
+.market-collection-volume{text-align:right!important}
+@media(max-width:560px){.auction-intro-card{grid-template-columns:52px minmax(0,1fr)!important;gap:13px!important;padding:17px!important}.auction-emblem{width:50px!important;height:50px!important;border-radius:15px!important;font-size:28px!important}.auction-status{grid-column:2!important;justify-self:start!important}.market-collection-row{grid-template-columns:minmax(0,1fr) auto!important;gap:10px!important}.market-collection-volume{display:none!important}.collection-monogram{width:44px!important;height:44px!important}}
