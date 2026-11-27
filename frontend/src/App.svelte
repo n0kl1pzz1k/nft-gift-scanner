@@ -166,6 +166,7 @@
   let adminDisputes = $state<Array<Record<string,unknown>>>([]);
   let adminAudit = $state<Array<Record<string,unknown>>>([]);
   let adminReconciliation = $state<{payments:Array<Record<string,unknown>>;transfers:Array<Record<string,unknown>>}>({payments:[],transfers:[]});
+  let adminTreasury = $state<any>(null);
   let adminUserSearch = $state('');
   let adminBusy = $state(false);
   let adminRole = $state('owner');
@@ -1357,7 +1358,7 @@
       adminRole = String(roleData.role || 'owner');
       adminPermissions = Array.isArray(roleData.permissions) ? roleData.permissions as string[] : [];
       const can = (permission: string) => adminPermissions.includes(permission);
-      const [overview, reports, users, assets, reconciliation, disputes, audit] = await Promise.all([
+      const [overview, reports, users, assets, reconciliation, disputes, audit, treasury] = await Promise.all([
         request('/api/marketplace/admin/overview'),
         can('reports') ? request('/api/marketplace/admin/reports?status=open&limit=50') : Promise.resolve({items:[]}),
         can('users_read') ? request('/api/marketplace/admin/users?limit=25') : Promise.resolve({items:[]}),
@@ -1365,7 +1366,9 @@
         can('reconciliation_read') ? request('/api/marketplace/admin/reconciliation?limit=50') : Promise.resolve({payments:[],transfers:[]}),
         can('deals_read') ? request('/api/marketplace/admin/deals?status=disputed&limit=50') : Promise.resolve({items:[]}),
         (adminRole==='owner' || adminRole==='finance') ? request('/api/marketplace/admin/security-audit?limit=25') : Promise.resolve({items:[]}),
+        can('treasury_read') ? request('/api/marketplace/admin/treasury') : Promise.resolve(null),
       ]);
+      adminTreasury = treasury;
       adminOverview = overview as Record<string,number>;
       adminReports = Array.isArray(reports.items) ? reports.items as OrderReport[] : [];
       adminUsers = Array.isArray(users.items) ? users.items as Array<Record<string,unknown>> : [];
@@ -2009,6 +2012,19 @@
                 <div class="account-stat"><small>{metric.label}</small><strong>{metric.value}</strong></div>
               {/each}
             </div>
+          {/if}
+          {#if adminPermissions.includes('treasury_read')}
+          <div class="notification-heading"><h3>{lang==='ru'?'Мультисиг GRAM · Казначейство':'GRAM multisig · Treasury'}</h3></div>
+          {#if adminTreasury}
+            <div class="account-stat" aria-live="polite">
+              <small>{lang==='ru'?'Состояние контракта':'Contract status'}</small>
+              <strong>{adminTreasury.status==='verified'?(lang==='ru'?'Проверен в сети':'Verified on-chain'):adminTreasury.status==='configuration_missing'?(lang==='ru'?'Конфигурация не задана':'Configuration missing'):adminTreasury.status==='configuration_mismatch'?(lang==='ru'?'Конфигурация не совпадает':'Configuration mismatch'):(lang==='ru'?'Нет подтверждения из сети':'Not verified by network')}</strong>
+              <p>{lang==='ru'?'Сеть':'Network'}: Mainnet · {lang==='ru'?'Порог':'Threshold'}: {adminTreasury.threshold}/3 · {lang==='ru'?'Подписанты':'Signers'}: {adminTreasury.signer_count} · Proposers: {adminTreasury.proposer_count}</p>
+              {#if adminTreasury.address}<small>{adminTreasury.address}</small>{/if}
+              {#if adminTreasury.next_order_seqno!==null}<small>Next order: {adminTreasury.next_order_seqno}</small>{/if}
+              <p>{lang==='ru'?'Это только проверка состояния. Создание и исполнение ордеров пока не включено.':'Read-only status only. Order creation and execution are not enabled yet.'}</p>
+            </div>
+          {/if}
           {/if}
           {#if adminPermissions.includes('users_read')}
           <div class="notification-heading"><h3>{lang==='ru'?'Пользователи':'Users'}</h3></div>
