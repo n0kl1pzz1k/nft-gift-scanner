@@ -1135,7 +1135,7 @@
     buyOrderResponsesBusy = true;
     try {
       const data = await request('/api/marketplace/orders/' + encodeURIComponent(orderId) + '/responses');
-      buyOrderResponses = Array.isArray(data.items) ? data.items as MarketplaceOrder[] : [];
+      buyOrderResponses = Array.isArray(data.items) ? data.items.map((item:any) => ({...item, isMine:Boolean(item.is_mine), createdAt:Number(item.created_at||0), updatedAt:Number(item.updated_at||0)})) as MarketplaceOrder[] : [];
     } catch (e) {
       buyOrderResponses = [];
       notice = e instanceof Error ? e.message : String(e);
