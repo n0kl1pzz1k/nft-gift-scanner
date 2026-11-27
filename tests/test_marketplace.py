@@ -2544,7 +2544,8 @@ class SharedMarketplaceTests(unittest.TestCase):
             json=payload,
         )
         self.assertEqual(disabled.status_code, 409, disabled.text)
-        self.assertEqual(marketplace.get_marketplace_order(order_id)["status"], "active")
+        active_listings = self.client.get("/api/marketplace/orders?status=active")
+        self.assertTrue(any(item["id"] == order_id for item in active_listings.json()["items"]))
 
         with patch.dict(os.environ, {
             "HASSLE_STARS_CHECKOUT_ENABLED": "1",
