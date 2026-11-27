@@ -56,10 +56,10 @@
   .boot-stage{position:relative;width:min(76vw,330px);height:min(76vw,330px);display:grid;place-items:center;perspective:1000px;z-index:3}
   .boot-halo{position:absolute;width:82%;height:82%;border-radius:50%;background:radial-gradient(circle,#39b9f52c 0%,#3979f315 42%,transparent 72%);filter:blur(13px);animation:boot-halo 3.2s ease-in-out infinite}
   .boot-coin-shadow{position:absolute;left:17%;right:17%;bottom:12%;height:15%;border-radius:50%;background:#000a;filter:blur(18px);transform:scaleX(.8);animation:boot-shadow 4.8s ease-in-out infinite}
-  .boot-coin{position:relative;width:58%;aspect-ratio:1;border-radius:50%;transform-style:preserve-3d;animation:boot-coin-spin 8s cubic-bezier(.45,.04,.55,.96) infinite}
-  .boot-coin-side{position:absolute;inset:0;border-radius:50%;background:repeating-linear-gradient(0deg,#8b9baa 0 2px,#e6f4ff 2px 3px,#526c82 3px 4px);transform:translateZ(-8px) scale(.99);box-shadow:0 0 0 2px #d6f1ff66,0 16px 42px #0008}
-  .boot-coin-face{position:absolute;inset:0;display:grid;place-items:center;overflow:hidden;border-radius:50%;backface-visibility:hidden;border:1px solid #d5f4ffbd;background:radial-gradient(circle at 34% 24%,#f2ffff 0%,#a8e7ff 9%,#399bd0 27%,#12618f 55%,#082b4a 78%,#071b31 100%);box-shadow:inset 0 3px 7px #fff9,inset 0 -12px 25px #00182b99,0 0 38px #39bafc55}
-  .boot-coin-face:before{position:absolute;inset:5%;border:1px solid #d5f5ff80;border-radius:50%;content:"";box-shadow:inset 0 0 0 3px #ffffff12,inset 0 0 18px #fff3}
+  .boot-coin{position:relative;width:58%;aspect-ratio:1;border-radius:22%;transform-style:preserve-3d;animation:boot-coin-spin 8s cubic-bezier(.45,.04,.55,.96) infinite}
+  .boot-coin-side{position:absolute;inset:0;border-radius:22%;background:linear-gradient(145deg,#d9f3ff 0%,#30A1F5 35%,#075da9 100%);transform:translateZ(-8px) scale(.99);box-shadow:0 0 0 2px #d6f1ff66,0 16px 42px #0008}
+  .boot-coin-face{position:absolute;inset:0;display:grid;place-items:center;overflow:hidden;border-radius:22%;backface-visibility:hidden;border:1px solid #d5f4ffbd;background:linear-gradient(145deg,#58bdff 0%,#30A1F5 48%,#0875ca 100%);box-shadow:inset 0 3px 7px #fff9,inset 0 -12px 25px #00182b99,0 0 38px #39bafc55}
+  .boot-coin-face:before{position:absolute;inset:5%;border:1px solid #d5f5ff80;border-radius:18%;content:"";box-shadow:inset 0 0 0 3px #ffffff12,inset 0 0 18px #fff3}
   .boot-coin-face:after{position:absolute;inset:-20%;content:"";background:linear-gradient(112deg,transparent 32%,#ffffffa8 47%,#ffffff18 52%,transparent 63%);transform:translateX(-90%);animation:boot-shine 4.8s ease-in-out infinite}
   .boot-coin-front svg{position:relative;z-index:1;width:47%;height:47%;fill:#e9fbff;filter:drop-shadow(0 3px 5px #002b4b99)}
   .boot-coin-back{transform:rotateY(180deg) translateZ(8px);background:linear-gradient(145deg,#58bdff,#147ed2 62%,#0863ae)}
