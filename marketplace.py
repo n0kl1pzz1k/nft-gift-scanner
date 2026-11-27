@@ -1539,6 +1539,7 @@ def _order_dict(row: sqlite3.Row, current_user_id: str | None = None) -> dict[st
         "title": row["title"],
         "asset_id": row["asset_id"] if "asset_id" in row.keys() else None,
         "image_url": row["asset_image_url"] if "asset_image_url" in row.keys() else "",
+        "asset_traits_json": row["asset_traits_json"] if "asset_traits_json" in row.keys() else "{}",
         "asset_type": row["asset_type"] if "asset_type" in row.keys() else None,
         "price": row["price"],
         "currency": row["currency"],
@@ -2075,11 +2076,13 @@ def create_marketplace_router(
             elif asset_filter:
                 qualified_where += asset_filter
             rows = conn.execute(
-                f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url
+                f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url,
+                           COALESCE(t.traits_json, '{}') AS asset_traits_json
                     FROM marketplace_orders o
                     LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
                     LEFT JOIN verified_assets a ON a.id = o.asset_id
                        AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
+                    LEFT JOIN verified_asset_traits t ON t.asset_id = a.id
                     {qualified_where}
                     ORDER BY o.created_at DESC LIMIT ? OFFSET ?""",
                 (*values, limit, offset),
@@ -2107,11 +2110,13 @@ def create_marketplace_router(
             if not verified_actions_enabled:
                 verified_filter += " AND o.kind = 'buy-order'"
             rows = conn.execute(
-                f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url
+                f"""SELECT o.*, p.profile_id AS seller_profile_id, a.image_url AS asset_image_url,
+                           COALESCE(t.traits_json, '{}') AS asset_traits_json
                     FROM marketplace_orders o
                     LEFT JOIN user_profiles p ON p.telegram_id = o.user_id
                     LEFT JOIN verified_assets a ON a.id = o.asset_id
                        AND a.owner_telegram_id = o.user_id AND a.status = 'verified'
+                    LEFT JOIN verified_asset_traits t ON t.asset_id = a.id
                     WHERE o.user_id = ?{verified_filter}
                     ORDER BY o.created_at DESC LIMIT 200""",
                 (str(user["id"]),),
