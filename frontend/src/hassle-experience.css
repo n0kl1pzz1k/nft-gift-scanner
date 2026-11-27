@@ -174,3 +174,11 @@ textarea.form-input{min-height:110px!important;resize:vertical!important}
  .mobile-nav{padding-left:6px!important;padding-right:6px!important;padding-bottom:calc(7px + env(safe-area-inset-bottom))!important}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+
+/* Official GRAM token mark + readable inline monetary values */
+.gram-amount{display:inline-flex!important;align-items:center!important;gap:5px!important;vertical-align:middle!important;color:inherit!important;font-variant-numeric:tabular-nums!important;white-space:nowrap!important}
+.gram-amount svg{display:inline-block!important;flex:0 0 auto!important;vertical-align:middle!important;filter:drop-shadow(0 1px 4px rgba(48,161,245,.24))}
+.market-kpi .gram-amount{font-size:inherit!important;font-weight:inherit!important}
+.market-collection-metric .gram-amount{font-size:10px!important;color:var(--hx-muted)!important}
+.activity-row-value .gram-amount{justify-content:flex-end!important}
+.asset-detail-price .gram-amount{font-size:inherit!important;font-weight:inherit!important}
