@@ -424,14 +424,25 @@
   }
 
 
-  function listingTraits(order: MarketplaceOrder): { key:string; name:string }[] {
+  function listingTraits(order: MarketplaceOrder): { key:string; name:string; rarity?:number; tier?:string; colors?:{center?:string;edge?:string} }[] {
     try {
       const data = JSON.parse(order.asset_traits_json || '{}');
       return ['model','symbol','backdrop'].flatMap(key => {
         const trait = data?.[key];
-        return trait && typeof trait.name === 'string' ? [{ key, name: trait.name }] : [];
+        return trait && typeof trait.name === 'string'
+          ? [{ key, name: trait.name, rarity: typeof trait.rarity_percent === 'number' ? trait.rarity_percent : undefined,
+               tier: typeof trait.rarity_tier === 'string' ? trait.rarity_tier : undefined,
+               colors: trait.colors && typeof trait.colors === 'object' ? trait.colors : undefined }]
+          : [];
       });
     } catch { return []; }
+  }
+
+  function listingSerialNumber(order: MarketplaceOrder): string {
+    try {
+      const serial = JSON.parse(order.asset_traits_json || '{}')?.serial_number;
+      return typeof serial === 'string' || typeof serial === 'number' ? String(serial) : '';
+    } catch { return ''; }
   }
 
   function assetTraits(asset: VerifiedAsset): { key:string; name:string; rarity?:number; tier?:string; colors?:{center?:string;edge?:string} }[] {
@@ -2021,10 +2032,24 @@
                {:else}<div class="asset-preview-placeholder"><span>ASSET</span><small>{lang==='ru'?'Тип актива ещё не подтверждён':'Asset type is not verified yet'}</small></div>{/if}
             </div>
             <div class="eyebrow">HASSLE NFT · ASSET</div><h2 id="asset-detail-title">{selectedAsset.title}</h2>
-            <div class="asset-detail-meta"><span>ID <b>#{selectedAsset.id}</b></span><span>{lang==='ru'?'Продавец':'Seller'} <b>{selectedAsset.owner}</b></span></div>
+            <div class="asset-detail-meta"><span>ID <b>#{selectedAsset.id}</b></span>{#if listingSerialNumber(selectedAsset)}<span>{lang==='ru'?'Номер':'Serial'} <b>#{listingSerialNumber(selectedAsset)}</b></span>{/if}<span>{lang==='ru'?'Продавец':'Seller'} <b>{selectedAsset.owner}</b></span></div>
             <div class="asset-detail-price"><small>{lang==='ru'?'Цена продавца':'Seller price'}</small><strong>{#if selectedAsset.currency==='XTR'}{selectedAsset.price} Stars{:else}<span class="gram-amount"><GramToken size={18}/>{selectedAsset.price}</span>{/if}</strong></div>
             {#if selectedAsset.note}<p class="asset-detail-note">{selectedAsset.note}</p>{/if}
-            <div class="asset-detail-unavailable"><strong>{lang==='ru'?'Характеристики актива':'Asset traits'}</strong><span>{lang==='ru'?'Метаданные и traits появятся после подключения источника NFT-метаданных.':'Metadata and traits will appear after an NFT metadata source is connected.'}</span></div>
+            {#if listingTraits(selectedAsset).length}
+              <div class="asset-detail-traits">
+                <div class="asset-detail-traits-heading">{lang==='ru'?'Характеристики коллекционного предмета':'Collectible attributes'}</div>
+                {#each listingTraits(selectedAsset) as trait (trait.key)}
+                  <div class="asset-detail-trait">
+                    {#if trait.key==='backdrop' && trait.colors?.center}<i class="asset-detail-trait-swatch" style={'background:linear-gradient(135deg,'+trait.colors.center+','+(trait.colors.edge||trait.colors.center)+')'}></i>{/if}
+                    <small>{trait.key==='model'?'MODEL':trait.key==='symbol'?'SYMBOL':'BACKDROP'}</small>
+                    <strong>{trait.name}</strong>
+                    {#if trait.tier}<span>{trait.tier.toUpperCase()}</span>{:else if trait.rarity!==undefined}<span>{trait.rarity}%</span>{/if}
+                  </div>
+                {/each}
+              </div>
+            {:else}
+              <div class="asset-detail-unavailable"><strong>{lang==='ru'?'Характеристики актива':'Asset traits'}</strong><span>{lang==='ru'?'Источник не предоставил характеристики для этого предмета.':'No collectible attributes were provided by the source for this item.'}</span></div>
+            {/if}
             {#if selectedAsset.isMine}
               <button class="ton-primary offer-submit" onclick={()=>{startEditOrder(selectedAsset!);showAssetDetails=false;}}>{lang==='ru'?'Управлять объявлением':'Manage listing'}</button>
             {:else}
