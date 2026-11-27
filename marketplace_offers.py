@@ -74,6 +74,7 @@ def init_marketplace_offers_db() -> None:
         CREATE TABLE IF NOT EXISTS marketplace_deals (
             id TEXT PRIMARY KEY,
             order_id TEXT NOT NULL,
+            asset_id TEXT REFERENCES verified_assets(id),
             offer_id TEXT NOT NULL UNIQUE,
             listing_owner_id TEXT NOT NULL,
             offer_sender_id TEXT NOT NULL,
@@ -207,6 +208,7 @@ def init_marketplace_offers_db() -> None:
                     CREATE TABLE marketplace_deals_new (
                         id TEXT PRIMARY KEY,
                         order_id TEXT NOT NULL,
+                        asset_id TEXT REFERENCES verified_assets(id),
                         offer_id TEXT NOT NULL UNIQUE,
                         listing_owner_id TEXT NOT NULL,
                         offer_sender_id TEXT NOT NULL,
