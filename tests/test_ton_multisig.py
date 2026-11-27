@@ -72,6 +72,27 @@ def address_stack(address):
     return {"type": "slice", "cell": base64.b64encode(cell.to_boc(False)).decode()}
 
 
+def order_actions_boc():
+    from tonsdk.boc import Builder, begin_dict
+    message = (
+        Builder()
+        .store_uint(0, 1)
+        .store_bit(1).store_bit(1).store_bit(0)
+        .store_address(None)
+        .store_address(Address(SIGNERS[0]))
+        .store_coins(0)
+        .store_bit(0)
+        .store_coins(0).store_coins(0)
+        .store_uint(0, 64).store_uint(0, 32)
+        .store_bit(0).store_bit(0)
+        .end_cell()
+    )
+    action = Builder().store_uint(0xF1381E5B, 32).store_uint(3, 8).store_ref(message).end_cell()
+    dictionary = begin_dict(8)
+    dictionary.store_ref(0, action)
+    return base64.b64encode(dictionary.end_dict().to_boc(False)).decode()
+
+
 def order_getter_payload(seqno=0):
     return {
         "success": True,
@@ -85,7 +106,7 @@ def order_getter_payload(seqno=0):
             {"type": "num", "num": "0x3"},
             {"type": "num", "num": "2"},
             {"type": "num", "num": "2000000000"},
-            {"type": "cell", "cell": base64.b64encode(Cell().to_boc(False)).decode()},
+            {"type": "cell", "cell": order_actions_boc()},
         ],
     }
 
@@ -168,7 +189,7 @@ class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
         )
         action = Builder().store_uint(0xF1381E5B, 32).store_uint(3, 8).store_ref(message).end_cell()
         dictionary = begin_dict(8)
-        dictionary.store_cell(0, action)
+        dictionary.store_ref(0, action)
         boc = base64.b64encode(dictionary.end_dict().to_boc(False)).decode()
         from ton_multisig import decode_multisig_order_actions
         decoded = decode_multisig_order_actions(boc)
