@@ -84,6 +84,20 @@ test('profile tab is clickable on iPhone and opens the account screen', async ({
   await expect(page.locator('.profile-auth-panel')).toContainText('Гость');
 });
 
+
+test('authenticated profile opens on iPhone from a touch pointer event', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await stubTelegramAndApi(page, true);
+  await page.goto('/');
+  await expect(page.locator('.market-app')).toHaveAttribute('data-auth-state', 'authenticated', { timeout: 15000 });
+  const profileTab = page.locator('.mobile-nav button[data-nav-id="profile"]');
+  await expect(profileTab).toBeVisible();
+  await profileTab.dispatchEvent('pointerdown', { pointerType: 'touch', pointerId: 7, isPrimary: true, button: 0 });
+  await expect(page.locator('.market-app')).toHaveAttribute('data-active-view', 'profile');
+  await expect(page.locator('[data-profile-view]')).toBeVisible();
+  await expect(page.locator('.profile-main')).toContainText('Test User');
+});
+
 test('HASSLE brand artwork is loaded in the Mini App', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await stubTelegramAndApi(page);
