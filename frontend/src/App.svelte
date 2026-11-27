@@ -175,6 +175,17 @@
   let orderStatusFilter = $state<'all' | 'active' | 'matched' | 'cancelled'>('active');
   let orderKindFilter = $state<'all' | 'listing' | 'buy-order'>('all');
 
+  function formatGramNano(value: unknown): string {
+    try {
+      const amount = BigInt(String(value ?? '0'));
+      const whole = amount / 1000000000n;
+      const fraction = (amount % 1000000000n).toString().padStart(9, '0').replace(/0+$/, '');
+      return fraction ? whole.toString() + '.' + fraction : whole.toString();
+    } catch {
+      return '—';
+    }
+  }
+
   const ru = {
     market: 'Маркет', orders: 'Маркет', create: 'Профиль', favorites: 'Избранное', profile: 'Профиль', readonly: 'HASSLE NFT', catalogOnly: 'Независимый маркетплейс Telegram NFT-подарков. Покупай, продавай и договаривайся напрямую.',
     headline: 'Твой рынок Telegram NFT-подарков', subtitle: 'Маркетплейс Telegram NFT-подарков от n0kl1pzz1k.',
@@ -2045,8 +2056,8 @@
                         <strong>#{String(action.index)} · {String(action.kind)} · {String(action.opcode)}</strong>
                         {#if action.kind === 'send_message'}
                           <small>{lang==='ru'?'Получатель':'Recipient'}: {String(action.recipient || '—')}</small>
-                          <small>{lang==='ru'?'Сумма':'Amount'}: {(Number(action.amount_nano || 0) / 1000000000).toFixed(4)} GRAM · mode {String(action.send_mode)}</small>
-                          <small>{lang==='ru'?'Код тела':'Body opcode'}: {action.body_op === null ? '—' : '0x'+Number(action.body_op).toString(16).padStart(8,'0')}</small>
+                          <small>{lang==='ru'?'Сумма':'Amount'}: {formatGramNano(action.amount_nano)} GRAM · mode {String(action.send_mode)}</small>
+                          <small>{lang==='ru'?'Тип тела':'Body type'}: {String(action.body_kind || 'unknown')} · {action.body_op === null ? '—' : '0x'+Number(action.body_op).toString(16).padStart(8,'0')}</small>
                         {:else if action.kind === 'update_multisig_params'}
                           <small>Threshold: {String(action.threshold)} · Signers: {Array.isArray(action.signers) ? action.signers.length : 0} · Proposers: {Array.isArray(action.proposers) ? action.proposers.length : 0}</small>
                         {/if}
