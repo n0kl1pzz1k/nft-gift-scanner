@@ -1427,3 +1427,82 @@ button:disabled{cursor:not-allowed!important;filter:saturate(.55)!important;opac
 .profile-import-actions{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px!important}
 .profile-import-button{min-width:0!important;padding:9px 7px!important;font-size:10px!important;white-space:normal!important;line-height:1.3!important}
 @media(max-width:520px){.profile-import-actions{grid-template-columns:1fr!important}.profile-import-button{min-height:38px}}
+
+
+/* HASSLE visual consistency pass: remove leftover violet-era text accents. */
+:root{
+  --h-text-primary:#eef6ff;
+  --h-text-secondary:#a5b7ca;
+  --h-text-muted:#8195aa;
+  --h-text-accent:#a8ddff;
+}
+.profile-card,.profile-layout,.profile-inventory-card,.moderation-card{
+  color:var(--h-text-primary)!important;
+}
+.profile-card h1,.profile-card h2,.profile-card h3,
+.profile-layout h1,.profile-layout h2,.profile-layout h3,
+.profile-inventory-card h1,.profile-inventory-card h2,.profile-inventory-card h3,
+.moderation-card h1,.moderation-card h2,.moderation-card h3{
+  color:var(--h-text-primary)!important;
+}
+.profile-card p,.profile-layout p,.profile-inventory-card p,
+.profile-card label,.profile-layout label,.profile-inventory-card label,
+.profile-card .profile-handle,.profile-layout .profile-handle{
+  color:var(--h-text-secondary)!important;
+}
+.profile-card small,.profile-layout small,.profile-inventory-card small,
+.profile-card .muted,.profile-layout .muted{
+  color:var(--h-text-muted)!important;
+}
+.profile-tabs button{color:var(--h-text-secondary)!important}
+.profile-tabs button.active{color:var(--h-text-primary)!important}
+.profile-tabs button small{color:var(--h-text-accent)!important}
+.profile-card .account-stat-grid strong,
+.profile-card .account-stat-grid span,
+.profile-card .notification-heading>div>strong,
+.profile-card .notification-new,
+.profile-card .activity-row-main strong,
+.profile-card .activity-row-main>span,
+.profile-card .activity-row-value strong,
+.profile-card .seller-link,
+.profile-card .public-seller-stats strong,
+.profile-card .public-seller-identity h2{
+  color:var(--h-text-primary)!important;
+}
+.profile-card .account-stat-grid span,
+.profile-card .activity-row-main small,
+.profile-card .activity-row-value small,
+.profile-card .public-seller-stats span,
+.profile-card .public-seller-identity small,
+.profile-card .seller-reputation-note{
+  color:var(--h-text-muted)!important;
+}
+.profile-card .activity-row-value strong,
+.profile-card .public-seller-stats strong,
+.profile-card .seller-link{
+  color:var(--h-text-accent)!important;
+}
+.profile-card .activity-marker,
+.profile-card .notification-item.unread .notification-dot{
+  background:#59bfff!important;
+  box-shadow:0 0 10px rgba(89,191,255,.35)!important;
+}
+.profile-card .activity-demo-tag{
+  color:var(--h-text-accent)!important;
+  border-color:rgba(105,190,245,.3)!important;
+}
+.profile-card .profile-premium{
+  color:#b9e8ff!important;
+  border-color:rgba(105,190,245,.3)!important;
+  background:rgba(65,155,220,.1)!important;
+}
+/* Keep status meaning intact while unifying ordinary interface copy. */
+.page-heading p,.section-title p,.market-heading-row p,.market-meta,
+.order-main p,.order-kind,.footer,.eyebrow,.nav-caption{
+  color:var(--h-text-muted)!important;
+}
+.brand small,.crumb,.sidebar-version{color:var(--h-text-muted)!important}
+.nav-item{color:var(--h-text-secondary)!important}
+.nav-item.active{color:var(--h-text-primary)!important}
+.notification-heading>div>strong,.notification-new{color:var(--h-text-accent)!important}
+.seller-link{color:var(--h-text-accent)!important}
