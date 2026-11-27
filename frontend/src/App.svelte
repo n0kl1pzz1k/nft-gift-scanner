@@ -167,6 +167,7 @@
   let adminAudit = $state<Array<Record<string,unknown>>>([]);
   let adminReconciliation = $state<{payments:Array<Record<string,unknown>>;transfers:Array<Record<string,unknown>>}>({payments:[],transfers:[]});
   let adminTreasury = $state<any>(null);
+  let adminTreasuryOrders = $state<Array<Record<string,unknown>>>([]);
   let adminUserSearch = $state('');
   let adminBusy = $state(false);
   let adminRole = $state('owner');
@@ -1358,7 +1359,7 @@
       adminRole = String(roleData.role || 'owner');
       adminPermissions = Array.isArray(roleData.permissions) ? roleData.permissions as string[] : [];
       const can = (permission: string) => adminPermissions.includes(permission);
-      const [overview, reports, users, assets, reconciliation, disputes, audit, treasury] = await Promise.all([
+      const [overview, reports, users, assets, reconciliation, disputes, audit, treasury, treasuryOrders] = await Promise.all([
         request('/api/marketplace/admin/overview'),
         can('reports') ? request('/api/marketplace/admin/reports?status=open&limit=50') : Promise.resolve({items:[]}),
         can('users_read') ? request('/api/marketplace/admin/users?limit=25') : Promise.resolve({items:[]}),
@@ -1367,8 +1368,10 @@
         can('deals_read') ? request('/api/marketplace/admin/deals?status=disputed&limit=50') : Promise.resolve({items:[]}),
         (adminRole==='owner' || adminRole==='finance') ? request('/api/marketplace/admin/security-audit?limit=25') : Promise.resolve({items:[]}),
         can('treasury_read') ? request('/api/marketplace/admin/treasury') : Promise.resolve(null),
+        can('treasury_read') ? request('/api/marketplace/admin/treasury/orders?limit=20') : Promise.resolve({items:[]}),
       ]);
       adminTreasury = treasury;
+      adminTreasuryOrders = Array.isArray(treasuryOrders.items) ? treasuryOrders.items as Array<Record<string,unknown>> : [];
       adminOverview = overview as Record<string,number>;
       adminReports = Array.isArray(reports.items) ? reports.items as OrderReport[] : [];
       adminUsers = Array.isArray(users.items) ? users.items as Array<Record<string,unknown>> : [];
@@ -2024,6 +2027,20 @@
               {#if adminTreasury.next_order_seqno!==null}<small>Next order: {adminTreasury.next_order_seqno}</small>{/if}
               <p>{lang==='ru'?'Это только проверка состояния. Создание и исполнение ордеров пока не включено.':'Read-only status only. Order creation and execution are not enabled yet.'}</p>
             </div>
+            <div class="notification-heading"><h3>{lang==='ru'?'Последние ордера':'Recent orders'} · {adminTreasuryOrders.length}</h3></div>
+            {#if adminTreasuryOrders.length === 0}
+              <p class="muted-copy">{lang==='ru'?'Активных дочерних ордеров не найдено. Контракт ещё не развёрнут или ордера отсутствуют.':'No recent child orders found. The contract may not be deployed or no orders exist.'}</p>
+            {:else}
+              {#each adminTreasuryOrders as order (String(order.order_seqno))}
+                <div class="account-stat" aria-label={lang==='ru'?'Ордер мультисига':'Multisig order'}>
+                  <strong>Order #{String(order.order_seqno)}</strong>
+                  <small>{String(order.address || '')}</small>
+                  <p>{lang==='ru'?'Подписи':'Approvals'}: {String(order.approvals_num ?? 0)}/{String(order.threshold ?? 0)} · {lang==='ru'?'Состояние':'State'}: {order.executed ? (lang==='ru'?'Исполнен':'Executed') : (Number(order.expiration_date || 0) * 1000 < Date.now() ? (lang==='ru'?'Истёк':'Expired') : (lang==='ru'?'Ожидает подписей':'Awaiting signatures'))}</p>
+                  <small>{lang==='ru'?'Истекает':'Expires'}: {order.expiration_date ? new Date(Number(order.expiration_date) * 1000).toLocaleString() : '—'}</small>
+                  <p>{lang==='ru'?'Содержимое действий пока не декодировано. Подтверждение отключено до проверки каждого действия.':'Action payload is not decoded. Approval remains disabled until every action is parsed and verified.'}</p>
+                </div>
+              {/each}
+            {/if}
           {/if}
           {/if}
           {#if adminPermissions.includes('users_read')}
