@@ -63,6 +63,30 @@ class MarketplaceAdminConsoleTests(unittest.TestCase):
             result = self.client.get(path, headers=self.headers(self.admin_token))
             self.assertEqual(result.status_code, 200, f"{path}: {result.text}")
 
+    def test_treasury_status_is_read_only_and_fails_closed_without_config(self):
+        with patch.dict(os.environ, {
+            "HASSLE_TON_MULTISIG_EXPECTED_ADDRESS": "",
+            "HASSLE_TON_MULTISIG_CODE_HASH": "",
+            "HASSLE_TON_MULTISIG_DATA_HASH": "",
+        }, clear=False):
+            response = self.client.get(
+                "/api/marketplace/admin/treasury",
+                headers=self.headers(self.admin_token),
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["status"], "configuration_missing")
+        self.assertFalse(response.json()["verified"])
+        self.assertEqual(response.json()["threshold"], 2)
+        self.assertEqual(response.json()["signer_count"], 3)
+
+    def test_treasury_status_requires_finance_or_owner_permission(self):
+        with patch.dict(os.environ, {"ADMIN_TELEGRAM_ROLES": "9001:moderator"}):
+            response = self.client.get(
+                "/api/marketplace/admin/treasury",
+                headers=self.headers(self.admin_token),
+            )
+        self.assertEqual(response.status_code, 403)
+
     def test_non_admin_cannot_access_operations_console(self):
         response = self.client.get("/api/marketplace/admin/overview", headers=self.headers(self.member_token))
         self.assertEqual(response.status_code, 403)
