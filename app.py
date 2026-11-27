@@ -722,10 +722,12 @@ async def import_business_account_gifts(x_telegram_init_data: str | None = Heade
         raise HTTPException(status_code=503, detail="Telegram Business gift inventory is temporarily unavailable") from exc
     registered = []
     active_owned_ids = set()
+    active_gift_slugs = set()
     try:
         for item in snapshot["items"]:
             owned_id = str(item["owned_gift_id"])
             active_owned_ids.add(owned_id)
+            active_gift_slugs.add(str(item["external_asset_id"]))
             asset = register_verified_asset(
                 source="telegram_gift",
                 external_asset_id=str(item["external_asset_id"]),
@@ -754,6 +756,7 @@ async def import_business_account_gifts(x_telegram_init_data: str | None = Heade
                 owner_telegram_id=owner_id,
                 business_connection_id=connection_id,
                 active_owned_gift_ids=active_owned_ids,
+                active_gift_slugs=active_gift_slugs,
             )
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=409, detail="Telegram Business gift ownership could not be safely reconciled") from exc

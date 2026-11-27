@@ -380,6 +380,41 @@ class TelegramBusinessGiftImportApiTests(unittest.TestCase):
         self.assertEqual(inventory.status_code, 200, inventory.text)
         self.assertNotIn(asset["id"], [item["id"] for item in inventory.json()["items"]])
 
+    def test_complete_business_snapshot_revokes_orphaned_legacy_gift_without_ref(self):
+        marketplace.upsert_telegram_business_connection({
+            "id": "business-connection-101",
+            "user": {"id": 101},
+            "user_chat_id": 101,
+            "is_enabled": True,
+            "rights": {"can_view_gifts_and_stars": True, "can_transfer_and_upgrade_gifts": True},
+        })
+        # Simulate the legacy bug: the transfer reference was already deleted,
+        # while the old verified asset remained in the owner's inventory.
+        asset = marketplace.register_verified_asset(
+            source="telegram_gift", external_asset_id="JollyChimp-93222",
+            owner_telegram_id="101", title="Jolly Chimp #93222", asset_type="gift",
+            image_url="", verification_method="telegram_gift_owner",
+            verification_reference="legacy-orphaned-business-gift-reference",
+        )
+        snapshot = {"complete": True, "total_count": 0, "supported_unique_count": 0, "items": []}
+        with patch.object(app, "fetch_business_account_gifts", new=AsyncMock(return_value=snapshot)):
+            response = self.client.post(
+                "/api/marketplace/assets/import-business-gifts",
+                headers={"X-Telegram-Init-Data": "verified-session"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        with marketplace._db() as conn:
+            row = conn.execute(
+                "SELECT status FROM verified_assets WHERE id = ?", (asset["id"],)
+            ).fetchone()
+        self.assertEqual(row["status"], "revoked")
+        inventory = self.client.get(
+            "/api/marketplace/assets/me",
+            headers={"X-Telegram-Init-Data": "verified-session"},
+        )
+        self.assertEqual(inventory.status_code, 200, inventory.text)
+        self.assertNotIn(asset["id"], [item["id"] for item in inventory.json()["items"]])
+
     def test_incomplete_snapshot_does_not_prune_previous_transfer_handles(self):
         marketplace.upsert_telegram_business_connection({
             "id": "business-connection-101",
