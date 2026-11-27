@@ -1608,7 +1608,7 @@
                    <div class="market-collection-identity"><img class="collection-monogram" src={orders.find(order=>order.collection===collection.collection && order.image_url)?.image_url || "/brand/hassle-mark.webp?v=224"} alt={collection.collection} loading="lazy"/><div><strong>{collection.collection}</strong><small>{collection.active_listings} {lang==='ru'?'активных лотов':'active listings'} · {collection.trades_24h} {lang==='ru'?'закрытых позиций за 24ч':'matched in 24h'}</small></div></div>
                    <div class="market-collection-metric"><small>{lang==='ru'?'Флор':'Floor'}</small><strong>{collection.floor_ton===null?'—':Number(collection.floor_ton).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})}</strong>{#if collection.floor_ton!==null}<small class="gram-amount"><GramToken size={13}/> GRAM</small>{/if}{#if collection.floor_stars!==null}<span>{Number(collection.floor_stars).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} ⭐</span>{/if}</div>
                    <div class="market-collection-metric market-collection-volume"><small>{lang==='ru'?'Оборот за 24ч':'24h volume'}</small><strong>{Number(collection.volume_ton_24h||0).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:2})}</strong><small class="gram-amount"><GramToken size={13}/> GRAM</small>{#if collection.volume_stars_24h}<span>{Number(collection.volume_stars_24h).toLocaleString(lang==='ru'?'ru-RU':'en-US',{maximumFractionDigits:0})} ⭐</span>{/if}</div>
-                 </article>
+                 </button>
                {/each}
              </div>
            {:else}
