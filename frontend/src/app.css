@@ -1225,3 +1225,25 @@ button,a,input,select,textarea,[role=button]{touch-action:manipulation!important
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
+
+/* Admin user search and session rows: keep the actual identity in the wide column. */
+.admin-user-search-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:stretch}
+.admin-user-search{min-width:0;min-height:48px;margin:0!important;padding:12px 14px!important;font:500 16px/1.25 Inter,system-ui,-apple-system,sans-serif!important;letter-spacing:normal!important;color:#f2f3f7!important}
+.admin-user-search::placeholder{font:400 15px/1.25 Inter,system-ui,-apple-system,sans-serif!important;color:#858d9a!important;opacity:1}
+.admin-user-search-row .refresh-button{min-width:88px;min-height:48px;font-size:13px}
+.admin-user-row{grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;padding:15px 8px}
+.admin-user-row .activity-row-main{grid-column:1;min-width:0;gap:7px}
+.admin-user-row .activity-row-main strong{font-size:14px;line-height:1.35;color:#f1f3f7;overflow-wrap:anywhere}
+.admin-user-row .activity-row-main small{font-size:12px;line-height:1.45;color:#aab2bf;overflow-wrap:anywhere}
+.admin-user-row .cancel-button{grid-column:2;min-height:42px;padding:9px 13px;font-size:11px;white-space:nowrap}
+.gram-profile-mark,.gram-sheet-icon{background:#30A1F5!important;color:#fff}
+.gram-token-icon{display:block;width:27px;height:27px;filter:drop-shadow(0 3px 8px rgba(0,0,0,.2))}
+.gram-profile-mark .gram-token-icon{width:34px;height:34px}
+@media(max-width:620px){
+ .admin-user-search-row{grid-template-columns:minmax(0,1fr) 92px;gap:8px}
+ .admin-user-search{font-size:16px!important}
+ .admin-user-search::placeholder{font-size:14px!important}
+ .admin-user-row{grid-template-columns:minmax(0,1fr);gap:10px;padding:14px 5px}
+ .admin-user-row .activity-row-main,.admin-user-row .cancel-button{grid-column:1}
+ .admin-user-row .cancel-button{width:100%;min-height:44px;white-space:normal}
+}

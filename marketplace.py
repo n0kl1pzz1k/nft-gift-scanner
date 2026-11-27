@@ -657,6 +657,27 @@ def prune_telegram_business_gift_refs(
     if not owner_id.isdigit() or not business_connection_id:
         raise ValueError("A verified Business account is required")
     with _db() as conn:
+        # A complete Telegram snapshot is authoritative for Business-owned gifts.
+        # Revoke the marketplace asset itself, not just its transfer handle, or
+        # stale gifts remain visible forever in /assets/me after they leave Telegram.
+        stale_rows = conn.execute(
+            """SELECT asset_id FROM telegram_business_gift_refs
+               WHERE owner_telegram_id = ? AND business_connection_id = ?
+                 AND owned_gift_id NOT IN ({})""".format(
+                     ",".join("?" for _ in active_owned_gift_ids) if active_owned_gift_ids else "''"
+                 ),
+            (owner_id, business_connection_id, *sorted(active_owned_gift_ids)),
+        ).fetchall()
+        stale_asset_ids = [str(row["asset_id"]) for row in stale_rows if row["asset_id"]]
+        if stale_asset_ids:
+            placeholders = ",".join("?" for _ in stale_asset_ids)
+            conn.execute(
+                f"""UPDATE verified_assets
+                    SET status = 'revoked', revoked_at = ?
+                    WHERE owner_telegram_id = ? AND status = 'verified'
+                      AND id IN ({placeholders})""",
+                (int(time.time()), owner_id, *stale_asset_ids),
+            )
         if active_owned_gift_ids:
             placeholders = ",".join("?" for _ in active_owned_gift_ids)
             conn.execute(
