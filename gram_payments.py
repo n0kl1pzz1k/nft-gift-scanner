@@ -233,7 +233,7 @@ def confirm_gram_deposit_event(
     """Verify one indexed native transfer and atomically credit it once."""
     if not isinstance(event, dict) or not isinstance(transfer, dict):
         return False
-    if event.get("in_progress") is not False or event.get("is_scam") is True:
+    if event.get("in_progress") is not False or event.get("is_scam") is not False:
         return False
     event_id = str(event.get("event_id") or "").strip()
     tx_hash = str(event.get("event_id") or event.get("lt") or "").strip()
@@ -271,10 +271,6 @@ def confirm_gram_deposit_event(
         if amount_nano != int(candidate["amount_nano"]):
             return False
         if not _address_matches(transfer.get("recipient"), candidate["treasury_address"]):
-            return False
-        if str(event.get("in_progress")) != "False":
-            return False
-        if event.get("is_scam") not in (False, None):
             return False
         begin_write(conn, f"gram-deposit:{candidate['id']}", f"gram-user:{candidate['telegram_id']}")
         locked = conn.execute(
