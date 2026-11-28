@@ -70,8 +70,8 @@ The withdrawal API is a separate, fail-closed flow:
 - GET /api/gram/withdrawals and GET /api/gram/withdrawals/{id} expose only the authenticated user's requests.
 - POST /api/gram/withdrawals/{id}/cancel releases the reserve only while the request is still queued_for_multisig.
 
-Before a request can be created, the operator must explicitly set HASSLE_GRAM_WITHDRAWALS_ENABLED=1, acknowledge custody, configure manual_multisig_2_of_3, and the backend must verify that the configured treasury matches an active on-chain 2-of-3 multisig. The feature flag defaults to off.
+Before a request can be created, the operator must explicitly set both HASSLE_GRAM_WITHDRAWALS_ENABLED=1 and HASSLE_GRAM_WITHDRAWAL_EXECUTOR_ENABLED=1, acknowledge custody, configure manual_multisig_2_of_3, and the backend must verify that the configured treasury matches an active on-chain 2-of-3 multisig. Both feature flags default to off. The executor flag must remain off until signer/order approval and payout verification are implemented.
 
 The backend serializes requests by Telegram user, checks the canonical ledger balance, daily and per-request limits, and reserves the gross amount with a balanced ledger transaction. The configurable fee is HASSLE_GRAM_WITHDRAWAL_FEE_BPS (0..200 basis points, default 0); the request records both fee and net payout amount. A cancelled request releases the full reserve through a second balanced ledger transaction.
 
-This slice creates and cancels requests only. It does NOT sign or submit a multisig order, and it does not mark a withdrawal paid. Until the signer/order approval and TONAPI-confirmed payout executor are connected, no request can leave the queued_for_multisig state. Do not enable the feature flag in production until that complete execution path is available.
+This slice creates and cancels requests only. It does NOT sign or submit a multisig order, and it does not mark a withdrawal paid. Until the signer/order approval and TONAPI-confirmed payout executor are connected, no request can leave the queued_for_multisig state. Do not enable either feature flag in production until that complete execution path is available.
