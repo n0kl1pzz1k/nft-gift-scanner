@@ -110,6 +110,7 @@ def create_gram_deposit_intent(
         raise GramDepositError("Unsupported GRAM network")
     if not key or len(key) > 128:
         raise GramDepositError("A 1-128 character idempotency key is required")
+    key = f"{user}:{key}"
     if not 60 <= int(ttl_seconds) <= 86400:
         raise GramDepositError("Deposit lifetime must be between 1 minute and 24 hours")
     amount_nano = gram_to_nano(amount_gram)
@@ -216,7 +217,7 @@ def confirm_gram_deposit(
     try:
         intent = conn.execute(
             """SELECT * FROM gram_deposit_intents
-               WHERE network = ? AND memo = ? AND status = 'pending'""",
+               WHERE network = ? AND memo = ? AND status IN ('pending','expired')""",
             (network, event["memo"]),
         ).fetchone()
         if intent is None:
@@ -259,7 +260,7 @@ def confirm_gram_deposit(
             """UPDATE gram_deposit_intents
                SET status='confirmed', confirmed_at=?, chain_tx_hash=?,
                    chain_lt=?, ledger_transaction_id=?
-               WHERE id=? AND status='pending'""",
+               WHERE id=? AND status IN ('pending','expired')""",
             (timestamp, event["tx_hash"], event["tx_lt"], ledger["id"], row["id"]),
         )
         if updated.rowcount != 1:
@@ -277,9 +278,11 @@ def list_pending_gram_deposits(conn: Any, *, network: str, limit: int = 500) -> 
     bounded = max(1, min(int(limit), 1000))
     rows = conn.execute(
         """SELECT id,memo,amount_nano,treasury_address,created_at,expires_at
-           FROM gram_deposit_intents WHERE network=? AND status='pending'
+           FROM gram_deposit_intents
+           WHERE network=? AND status IN ('pending','expired')
+             AND expires_at >= ?
            ORDER BY created_at ASC LIMIT ?""",
-        (network, bounded),
+        (network, int(time.time()) - 86400, bounded),
     ).fetchall()
     return [dict(row) for row in rows]
 
