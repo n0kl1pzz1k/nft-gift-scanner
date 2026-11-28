@@ -587,6 +587,18 @@ def initialize_postgres_offer_schema(connection: Any) -> dict[str, Any]:
              created_at BIGINT NOT NULL)""",
          "CREATE UNIQUE INDEX IF NOT EXISTS idx_marketplace_escrow_events_event_key ON marketplace_escrow_events(event_key)",
          "CREATE INDEX IF NOT EXISTS idx_marketplace_escrow_events_deal_created ON marketplace_escrow_events(deal_id, created_at ASC, id ASC)",
+         """CREATE TABLE IF NOT EXISTS marketplace_multisig_payout_reservations (
+             deal_id TEXT PRIMARY KEY REFERENCES marketplace_deals(id),
+             payload_sha256 TEXT NOT NULL,
+             actions_payload_hash TEXT NOT NULL,
+             expiration_date BIGINT NOT NULL,
+             memo TEXT NOT NULL,
+             seller_wallet TEXT NOT NULL,
+             amount_nano TEXT NOT NULL,
+             treasury TEXT NOT NULL,
+             created_by TEXT NOT NULL,
+             created_at BIGINT NOT NULL)""",
+         "CREATE INDEX IF NOT EXISTS idx_marketplace_multisig_payout_reservations_expiration ON marketplace_multisig_payout_reservations(expiration_date)",
          """CREATE TABLE IF NOT EXISTS marketplace_dispute_resolution_approvals (
              id TEXT PRIMARY KEY, deal_id TEXT NOT NULL REFERENCES marketplace_deals(id),
              admin_user_id TEXT NOT NULL,
