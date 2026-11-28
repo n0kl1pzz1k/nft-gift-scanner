@@ -101,12 +101,6 @@ def _comment_payload_boc(comment: str) -> str:
 def init_gram_deposit_schema() -> None:
     with _db() as conn:
         statements = (
-            """CREATE TABLE IF NOT EXISTS gram_wallet_balances (
-                telegram_id TEXT PRIMARY KEY,
-                available_nano TEXT NOT NULL DEFAULT '0',
-                reserved_nano TEXT NOT NULL DEFAULT '0',
-                updated_at BIGINT NOT NULL
-            )""",
             """CREATE TABLE IF NOT EXISTS gram_deposit_intents (
                 id TEXT PRIMARY KEY,
                 telegram_id TEXT NOT NULL,
@@ -138,31 +132,13 @@ def init_gram_deposit_schema() -> None:
                 UNIQUE(network, chain_event_id, action_index),
                 UNIQUE(deposit_id)
             )""",
-            """CREATE TABLE IF NOT EXISTS gram_ledger_transactions (
-                id TEXT PRIMARY KEY,
-                idempotency_key TEXT NOT NULL UNIQUE,
-                reference_type TEXT NOT NULL CHECK(reference_type IN ('deposit')),
-                reference_id TEXT NOT NULL,
-                amount_nano TEXT NOT NULL,
-                created_at BIGINT NOT NULL
-            )""",
-            """CREATE TABLE IF NOT EXISTS gram_ledger_entries (
-                id TEXT PRIMARY KEY,
-                transaction_id TEXT NOT NULL,
-                account_type TEXT NOT NULL CHECK(account_type IN ('chain_clearing','user_available')),
-                account_id TEXT NOT NULL,
-                direction TEXT NOT NULL CHECK(direction IN ('debit','credit')),
-                amount_nano TEXT NOT NULL,
-                created_at BIGINT NOT NULL,
-                UNIQUE(transaction_id, account_type, account_id, direction)
-            )""",
         )
         for statement in statements:
             conn.execute(statement)
         # Append-only journal protection is installed on SQLite. PostgreSQL
         # writes are restricted to this service role and remain append-only by API.
         if conn.__class__.__module__ == "sqlite3":
-            for table in ("gram_chain_events", "gram_ledger_transactions", "gram_ledger_entries"):
+            for table in ("gram_chain_events",):
                 conn.execute(f"""CREATE TRIGGER IF NOT EXISTS {table}_no_update
                     BEFORE UPDATE ON {table}
                     BEGIN SELECT RAISE(ABORT, 'GRAM financial journal is immutable'); END""")
@@ -324,29 +300,9 @@ def confirm_gram_deposit_event(
             if "unique" in str(exc).lower() or "duplicate" in str(exc).lower() or "integrity" in type(exc).__name__.lower():
                 return False
             raise
-        balance = conn.execute(
-            select_for_update(conn, "SELECT available_nano,reserved_nano FROM gram_wallet_balances WHERE telegram_id=?"),
-            (candidate["telegram_id"],),
-        ).fetchone()
-        if balance is None:
-            conn.execute(
-                """INSERT INTO gram_wallet_balances(telegram_id,available_nano,reserved_nano,updated_at)
-                   VALUES (?, '0','0',?)""",
-                (candidate["telegram_id"], timestamp),
-            )
-            available = 0
-        else:
-            available = int(balance["available_nano"])
-        new_available = available + amount_nano
-        ledger_id = "glt-" + uuid.uuid4().hex[:24]
-        conn.execute(
-            """INSERT INTO gram_ledger_transactions
-               (id,idempotency_key,reference_type,reference_id,amount_nano,created_at)
-               VALUES (?,?, 'deposit',?,?,?)""",
-            (ledger_id, f"gram-deposit:{candidate['id']}", candidate["id"], str(amount_nano), timestamp),
-        )
-        # Credit the canonical marketplace ledger as well. Existing checkout
-        # and balance APIs use TON protocol units internally and display GRAM.
+        # The canonical marketplace ledger is the single source of truth for
+        # available funds. GRAM is displayed externally; TON remains the protocol
+        # currency key internally and amounts are converted with Decimal precision.
         from marketplace_payments import post_ledger_transaction
         post_ledger_transaction(
             conn,
@@ -359,24 +315,6 @@ def confirm_gram_deposit_event(
             debit_amount=_nano_to_gram_text(amount_nano),
             credit_amount=_nano_to_gram_text(amount_nano),
             now=timestamp,
-        )
-        conn.executemany(
-            """INSERT INTO gram_ledger_entries
-               (id,transaction_id,account_type,account_id,direction,amount_nano,created_at)
-               VALUES (?,?,?,?,?,?,?)""",
-            [
-                ("gle-" + uuid.uuid4().hex[:24], ledger_id, "chain_clearing",
-                 candidate["treasury_address"], "debit", str(amount_nano), timestamp),
-                ("gle-" + uuid.uuid4().hex[:24], ledger_id, "user_available",
-                 candidate["telegram_id"], "credit", str(amount_nano), timestamp),
-            ],
-        )
-        conn.execute(
-            """INSERT INTO gram_wallet_balances(telegram_id,available_nano,reserved_nano,updated_at)
-               VALUES (?,?,'0',?)
-               ON CONFLICT(telegram_id) DO UPDATE SET
-                 available_nano=excluded.available_nano,updated_at=excluded.updated_at""",
-            (candidate["telegram_id"], str(new_available), timestamp),
         )
         changed = conn.execute(
             """UPDATE gram_deposit_intents SET status='confirmed',confirmed_at=?,tx_hash=?,chain_event_id=?
