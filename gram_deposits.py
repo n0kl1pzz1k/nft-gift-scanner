@@ -220,6 +220,7 @@ def confirm_gram_deposit(
             (network, event["memo"]),
         ).fetchone()
         if intent is None:
+            conn.rollback()
             return None
         row = dict(intent)
         if (
@@ -228,6 +229,7 @@ def confirm_gram_deposit(
             or int(event["utime"]) < int(row["created_at"])
             or int(event["utime"]) > int(row["expires_at"])
         ):
+            conn.rollback()
             return None
 
         event_id = "gce_" + uuid.uuid4().hex
@@ -253,13 +255,15 @@ def confirm_gram_deposit(
             credit_amount=Decimal(int(event["amount_nano"])) / NANO_PER_GRAM,
             now=timestamp,
         )
-        conn.execute(
+        updated = conn.execute(
             """UPDATE gram_deposit_intents
                SET status='confirmed', confirmed_at=?, chain_tx_hash=?,
                    chain_lt=?, ledger_transaction_id=?
                WHERE id=? AND status='pending'""",
             (timestamp, event["tx_hash"], event["tx_lt"], ledger["id"], row["id"]),
         )
+        if updated.rowcount != 1:
+            raise PaymentConflict("GRAM deposit intent was confirmed concurrently")
         result = {"deposit_id": row["id"], "user_id": row["user_id"],
                   "amount_nano": int(event["amount_nano"]), "ledger_transaction_id": ledger["id"]}
         conn.commit()
