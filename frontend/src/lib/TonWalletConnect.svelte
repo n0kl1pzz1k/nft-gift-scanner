@@ -18,9 +18,15 @@
     onPaymentSent?: (dealId: string) => Promise<void> | void;
     depositRequest?: { id: string; transaction: { validUntil: number; network: string; messages: Array<{ address: string; amount: string; payload?: string }> } } | null;
     onDepositSent?: (depositId: string) => Promise<void> | void;
+    multisigApprovalRequest?: {
+      orderSeqno: number;
+      signerWallet: string;
+      transaction: { validUntil: number; network: string; messages: Array<{ address: string; amount: string; payload?: string }> };
+    } | null;
+    onMultisigApprovalSent?: (orderSeqno: number) => Promise<void> | void;
   };
 
-  let { api, authToken, lang, onVerified, deliveryRequest = null, onDeliverySent = () => {}, paymentRequest = null, onPaymentSent = () => {}, depositRequest = null, onDepositSent = () => {} }: Props = $props();
+  let { api, authToken, lang, onVerified, deliveryRequest = null, onDeliverySent = () => {}, paymentRequest = null, onPaymentSent = () => {}, depositRequest = null, onDepositSent = () => {}, multisigApprovalRequest = null, onMultisigApprovalSent = () => {} }: Props = $props();
   let tonConnect = $state<TonConnectUIInstance | null>(null);
   let busy = $state(false);
   let address = $state('');
@@ -29,10 +35,12 @@
   let message = $state('');
   let paymentSubmitted = $state(false);
   let depositSubmitted = $state(false);
+  let multisigApprovalSubmitted = $state(false);
 
   $effect(() => {
     if (!paymentRequest) paymentSubmitted = false;
     if (!depositRequest) depositSubmitted = false;
+    if (!multisigApprovalRequest) multisigApprovalSubmitted = false;
   });
 
   const copy = $derived({
@@ -249,6 +257,48 @@
     }
   }
 
+  async function sendMultisigApproval() {
+    if (!tonConnect || !multisigApprovalRequest || busy || status !== 'verified' || multisigApprovalSubmitted) return;
+    if (
+      tonConnect.wallet?.account.address !== multisigApprovalRequest.signerWallet
+      || address !== multisigApprovalRequest.signerWallet
+    ) {
+      message = lang === 'ru'
+        ? 'Подключённый кошелёк не совпадает с проверенным кошельком подписанта.'
+        : 'The connected wallet does not match the verified signer wallet.';
+      status = 'error';
+      return;
+    }
+    if (tonConnect.wallet?.account.chain !== multisigApprovalRequest.transaction.network) {
+      message = lang === 'ru'
+        ? 'Для подписи ордера переключи кошелёк на Mainnet.'
+        : 'Switch the wallet to Mainnet before approving this order.';
+      status = 'error';
+      return;
+    }
+    busy = true;
+    message = '';
+    try {
+      await tonConnect.sendTransaction(multisigApprovalRequest.transaction);
+      multisigApprovalSubmitted = true;
+      message = lang === 'ru'
+        ? 'Подпись отправлена в сеть. Дождись подтверждения и обнови список ордеров.'
+        : 'Approval submitted to the network. Wait for confirmation and refresh the order list.';
+      try {
+        await onMultisigApprovalSent(multisigApprovalRequest.orderSeqno);
+      } catch {
+        // The wallet submission already happened; never suggest that it failed or resend it.
+      }
+    } catch (error) {
+      message = error instanceof Error
+        ? error.message
+        : (lang === 'ru' ? 'Кошелёк отклонил подпись ордера.' : 'The wallet rejected the order approval.');
+      status = 'error';
+    } finally {
+      busy = false;
+    }
+  }
+
   async function sendNftDelivery() {
     if (!tonConnect || !deliveryRequest || busy || status !== 'verified') return;
     if (tonConnect.wallet?.account.address !== deliveryRequest.sellerWallet) {
@@ -349,6 +399,18 @@
     <button class="ton-wallet-button inventory-import-button" type="button" onclick={() => onDepositSent(depositRequest.id)} disabled={busy}>
       {busy ? '…' : (lang === 'ru' ? 'Проверить статус' : 'Check status')}
     </button>
+  {/if}
+  {#if multisigApprovalRequest && !multisigApprovalSubmitted && status === 'verified' && address === multisigApprovalRequest.signerWallet && tonConnect?.wallet}
+    <button class="ton-wallet-button inventory-import-button" type="button" onclick={sendMultisigApproval} disabled={busy}>
+      {busy ? '…' : (lang === 'ru' ? 'Подписать ордер #{multisigApprovalRequest.orderSeqno}' : 'Approve order #{multisigApprovalRequest.orderSeqno}')}
+    </button>
+    <p class="ton-wallet-message">{lang === 'ru' ? 'Кошелёк покажет точную транзакцию. Подтверждай только после проверки получателя и суммы в админ-панели.' : 'Your wallet will show the exact transaction. Confirm only after reviewing the recipient and amount in the admin panel.'}</p>
+  {:else if multisigApprovalRequest && !multisigApprovalSubmitted}
+    <button class="ton-wallet-button inventory-import-button" type="button" onclick={connectWallet} disabled={busy}>
+      {lang === 'ru' ? 'Подключить кошелёк подписанта' : 'Connect signer wallet'}
+    </button>
+  {:else if multisigApprovalRequest && multisigApprovalSubmitted}
+    <p class="ton-wallet-message">{lang === 'ru' ? 'Подпись отправлена. Не отправляй её повторно.' : 'Approval submitted. Do not send it again.'}</p>
   {/if}
   {#if deliveryRequest && status === 'verified' && address === deliveryRequest.sellerWallet}
     {#if tonConnect?.wallet}
