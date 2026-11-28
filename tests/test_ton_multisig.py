@@ -15,7 +15,11 @@ from ton_multisig import (
     fetch_ton_multisig_orders,
     is_two_of_three_multisig,
 )
-from ton_multisig_transactions import build_order_approve_payload
+from ton_multisig_transactions import (
+    build_new_order_payload,
+    build_order_approve_payload,
+    build_native_gram_transfer_actions_boc,
+)
 
 
 TREASURY = "0:" + "a" * 64
@@ -113,6 +117,21 @@ def order_getter_payload(seqno=0):
 
 
 class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
+    def test_new_order_exposes_exact_action_cell_hash_for_reservation_binding(self):
+        actions_boc = build_native_gram_transfer_actions_boc(
+            SIGNERS[0], 1_500_000_000, "HASSLE NFT payout deal_test_hash"
+        )
+        prepared = build_new_order_payload(
+            actions_boc,
+            signer_index=0,
+            signer_addresses=SIGNERS,
+            expiration_date=int(__import__("time").time()) + 900,
+        )
+        actions_cell = Cell.one_from_boc(base64.b64decode(actions_boc, validate=True))
+        self.assertEqual(prepared["actions_payload_hash"], actions_cell.bytes_hash().hex())
+        self.assertEqual(prepared["action_count"], 1)
+        self.assertEqual(prepared["actions"][0]["comment"], "HASSLE NFT payout deal_test_hash")
+
     def test_builds_unsigned_order_approval_payload_for_exact_signer_index(self):
         payload = build_order_approve_payload(signer_index=1)
         cell = Cell.one_from_boc(base64.b64decode(payload["payload"], validate=True))
