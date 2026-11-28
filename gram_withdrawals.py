@@ -258,17 +258,15 @@ def transition_gram_withdrawal(
         if new_status == current:
             conn.rollback()
             return dict(row)
-        if new_status not in transitions.get(current, set()):
-            raise PaymentStateError(f"Invalid withdrawal transition: {current} -> {new_status}")
         if new_status == "submitted" and (not chain_tx_hash or not chain_lt):
             raise GramWithdrawalError("Submitted withdrawal requires an on-chain transaction reference")
+        if new_status not in transitions.get(current, set()):
+            raise PaymentStateError(f"Invalid withdrawal transition: {current} -> {new_status}")
         if new_status == "confirmed":
             if not chain_confirmation_verified:
                 raise GramWithdrawalError("Confirmed withdrawal requires server-verified on-chain execution")
             if not row["chain_tx_hash"] or not row["chain_lt"]:
                 raise GramWithdrawalError("Confirmed withdrawal requires a submitted transaction")
-        if new_status == "failed" and current == "submitted" and not chain_failure_verified:
-            raise GramWithdrawalError("Submitted withdrawal can only be released after server-verified chain failure")
             # This transition is intentionally callable only after an external
             # observer has verified the actual outgoing transfer from treasury.
             amount = _amount_decimal(int(row["payout_nano"]))
@@ -279,6 +277,8 @@ def transition_gram_withdrawal(
                 credit_account=("external_chain", f"{row['network']}:{row['destination_address']}"),
                 debit_amount=amount, credit_amount=amount, now=timestamp,
             )
+        if new_status == "failed" and current == "submitted" and not chain_failure_verified:
+            raise GramWithdrawalError("Submitted withdrawal can only be released after server-verified chain failure")
         if new_status in {"failed", "cancelled"}:
             net = int(row["payout_nano"])
             fee = int(row["fee_nano"])
