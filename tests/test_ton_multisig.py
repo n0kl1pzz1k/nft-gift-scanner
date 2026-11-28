@@ -15,6 +15,7 @@ from ton_multisig import (
     fetch_ton_multisig_orders,
     is_two_of_three_multisig,
 )
+from ton_multisig_transactions import build_order_approve_payload
 
 
 TREASURY = "0:" + "a" * 64
@@ -112,6 +113,25 @@ def order_getter_payload(seqno=0):
 
 
 class TonMultisigVerificationTests(unittest.IsolatedAsyncioTestCase):
+    def test_builds_unsigned_order_approval_payload_for_exact_signer_index(self):
+        payload = build_order_approve_payload(signer_index=1)
+        cell = Cell.one_from_boc(base64.b64decode(payload["payload"], validate=True))
+        body = cell.begin_parse()
+        self.assertEqual(body.read_uint(32), 0xA762230F)
+        self.assertEqual(body.read_uint(64), 0)
+        self.assertEqual(body.read_uint(8), 1)
+        body.end_parse()
+        self.assertEqual(payload["attached_value_nano"], "100000000")
+        self.assertRegex(payload["payload_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_order_approval_payload_rejects_invalid_signer_indexes(self):
+        with self.assertRaises(ValueError):
+            build_order_approve_payload(signer_index=-1)
+        with self.assertRaises(ValueError):
+            build_order_approve_payload(signer_index=3)
+        with self.assertRaises(ValueError):
+            build_order_approve_payload(signer_index=0, signer_count=2)
+
     def test_decodes_real_multisig_v2_getter_stack(self):
         config = decode_multisig_v2_getter(getter_payload(), TREASURY)
         self.assertEqual(config["address"], TREASURY)
