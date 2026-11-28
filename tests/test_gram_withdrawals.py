@@ -120,7 +120,7 @@ def test_confirmed_withdrawal_debits_reserved_net_only_after_chain_reference():
     assert submitted["status"] == "submitted"
     confirmed = transition_gram_withdrawal(
         conn, withdrawal_id=withdrawal["id"], new_status="confirmed",
-        event_key="withdrawal-1:confirmed", now=1300,
+        event_key="withdrawal-1:confirmed", chain_confirmation_verified=True, now=1300,
     )
     assert confirmed["status"] == "confirmed"
     assert confirmed["chain_tx_hash"] == "chain-hash"
@@ -154,4 +154,31 @@ def test_withdrawal_fee_is_bounded_and_destination_is_validated():
         _withdraw(conn, fee_bps=201)
     with pytest.raises(GramWithdrawalError, match="destination"):
         _withdraw(conn, destination_address="not-a-wallet")
+    conn.close()
+
+
+def test_submitted_withdrawal_cannot_release_or_confirm_without_chain_observer_proof():
+    conn = _connection()
+    withdrawal = _withdraw(conn)
+    transition_gram_withdrawal(
+        conn, withdrawal_id=withdrawal["id"], new_status="awaiting_multisig",
+        event_key="withdrawal-1:awaiting", now=1150,
+    )
+    transition_gram_withdrawal(
+        conn, withdrawal_id=withdrawal["id"], new_status="submitted",
+        event_key="withdrawal-1:submitted", chain_tx_hash="chain-hash",
+        chain_lt="123456", now=1200,
+    )
+    with pytest.raises(GramWithdrawalError, match="server-verified on-chain execution"):
+        transition_gram_withdrawal(
+            conn, withdrawal_id=withdrawal["id"], new_status="confirmed",
+            event_key="withdrawal-1:unverified-confirm", now=1250,
+        )
+    with pytest.raises(GramWithdrawalError, match="server-verified chain failure"):
+        transition_gram_withdrawal(
+            conn, withdrawal_id=withdrawal["id"], new_status="failed",
+            event_key="withdrawal-1:unverified-failure", now=1250,
+        )
+    assert _balance(conn, "user_balance", "10001") == 7
+    assert _balance(conn, "user_withdrawal_hold", withdrawal["id"]) == 2.97
     conn.close()
