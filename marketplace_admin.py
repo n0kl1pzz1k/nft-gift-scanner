@@ -185,6 +185,119 @@ def create_marketplace_admin_router(verify_admin):
             # RPC errors and malformed data fail closed; never expose guessed orders.
             return {"status": "unavailable", "items": []}
 
+
+    @router.post("/treasury/orders/{order_seqno}/approve/prepare")
+    async def prepare_treasury_order_approval(
+        order_seqno: int,
+        request: dict = Body(...),
+        x_telegram_init_data: str | None = Header(default=None),
+    ):
+        """Prepare one human-signed approval for a verified HASSLE native-GRAM payout order."""
+        admin_user(x_telegram_init_data, "treasury_read")
+        wallet_address = request.get("wallet_address")
+        if not isinstance(wallet_address, str) or not wallet_address.strip():
+            raise HTTPException(status_code=422, detail="A connected signer wallet address is required")
+        expected_address = os.getenv("HASSLE_TON_MULTISIG_EXPECTED_ADDRESS", "").strip()
+        if not expected_address:
+            raise HTTPException(status_code=409, detail="Treasury is not configured")
+        try:
+            from ton_multisig import _raw_address, fetch_ton_multisig_config, fetch_ton_multisig_orders, is_two_of_three_multisig
+            from ton_multisig_transactions import build_order_approve_payload
+
+            config = await fetch_ton_multisig_config(expected_address)
+            if not is_two_of_three_multisig(config, expected_address):
+                raise HTTPException(status_code=409, detail="On-chain 2-of-3 treasury verification failed")
+            signers = config.get("signers")
+            if not isinstance(signers, list) or len(signers) != 3:
+                raise HTTPException(status_code=409, detail="Treasury signer set is invalid")
+            connected_raw = _raw_address(wallet_address)
+            signer_index = next(
+                (index for index, signer in enumerate(signers)
+                 if _raw_address(str(signer)) == connected_raw),
+                None,
+            )
+            if signer_index is None:
+                raise HTTPException(status_code=403, detail="Connected wallet is not a configured treasury signer")
+
+            orders = await fetch_ton_multisig_orders(
+                expected_address, int(config["next_order_seqno"]), limit=50
+            )
+            order = next((item for item in orders if int(item.get("order_seqno", -1)) == order_seqno), None)
+            if order is None:
+                raise HTTPException(status_code=404, detail="Multisig order not found")
+            if order.get("multisig") != config.get("address"):
+                raise HTTPException(status_code=409, detail="Order belongs to a different multisig")
+            if order.get("sent_for_execution") is not False:
+                raise HTTPException(status_code=409, detail="Order is already submitted for execution or has unknown execution state")
+            expiration = order.get("expiration_date")
+            now = int(time.time())
+            if isinstance(expiration, bool) or not isinstance(expiration, int) or expiration <= now + 30:
+                raise HTTPException(status_code=409, detail="Multisig order has expired or is too close to expiry")
+            if order.get("threshold") != 2 or order.get("signers") != signers:
+                raise HTTPException(status_code=409, detail="Order signer policy does not match the verified treasury")
+            approvals = order.get("approvals")
+            if not isinstance(approvals, list) or len(approvals) != 3:
+                raise HTTPException(status_code=409, detail="Order approvals could not be verified")
+            if approvals[signer_index].get("approved") is True:
+                raise HTTPException(status_code=409, detail="This signer has already approved the order")
+
+            actions = order.get("actions")
+            if order.get("action_count") != 1 or not isinstance(actions, list) or len(actions) != 1:
+                raise HTTPException(status_code=409, detail="Only a single-action HASSLE GRAM payout can be approved here")
+            action = actions[0]
+            memo = action.get("comment")
+            recipient = action.get("recipient")
+            amount_nano = action.get("amount_nano")
+            if (
+                action.get("kind") != "send_message"
+                or action.get("body_kind") != "text_comment"
+                or action.get("body_fields_decoded") is not True
+                or action.get("send_mode") != 1
+                or action.get("extra_currencies")
+                or not isinstance(memo, str)
+                or not memo.startswith("HASSLE NFT payout ")
+                or not memo.removeprefix("HASSLE NFT payout ").strip()
+                or not isinstance(recipient, str)
+                or not isinstance(amount_nano, str)
+                or not amount_nano.isdigit()
+                or int(amount_nano) <= 0
+            ):
+                raise HTTPException(status_code=409, detail="Order is not a fully decoded, policy-compliant HASSLE GRAM payout")
+
+            prepared = build_order_approve_payload(signer_index=signer_index)
+            valid_until = min(expiration, now + 300)
+            return {
+                "status": "prepared_unsigned_approval",
+                "network": "-239",
+                "order_seqno": order_seqno,
+                "order_address": order["address"],
+                "transaction": {
+                    "validUntil": valid_until,
+                    "network": "-239",
+                    "messages": [{
+                        "address": order["address"],
+                        "amount": prepared["attached_value_nano"],
+                        "payload": prepared["payload"],
+                    }],
+                },
+                "review": {
+                    "signer_index": signer_index,
+                    "threshold": 2,
+                    "approvals_num": order.get("approvals_num"),
+                    "memo": memo,
+                    "recipient": recipient,
+                    "amount_nano": amount_nano,
+                    "payload_sha256": prepared["payload_sha256"],
+                    "requires_explicit_wallet_confirmation": True,
+                },
+            }
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Could not safely prepare this multisig approval") from exc
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Could not verify the multisig order on-chain") from exc
+
     @router.get("/overview")
     async def overview(x_telegram_init_data: str | None = Header(default=None)):
         admin_user(x_telegram_init_data)
