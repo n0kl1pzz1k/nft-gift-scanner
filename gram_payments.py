@@ -290,6 +290,8 @@ def confirm_gram_deposit_event(
             return False
         if recipient != candidate["treasury_address"]:
             return False
+        if not _address_matches(event.get("account"), candidate["treasury_address"]):
+            return False
         if amount_nano != int(candidate["amount_nano"]):
             return False
         if not _address_matches(transfer.get("recipient"), candidate["treasury_address"]):
