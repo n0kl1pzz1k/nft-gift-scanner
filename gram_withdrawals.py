@@ -241,7 +241,7 @@ def transition_gram_withdrawal(
 ) -> dict[str, Any]:
     transitions = {
         "queued": {"awaiting_multisig", "failed", "cancelled"},
-        "awaiting_multisig": {"submitted", "failed"},
+        "awaiting_multisig": {"submitted"},
         "submitted": {"confirmed", "failed"},
     }
     if new_status not in WITHDRAWAL_STATES:
