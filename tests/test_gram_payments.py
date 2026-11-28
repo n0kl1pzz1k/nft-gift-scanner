@@ -86,7 +86,7 @@ def test_deposit_intent_is_unique_and_returns_ton_connect_transaction(monkeypatc
 def test_indexed_exact_transfer_credits_once_and_records_double_entry(monkeypatch):
     connection = _prepare(monkeypatch)
     deposit = _deposit(monkeypatch, connection)
-    event = {"event_id": "event-hash-001", "lt": 123456,
+    event = {"event_id": "event-hash-001", "lt": 123456, "account": {"address": RAW_TREASURY},
              "in_progress": False, "is_scam": False}
     transfer = _transfer(deposit["memo"])
     assert gp.confirm_gram_deposit_event(
@@ -112,9 +112,9 @@ def test_indexed_exact_transfer_credits_once_and_records_double_entry(monkeypatc
 
 
 @pytest.mark.parametrize("event,transfer", [
-    ({"event_id": "e1", "in_progress": True, "is_scam": False},
+    ({"event_id": "e1", "account": {"address": RAW_TREASURY}, "in_progress": True, "is_scam": False},
      _transfer("memo")),
-    ({"event_id": "e2", "in_progress": False, "is_scam": True},
+    ({"event_id": "e2", "account": {"address": RAW_TREASURY}, "in_progress": False, "is_scam": True},
      _transfer("memo")),
 ])
 def test_unfinalized_or_scam_events_are_not_credited(monkeypatch, event, transfer):
@@ -131,7 +131,7 @@ def test_unfinalized_or_scam_events_are_not_credited(monkeypatch, event, transfe
 def test_wrong_recipient_or_amount_or_memo_never_credits(monkeypatch):
     connection = _prepare(monkeypatch)
     deposit = _deposit(monkeypatch, connection)
-    event = {"event_id": "event-hash-001", "in_progress": False, "is_scam": False}
+    event = {"event_id": "event-hash-001", "account": {"address": RAW_TREASURY}, "in_progress": False, "is_scam": False}
     for transfer in (
         _transfer(deposit["memo"], recipient="0:" + "3" * 64),
         _transfer(deposit["memo"], amount="2499999999"),
@@ -148,7 +148,7 @@ def test_wrong_recipient_or_amount_or_memo_never_credits(monkeypatch):
 def test_late_onchain_transfer_is_still_credited_after_ui_expiry(monkeypatch):
     connection = _prepare(monkeypatch)
     deposit = _deposit(monkeypatch, connection)
-    event = {"event_id": "event-hash-late", "in_progress": False, "is_scam": False}
+    event = {"event_id": "event-hash-late", "account": {"address": RAW_TREASURY}, "in_progress": False, "is_scam": False}
     assert gp.confirm_gram_deposit_event(
         network="mainnet", event=event, action_index=0,
         transfer=_transfer(deposit["memo"]), now=deposit["expires_at"] + 1
