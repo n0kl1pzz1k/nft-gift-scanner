@@ -30,6 +30,26 @@ _LOG = logging.getLogger("hassle_nft.gram")
 NANO_PER_GRAM = 1_000_000_000
 
 
+class GramWithdrawalRequest(BaseModel):
+    amount: Decimal = Field(gt=0, max_digits=20, decimal_places=9)
+    destination_address: str = Field(min_length=10, max_length=128)
+    idempotency_key: str = Field(min_length=8, max_length=128)
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount(cls, value: Decimal) -> Decimal:
+        if not value.is_finite() or value <= 0 or value.as_tuple().exponent < -9:
+            raise ValueError("Amount must be positive with at most 9 decimal places")
+        return value
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def validate_idempotency_key(cls, value: str) -> str:
+        if not value or any(not (ch.isalnum() or ch in "._:-") for ch in value):
+            raise ValueError("Invalid idempotency key")
+        return value
+
+
 class GramDepositRequest(BaseModel):
     amount: Decimal = Field(gt=0, max_digits=20, decimal_places=9)
 
@@ -139,6 +159,34 @@ def init_gram_deposit_schema() -> None:
                 ON gram_deposit_intents(status, expires_at)""",
             """CREATE INDEX IF NOT EXISTS idx_gram_deposit_user
                 ON gram_deposit_intents(telegram_id, created_at DESC)""",
+            """CREATE TABLE IF NOT EXISTS gram_withdrawals (
+                id TEXT PRIMARY KEY,
+                telegram_id TEXT NOT NULL,
+                network TEXT NOT NULL CHECK(network IN ('mainnet','testnet')),
+                destination_address TEXT NOT NULL,
+                gross_amount_nano TEXT NOT NULL,
+                fee_nano TEXT NOT NULL,
+                net_amount_nano TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('queued_for_multisig','cancelled','submitted','confirmed','failed')),
+                idempotency_key TEXT NOT NULL,
+                created_at BIGINT NOT NULL,
+                updated_at BIGINT NOT NULL,
+                payout_tx_hash TEXT,
+                UNIQUE(telegram_id,idempotency_key),
+                UNIQUE(payout_tx_hash)
+            )""",
+            """CREATE INDEX IF NOT EXISTS idx_gram_withdrawals_user
+                ON gram_withdrawals(telegram_id,created_at DESC)""",
+            """CREATE INDEX IF NOT EXISTS idx_gram_withdrawals_queue
+                ON gram_withdrawals(status,created_at)""",
+            """CREATE TABLE IF NOT EXISTS gram_withdrawal_events (
+                id TEXT PRIMARY KEY,
+                withdrawal_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                event_key TEXT NOT NULL UNIQUE,
+                event_data TEXT NOT NULL DEFAULT '{}',
+                created_at BIGINT NOT NULL
+            )""",
             """CREATE TABLE IF NOT EXISTS gram_chain_events (
                 id TEXT PRIMARY KEY,
                 network TEXT NOT NULL,
@@ -164,6 +212,12 @@ def init_gram_deposit_schema() -> None:
             conn.execute("""CREATE TRIGGER IF NOT EXISTS gram_chain_events_no_delete
                 BEFORE DELETE ON gram_chain_events
                 BEGIN SELECT RAISE(ABORT, 'GRAM chain events are immutable'); END""")
+            conn.execute("""CREATE TRIGGER IF NOT EXISTS gram_withdrawal_events_no_update
+                BEFORE UPDATE ON gram_withdrawal_events
+                BEGIN SELECT RAISE(ABORT, 'GRAM withdrawal events are immutable'); END""")
+            conn.execute("""CREATE TRIGGER IF NOT EXISTS gram_withdrawal_events_no_delete
+                BEFORE DELETE ON gram_withdrawal_events
+                BEGIN SELECT RAISE(ABORT, 'GRAM withdrawal events are immutable'); END""")
         elif bool(getattr(conn, "supports_for_update", False)):
             conn.execute("""CREATE OR REPLACE FUNCTION hassle_gram_chain_events_immutable()
                 RETURNS trigger LANGUAGE plpgsql AS $hassle_gram$
@@ -182,6 +236,18 @@ def init_gram_deposit_schema() -> None:
                 EXECUTE FUNCTION hassle_gram_chain_events_immutable()""")
             conn.execute("""CREATE TRIGGER gram_chain_events_no_truncate
                 BEFORE TRUNCATE ON gram_chain_events FOR EACH STATEMENT
+                EXECUTE FUNCTION hassle_gram_chain_events_immutable()""")
+            conn.execute("DROP TRIGGER IF EXISTS gram_withdrawal_events_no_update ON gram_withdrawal_events")
+            conn.execute("DROP TRIGGER IF EXISTS gram_withdrawal_events_no_delete ON gram_withdrawal_events")
+            conn.execute("DROP TRIGGER IF EXISTS gram_withdrawal_events_no_truncate ON gram_withdrawal_events")
+            conn.execute("""CREATE TRIGGER gram_withdrawal_events_no_update
+                BEFORE UPDATE ON gram_withdrawal_events FOR EACH ROW
+                EXECUTE FUNCTION hassle_gram_chain_events_immutable()""")
+            conn.execute("""CREATE TRIGGER gram_withdrawal_events_no_delete
+                BEFORE DELETE ON gram_withdrawal_events FOR EACH ROW
+                EXECUTE FUNCTION hassle_gram_chain_events_immutable()""")
+            conn.execute("""CREATE TRIGGER gram_withdrawal_events_no_truncate
+                BEFORE TRUNCATE ON gram_withdrawal_events FOR EACH STATEMENT
                 EXECUTE FUNCTION hassle_gram_chain_events_immutable()""")
 
 
@@ -362,6 +428,227 @@ def confirm_gram_deposit_event(
     _LOG.info("gram_deposit_confirmed deposit_id=%s event=%s amount_nano=%s",
               candidate["id"], event_id, amount_nano)
     return True
+
+
+def _append_withdrawal_event(conn: Any, withdrawal_id: str, event_type: str,
+                            event_key: str, event_data: dict[str, Any], now: int) -> None:
+    conn.execute(
+        """INSERT INTO gram_withdrawal_events
+           (id,withdrawal_id,event_type,event_key,event_data,created_at)
+           VALUES (?,?,?,?,?,?)""",
+        ("gwe-" + uuid.uuid4().hex[:24], withdrawal_id, event_type, event_key,
+         json.dumps(event_data, sort_keys=True, separators=(",", ":")), now),
+    )
+
+
+async def _require_gram_withdrawals_ready() -> tuple[str, str]:
+    if os.getenv("HASSLE_GRAM_WITHDRAWALS_ENABLED", "0").strip() != "1":
+        raise HTTPException(status_code=503, detail="GRAM withdrawals are temporarily unavailable")
+    if os.getenv("HASSLE_TON_CUSTODY_ACKNOWLEDGED", "0").strip() != "1":
+        raise HTTPException(status_code=503, detail="GRAM multisig custody policy is not acknowledged")
+    if os.getenv("HASSLE_TON_PAYOUT_MODE", "").strip() != "manual_multisig_2_of_3":
+        raise HTTPException(status_code=503, detail="A verified 2-of-3 GRAM payout mode is required")
+    token = os.getenv("TONAPI_TOKEN", "").strip()
+    treasury = _treasury()
+    expected = os.getenv("HASSLE_TON_MULTISIG_EXPECTED_ADDRESS", "").strip()
+    if not token or not expected:
+        raise HTTPException(status_code=503, detail="GRAM multisig treasury is not configured")
+    try:
+        if normalise_ton_address(expected) != treasury:
+            raise HTTPException(status_code=503, detail="GRAM treasury and expected multisig address do not match")
+        from ton_multisig import fetch_ton_multisig_config, is_two_of_three_multisig
+        config = await fetch_ton_multisig_config(expected)
+        if not is_two_of_three_multisig(config, expected):
+            raise HTTPException(status_code=503, detail="On-chain 2-of-3 GRAM treasury verification failed")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="GRAM multisig treasury could not be verified") from exc
+    return _network(), treasury
+
+
+def _canonical_user_balance_nano(conn: Any, telegram_id: str) -> int:
+    from decimal import Decimal
+    rows = conn.execute(
+        """SELECT direction,amount FROM marketplace_ledger_entries
+           WHERE account_type='user_balance' AND account_id=? AND currency='TON'""",
+        (telegram_id,),
+    ).fetchall()
+    total = Decimal("0")
+    for row in rows:
+        value = Decimal(str(row["amount"]))
+        if not value.is_finite() or value <= 0:
+            raise HTTPException(status_code=503, detail="GRAM balance requires reconciliation")
+        total += value if row["direction"] == "credit" else -value
+    scaled = total * NANO_PER_GRAM
+    if total < 0 or scaled != scaled.to_integral_value():
+        raise HTTPException(status_code=503, detail="GRAM balance requires reconciliation")
+    return int(scaled)
+
+
+def _withdrawal_dict(row: Any) -> dict[str, Any]:
+    gross = int(row["gross_amount_nano"])
+    fee = int(row["fee_nano"])
+    net = int(row["net_amount_nano"])
+    return {
+        "id": row["id"], "currency": "GRAM", "network": row["network"],
+        "destination_address": row["destination_address"],
+        "amount": _nano_to_gram_text(gross), "fee": _nano_to_gram_text(fee),
+        "net_amount": _nano_to_gram_text(net), "status": row["status"],
+        "created_at": row["created_at"], "updated_at": row["updated_at"],
+        "payout_tx_hash": row["payout_tx_hash"],
+    }
+
+
+async def create_gram_withdrawal(telegram_id: str, payload: GramWithdrawalRequest,
+                                 now: int | None = None) -> dict[str, Any]:
+    network, treasury = await _require_gram_withdrawals_ready()
+    user_id = str(telegram_id).strip()
+    if not user_id.isdigit():
+        raise HTTPException(status_code=401, detail="Invalid Telegram user")
+    try:
+        destination = normalise_ton_address(payload.destination_address)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="Invalid GRAM destination address") from exc
+    if destination == treasury:
+        raise HTTPException(status_code=422, detail="Withdrawal destination cannot be the HASSLE treasury")
+    gross = _amount_to_nano(payload.amount)
+    fee_bps = int(os.getenv("HASSLE_GRAM_WITHDRAWAL_FEE_BPS", "0"))
+    if not 0 <= fee_bps <= 200:
+        raise HTTPException(status_code=503, detail="GRAM withdrawal fee configuration must be between 0 and 2 percent")
+    fee = (gross * fee_bps) // 10_000
+    net = gross - fee
+    if net <= 0:
+        raise HTTPException(status_code=422, detail="Withdrawal amount is too small after fees")
+    minimum = _amount_to_nano(Decimal(os.getenv("HASSLE_GRAM_MIN_WITHDRAWAL", "0.1")))
+    maximum = _amount_to_nano(Decimal(os.getenv("HASSLE_GRAM_MAX_WITHDRAWAL", "10000")))
+    daily_limit = _amount_to_nano(Decimal(os.getenv("HASSLE_GRAM_DAILY_WITHDRAWAL_LIMIT", "5000")))
+    if gross < minimum or gross > maximum:
+        raise HTTPException(status_code=422, detail="Withdrawal amount is outside configured limits")
+    timestamp = int(time.time()) if now is None else int(now)
+    day_start = timestamp - (timestamp % 86400)
+    withdrawal_id = "gw-" + uuid.uuid4().hex[:24]
+    with _db() as conn:
+        begin_write(conn, f"gram-user:{user_id}")
+        prior = conn.execute(
+            "SELECT * FROM gram_withdrawals WHERE telegram_id=? AND idempotency_key=?",
+            (user_id, payload.idempotency_key),
+        ).fetchone()
+        if prior is not None:
+            conn.commit()
+            return _withdrawal_dict(prior)
+        daily_rows = conn.execute(
+            """SELECT gross_amount_nano FROM gram_withdrawals
+               WHERE telegram_id=? AND created_at>=?
+                 AND status NOT IN ('cancelled','failed')""",
+            (user_id, day_start),
+        ).fetchall()
+        daily_total = sum(int(row["gross_amount_nano"]) for row in daily_rows)
+        if daily_total + gross > daily_limit:
+            conn.rollback()
+            raise HTTPException(status_code=429, detail="Daily GRAM withdrawal limit exceeded")
+        available = _canonical_user_balance_nano(conn, user_id)
+        if available < gross:
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="Insufficient available GRAM balance")
+        conn.execute(
+            """INSERT INTO gram_withdrawals
+               (id,telegram_id,network,destination_address,gross_amount_nano,fee_nano,
+                net_amount_nano,status,idempotency_key,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,'queued_for_multisig',?,?,?)""",
+            (withdrawal_id, user_id, network, destination, str(gross), str(fee),
+             str(net), payload.idempotency_key, timestamp, timestamp),
+        )
+        from marketplace_payments import post_ledger_transaction
+        post_ledger_transaction(
+            conn,
+            idempotency_key=f"gram-withdrawal-reserve:{withdrawal_id}",
+            reference_type="withdrawal",
+            reference_id=withdrawal_id,
+            currency="TON",
+            debit_account=("user_balance", user_id),
+            credit_account=("withdrawal_reserved", withdrawal_id),
+            debit_amount=_nano_to_gram_text(gross),
+            credit_amount=_nano_to_gram_text(gross),
+            now=timestamp,
+        )
+        _append_withdrawal_event(
+            conn, withdrawal_id, "withdrawal_requested",
+            f"{withdrawal_id}:requested",
+            {"destination": destination, "gross_nano": str(gross),
+             "fee_nano": str(fee), "net_nano": str(net), "network": network},
+            timestamp,
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM gram_withdrawals WHERE id=?", (withdrawal_id,)).fetchone()
+    return _withdrawal_dict(row)
+
+
+def get_gram_withdrawal(telegram_id: str, withdrawal_id: str) -> dict[str, Any] | None:
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT * FROM gram_withdrawals WHERE id=? AND telegram_id=?",
+            (withdrawal_id, str(telegram_id)),
+        ).fetchone()
+    return _withdrawal_dict(row) if row is not None else None
+
+
+def list_gram_withdrawals(telegram_id: str, limit: int = 20) -> list[dict[str, Any]]:
+    with _db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM gram_withdrawals WHERE telegram_id=?
+               ORDER BY created_at DESC LIMIT ?""",
+            (str(telegram_id), max(1, min(int(limit), 50))),
+        ).fetchall()
+    return [_withdrawal_dict(row) for row in rows]
+
+
+def cancel_gram_withdrawal(telegram_id: str, withdrawal_id: str,
+                           now: int | None = None) -> dict[str, Any]:
+    user_id = str(telegram_id)
+    timestamp = int(time.time()) if now is None else int(now)
+    with _db() as conn:
+        begin_write(conn, f"gram-user:{user_id}", f"gram-withdrawal:{withdrawal_id}")
+        row = conn.execute(
+            select_for_update(conn, """SELECT * FROM gram_withdrawals
+               WHERE id=? AND telegram_id=?"""),
+            (withdrawal_id, user_id),
+        ).fetchone()
+        if row is None:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Withdrawal not found")
+        if row["status"] == "cancelled":
+            conn.rollback()
+            return _withdrawal_dict(row)
+        if row["status"] != "queued_for_multisig":
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="Withdrawal can no longer be cancelled")
+        from marketplace_payments import post_ledger_transaction
+        amount = _nano_to_gram_text(int(row["gross_amount_nano"]))
+        post_ledger_transaction(
+            conn,
+            idempotency_key=f"gram-withdrawal-release:{withdrawal_id}",
+            reference_type="withdrawal",
+            reference_id=withdrawal_id,
+            currency="TON",
+            debit_account=("withdrawal_reserved", withdrawal_id),
+            credit_account=("user_balance", user_id),
+            debit_amount=amount,
+            credit_amount=amount,
+            now=timestamp,
+        )
+        conn.execute(
+            "UPDATE gram_withdrawals SET status='cancelled',updated_at=? WHERE id=? AND status='queued_for_multisig'",
+            (timestamp, withdrawal_id),
+        )
+        _append_withdrawal_event(
+            conn, withdrawal_id, "withdrawal_cancelled",
+            f"{withdrawal_id}:cancelled",
+            {"released_nano": str(row["gross_amount_nano"])}, timestamp,
+        )
+        conn.commit()
+        updated = conn.execute("SELECT * FROM gram_withdrawals WHERE id=?", (withdrawal_id,)).fetchone()
+    return _withdrawal_dict(updated)
 
 
 async def poll_gram_deposits_once(client: httpx.AsyncClient | None = None) -> dict[str, int]:
