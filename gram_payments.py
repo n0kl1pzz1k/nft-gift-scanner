@@ -138,13 +138,31 @@ def init_gram_deposit_schema() -> None:
         # Append-only journal protection is installed on SQLite. PostgreSQL
         # writes are restricted to this service role and remain append-only by API.
         if conn.__class__.__module__ == "sqlite3":
-            for table in ("gram_chain_events",):
-                conn.execute(f"""CREATE TRIGGER IF NOT EXISTS {table}_no_update
-                    BEFORE UPDATE ON {table}
-                    BEGIN SELECT RAISE(ABORT, 'GRAM financial journal is immutable'); END""")
-                conn.execute(f"""CREATE TRIGGER IF NOT EXISTS {table}_no_delete
-                    BEFORE DELETE ON {table}
-                    BEGIN SELECT RAISE(ABORT, 'GRAM financial journal is immutable'); END""")
+            conn.execute("""CREATE TRIGGER IF NOT EXISTS gram_chain_events_no_update
+                BEFORE UPDATE ON gram_chain_events
+                BEGIN SELECT RAISE(ABORT, 'GRAM chain events are immutable'); END""")
+            conn.execute("""CREATE TRIGGER IF NOT EXISTS gram_chain_events_no_delete
+                BEFORE DELETE ON gram_chain_events
+                BEGIN SELECT RAISE(ABORT, 'GRAM chain events are immutable'); END""")
+        elif bool(getattr(conn, "supports_for_update", False)):
+            conn.execute("""CREATE OR REPLACE FUNCTION hassle_gram_chain_events_immutable()
+                RETURNS trigger LANGUAGE plpgsql AS $hassle_gram$
+                BEGIN
+                    RAISE EXCEPTION USING MESSAGE = 'GRAM chain events are immutable';
+                END;
+                $hassle_gram$""")
+            conn.execute("DROP TRIGGER IF EXISTS gram_chain_events_no_update ON gram_chain_events")
+            conn.execute("DROP TRIGGER IF EXISTS gram_chain_events_no_delete ON gram_chain_events")
+            conn.execute("DROP TRIGGER IF EXISTS gram_chain_events_no_truncate ON gram_chain_events")
+            conn.execute("""CREATE TRIGGER gram_chain_events_no_update
+                BEFORE UPDATE ON gram_chain_events FOR EACH ROW
+                EXECUTE FUNCTION hassle_gram_chain_events_immutable()""")
+            conn.execute("""CREATE TRIGGER gram_chain_events_no_delete
+                BEFORE DELETE ON gram_chain_events FOR EACH ROW
+                EXECUTE FUNCTION hassle_gram_chain_events_immutable()""")
+            conn.execute("""CREATE TRIGGER gram_chain_events_no_truncate
+                BEFORE TRUNCATE ON gram_chain_events FOR EACH STATEMENT
+                EXECUTE FUNCTION hassle_gram_chain_events_immutable()""")
 
 
 def create_gram_deposit(telegram_id: str, amount: Decimal, now: int | None = None) -> dict[str, Any]:
