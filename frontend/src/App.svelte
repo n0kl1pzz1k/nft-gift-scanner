@@ -2217,7 +2217,7 @@
               <p>{lang==='ru'?'Сеть':'Network'}: Mainnet · {lang==='ru'?'Порог':'Threshold'}: {adminTreasury.threshold}/3 · {lang==='ru'?'Подписанты':'Signers'}: {adminTreasury.signer_count} · Proposers: {adminTreasury.proposer_count}</p>
               {#if adminTreasury.address}<small>{adminTreasury.address}</small>{/if}
               {#if adminTreasury.next_order_seqno!==null}<small>Next order: {adminTreasury.next_order_seqno}</small>{/if}
-              <p>{lang==='ru'?'Здесь можно подготовить неподписанный ордер выплаты. Подпись и исполнение заблокированы до развёртывания и проверки контракта.':'Unsigned payout orders can be prepared here. Signing and execution remain blocked until the contract is deployed and verified.'}</p>
+              <p>{lang==='ru'?'Здесь можно подготовить неподписанный ордер выплаты. Для подходящих выплат ордер можно отправить из кошелька подписанта. Исполнение произойдёт после двух независимых подписей.':'Unsigned payout orders can be prepared here. Eligible payout orders can be submitted from a signer wallet. Execution occurs after two independent approvals.'}</p>
             </div>
             <div class="notification-heading"><h3>{lang==='ru'?'Подготовка выплаты продавцу':'Prepare seller payout'}</h3></div>
             <div class="state-panel">
@@ -2233,7 +2233,7 @@
                   <small>{lang==='ru'?'Казначейство':'Treasury'}: {String(treasuryPreparedPayout.treasury_address || '')}</small>
                   <small>{lang==='ru'?'Хеш payload':'Payload SHA-256'}: {String(treasuryPreparedPayout.review?.payload_sha256 || '')}</small>
                   <small>{lang==='ru'?'Действий':'Actions'}: {String(treasuryPreparedPayout.review?.action_count ?? 0)} · {lang==='ru'?'Срок':'Expires'}: {treasuryPreparedPayout.transaction?.validUntil ? new Date(Number(treasuryPreparedPayout.transaction.validUntil) * 1000).toLocaleString() : '—'}</small>
-                  <p>{lang==='ru'?'Подпись и отправка отключены до развёртывания и независимой проверки контракта Multisig V2.':'Signing and submission remain disabled until Multisig V2 is deployed and independently verified.'}</p>
+                  <p>{lang==='ru'?'Запрос создания ордера можно отправить из кошелька подписанта. Выплата исполнится только после двух независимых подписей.':'The order proposal can be submitted from a signer wallet. The payout executes only after two independent approvals.'}</p>
                 </div>
               {/if}
             </div>
