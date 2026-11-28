@@ -42,8 +42,7 @@ uses one database transaction to:
 1. insert a unique chain event;
 2. post the balanced credit into the existing marketplace ledger
    (\`user_balance\`, internal currency \`TON\`, displayed as GRAM);
-3. update the GRAM materialized balance;
-4. mark the deposit intent confirmed.
+3. mark the deposit intent confirmed.
 
 The chain-event and ledger idempotency keys make retries safe. Client callbacks
 are only UX signals and cannot credit a balance. The TONAPI event identifier is
