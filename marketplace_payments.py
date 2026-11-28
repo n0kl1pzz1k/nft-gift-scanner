@@ -533,7 +533,7 @@ ESCROW_EVENT_TYPES = {
     "payment_confirmed", "escrow_funded", "asset_transfer_requested",
     "asset_transfer_submitted", "asset_transfer_confirmed", "asset_transfer_rejected", "deal_completed",
     "deal_disputed", "refund_requested", "refund_confirmed", "payout_released", "seller_credit_recorded",
-    "deal_cancelled", "deal_expired", "dispute_resolution_approved",
+    "deal_cancelled", "deal_expired", "payout_order_prepared", "dispute_resolution_approved",
     "dispute_resolution_ready",
 }
 
