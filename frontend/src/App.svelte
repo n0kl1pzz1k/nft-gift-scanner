@@ -49,6 +49,7 @@
   let profileTab = $state<'account'|'inventory'|'admin'>('account');
   let gramBalance = $state('0');
   let gramPendingBalance = $state('0');
+  let gramReservedBalance = $state('0');
   let gramBalanceLoading = $state(false);
   let gramDepositAmount = $state('1');
   let gramDepositRequest = $state<{id:string;amount:string;transaction:{validUntil:number;network:string;messages:Array<{address:string;amount:string;payload?:string}>}}|null>(null);
@@ -755,16 +756,24 @@
   }
 
   async function loadGramBalance() {
-    if (!signedIn || !authToken) { gramBalance = '0'; gramPendingBalance = '0'; gramBalanceLoading = false; return; }
+    if (!signedIn || !authToken) { gramBalance = '0'; gramPendingBalance = '0'; gramReservedBalance = '0'; gramBalanceLoading = false; return; }
     gramBalanceLoading = true;
     try {
-      const data = await request('/api/marketplace/balance/me');
+      const [data, gramData] = await Promise.all([
+        request('/api/marketplace/balance/me'),
+        request('/api/gram/balance'),
+      ]);
       const numericBalance = Number(data.balance);
+      const numericReserved = Number(gramData.reserved);
       if (data.display_currency !== 'GRAM' || typeof data.balance !== 'string' || !Number.isFinite(numericBalance) || numericBalance < 0 || typeof data.seller_pending_balance !== 'string' || !Number.isFinite(Number(data.seller_pending_balance)) || Number(data.seller_pending_balance) < 0) {
         throw new Error('Invalid ledger balance response');
       }
+      if (gramData.currency !== 'GRAM' || typeof gramData.reserved !== 'string' || !Number.isFinite(numericReserved) || numericReserved < 0) {
+        throw new Error('Invalid GRAM reserve response');
+      }
       gramBalance = data.balance;
       gramPendingBalance = data.seller_pending_balance;
+      gramReservedBalance = gramData.reserved;
     } catch (error) {
       notice = error instanceof Error ? error.message : String(error);
     } finally { gramBalanceLoading = false; }
@@ -2039,7 +2048,7 @@
         {/each}
       </div>
       <article class="profile-card gram-profile-card">
-        <div class="gram-profile-mark"><GramToken size={34} class="gram-token-icon" /></div><div class="gram-profile-copy"><div class="eyebrow">HASSLE BALANCE</div><h2>GRAM</h2><strong>{gramBalanceLoading?'…':gramBalance+' GRAM'}</strong><div class="gram-profile-actions"><button type="button" onclick={()=>gramAction='deposit'}>{lang==='ru'?'＋ Пополнить':'＋ Deposit'}</button><button type="button" onclick={()=>gramAction='withdraw'}>{lang==='ru'?'↗ Вывести':'↗ Withdraw'}</button></div><small>{lang==='ru'?'Доступный баланс по подтверждённым записям ledger.':'Available balance from confirmed ledger entries.'}</small>{#if Number(gramPendingBalance)>0}<small class="gram-pending-note">{lang==='ru'?'Ожидает выплаты продавцу: ':'Seller proceeds pending payout: '}{gramPendingBalance} GRAM</small>{/if}</div><button class="refresh-button" type="button" onclick={()=>showGramInfo=true}>{lang==='ru'?'Подробнее':'Details'}</button>
+        <div class="gram-profile-mark"><GramToken size={34} class="gram-token-icon" /></div><div class="gram-profile-copy"><div class="eyebrow">HASSLE BALANCE</div><h2>GRAM</h2><strong>{gramBalanceLoading?'…':gramBalance+' GRAM'}</strong><div class="gram-profile-actions"><button type="button" onclick={()=>gramAction='deposit'}>{lang==='ru'?'＋ Пополнить':'＋ Deposit'}</button><button type="button" onclick={()=>{gramAction='withdraw';gramWithdrawal=null;gramWithdrawalAddress=walletAddress;gramWithdrawalIdempotencyKey='gram-withdraw-'+crypto.randomUUID();}}>{lang==='ru'?'↗ Вывести':'↗ Withdraw'}</button></div><small>{lang==='ru'?'Доступный баланс по подтверждённым записям ledger.':'Available balance from confirmed ledger entries.'}</small>{#if Number(gramReservedBalance)>0}<small class="gram-pending-note">{lang==='ru'?'Зарезервировано под вывод: ':'Reserved for withdrawals: '}{gramReservedBalance} GRAM</small>{/if}{#if Number(gramPendingBalance)>0}<small class="gram-pending-note">{lang==='ru'?'Ожидает выплаты продавцу: ':'Seller proceeds pending payout: '}{gramPendingBalance} GRAM</small>{/if}</div><button class="refresh-button" type="button" onclick={()=>showGramInfo=true}>{lang==='ru'?'Подробнее':'Details'}</button>
       </article>
       <article class="profile-card wallet-card">
         <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">WALLET CONNECT · PROOF</div><h2>{lang==='ru'?'GRAM-кошелёк':'GRAM wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} depositRequest={gramDepositRequest} onDepositSent={handleGramDepositSent} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления блокчейна и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for the blockchain to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletAddress=address;walletConnected=Boolean(address);}} /></div>
