@@ -86,6 +86,26 @@ def _require_deposits_enabled() -> tuple[str, str, str]:
     return network, treasury, token
 
 
+async def _verify_active_gram_treasury(network: str, treasury: str, token: str) -> None:
+    """Fail closed if the configured deposit destination is not an active account."""
+    base = "https://tonapi.io" if network == "mainnet" else "https://testnet.tonapi.io"
+    try:
+        async with httpx.AsyncClient(timeout=12.0, follow_redirects=False) as client:
+            response = await client.get(
+                f"{base}/v2/accounts/{treasury}",
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            )
+            response.raise_for_status()
+            account = response.json()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="GRAM treasury status could not be verified") from exc
+    if not isinstance(account, dict) or account.get("status") != "active" or account.get("is_scam") is not False:
+        raise HTTPException(
+            status_code=503,
+            detail="GRAM treasury is not confirmed as an active, non-scam account",
+        )
+
+
 def _comment_payload_boc(comment: str) -> str:
     """Build the standard TON text-comment cell for TON Connect."""
     try:
@@ -404,13 +424,15 @@ def create_gram_deposit_router(authenticate, rate_limit) -> APIRouter:
     router = APIRouter(prefix="/api/gram", tags=["GRAM payments"])
 
     @router.post("/deposits")
-    def create_deposit(payload: GramDepositRequest, authorization: str | None = Header(default=None, alias="X-Telegram-Init-Data")):
+    async def create_deposit(payload: GramDepositRequest, authorization: str | None = Header(default=None, alias="X-Telegram-Init-Data")):
         if not authorization:
             raise HTTPException(status_code=401, detail="Telegram Mini App authentication required")
         user = authenticate(authorization)
         user_id = str(user["id"])
         rate_limit(user_id, "gram_deposit_create", 5, 60)
         try:
+            network, treasury, token = _require_deposits_enabled()
+            await _verify_active_gram_treasury(network, treasury, token)
             return create_gram_deposit(user_id, payload.amount)
         except HTTPException:
             raise
