@@ -449,6 +449,9 @@ async def _require_gram_withdrawals_ready() -> tuple[str, str]:
     if os.getenv("HASSLE_TON_PAYOUT_MODE", "").strip() != "manual_multisig_2_of_3":
         raise HTTPException(status_code=503, detail="A verified 2-of-3 GRAM payout mode is required")
     token = os.getenv("TONAPI_TOKEN", "").strip()
+    network = _network()
+    if network != "mainnet":
+        raise HTTPException(status_code=503, detail="GRAM withdrawals are currently restricted to Mainnet")
     treasury = _treasury()
     expected = os.getenv("HASSLE_TON_MULTISIG_EXPECTED_ADDRESS", "").strip()
     if not token or not expected:
@@ -464,7 +467,7 @@ async def _require_gram_withdrawals_ready() -> tuple[str, str]:
         raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail="GRAM multisig treasury could not be verified") from exc
-    return _network(), treasury
+    return network, treasury
 
 
 def _canonical_user_balance_nano(conn: Any, telegram_id: str) -> int:
