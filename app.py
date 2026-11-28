@@ -41,7 +41,6 @@ from gram_withdrawals import (
     GramWithdrawalError, create_gram_withdrawal, initialize_gram_withdrawal_schema,
     get_gram_withdrawal, list_gram_withdrawals, transition_gram_withdrawal,
 )
-from ton_multisig import fetch_ton_multisig_config, fetch_ton_multisig_orders, is_two_of_three_multisig
 
 app = FastAPI(title="HASSLE NFT Market API", version="1.0.0")
 app.include_router(create_marketplace_router(
@@ -620,106 +619,6 @@ async def list_my_gram_withdrawals(
             "network": row["network"], "created_at": row["created_at"],
             "updated_at": row["updated_at"], "chain_tx_hash": row["chain_tx_hash"],
         } for row in rows],
-    }
-
-
-@app.get("/api/admin/payments/gram/multisig/status")
-async def gram_multisig_production_status(
-    x_telegram_init_data: str | None = Header(default=None),
-):
-    """Read-only production verification; never creates or signs a multisig order."""
-    admin = _require_admin(x_telegram_init_data or "")
-    if admin.get("admin_role") not in {"owner", "finance"}:
-        raise HTTPException(status_code=403, detail="Finance administrator access only")
-    admin_id = str(admin["id"])
-    _enforce_user_rate_limit(admin_id, "gram_multisig_status", 12, 60)
-
-    treasury = os.getenv("HASSLE_TON_TREASURY_ADDRESS", "").strip()
-    expected = os.getenv("HASSLE_TON_MULTISIG_EXPECTED_ADDRESS", "").strip()
-    network = os.getenv("HASSLE_TON_NETWORK", "mainnet").strip().lower()
-    if not treasury or not expected:
-        return {
-            "configured": False,
-            "verified": False,
-            "network": network,
-            "payout_execution_enabled": False,
-            "missing": [
-                name for name, value in (
-                    ("HASSLE_TON_TREASURY_ADDRESS", treasury),
-                    ("HASSLE_TON_MULTISIG_EXPECTED_ADDRESS", expected),
-                    ("HASSLE_TON_MULTISIG_CODE_HASH", os.getenv("HASSLE_TON_MULTISIG_CODE_HASH", "").strip()),
-                    ("HASSLE_TON_MULTISIG_DATA_HASH", os.getenv("HASSLE_TON_MULTISIG_DATA_HASH", "").strip()),
-                    ("TONAPI_TOKEN", os.getenv("TONAPI_TOKEN", "").strip()),
-                ) if not value
-            ],
-        }
-    if network != "mainnet":
-        return {
-            "configured": True,
-            "verified": False,
-            "network": network,
-            "payout_execution_enabled": False,
-            "error": "Production multisig verification currently requires mainnet configuration.",
-        }
-    if not os.getenv("TONAPI_TOKEN", "").strip():
-        return {
-            "configured": True,
-            "verified": False,
-            "network": network,
-            "payout_execution_enabled": False,
-            "missing": ["TONAPI_TOKEN"],
-        }
-
-    try:
-        config = await fetch_ton_multisig_config(treasury)
-        verified = is_two_of_three_multisig(config, treasury)
-        orders = await fetch_ton_multisig_orders(
-            treasury, int(config["next_order_seqno"]), limit=20
-        ) if verified else []
-    except Exception as exc:
-        logging.getLogger("hassle_nft.gram").warning(
-            "Production multisig verification failed: %s", type(exc).__name__
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="Could not independently verify the GRAM treasury on-chain.",
-            headers={"Retry-After": "30"},
-        ) from exc
-
-    return {
-        "configured": True,
-        "verified": verified,
-        "network": network,
-        "address": config.get("address"),
-        "threshold": config.get("threshold"),
-        "signers": config.get("signers", []),
-        "proposers": config.get("proposers", []),
-        "next_order_seqno": config.get("next_order_seqno"),
-        "code_hash_matches": bool(
-            config.get("code_hash")
-            and config.get("code_hash") == os.getenv("HASSLE_TON_MULTISIG_CODE_HASH", "").strip().lower()
-        ),
-        "data_hash_matches": bool(
-            config.get("data_hash")
-            and config.get("data_hash") == os.getenv("HASSLE_TON_MULTISIG_DATA_HASH", "").strip().lower()
-        ),
-        "active_orders": [{
-            "address": order.get("address"),
-            "order_seqno": order.get("order_seqno"),
-            "threshold": order.get("threshold"),
-            "approvals_num": order.get("approvals_num"),
-            "approvals": order.get("approvals", []),
-            "expiration_date": order.get("expiration_date"),
-            "sent_for_execution": order.get("sent_for_execution"),
-            "actions": order.get("actions", []),
-            "approval_safe": order.get("approval_safe", False),
-        } for order in orders],
-        "payout_execution_enabled": False,
-        "next_step": (
-            "Treasury verification passed. Multisig order proposal and external signer approval flow are still required."
-            if verified else
-            "Treasury does not match the pinned 2-of-3 production configuration."
-        ),
     }
 
 
