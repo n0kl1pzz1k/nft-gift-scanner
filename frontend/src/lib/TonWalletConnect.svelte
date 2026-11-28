@@ -16,9 +16,11 @@
     onDeliverySent?: (dealId: string, boc: string) => Promise<void> | void;
     paymentRequest?: { dealId: string; buyerWallet: string; transaction: { validUntil: number; network: string; messages: Array<{ address: string; amount: string; payload?: string }> } } | null;
     onPaymentSent?: (dealId: string) => Promise<void> | void;
+    depositRequest?: { id: string; transaction: { validUntil: number; network: string; messages: Array<{ address: string; amount: string; payload?: string }> } } | null;
+    onDepositSent?: (depositId: string) => Promise<void> | void;
   };
 
-  let { api, authToken, lang, onVerified, deliveryRequest = null, onDeliverySent = () => {}, paymentRequest = null, onPaymentSent = () => {} }: Props = $props();
+  let { api, authToken, lang, onVerified, deliveryRequest = null, onDeliverySent = () => {}, paymentRequest = null, onPaymentSent = () => {}, depositRequest = null, onDepositSent = () => {} }: Props = $props();
   let tonConnect = $state<TonConnectUIInstance | null>(null);
   let busy = $state(false);
   let address = $state('');
@@ -26,9 +28,11 @@
   let status = $state<'idle' | 'connected' | 'verified' | 'error'>('idle');
   let message = $state('');
   let paymentSubmitted = $state(false);
+  let depositSubmitted = $state(false);
 
   $effect(() => {
     if (!paymentRequest) paymentSubmitted = false;
+    if (!depositRequest) depositSubmitted = false;
   });
 
   const copy = $derived({
@@ -219,6 +223,32 @@
     }
   }
 
+  async function sendGramDeposit() {
+    if (!tonConnect || !depositRequest || busy || status !== 'verified') return;
+    if (tonConnect.wallet?.account.chain !== depositRequest.transaction.network) {
+      message = lang === 'ru'
+        ? 'Сеть кошелька не совпадает с сетью заявки. Переключи сеть и подключи кошелёк заново.'
+        : 'The wallet network does not match the deposit request. Switch networks and reconnect.';
+      status = 'error';
+      return;
+    }
+    busy = true;
+    message = '';
+    try {
+      await tonConnect.sendTransaction(depositRequest.transaction);
+      depositSubmitted = true;
+      await onDepositSent(depositRequest.id);
+      message = lang === 'ru'
+        ? 'Перевод отправлен. Не отправляй его повторно. HASSLE проверит транзакцию в блокчейне.'
+        : 'Transfer submitted. Do not send it again. HASSLE will verify the transaction on-chain.';
+    } catch (error) {
+      message = error instanceof Error ? error.message : (lang === 'ru' ? 'Кошелёк отклонил или не отправил перевод.' : 'Wallet rejected or failed to submit the transfer.');
+      status = 'error';
+    } finally {
+      busy = false;
+    }
+  }
+
   async function sendNftDelivery() {
     if (!tonConnect || !deliveryRequest || busy || status !== 'verified') return;
     if (tonConnect.wallet?.account.address !== deliveryRequest.sellerWallet) {
@@ -308,6 +338,14 @@
       </button>
     {/if}
     <p class="ton-wallet-message">{lang === 'ru' ? 'Проверь адрес и сумму в кошельке. HASSLE NFT не получает доступ к ключам.' : 'Check the destination and amount in your wallet. HASSLE NFT never receives your keys.'}</p>
+  {/if}
+  {#if depositRequest && status === 'verified' && !depositSubmitted}
+    <button class="ton-wallet-button inventory-import-button" type="button" onclick={sendGramDeposit} disabled={busy}>
+      <GramToken size={17}/> {busy ? '…' : (lang === 'ru' ? 'Пополнить баланс GRAM' : 'Deposit GRAM')}
+    </button>
+    <p class="ton-wallet-message">{lang === 'ru' ? 'Проверь в кошельке точный адрес, сумму и комментарий HASSLE. Баланс будет зачислен только после проверки сети.' : 'Check the exact HASSLE destination, amount and comment in your wallet. Funds are credited only after chain verification.'}</p>
+  {:else if depositRequest && depositSubmitted}
+    <p class="ton-wallet-message">{lang === 'ru' ? 'Заявка отправлена. Ожидаем подтверждение GRAM в блокчейне…' : 'Deposit submitted. Waiting for on-chain GRAM confirmation…'}</p>
   {/if}
   {#if deliveryRequest && status === 'verified' && address === deliveryRequest.sellerWallet}
     {#if tonConnect?.wallet}
