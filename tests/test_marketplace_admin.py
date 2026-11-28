@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -109,6 +110,96 @@ class MarketplaceAdminConsoleTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 409, response.text)
         self.assertIn("not configured", response.json()["detail"].lower())
+
+    def test_multisig_order_approval_preparation_returns_unsigned_wallet_request(self):
+        signers = [
+            "0:372b63c65f2a2d81af7d7a7d995c4fcd7bdc18e6efa50b4ee840ae9b45dc6d10",
+            "0:eacaac33e932a8b67ae31e712d5a7969660130363e48e789f96c03a6162bc147",
+            "0:8ede0858321e76adb84ee65790431bb800050acfc0ee5b6c1255e65137f3221c",
+        ]
+        treasury = "0:" + "aa" * 32
+        order = {
+            "address": "0:" + "bb" * 32,
+            "multisig": treasury,
+            "order_seqno": 4,
+            "threshold": 2,
+            "signers": signers,
+            "approvals": [{"address": signer, "approved": False} for signer in signers],
+            "approvals_num": 0,
+            "sent_for_execution": False,
+            "expiration_date": int(time.time()) + 900,
+            "action_count": 1,
+            "actions": [{
+                "index": 0,
+                "kind": "send_message",
+                "body_kind": "text_comment",
+                "body_fields_decoded": True,
+                "send_mode": 1,
+                "extra_currencies": False,
+                "comment": "HASSLE NFT payout deal_test_4",
+                "recipient": "0:" + "cc" * 32,
+                "amount_nano": "1500000000",
+            }],
+        }
+        config = {
+            "address": treasury,
+            "threshold": 2,
+            "signers": signers,
+            "proposers": [],
+            "next_order_seqno": 5,
+        }
+        with patch.dict(os.environ, {
+            "HASSLE_TON_MULTISIG_EXPECTED_ADDRESS": treasury,
+            "HASSLE_TON_MULTISIG_CODE_HASH": "a" * 64,
+            "HASSLE_TON_MULTISIG_DATA_HASH": "b" * 64,
+        }, clear=False), patch(
+            "ton_multisig.fetch_ton_multisig_config", return_value=config
+        ), patch(
+            "ton_multisig.is_two_of_three_multisig", return_value=True
+        ), patch(
+            "ton_multisig.fetch_ton_multisig_orders", return_value=[order]
+        ):
+            response = self.client.post(
+                "/api/marketplace/admin/treasury/orders/4/approve/prepare",
+                headers=self.headers(self.admin_token),
+                json={"wallet_address": signers[0]},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["status"], "prepared_unsigned_approval")
+        self.assertEqual(body["signer_wallet"], signers[0])
+        self.assertEqual(body["review"]["recipient"], order["actions"][0]["recipient"])
+        self.assertEqual(body["review"]["amount_nano"], "1500000000")
+        self.assertEqual(body["transaction"]["messages"][0]["address"], order["address"])
+        self.assertEqual(body["transaction"]["messages"][0]["amount"], "100000000")
+        self.assertEqual(body["transaction"]["network"], "-239")
+
+    def test_multisig_order_approval_rejects_non_signer_wallet(self):
+        signers = [
+            "0:372b63c65f2a2d81af7d7a7d995c4fcd7bdc18e6efa50b4ee840ae9b45dc6d10",
+            "0:eacaac33e932a8b67ae31e712d5a7969660130363e48e789f96c03a6162bc147",
+            "0:8ede0858321e76adb84ee65790431bb800050acfc0ee5b6c1255e65137f3221c",
+        ]
+        treasury = "0:" + "aa" * 32
+        config = {
+            "address": treasury, "threshold": 2, "signers": signers,
+            "proposers": [], "next_order_seqno": 5,
+        }
+        with patch.dict(os.environ, {
+            "HASSLE_TON_MULTISIG_EXPECTED_ADDRESS": treasury,
+            "HASSLE_TON_MULTISIG_CODE_HASH": "a" * 64,
+            "HASSLE_TON_MULTISIG_DATA_HASH": "b" * 64,
+        }, clear=False), patch(
+            "ton_multisig.fetch_ton_multisig_config", return_value=config
+        ), patch(
+            "ton_multisig.is_two_of_three_multisig", return_value=True
+        ):
+            response = self.client.post(
+                "/api/marketplace/admin/treasury/orders/4/approve/prepare",
+                headers=self.headers(self.admin_token),
+                json={"wallet_address": "0:" + "dd" * 32},
+            )
+        self.assertEqual(response.status_code, 403, response.text)
 
     def test_treasury_order_preparation_requires_treasury_permission(self):
         with patch.dict(os.environ, {"ADMIN_TELEGRAM_ROLES": "9001:moderator"}):
