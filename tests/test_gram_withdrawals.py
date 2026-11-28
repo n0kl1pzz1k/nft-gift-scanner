@@ -182,3 +182,20 @@ def test_submitted_withdrawal_cannot_release_or_confirm_without_chain_observer_p
     assert _balance(conn, "user_balance", "10001") == 7
     assert _balance(conn, "user_withdrawal_hold", withdrawal["id"]) == 2.97
     conn.close()
+
+
+def test_multisig_stage_cannot_release_hold_without_verified_order_expiry():
+    conn = _connection()
+    withdrawal = _withdraw(conn)
+    transition_gram_withdrawal(
+        conn, withdrawal_id=withdrawal["id"], new_status="awaiting_multisig",
+        event_key="withdrawal-1:awaiting", now=1150,
+    )
+    with pytest.raises(Exception, match="Invalid withdrawal transition"):
+        transition_gram_withdrawal(
+            conn, withdrawal_id=withdrawal["id"], new_status="failed",
+            event_key="withdrawal-1:failed-before-expiry", now=1200,
+        )
+    assert _balance(conn, "user_balance", "10001") == 7
+    assert _balance(conn, "user_withdrawal_hold", withdrawal["id"]) == 2.97
+    conn.close()
