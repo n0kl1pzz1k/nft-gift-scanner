@@ -95,12 +95,6 @@ def test_indexed_exact_transfer_credits_once_and_records_double_entry(monkeypatc
     assert gp.confirm_gram_deposit_event(
         network="mainnet", event=event, action_index=0, transfer=transfer, now=1101
     ) is False
-    balance = connection.execute(
-        "SELECT available_nano FROM gram_wallet_balances WHERE telegram_id='123456'"
-    ).fetchone()
-    assert balance["available_nano"] == "2500000000"
-    assert connection.execute("SELECT COUNT(*) FROM gram_ledger_transactions").fetchone()[0] == 1
-    assert connection.execute("SELECT COUNT(*) FROM gram_ledger_entries").fetchone()[0] == 2
     assert connection.execute("SELECT COUNT(*) FROM gram_chain_events").fetchone()[0] == 1
     assert connection.execute("SELECT COUNT(*) FROM marketplace_ledger_transactions WHERE idempotency_key=?", (f"gram-deposit:{deposit['id']}",)).fetchone()[0] == 1
     canonical_balance = connection.execute("SELECT SUM(CASE WHEN direction='credit' THEN CAST(amount AS NUMERIC) ELSE -CAST(amount AS NUMERIC) END) FROM marketplace_ledger_entries WHERE account_type='user_balance' AND account_id='123456' AND currency='TON'").fetchone()[0]
@@ -124,7 +118,7 @@ def test_unfinalized_or_scam_events_are_not_credited(monkeypatch, event, transfe
     assert gp.confirm_gram_deposit_event(
         network="mainnet", event=event, action_index=0, transfer=transfer, now=1100
     ) is False
-    assert connection.execute("SELECT COUNT(*) FROM gram_wallet_balances").fetchone()[0] == 0
+    assert connection.execute("SELECT COUNT(*) FROM marketplace_ledger_transactions").fetchone()[0] == 0
     connection.close()
 
 
@@ -140,7 +134,7 @@ def test_wrong_recipient_or_amount_or_memo_never_credits(monkeypatch):
         assert gp.confirm_gram_deposit_event(
             network="mainnet", event=event, action_index=0, transfer=transfer, now=1100
         ) is False
-    assert connection.execute("SELECT COUNT(*) FROM gram_wallet_balances").fetchone()[0] == 0
+    assert connection.execute("SELECT COUNT(*) FROM marketplace_ledger_transactions").fetchone()[0] == 0
     assert connection.execute("SELECT COUNT(*) FROM gram_chain_events").fetchone()[0] == 0
     connection.close()
 
@@ -153,9 +147,8 @@ def test_late_onchain_transfer_is_still_credited_after_ui_expiry(monkeypatch):
         network="mainnet", event=event, action_index=0,
         transfer=_transfer(deposit["memo"]), now=deposit["expires_at"] + 1
     ) is True
-    assert connection.execute(
-        "SELECT available_nano FROM gram_wallet_balances WHERE telegram_id='123456'"
-    ).fetchone()["available_nano"] == "2500000000"
+    canonical_balance = connection.execute("SELECT SUM(CASE WHEN direction='credit' THEN CAST(amount AS NUMERIC) ELSE -CAST(amount AS NUMERIC) END) FROM marketplace_ledger_entries WHERE account_type='user_balance' AND account_id='123456' AND currency='TON'").fetchone()[0]
+    assert str(canonical_balance) == "2.5"
     connection.close()
 
 
