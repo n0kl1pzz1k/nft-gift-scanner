@@ -64,8 +64,8 @@ def test_withdrawal_reserves_gross_amount_and_calculates_fee_in_nano_units():
     assert withdrawal["fee_nano"] == 30_000_000
     assert withdrawal["payout_nano"] == 2_970_000_000
     assert _balance(conn, "user_balance", "10001") == 7
-    assert _balance(conn, "user_withdrawal_hold", withdrawal["id"]) == 2.97
-    assert _balance(conn, "platform_fee_pending", withdrawal["id"]) == 0.03
+    assert _balance(conn, "user_withdrawal_hold", withdrawal["id"]) == Decimal('2.97')
+    assert _balance(conn, "platform_fee_pending", withdrawal["id"]) == Decimal('0.03')
     conn.close()
 
 
@@ -85,7 +85,7 @@ def test_insufficient_balance_rolls_back_withdrawal_and_reserve():
     conn = _connection()
     with pytest.raises(GramWithdrawalError, match="Insufficient"):
         _withdraw(conn, amount_gram="11")
-    assert conn.execute("SELECT COUNT(*) FROM gram_withdrawals").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM gram_withdrawals").fetchone()[0] == Decimal('0')
     assert conn.execute("SELECT COUNT(*) FROM marketplace_ledger_transactions").fetchone()[0] == 1
     assert _balance(conn, "user_balance", "10001") == 10
     conn.close()
@@ -100,8 +100,8 @@ def test_failed_withdrawal_releases_net_and_fee_back_to_user():
     )
     assert failed["status"] == "failed"
     assert _balance(conn, "user_balance", "10001") == 10
-    assert _balance(conn, "user_withdrawal_hold", withdrawal["id"]) == 0
-    assert _balance(conn, "platform_fee_pending", withdrawal["id"]) == 0
+    assert _balance(conn, "user_withdrawal_hold", withdrawal["id"]) == Decimal('0')
+    assert _balance(conn, "platform_fee_pending", withdrawal["id"]) == Decimal('0')
     conn.close()
 
 
@@ -125,9 +125,9 @@ def test_confirmed_withdrawal_debits_reserved_net_only_after_chain_reference():
     assert confirmed["status"] == "confirmed"
     assert confirmed["chain_tx_hash"] == "chain-hash"
     assert _balance(conn, "user_balance", "10001") == 7
-    assert _balance(conn, "user_withdrawal_hold", withdrawal["id"]) == 0
-    assert _balance(conn, "platform_fee_pending", withdrawal["id"]) == 0.03
-    assert _balance(conn, "external_chain", "mainnet:" + DESTINATION) == 2.97
+    assert _balance(conn, "user_withdrawal_hold", withdrawal["id"]) == Decimal('0')
+    assert _balance(conn, "platform_fee_pending", withdrawal["id"]) == Decimal('0.03')
+    assert _balance(conn, "external_chain", "mainnet:" + DESTINATION) == Decimal('2.97')
     conn.close()
 
 
@@ -180,7 +180,7 @@ def test_submitted_withdrawal_cannot_release_or_confirm_without_chain_observer_p
             event_key="withdrawal-1:unverified-failure", now=1250,
         )
     assert _balance(conn, "user_balance", "10001") == 7
-    assert _balance(conn, "user_withdrawal_hold", withdrawal["id"]) == 2.97
+    assert _balance(conn, "user_withdrawal_hold", withdrawal["id"]) == Decimal('2.97')
     conn.close()
 
 
@@ -197,5 +197,5 @@ def test_multisig_stage_cannot_release_hold_without_verified_order_expiry():
             event_key="withdrawal-1:failed-before-expiry", now=1200,
         )
     assert _balance(conn, "user_balance", "10001") == 7
-    assert _balance(conn, "user_withdrawal_hold", withdrawal["id"]) == 2.97
+    assert _balance(conn, "user_withdrawal_hold", withdrawal["id"]) == Decimal('2.97')
     conn.close()
