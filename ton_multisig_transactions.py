@@ -119,6 +119,7 @@ def build_new_order_payload(
     return {
         "payload": payload,
         "payload_sha256": hashlib.sha256(base64.b64decode(payload)).hexdigest(),
+        "actions_payload_hash": order_cell.bytes_hash().hex(),
         "opcode": f"0x{OP_NEW_ORDER:08x}",
         "signer_index": signer_index,
         "expiration_date": expiration_date,
