@@ -518,14 +518,16 @@ async def create_gram_withdrawal(telegram_id: str, payload: GramWithdrawalReques
         raise HTTPException(status_code=422, detail="Invalid GRAM destination address") from exc
     if destination == treasury:
         raise HTTPException(status_code=422, detail="Withdrawal destination cannot be the HASSLE treasury")
-    gross = _amount_to_nano(payload.amount)
     try:
+        gross = _amount_to_nano(payload.amount)
         fee_bps = int(os.getenv("HASSLE_GRAM_WITHDRAWAL_FEE_BPS", "0"))
         minimum = _amount_to_nano(Decimal(os.getenv("HASSLE_GRAM_MIN_WITHDRAWAL", "0.1")))
         maximum = _amount_to_nano(Decimal(os.getenv("HASSLE_GRAM_MAX_WITHDRAWAL", "10000")))
         daily_limit = _amount_to_nano(Decimal(os.getenv("HASSLE_GRAM_DAILY_WITHDRAWAL_LIMIT", "5000")))
     except (ValueError, InvalidOperation) as exc:
-        raise HTTPException(status_code=503, detail="GRAM withdrawal limits are misconfigured") from exc
+        if "gross" in locals():
+            raise HTTPException(status_code=503, detail="GRAM withdrawal limits are misconfigured") from exc
+        raise HTTPException(status_code=422, detail="GRAM withdrawal amount is outside the supported range") from exc
     if not 0 <= fee_bps <= 200 or minimum <= 0 or maximum < minimum or daily_limit < minimum:
         raise HTTPException(status_code=503, detail="GRAM withdrawal fee or limits are invalid")
     fee = (gross * fee_bps) // 10_000
