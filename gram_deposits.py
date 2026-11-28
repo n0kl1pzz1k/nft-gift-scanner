@@ -212,8 +212,8 @@ def confirm_gram_deposit(
     if event is None:
         return None
     timestamp = int(time.time()) if now is None else int(now)
-    with conn:
-        begin_write(conn, f"gram-deposit:{network}:{event['tx_hash']}:{event['tx_lt']}")
+    begin_write(conn, f"gram-deposit:{network}:{event['tx_hash']}:{event['tx_lt']}")
+    try:
         intent = conn.execute(
             """SELECT * FROM gram_deposit_intents
                WHERE network = ? AND memo = ? AND status = 'pending'""",
@@ -260,8 +260,13 @@ def confirm_gram_deposit(
                WHERE id=? AND status='pending'""",
             (timestamp, event["tx_hash"], event["tx_lt"], ledger["id"], row["id"]),
         )
-        return {"deposit_id": row["id"], "user_id": row["user_id"],
-                "amount_nano": int(event["amount_nano"]), "ledger_transaction_id": ledger["id"]}
+        result = {"deposit_id": row["id"], "user_id": row["user_id"],
+                  "amount_nano": int(event["amount_nano"]), "ledger_transaction_id": ledger["id"]}
+        conn.commit()
+        return result
+    except BaseException:
+        conn.rollback()
+        raise
 
 
 def list_pending_gram_deposits(conn: Any, *, network: str, limit: int = 500) -> list[dict[str, Any]]:
@@ -277,11 +282,16 @@ def list_pending_gram_deposits(conn: Any, *, network: str, limit: int = 500) -> 
 
 def expire_gram_deposit_intents(conn: Any, *, now: int | None = None) -> int:
     timestamp = int(time.time()) if now is None else int(now)
-    with conn:
-        begin_write(conn, "gram-deposit-expiry-sweep")
+    begin_write(conn, "gram-deposit-expiry-sweep")
+    try:
         result = conn.execute(
             """UPDATE gram_deposit_intents SET status='expired'
                WHERE status='pending' AND expires_at < ?""",
             (timestamp,),
         )
-        return int(result.rowcount)
+        count = int(result.rowcount)
+        conn.commit()
+        return count
+    except BaseException:
+        conn.rollback()
+        raise
