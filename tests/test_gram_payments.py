@@ -269,3 +269,12 @@ def test_withdrawal_rejects_insufficient_balance_and_treasury_destination(monkey
         asyncio.run(gp.create_gram_withdrawal("123456", treasury_payload, now=2000))
     assert getattr(same_treasury.value, "status_code", None) == 422
     connection.close()
+
+
+def test_withdrawal_creation_requires_executor_feature_gate(monkeypatch):
+    import asyncio
+    monkeypatch.setenv("HASSLE_GRAM_WITHDRAWALS_ENABLED", "1")
+    monkeypatch.setenv("HASSLE_GRAM_WITHDRAWAL_EXECUTOR_ENABLED", "0")
+    with pytest.raises(Exception) as error:
+        asyncio.run(gp._require_gram_withdrawals_ready())
+    assert getattr(error.value, "status_code", None) == 503
