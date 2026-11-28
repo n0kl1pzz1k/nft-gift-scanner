@@ -449,10 +449,13 @@ async def _require_gram_withdrawals_ready() -> tuple[str, str]:
     if os.getenv("HASSLE_TON_PAYOUT_MODE", "").strip() != "manual_multisig_2_of_3":
         raise HTTPException(status_code=503, detail="A verified 2-of-3 GRAM payout mode is required")
     token = os.getenv("TONAPI_TOKEN", "").strip()
-    network = _network()
+    try:
+        network = _network()
+        treasury = _treasury()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="GRAM treasury configuration is invalid") from exc
     if network != "mainnet":
         raise HTTPException(status_code=503, detail="GRAM withdrawals are currently restricted to Mainnet")
-    treasury = _treasury()
     expected = os.getenv("HASSLE_TON_MULTISIG_EXPECTED_ADDRESS", "").strip()
     if not token or not expected:
         raise HTTPException(status_code=503, detail="GRAM multisig treasury is not configured")
@@ -516,16 +519,19 @@ async def create_gram_withdrawal(telegram_id: str, payload: GramWithdrawalReques
     if destination == treasury:
         raise HTTPException(status_code=422, detail="Withdrawal destination cannot be the HASSLE treasury")
     gross = _amount_to_nano(payload.amount)
-    fee_bps = int(os.getenv("HASSLE_GRAM_WITHDRAWAL_FEE_BPS", "0"))
-    if not 0 <= fee_bps <= 200:
-        raise HTTPException(status_code=503, detail="GRAM withdrawal fee configuration must be between 0 and 2 percent")
+    try:
+        fee_bps = int(os.getenv("HASSLE_GRAM_WITHDRAWAL_FEE_BPS", "0"))
+        minimum = _amount_to_nano(Decimal(os.getenv("HASSLE_GRAM_MIN_WITHDRAWAL", "0.1")))
+        maximum = _amount_to_nano(Decimal(os.getenv("HASSLE_GRAM_MAX_WITHDRAWAL", "10000")))
+        daily_limit = _amount_to_nano(Decimal(os.getenv("HASSLE_GRAM_DAILY_WITHDRAWAL_LIMIT", "5000")))
+    except (ValueError, InvalidOperation) as exc:
+        raise HTTPException(status_code=503, detail="GRAM withdrawal limits are misconfigured") from exc
+    if not 0 <= fee_bps <= 200 or minimum <= 0 or maximum < minimum or daily_limit < minimum:
+        raise HTTPException(status_code=503, detail="GRAM withdrawal fee or limits are invalid")
     fee = (gross * fee_bps) // 10_000
     net = gross - fee
     if net <= 0:
         raise HTTPException(status_code=422, detail="Withdrawal amount is too small after fees")
-    minimum = _amount_to_nano(Decimal(os.getenv("HASSLE_GRAM_MIN_WITHDRAWAL", "0.1")))
-    maximum = _amount_to_nano(Decimal(os.getenv("HASSLE_GRAM_MAX_WITHDRAWAL", "10000")))
-    daily_limit = _amount_to_nano(Decimal(os.getenv("HASSLE_GRAM_DAILY_WITHDRAWAL_LIMIT", "5000")))
     if gross < minimum or gross > maximum:
         raise HTTPException(status_code=422, detail="Withdrawal amount is outside configured limits")
     timestamp = int(time.time()) if now is None else int(now)
