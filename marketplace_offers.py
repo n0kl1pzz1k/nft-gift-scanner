@@ -2174,6 +2174,7 @@ def create_marketplace_offers_router(
                 event_key=f"{deal_id}:gram-payout-order:{prepared['payload_sha256'][:32]}",
                 event_data={
                     "payload_sha256": prepared["payload_sha256"],
+                    "actions_payload_hash": prepared["actions_payload_hash"],
                     "expiration_date": expiration,
                     "memo": memo,
                     "seller_wallet": seller_raw,
