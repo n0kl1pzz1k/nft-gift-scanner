@@ -17,6 +17,12 @@
   type MarketplaceDeal = { id:string; order_id:string; offer_id:string; is_seller:boolean; order_title:string; agreed_amount:string; currency:'TON'|'XTR'; status:'payment_not_enabled'|'awaiting_payment'|'payment_pending'|'paid'|'delivery_pending'|'completed'|'disputed'|'cancelled'|'expired'; order_status:string; created_at:number; reservation_active:boolean; payments_enabled:boolean; delivery_completed:boolean; asset_source?:string|null };
   
   type DealTimelineEvent = {id:string;actor_user_id:string;type:string;data:Record<string,unknown>;created_at:number};
+  type MultisigApprovalRequest = {
+    orderSeqno:number;
+    signerWallet:string;
+    transaction:{validUntil:number;network:string;messages:Array<{address:string;amount:string;payload?:string}>};
+    review:{signer_index:number;threshold:number;approvals_num:number;memo:string;recipient:string;amount_nano:string;payload_sha256:string;requires_explicit_wallet_confirmation:boolean};
+  };
   type AccountNotification = { id:string; type:'offer_received'|'offer_accepted'|'offer_declined'|'offer_withdrawn'; offer_id:string; order_id:string; order_title:string; actor_name:string; created_at:number; read_at:number|null };
   type SellerPendingSettlement = { currency:'TON'|'XTR'; amount:string; status:'pending_manual_payout'|'internal_xtr_credit'; automatic_withdrawal_available:boolean };
   type AccountStats = { active_orders:number; completed_orders:number; pending_offers_sent:number; pending_offers_received:number; unread_notifications:number; deals:number; seller_pending_settlements:SellerPendingSettlement[] };
@@ -175,6 +181,8 @@
   let treasuryPayoutDealId = $state('');
   let treasuryPayoutBusy = $state(false);
   let treasuryPreparedPayout = $state<Record<string,any> | null>(null);
+  let treasuryApprovalRequest = $state<MultisigApprovalRequest | null>(null);
+  let treasuryApprovalBusy = $state<number | null>(null);
   let adminUserSearch = $state('');
   let adminBusy = $state(false);
   let adminRole = $state('owner');
@@ -1474,6 +1482,48 @@
     }
   }
 
+  async function prepareTreasuryOrderApproval(order: Record<string,unknown>) {
+    if (!isAdmin || !adminPermissions.includes('treasury_read') || !walletConnected || !walletAddress || treasuryApprovalBusy !== null) {
+      notice = lang === 'ru' ? 'Подключи проверенный кошелёк одного из трёх подписантов.' : 'Connect a verified wallet belonging to one of the three signers.';
+      return;
+    }
+    const orderSeqno = Number(order.order_seqno);
+    if (!Number.isSafeInteger(orderSeqno) || orderSeqno < 0) {
+      notice = lang === 'ru' ? 'Некорректный номер ордера.' : 'Invalid order sequence number.';
+      return;
+    }
+    treasuryApprovalBusy = orderSeqno;
+    treasuryApprovalRequest = null;
+    try {
+      const result = await request('/api/marketplace/admin/treasury/orders/' + orderSeqno + '/approve/prepare', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet_address: walletAddress }),
+      });
+      treasuryApprovalRequest = {
+        orderSeqno,
+        signerWallet: String(result.signer_wallet || ''),
+        transaction: result.transaction,
+        review: result.review,
+      } as MultisigApprovalRequest;
+      notice = lang === 'ru'
+        ? 'Запрос подписи подготовлен. Проверь сумму и адрес получателя перед подтверждением в кошельке.'
+        : 'Approval request prepared. Review the amount and recipient before confirming in your wallet.';
+    } catch (error) {
+      notice = error instanceof Error ? error.message : String(error);
+    } finally {
+      treasuryApprovalBusy = null;
+    }
+  }
+
+  async function onTreasuryApprovalSent(orderSeqno: number) {
+    treasuryApprovalRequest = null;
+    notice = lang === 'ru'
+      ? 'Подпись отправлена. После подтверждения в сети обнови список ордеров.'
+      : 'Approval submitted. Refresh the order list after the network confirms it.';
+    await loadAdminOverview();
+  }
+
   async function loadAdminOverview() {
     if (!isAdmin || adminBusy) return;
     adminBusy = true;
@@ -1992,7 +2042,7 @@
         <div class="gram-profile-mark"><GramToken size={34} class="gram-token-icon" /></div><div class="gram-profile-copy"><div class="eyebrow">HASSLE BALANCE</div><h2>GRAM</h2><strong>{gramBalanceLoading?'…':gramBalance+' GRAM'}</strong><div class="gram-profile-actions"><button type="button" onclick={()=>gramAction='deposit'}>{lang==='ru'?'＋ Пополнить':'＋ Deposit'}</button><button type="button" onclick={()=>gramAction='withdraw'}>{lang==='ru'?'↗ Вывести':'↗ Withdraw'}</button></div><small>{lang==='ru'?'Доступный баланс по подтверждённым записям ledger.':'Available balance from confirmed ledger entries.'}</small>{#if Number(gramPendingBalance)>0}<small class="gram-pending-note">{lang==='ru'?'Ожидает выплаты продавцу: ':'Seller proceeds pending payout: '}{gramPendingBalance} GRAM</small>{/if}</div><button class="refresh-button" type="button" onclick={()=>showGramInfo=true}>{lang==='ru'?'Подробнее':'Details'}</button>
       </article>
       <article class="profile-card wallet-card">
-        <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">WALLET CONNECT · PROOF</div><h2>{lang==='ru'?'GRAM-кошелёк':'GRAM wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления блокчейна и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for the blockchain to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletAddress=address;walletConnected=Boolean(address);}} /></div>
+        <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">WALLET CONNECT · PROOF</div><h2>{lang==='ru'?'GRAM-кошелёк':'GRAM wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} multisigApprovalRequest={treasuryApprovalRequest} onMultisigApprovalSent={onTreasuryApprovalSent} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления блокчейна и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for the blockchain to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletAddress=address;walletConnected=Boolean(address);}} /></div>
       </article>
       <article class="profile-card profile-inventory-card">
         <div class="profile-inventory-heading"><div><div class="eyebrow">YOUR COLLECTION</div><h2>{lang==='ru'?'Подарки и инвентарь':'Gifts & inventory'}</h2><small>{visibleVerifiedAssets.length} {lang==='ru'?'подтверждённых активов':'verified assets'}</small></div><button class="refresh-button" type="button" onclick={refreshOwnershipInventory} disabled={verifiedAssetsLoading || telegramGiftImportBusy || businessGiftImportBusy || tonNftImportBusy}>↻</button></div>
@@ -2198,7 +2248,21 @@
                       </div>
                     {/each}
                   {/if}
-                  <p>{lang==='ru'?'Декодирование описывает содержимое, но не разрешает подпись. Каждое действие требует отдельной проверки политики.':'Decoded for inspection only. Signing remains disabled until every action passes an independent policy check.'}</p>
+                  <p>{lang==='ru'?'Декодирование описывает содержимое. Подписывай только ожидаемый перевод GRAM после личной проверки суммы, адреса и memo.':'Decoded for inspection. Approve only the expected GRAM transfer after personally checking amount, recipient and memo.'}</p>
+                  {#if !order.sent_for_execution && Number(order.expiration_date || 0) * 1000 > Date.now() && Array.isArray(order.actions) && order.actions.length === 1}
+                    <button class="match-button" type="button" onclick={()=>prepareTreasuryOrderApproval(order)} disabled={treasuryApprovalBusy !== null || !walletConnected || adminTreasury?.status !== 'verified'}>
+                      {treasuryApprovalBusy === Number(order.order_seqno) ? '…' : (lang==='ru'?'Подготовить подпись 2 из 3':'Prepare 2-of-3 approval')}
+                    </button>
+                  {/if}
+                  {#if treasuryApprovalRequest?.orderSeqno === Number(order.order_seqno)}
+                    <div class="state-panel" aria-live="polite">
+                      <strong>{lang==='ru'?'Проверь перед подписью':'Review before signing'}</strong>
+                      <p>{formatGramNano(treasuryApprovalRequest.review.amount_nano)} GRAM → {treasuryApprovalRequest.review.recipient}</p>
+                      <small>{treasuryApprovalRequest.review.memo}</small>
+                      <small>SHA-256: {treasuryApprovalRequest.review.payload_sha256}</small>
+                      <p>{lang==='ru'?'Подтверждение откроется в подключённом кошельке подписанта. Сервер не хранит и не использует приватные ключи.':'Confirmation opens in the connected signer wallet. The server never stores or uses private keys.'}</p>
+                    </div>
+                  {/if}
                 </div>
               {/each}
             {/if}
