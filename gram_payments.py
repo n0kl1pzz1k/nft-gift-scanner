@@ -480,15 +480,27 @@ def create_gram_deposit_router(authenticate, rate_limit) -> APIRouter:
         if not authorization:
             raise HTTPException(status_code=401, detail="Telegram Mini App authentication required")
         user = authenticate(authorization)
+        from decimal import Decimal
         with _db() as conn:
-            row = conn.execute(
-                "SELECT available_nano,reserved_nano FROM gram_wallet_balances WHERE telegram_id=?",
+            rows = conn.execute(
+                """SELECT direction,amount FROM marketplace_ledger_entries
+                   WHERE account_type='user_balance' AND account_id=? AND currency='TON'""",
                 (str(user["id"]),),
-            ).fetchone()
-        available = int(row["available_nano"]) if row else 0
-        reserved = int(row["reserved_nano"]) if row else 0
+            ).fetchall()
+        available_gram = Decimal("0")
+        for row in rows:
+            amount = Decimal(str(row["amount"]))
+            if not amount.is_finite() or amount <= 0:
+                raise HTTPException(status_code=503, detail="GRAM balance requires reconciliation")
+            available_gram += amount if row["direction"] == "credit" else -amount
+        if available_gram < 0:
+            raise HTTPException(status_code=503, detail="GRAM balance requires reconciliation")
+        available_scaled = available_gram * NANO_PER_GRAM
+        if available_scaled != available_scaled.to_integral_value():
+            raise HTTPException(status_code=503, detail="GRAM balance precision requires reconciliation")
+        available = int(available_scaled)
         return {"currency": "GRAM", "available_nano": str(available),
-                "reserved_nano": str(reserved), "available": _nano_to_gram_text(available),
-                "reserved": _nano_to_gram_text(reserved)}
+                "reserved_nano": "0", "available": _nano_to_gram_text(available),
+                "reserved": "0"}
 
     return router
