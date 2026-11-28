@@ -513,6 +513,10 @@ async def create_gram_withdrawal(telegram_id: str, payload: GramWithdrawalReques
     if not user_id.isdigit():
         raise HTTPException(status_code=401, detail="Invalid Telegram user")
     try:
+        from tonsdk.utils import Address
+        destination_address = Address(payload.destination_address)
+        if destination_address.wc != 0:
+            raise ValueError("Only workchain-0 GRAM destinations are supported")
         destination = normalise_ton_address(payload.destination_address)
     except Exception as exc:
         raise HTTPException(status_code=422, detail="Invalid GRAM destination address") from exc
