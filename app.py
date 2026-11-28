@@ -494,6 +494,38 @@ async def get_gram_deposit(
     }
 
 
+@app.get("/api/payments/gram/deposits/active")
+async def get_active_gram_deposit(x_telegram_init_data: str | None = Header(default=None)):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    treasury, network = _gram_deposit_configuration()
+    with marketplace._db() as connection:
+        row = connection.execute(
+            """SELECT * FROM gram_deposit_intents
+               WHERE user_id=? AND network=? AND status='pending' AND expires_at>?
+               ORDER BY created_at DESC LIMIT 1""",
+            (str(user["id"]), network, int(time.time())),
+        ).fetchone()
+    if row is None:
+        return {"deposit": None}
+    intent = dict(row)
+    return {
+        "deposit": {
+            "id": intent["id"],
+            "amount_nano": str(intent["amount_nano"]),
+            "network": network,
+            "ton_connect": {
+                "validUntil": intent["expires_at"],
+                "network": "-239" if network == "mainnet" else "-3",
+                "messages": [{
+                    "address": treasury,
+                    "amount": str(intent["amount_nano"]),
+                    "payload": build_ton_connect_comment_payload(intent["memo"]),
+                }],
+            },
+        }
+    }
+
+
 async def _run_gram_deposit_indexer():
     """Poll canonical treasury account history; client callbacks never credit funds."""
     while True:
