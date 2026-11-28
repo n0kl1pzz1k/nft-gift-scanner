@@ -443,6 +443,8 @@ def _append_withdrawal_event(conn: Any, withdrawal_id: str, event_type: str,
 async def _require_gram_withdrawals_ready() -> tuple[str, str]:
     if os.getenv("HASSLE_GRAM_WITHDRAWALS_ENABLED", "0").strip() != "1":
         raise HTTPException(status_code=503, detail="GRAM withdrawals are temporarily unavailable")
+    if os.getenv("HASSLE_GRAM_WITHDRAWAL_EXECUTOR_ENABLED", "0").strip() != "1":
+        raise HTTPException(status_code=503, detail="GRAM withdrawal signing and execution are not ready")
     if os.getenv("HASSLE_TON_CUSTODY_ACKNOWLEDGED", "0").strip() != "1":
         raise HTTPException(status_code=503, detail="GRAM multisig custody policy is not acknowledged")
     if os.getenv("HASSLE_TON_PAYOUT_MODE", "").strip() != "manual_multisig_2_of_3":
