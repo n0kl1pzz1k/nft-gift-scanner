@@ -881,7 +881,8 @@
     gramWithdrawalBusy = true;
     try {
       const result = await request('/api/gram/withdrawals/' + encodeURIComponent(String(gramWithdrawal.id)) + '/cancel', undefined, { method: 'POST' });
-      gramWithdrawal = result as Record<string, any>;
+      gramWithdrawal = null;
+      gramWithdrawalIdempotencyKey = 'gram-withdraw-' + crypto.randomUUID();
       await loadGramBalance();
       notice = lang === 'ru' ? 'Заявка отменена, резерв возвращён на доступный баланс.' : 'Withdrawal cancelled. Reserved funds returned to your available balance.';
     } catch (error) {
