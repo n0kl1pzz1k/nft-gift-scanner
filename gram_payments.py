@@ -343,6 +343,21 @@ def confirm_gram_deposit_event(
                VALUES (?,?, 'deposit',?,?,?)""",
             (ledger_id, f"gram-deposit:{candidate['id']}", candidate["id"], str(amount_nano), timestamp),
         )
+        # Credit the canonical marketplace ledger as well. Existing checkout
+        # and balance APIs use TON protocol units internally and display GRAM.
+        from marketplace_payments import post_ledger_transaction
+        post_ledger_transaction(
+            conn,
+            idempotency_key=f"gram-deposit:{candidate['id']}",
+            reference_type="payment_intent",
+            reference_id=candidate["id"],
+            currency="TON",
+            debit_account=("chain_clearing", candidate["treasury_address"]),
+            credit_account=("user_balance", candidate["telegram_id"]),
+            debit_amount=_nano_to_gram_text(amount_nano),
+            credit_amount=_nano_to_gram_text(amount_nano),
+            now=timestamp,
+        )
         conn.executemany(
             """INSERT INTO gram_ledger_entries
                (id,transaction_id,account_type,account_id,direction,amount_nano,created_at)
