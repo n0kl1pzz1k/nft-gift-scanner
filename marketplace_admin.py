@@ -285,19 +285,16 @@ def create_marketplace_admin_router(verify_admin):
                     ).fetchone():
                         raise HTTPException(status_code=409, detail="This deal has already been paid")
                     reservation = conn.execute(
-                        """SELECT event_data FROM marketplace_escrow_events
-                           WHERE deal_id=? AND event_type='payout_order_prepared'
-                           ORDER BY created_at DESC LIMIT 1""",
+                        "SELECT * FROM marketplace_multisig_payout_reservations WHERE deal_id=?",
                         (deal_id,),
                     ).fetchone()
-                    if reservation is None:
+                    if reservation is None or int(reservation["expiration_date"]) <= now:
                         raise HTTPException(status_code=409, detail="No live HASSLE payout reservation exists for this order")
-                    reservation_data = json.loads(reservation["event_data"] or "{}")
                     if (
-                        int(reservation_data.get("expiration_date") or 0) != expiration
-                        or reservation_data.get("memo") != memo
-                        or reservation_data.get("amount_nano") != amount_nano
-                        or reservation_data.get("actions_payload_hash") != order.get("order_payload_hash")
+                        int(reservation["expiration_date"]) != expiration
+                        or reservation["memo"] != memo
+                        or reservation["amount_nano"] != amount_nano
+                        or reservation["actions_payload_hash"] != order.get("order_payload_hash")
                     ):
                         raise HTTPException(status_code=409, detail="Order does not match the reserved payout details")
                     seller_id = str(deal["listing_owner_id"])
@@ -335,13 +332,13 @@ def create_marketplace_admin_router(verify_admin):
                     recipient_raw = normalise_ton_address(recipient)
                     treasury_raw = normalise_ton_address(expected_address)
                     paid_treasury_raw = normalise_ton_address(str(payment_metadata.get("treasury") or ""))
-                    reserved_treasury_raw = normalise_ton_address(str(reservation_data.get("treasury") or ""))
+                    reserved_treasury_raw = normalise_ton_address(str(reservation["treasury"] or ""))
                     payable_amount = Decimal(str(payable[0]["amount"]))
                     paid_amount = Decimal(str(payment_intent["amount"]))
                     payable_nano = int(payable_amount * Decimal(1_000_000_000))
                     if (
                         seller_raw != recipient_raw
-                        or reservation_data.get("seller_wallet") != seller_raw
+                        or reservation["seller_wallet"] != seller_raw
                         or treasury_raw != paid_treasury_raw
                         or treasury_raw != reserved_treasury_raw
                         or payable_amount <= 0
