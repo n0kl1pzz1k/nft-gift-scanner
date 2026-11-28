@@ -265,10 +265,11 @@
   }
 
   async function sendMultisigProposal() {
-    if (!tonConnect || !multisigProposalRequest || busy || status !== 'verified' || multisigProposalSubmitted) return;
+    const proposalRequest = multisigProposalRequest;
+    if (!tonConnect || !proposalRequest || busy || status !== 'verified' || multisigProposalSubmitted) return;
     if (
-      tonConnect.wallet?.account.address !== multisigProposalRequest.signerWallet
-      || address !== multisigProposalRequest.signerWallet
+      tonConnect.wallet?.account.address !== proposalRequest.signerWallet
+      || address !== proposalRequest.signerWallet
     ) {
       message = lang === 'ru'
         ? 'Подключённый кошелёк не совпадает с проверенным кошельком подписанта.'
@@ -276,7 +277,7 @@
       status = 'error';
       return;
     }
-    if (tonConnect.wallet?.account.chain !== multisigProposalRequest.transaction.network) {
+    if (tonConnect.wallet?.account.chain !== proposalRequest.transaction.network) {
       message = lang === 'ru'
         ? 'Для создания ордера переключи кошелёк на Mainnet.'
         : 'Switch the wallet to Mainnet before creating the order.';
@@ -286,7 +287,7 @@
     busy = true;
     message = '';
     try {
-      await tonConnect.sendTransaction(multisigProposalRequest.transaction);
+      await tonConnect.sendTransaction(proposalRequest.transaction);
       multisigProposalSubmitted = true;
       message = lang === 'ru'
         ? 'Заявка на создание ордера отправлена в сеть. Не отправляй её повторно.'
@@ -307,10 +308,11 @@
   }
 
   async function sendMultisigApproval() {
-    if (!tonConnect || !multisigApprovalRequest || busy || status !== 'verified' || multisigApprovalSubmitted) return;
+    const approvalRequest = multisigApprovalRequest;
+    if (!tonConnect || !approvalRequest || busy || status !== 'verified' || multisigApprovalSubmitted) return;
     if (
-      tonConnect.wallet?.account.address !== multisigApprovalRequest.signerWallet
-      || address !== multisigApprovalRequest.signerWallet
+      tonConnect.wallet?.account.address !== approvalRequest.signerWallet
+      || address !== approvalRequest.signerWallet
     ) {
       message = lang === 'ru'
         ? 'Подключённый кошелёк не совпадает с проверенным кошельком подписанта.'
@@ -318,7 +320,7 @@
       status = 'error';
       return;
     }
-    if (tonConnect.wallet?.account.chain !== multisigApprovalRequest.transaction.network) {
+    if (tonConnect.wallet?.account.chain !== approvalRequest.transaction.network) {
       message = lang === 'ru'
         ? 'Для подписи ордера переключи кошелёк на Mainnet.'
         : 'Switch the wallet to Mainnet before approving this order.';
@@ -328,13 +330,13 @@
     busy = true;
     message = '';
     try {
-      await tonConnect.sendTransaction(multisigApprovalRequest.transaction);
+      await tonConnect.sendTransaction(approvalRequest.transaction);
       multisigApprovalSubmitted = true;
       message = lang === 'ru'
         ? 'Подпись отправлена в сеть. Дождись подтверждения и обнови список ордеров.'
         : 'Approval submitted to the network. Wait for confirmation and refresh the order list.';
       try {
-        await onMultisigApprovalSent(multisigApprovalRequest.orderSeqno);
+        await onMultisigApprovalSent(approvalRequest.orderSeqno);
       } catch {
         // The wallet submission already happened; never suggest that it failed or resend it.
       }
