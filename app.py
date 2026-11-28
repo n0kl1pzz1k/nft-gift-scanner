@@ -903,6 +903,11 @@ _READINESS_TABLES = (
     "marketplace_ledger_entries",
     "marketplace_escrow_events",
     "marketplace_dispute_resolution_approvals",
+    # GRAM deposit indexing and withdrawal reservation journals.
+    "gram_deposit_intents",
+    "gram_chain_events",
+    "gram_withdrawals",
+    "gram_withdrawal_events",
 )
 
 # Required columns are checked separately from table presence so an incomplete
@@ -929,6 +934,10 @@ _READINESS_COLUMNS = {
     "marketplace_ledger_entries": {"id", "transaction_id", "account_type", "account_id", "direction", "currency", "amount", "created_at"},
     "marketplace_escrow_events": {"id", "deal_id", "actor_user_id", "event_type", "event_key", "event_data", "created_at"},
     "marketplace_dispute_resolution_approvals": {"id", "deal_id", "admin_user_id", "decision", "idempotency_key", "created_at"},
+    "gram_deposit_intents": {"id", "telegram_id", "network", "treasury_address", "amount_nano", "memo", "status", "created_at", "expires_at"},
+    "gram_chain_events": {"id", "network", "chain_event_id", "action_index", "tx_hash", "deposit_id", "amount_nano", "payload_hash", "created_at"},
+    "gram_withdrawals": {"id", "telegram_id", "network", "destination_address", "gross_amount_nano", "fee_nano", "net_amount_nano", "status", "idempotency_key", "created_at", "updated_at"},
+    "gram_withdrawal_events": {"id", "withdrawal_id", "event_type", "event_key", "event_data", "created_at"},
 }
 
 
