@@ -145,14 +145,17 @@ def test_wrong_recipient_or_amount_or_memo_never_credits(monkeypatch):
     connection.close()
 
 
-def test_expired_deposit_intent_is_not_credited(monkeypatch):
+def test_late_onchain_transfer_is_still_credited_after_ui_expiry(monkeypatch):
     connection = _prepare(monkeypatch)
     deposit = _deposit(monkeypatch, connection)
-    event = {"event_id": "event-hash-001", "in_progress": False, "is_scam": False}
+    event = {"event_id": "event-hash-late", "in_progress": False, "is_scam": False}
     assert gp.confirm_gram_deposit_event(
         network="mainnet", event=event, action_index=0,
         transfer=_transfer(deposit["memo"]), now=deposit["expires_at"] + 1
-    ) is False
+    ) is True
+    assert connection.execute(
+        "SELECT available_nano FROM gram_wallet_balances WHERE telegram_id='123456'"
+    ).fetchone()["available_nano"] == "2500000000"
     connection.close()
 
 
