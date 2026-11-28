@@ -738,6 +738,44 @@ def create_gram_deposit_router(authenticate, rate_limit) -> APIRouter:
             raise HTTPException(status_code=404, detail="Deposit not found")
         return result
 
+    @router.post("/withdrawals")
+    async def create_withdrawal(payload: GramWithdrawalRequest,
+                                authorization: str | None = Header(default=None, alias="X-Telegram-Init-Data")):
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Telegram Mini App authentication required")
+        user = authenticate(authorization)
+        user_id = str(user["id"])
+        rate_limit(user_id, "gram_withdrawal_create", 3, 3600)
+        return await create_gram_withdrawal(user_id, payload)
+
+    @router.get("/withdrawals")
+    def read_withdrawals(limit: int = 20,
+                         authorization: str | None = Header(default=None, alias="X-Telegram-Init-Data")):
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Telegram Mini App authentication required")
+        user = authenticate(authorization)
+        return {"items": list_gram_withdrawals(str(user["id"]), limit)}
+
+    @router.get("/withdrawals/{withdrawal_id}")
+    def read_withdrawal(withdrawal_id: str,
+                        authorization: str | None = Header(default=None, alias="X-Telegram-Init-Data")):
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Telegram Mini App authentication required")
+        user = authenticate(authorization)
+        result = get_gram_withdrawal(str(user["id"]), withdrawal_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Withdrawal not found")
+        return result
+
+    @router.post("/withdrawals/{withdrawal_id}/cancel")
+    def cancel_withdrawal(withdrawal_id: str,
+                          authorization: str | None = Header(default=None, alias="X-Telegram-Init-Data")):
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Telegram Mini App authentication required")
+        user = authenticate(authorization)
+        rate_limit(str(user["id"]), "gram_withdrawal_cancel", 5, 3600)
+        return cancel_gram_withdrawal(str(user["id"]), withdrawal_id)
+
     @router.get("/balance")
     def read_balance(authorization: str | None = Header(default=None, alias="X-Telegram-Init-Data")):
         if not authorization:
