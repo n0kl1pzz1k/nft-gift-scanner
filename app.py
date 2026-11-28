@@ -37,6 +37,10 @@ from gram_deposits import (
     create_gram_deposit_intent, expire_gram_deposit_intents,
     initialize_gram_deposit_schema, list_pending_gram_deposits,
 )
+from gram_withdrawals import (
+    GramWithdrawalError, create_gram_withdrawal, initialize_gram_withdrawal_schema,
+    list_gram_withdrawals,
+)
 
 app = FastAPI(title="HASSLE NFT Market API", version="1.0.0")
 app.include_router(create_marketplace_router(
@@ -260,6 +264,12 @@ class TonProofVerifyRequest(BaseModel):
 
 class GramDepositCreateRequest(BaseModel):
     amount_gram: str = Field(min_length=1, max_length=32)
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+
+class GramWithdrawalCreateRequest(BaseModel):
+    amount_gram: str = Field(min_length=1, max_length=32)
+    destination_address: str = Field(min_length=1, max_length=128)
     idempotency_key: str = Field(min_length=1, max_length=128)
 
 
@@ -523,6 +533,70 @@ async def get_active_gram_deposit(x_telegram_init_data: str | None = Header(defa
                 }],
             },
         }
+    }
+
+
+@app.post("/api/payments/gram/withdrawals")
+async def create_gram_withdrawal_request(
+    payload: GramWithdrawalCreateRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    user_id = str(user["id"])
+    _enforce_user_rate_limit(user_id, "gram_withdrawal_create", 3, 86400)
+    if os.getenv("HASSLE_TON_WITHDRAWAL_REQUESTS_ENABLED", "").strip() != "1":
+        raise HTTPException(status_code=503, detail="GRAM withdrawals are not enabled yet")
+    treasury = os.getenv("HASSLE_TON_TREASURY_ADDRESS", "").strip()
+    network = os.getenv("HASSLE_TON_NETWORK", "mainnet").strip().lower()
+    if not treasury or network not in {"mainnet", "testnet"}:
+        raise HTTPException(status_code=503, detail="GRAM treasury is not configured")
+    try:
+        fee_bps = int(os.getenv("HASSLE_GRAM_WITHDRAWAL_FEE_BPS", "0"))
+        min_amount = int(os.getenv("HASSLE_GRAM_WITHDRAWAL_MIN_NANO", "100000000"))
+        max_amount = int(os.getenv("HASSLE_GRAM_WITHDRAWAL_MAX_NANO", "100000000000000"))
+        with marketplace._db() as connection:
+            withdrawal = create_gram_withdrawal(
+                connection, user_id=user_id,
+                destination_address=payload.destination_address,
+                amount_gram=payload.amount_gram, network=network,
+                idempotency_key=payload.idempotency_key, fee_bps=fee_bps,
+                min_amount_nano=min_amount, max_amount_nano=max_amount,
+            )
+        return {
+            "id": withdrawal["id"], "status": withdrawal["status"],
+            "currency": "GRAM", "amount_nano": str(withdrawal["amount_nano"]),
+            "fee_nano": str(withdrawal["fee_nano"]),
+            "payout_nano": str(withdrawal["payout_nano"]),
+            "destination_address": withdrawal["destination_address"],
+            "network": withdrawal["network"],
+            "automatic_payout_available": False,
+            "message": "Withdrawal reserved; multisig execution is not enabled.",
+        }
+    except GramWithdrawalError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logging.getLogger("hassle_nft.gram").exception("Could not create GRAM withdrawal request")
+        raise HTTPException(status_code=503, detail="Could not create GRAM withdrawal request") from exc
+
+
+@app.get("/api/payments/gram/withdrawals")
+async def list_my_gram_withdrawals(
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    with marketplace._db() as connection:
+        rows = list_gram_withdrawals(connection, str(user["id"]))
+    return {
+        "currency": "GRAM",
+        "items": [{
+            "id": row["id"], "status": row["status"],
+            "amount_nano": str(row["amount_nano"]),
+            "fee_nano": str(row["fee_nano"]),
+            "payout_nano": str(row["payout_nano"]),
+            "destination_address": row["destination_address"],
+            "network": row["network"], "created_at": row["created_at"],
+            "updated_at": row["updated_at"], "chain_tx_hash": row["chain_tx_hash"],
+        } for row in rows],
     }
 
 
@@ -1195,6 +1269,7 @@ async def start_services():
     init_ton_connect_db()
     with marketplace._db() as connection:
         initialize_gram_deposit_schema(connection)
+        initialize_gram_withdrawal_schema(connection)
     _deal_expiry_task = asyncio.create_task(_run_marketplace_expiry_sweeper())
     _gram_deposit_task = asyncio.create_task(_run_gram_deposit_indexer())
     # Emit a privacy-safe inventory of the actual mounted SQLite database.
