@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 
 from marketplace import create_marketplace_router, consume_telegram_init_data, create_telegram_session, get_telegram_session_user, init_marketplace_db, upsert_telegram_user, revoke_telegram_session, revoke_all_telegram_sessions, list_telegram_sessions, claim_telegram_update, finish_telegram_update, release_telegram_update, _enforce_user_rate_limit, sync_ton_nft_assets, sync_telegram_gift_assets, get_telegram_business_connection, get_telegram_business_connection_id, register_verified_asset, save_telegram_business_gift_ref, prune_telegram_business_gift_refs, get_telegram_business_gift_preview_ref, get_public_telegram_business_gift_preview_ref, save_verified_asset_traits
 from ton_connect import init_ton_connect_db, create_proof_challenge, verify_ton_proof, consume_challenge_and_link_wallet, list_verified_wallets, revoke_verified_wallet
+from gram_payments import create_gram_deposit_router, init_gram_deposit_schema, run_gram_deposit_indexer
 from ton_nft_inventory import (
     fetch_wallet_nfts,
     fragment_asset_type,
@@ -43,12 +44,17 @@ app.include_router(create_marketplace_offers_router(
     lambda value: _require_admin(value),
 ))
 app.include_router(create_marketplace_admin_router(lambda value: _require_admin(value)))
+app.include_router(create_gram_deposit_router(
+    lambda value: _authenticate_telegram_credential(value),
+    lambda user_id, action, limit, window: _enforce_user_rate_limit(user_id, action, limit, window),
+))
 
 _telegram_bot = None
 _telegram_dispatcher = None
 _telegram_webhook_secret = None
 _shadow_migration_task = None
 _deal_expiry_task = None
+_gram_indexer_task = None
 
 
 
@@ -987,11 +993,13 @@ async def _run_marketplace_expiry_sweeper():
 
 @app.on_event("startup")
 async def start_services():
-    global _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret, _deal_expiry_task
+    global _telegram_bot, _telegram_dispatcher, _telegram_webhook_secret, _deal_expiry_task, _gram_indexer_task
     init_marketplace_db()
     init_marketplace_offers_db()
     init_ton_connect_db()
+    init_gram_deposit_schema()
     _deal_expiry_task = asyncio.create_task(_run_marketplace_expiry_sweeper())
+    _gram_indexer_task = asyncio.create_task(run_gram_deposit_indexer())
     # Emit a privacy-safe inventory of the actual mounted SQLite database.
     # This records schema metadata and row counts only, never row contents.
     with marketplace._db() as connection:
@@ -1036,7 +1044,7 @@ async def start_services():
 
 @app.on_event("shutdown")
 async def stop_services():
-    global _telegram_bot, _deal_expiry_task
+    global _telegram_bot, _deal_expiry_task, _gram_indexer_task
     if _deal_expiry_task is not None:
         _deal_expiry_task.cancel()
         try:
@@ -1044,6 +1052,13 @@ async def stop_services():
         except asyncio.CancelledError:
             pass
         _deal_expiry_task = None
+    if _gram_indexer_task is not None:
+        _gram_indexer_task.cancel()
+        try:
+            await _gram_indexer_task
+        except asyncio.CancelledError:
+            pass
+        _gram_indexer_task = None
     if _telegram_bot is not None:
         await _telegram_bot.session.close()
         _telegram_bot = None
