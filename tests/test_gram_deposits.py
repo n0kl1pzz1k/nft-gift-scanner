@@ -165,3 +165,22 @@ def test_ton_connect_comment_payload_is_standard_base64_boc():
     payload = build_ton_connect_comment_payload("HASSLE:deposit-test")
     assert isinstance(payload, str)
     assert len(payload) > 10
+
+
+def test_expired_intent_can_reconcile_a_transfer_sent_before_expiry():
+    from gram_deposits import expire_gram_deposit_intents
+
+    conn = _connection()
+    intent = _intent(conn)
+    expire_gram_deposit_intents(conn, now=intent["expires_at"] + 1)
+    assert conn.execute(
+        "SELECT status FROM gram_deposit_intents WHERE id=?", (intent["id"],)
+    ).fetchone()["status"] == "expired"
+    tx = _transaction(intent)
+    tx["utime"] = intent["expires_at"]
+    result = confirm_gram_deposit(conn, network="mainnet", transaction=tx, now=intent["expires_at"] + 10)
+    assert result is not None
+    assert conn.execute(
+        "SELECT status FROM gram_deposit_intents WHERE id=?", (intent["id"],)
+    ).fetchone()["status"] == "confirmed"
+    conn.close()
