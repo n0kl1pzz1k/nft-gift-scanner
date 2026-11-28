@@ -276,6 +276,8 @@ def test_postgres_runtime_smoke_initializes_auth_assets_listing_and_readiness():
             assert response.status_code == 201, response.text
             assert response.json()["item"]["title"] == "Verified PostgreSQL Gift"
 
+            from gram_payments import init_gram_deposit_schema
+            init_gram_deposit_schema()
             app_module = __import__("app")
             readiness = asyncio.run(app_module.readiness())
             assert readiness["status"] == "ready"
