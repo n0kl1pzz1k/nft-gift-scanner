@@ -236,7 +236,8 @@ def list_gram_withdrawals(conn: Any, user_id: str, limit: int = 30) -> list[dict
 def transition_gram_withdrawal(
     conn: Any, *, withdrawal_id: str, new_status: str, event_key: str,
     chain_tx_hash: str | None = None, chain_lt: str | None = None,
-    failure_code: str | None = None, now: int | None = None,
+    failure_code: str | None = None, chain_confirmation_verified: bool = False,
+    chain_failure_verified: bool = False, now: int | None = None,
 ) -> dict[str, Any]:
     transitions = {
         "queued": {"awaiting_multisig", "failed", "cancelled"},
@@ -262,8 +263,12 @@ def transition_gram_withdrawal(
         if new_status == "submitted" and (not chain_tx_hash or not chain_lt):
             raise GramWithdrawalError("Submitted withdrawal requires an on-chain transaction reference")
         if new_status == "confirmed":
+            if not chain_confirmation_verified:
+                raise GramWithdrawalError("Confirmed withdrawal requires server-verified on-chain execution")
             if not row["chain_tx_hash"] or not row["chain_lt"]:
                 raise GramWithdrawalError("Confirmed withdrawal requires a submitted transaction")
+        if new_status == "failed" and current == "submitted" and not chain_failure_verified:
+            raise GramWithdrawalError("Submitted withdrawal can only be released after server-verified chain failure")
             # This transition is intentionally callable only after an external
             # observer has verified the actual outgoing transfer from treasury.
             amount = _amount_decimal(int(row["payout_nano"]))
