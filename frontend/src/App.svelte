@@ -760,6 +760,19 @@
       }
       gramBalance = data.balance;
       gramPendingBalance = data.seller_pending_balance;
+      if (!gramDepositRequest) {
+        try {
+          const activeDeposit = await request('/api/payments/gram/deposits/active');
+          if (activeDeposit.deposit?.id && activeDeposit.deposit?.ton_connect) {
+            gramDepositRequest = {
+              id: String(activeDeposit.deposit.id),
+              transaction: activeDeposit.deposit.ton_connect,
+            };
+          }
+        } catch {
+          // Deposit feature gate may be disabled; balance remains readable.
+        }
+      }
     } catch (error) {
       notice = error instanceof Error ? error.message : String(error);
     } finally { gramBalanceLoading = false; }
