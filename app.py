@@ -1194,6 +1194,7 @@ _READINESS_TABLES = (
     "marketplace_ledger_transactions",
     "marketplace_ledger_entries",
     "marketplace_escrow_events",
+    "marketplace_multisig_payout_reservations",
     "marketplace_dispute_resolution_approvals",
 )
 
@@ -1220,6 +1221,7 @@ _READINESS_COLUMNS = {
     "marketplace_ledger_transactions": {"id", "idempotency_key", "reference_type", "reference_id", "currency", "amount", "created_at"},
     "marketplace_ledger_entries": {"id", "transaction_id", "account_type", "account_id", "direction", "currency", "amount", "created_at"},
     "marketplace_escrow_events": {"id", "deal_id", "actor_user_id", "event_type", "event_key", "event_data", "created_at"},
+    "marketplace_multisig_payout_reservations": {"deal_id", "payload_sha256", "actions_payload_hash", "expiration_date", "memo", "seller_wallet", "amount_nano", "treasury", "created_by", "created_at"},
     "marketplace_dispute_resolution_approvals": {"id", "deal_id", "admin_user_id", "decision", "idempotency_key", "created_at"},
 }
 
