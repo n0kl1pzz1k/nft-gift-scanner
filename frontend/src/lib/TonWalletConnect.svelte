@@ -29,10 +29,15 @@
   let message = $state('');
   let paymentSubmitted = $state(false);
   let depositSubmitted = $state(false);
+  let lastDepositRequestId = '';
 
   $effect(() => {
     if (!paymentRequest) paymentSubmitted = false;
-    if (!depositRequest) depositSubmitted = false;
+    const currentDepositId = depositRequest?.id || '';
+    if (currentDepositId !== lastDepositRequestId) {
+      depositSubmitted = false;
+      lastDepositRequestId = currentDepositId;
+    }
   });
 
   const copy = $derived({
