@@ -346,6 +346,9 @@
     <p class="ton-wallet-message">{lang === 'ru' ? 'Проверь в кошельке точный адрес, сумму и комментарий HASSLE. Баланс будет зачислен только после проверки сети.' : 'Check the exact HASSLE destination, amount and comment in your wallet. Funds are credited only after chain verification.'}</p>
   {:else if depositRequest && depositSubmitted}
     <p class="ton-wallet-message">{lang === 'ru' ? 'Заявка отправлена. Ожидаем подтверждение GRAM в блокчейне…' : 'Deposit submitted. Waiting for on-chain GRAM confirmation…'}</p>
+    <button class="ton-wallet-button inventory-import-button" type="button" onclick={() => onDepositSent(depositRequest.id)} disabled={busy}>
+      {busy ? '…' : (lang === 'ru' ? 'Проверить статус' : 'Check status')}
+    </button>
   {/if}
   {#if deliveryRequest && status === 'verified' && address === deliveryRequest.sellerWallet}
     {#if tonConnect?.wallet}
