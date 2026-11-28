@@ -39,7 +39,7 @@ from gram_deposits import (
 )
 from gram_withdrawals import (
     GramWithdrawalError, create_gram_withdrawal, initialize_gram_withdrawal_schema,
-    list_gram_withdrawals,
+    get_gram_withdrawal, list_gram_withdrawals, transition_gram_withdrawal,
 )
 
 app = FastAPI(title="HASSLE NFT Market API", version="1.0.0")
@@ -577,6 +577,28 @@ async def create_gram_withdrawal_request(
     except Exception as exc:
         logging.getLogger("hassle_nft.gram").exception("Could not create GRAM withdrawal request")
         raise HTTPException(status_code=503, detail="Could not create GRAM withdrawal request") from exc
+
+
+@app.post("/api/payments/gram/withdrawals/{withdrawal_id}/cancel")
+async def cancel_my_gram_withdrawal(
+    withdrawal_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+):
+    user = _authenticate_telegram_credential(x_telegram_init_data or "")
+    with marketplace._db() as connection:
+        try:
+            withdrawal = get_gram_withdrawal(connection, withdrawal_id, str(user["id"]))
+            if withdrawal["status"] != "queued":
+                raise HTTPException(status_code=409, detail="Only queued GRAM withdrawals can be cancelled")
+            result = transition_gram_withdrawal(
+                connection, withdrawal_id=withdrawal_id, new_status="cancelled",
+                event_key=f"{withdrawal_id}:user-cancel:{user['id']}",
+            )
+            return {"id": result["id"], "status": result["status"], "currency": "GRAM"}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail="GRAM withdrawal not found or cannot be cancelled") from exc
 
 
 @app.get("/api/payments/gram/withdrawals")
