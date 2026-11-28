@@ -203,8 +203,7 @@ def init_gram_deposit_schema() -> None:
         )
         for statement in statements:
             conn.execute(statement)
-        # Append-only journal protection is installed on SQLite. PostgreSQL
-        # writes are restricted to this service role and remain append-only by API.
+        # Keep chain and withdrawal evidence append-only on both supported DBs.
         if conn.__class__.__module__ == "sqlite3":
             conn.execute("""CREATE TRIGGER IF NOT EXISTS gram_chain_events_no_update
                 BEFORE UPDATE ON gram_chain_events
