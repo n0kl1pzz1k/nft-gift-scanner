@@ -111,7 +111,7 @@ class MarketplaceAdminConsoleTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409, response.text)
         self.assertIn("not configured", response.json()["detail"].lower())
 
-    def test_multisig_order_approval_preparation_returns_unsigned_wallet_request(self):
+    def test_multisig_order_approval_fails_closed_without_completed_reserved_deal(self):
         signers = [
             "0:372b63c65f2a2d81af7d7a7d995c4fcd7bdc18e6efa50b4ee840ae9b45dc6d10",
             "0:eacaac33e932a8b67ae31e712d5a7969660130363e48e789f96c03a6162bc147",
@@ -164,15 +164,15 @@ class MarketplaceAdminConsoleTests(unittest.TestCase):
                 headers=self.headers(self.admin_token),
                 json={"wallet_address": signers[0]},
             )
-        self.assertEqual(response.status_code, 200, response.text)
-        body = response.json()
-        self.assertEqual(body["status"], "prepared_unsigned_approval")
-        self.assertEqual(body["signer_wallet"], signers[0])
-        self.assertEqual(body["review"]["recipient"], order["actions"][0]["recipient"])
-        self.assertEqual(body["review"]["amount_nano"], "1500000000")
-        self.assertEqual(body["transaction"]["messages"][0]["address"], order["address"])
-        self.assertEqual(body["transaction"]["messages"][0]["amount"], "100000000")
-        self.assertEqual(body["transaction"]["network"], "-239")
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertIn("completed gram deal", response.json()["detail"].lower())
+
+    def test_multisig_payout_reservation_schema_is_initialized(self):
+        with marketplace._db() as conn:
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='marketplace_multisig_payout_reservations'"
+            ).fetchone()
+        self.assertIsNotNone(row)
 
     def test_multisig_order_approval_rejects_non_signer_wallet(self):
         signers = [
