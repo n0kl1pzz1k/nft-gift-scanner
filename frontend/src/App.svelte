@@ -17,6 +17,11 @@
   type MarketplaceDeal = { id:string; order_id:string; offer_id:string; is_seller:boolean; order_title:string; agreed_amount:string; currency:'TON'|'XTR'; status:'payment_not_enabled'|'awaiting_payment'|'payment_pending'|'paid'|'delivery_pending'|'completed'|'disputed'|'cancelled'|'expired'; order_status:string; created_at:number; reservation_active:boolean; payments_enabled:boolean; delivery_completed:boolean; asset_source?:string|null };
   
   type DealTimelineEvent = {id:string;actor_user_id:string;type:string;data:Record<string,unknown>;created_at:number};
+  type MultisigProposalRequest = {
+    signerWallet:string;
+    transaction:{validUntil:number;network:string;messages:Array<{address:string;amount:string;payload?:string}>};
+    review:{payload_sha256:string;action_count:number;actions:Array<Record<string,unknown>>;approval_safe:boolean;requires_independent_signer_review:boolean};
+  };
   type MultisigApprovalRequest = {
     orderSeqno:number;
     signerWallet:string;
@@ -182,6 +187,7 @@
   let treasuryPayoutBusy = $state(false);
   let treasuryPreparedPayout = $state<Record<string,any> | null>(null);
   let treasuryApprovalRequest = $state<MultisigApprovalRequest | null>(null);
+  let treasuryProposalRequest = $state<MultisigProposalRequest | null>(null);
   let treasuryApprovalBusy = $state<number | null>(null);
   let adminUserSearch = $state('');
   let adminBusy = $state(false);
@@ -1474,7 +1480,12 @@
         body: JSON.stringify({ wallet_address: walletAddress }),
       });
       treasuryPreparedPayout = result as Record<string,any>;
-      notice = lang === 'ru' ? 'Неподписанный ордер подготовлен. Проверь все реквизиты независимо.' : 'Unsigned order prepared. Independently verify every transaction detail.';
+      treasuryProposalRequest = {
+        signerWallet: walletAddress,
+        transaction: result.transaction,
+        review: result.review,
+      } as MultisigProposalRequest;
+      notice = lang === 'ru' ? 'Ордер подготовлен. Проверь реквизиты и отправь запрос из кошелька подписанта.' : 'Order prepared. Review the details and submit the proposal from the signer wallet.';
     } catch (error) {
       notice = error instanceof Error ? error.message : String(error);
     } finally {
@@ -1514,6 +1525,14 @@
     } finally {
       treasuryApprovalBusy = null;
     }
+  }
+
+  async function onTreasuryProposalSent() {
+    treasuryProposalRequest = null;
+    notice = lang === 'ru'
+      ? 'Запрос на создание ордера отправлен. Обнови список после подтверждения сети.'
+      : 'Order proposal submitted. Refresh the list after network confirmation.';
+    await loadAdminOverview();
   }
 
   async function onTreasuryApprovalSent(orderSeqno: number) {
@@ -2042,7 +2061,7 @@
         <div class="gram-profile-mark"><GramToken size={34} class="gram-token-icon" /></div><div class="gram-profile-copy"><div class="eyebrow">HASSLE BALANCE</div><h2>GRAM</h2><strong>{gramBalanceLoading?'…':gramBalance+' GRAM'}</strong><div class="gram-profile-actions"><button type="button" onclick={()=>gramAction='deposit'}>{lang==='ru'?'＋ Пополнить':'＋ Deposit'}</button><button type="button" onclick={()=>gramAction='withdraw'}>{lang==='ru'?'↗ Вывести':'↗ Withdraw'}</button></div><small>{lang==='ru'?'Доступный баланс по подтверждённым записям ledger.':'Available balance from confirmed ledger entries.'}</small>{#if Number(gramPendingBalance)>0}<small class="gram-pending-note">{lang==='ru'?'Ожидает выплаты продавцу: ':'Seller proceeds pending payout: '}{gramPendingBalance} GRAM</small>{/if}</div><button class="refresh-button" type="button" onclick={()=>showGramInfo=true}>{lang==='ru'?'Подробнее':'Details'}</button>
       </article>
       <article class="profile-card wallet-card">
-        <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">WALLET CONNECT · PROOF</div><h2>{lang==='ru'?'GRAM-кошелёк':'GRAM wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} multisigApprovalRequest={treasuryApprovalRequest} onMultisigApprovalSent={onTreasuryApprovalSent} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления блокчейна и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for the blockchain to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletAddress=address;walletConnected=Boolean(address);}} /></div>
+        <div class="wallet-card-icon">◈</div><div class="wallet-card-copy"><div class="eyebrow">WALLET CONNECT · PROOF</div><h2>{lang==='ru'?'GRAM-кошелёк':'GRAM wallet'}</h2><p>{lang==='ru'?'Подтверждённый адрес кошелька, связанный с твоим Telegram-профилем.':'Wallet address cryptographically linked to your Telegram profile.'}</p><TonWalletConnect api={API} authToken={authToken} {lang} multisigApprovalRequest={treasuryApprovalRequest} onMultisigApprovalSent={onTreasuryApprovalSent} multisigProposalRequest={treasuryProposalRequest} onMultisigProposalSent={onTreasuryProposalSent} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления блокчейна и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for the blockchain to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletAddress=address;walletConnected=Boolean(address);}} /></div>
       </article>
       <article class="profile-card profile-inventory-card">
         <div class="profile-inventory-heading"><div><div class="eyebrow">YOUR COLLECTION</div><h2>{lang==='ru'?'Подарки и инвентарь':'Gifts & inventory'}</h2><small>{visibleVerifiedAssets.length} {lang==='ru'?'подтверждённых активов':'verified assets'}</small></div><button class="refresh-button" type="button" onclick={refreshOwnershipInventory} disabled={verifiedAssetsLoading || telegramGiftImportBusy || businessGiftImportBusy || tonNftImportBusy}>↻</button></div>
