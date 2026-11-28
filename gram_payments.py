@@ -435,7 +435,7 @@ def create_gram_deposit_router(authenticate, rate_limit) -> APIRouter:
     router = APIRouter(prefix="/api/gram", tags=["GRAM payments"])
 
     @router.post("/deposits")
-    def create_deposit(payload: GramDepositRequest, authorization: str | None = Header(default=None)):
+    def create_deposit(payload: GramDepositRequest, authorization: str | None = Header(default=None, alias="X-Telegram-Init-Data")):
         if not authorization:
             raise HTTPException(status_code=401, detail="Telegram Mini App authentication required")
         user = authenticate(authorization)
@@ -451,7 +451,7 @@ def create_gram_deposit_router(authenticate, rate_limit) -> APIRouter:
             raise HTTPException(status_code=503, detail="GRAM deposits are not configured") from exc
 
     @router.get("/deposits/{deposit_id}")
-    def read_deposit(deposit_id: str, authorization: str | None = Header(default=None)):
+    def read_deposit(deposit_id: str, authorization: str | None = Header(default=None, alias="X-Telegram-Init-Data")):
         if not authorization:
             raise HTTPException(status_code=401, detail="Telegram Mini App authentication required")
         user = authenticate(authorization)
@@ -461,7 +461,7 @@ def create_gram_deposit_router(authenticate, rate_limit) -> APIRouter:
         return result
 
     @router.get("/balance")
-    def read_balance(authorization: str | None = Header(default=None)):
+    def read_balance(authorization: str | None = Header(default=None, alias="X-Telegram-Init-Data")):
         if not authorization:
             raise HTTPException(status_code=401, detail="Telegram Mini App authentication required")
         user = authenticate(authorization)
