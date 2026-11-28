@@ -271,6 +271,7 @@ def create_marketplace_admin_router(verify_admin):
                 "network": "-239",
                 "order_seqno": order_seqno,
                 "order_address": order["address"],
+                "signer_wallet": wallet_address,
                 "transaction": {
                     "validUntil": valid_until,
                     "network": "-239",
