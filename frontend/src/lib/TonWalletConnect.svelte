@@ -402,7 +402,7 @@
   {/if}
   {#if multisigApprovalRequest && !multisigApprovalSubmitted && status === 'verified' && address === multisigApprovalRequest.signerWallet && tonConnect?.wallet}
     <button class="ton-wallet-button inventory-import-button" type="button" onclick={sendMultisigApproval} disabled={busy}>
-      {busy ? '…' : (lang === 'ru' ? 'Подписать ордер #{multisigApprovalRequest.orderSeqno}' : 'Approve order #{multisigApprovalRequest.orderSeqno}')}
+      {busy ? '…' : (lang === 'ru' ? 'Подписать ордер #' + multisigApprovalRequest.orderSeqno : 'Approve order #' + multisigApprovalRequest.orderSeqno)}
     </button>
     <p class="ton-wallet-message">{lang === 'ru' ? 'Кошелёк покажет точную транзакцию. Подтверждай только после проверки получателя и суммы в админ-панели.' : 'Your wallet will show the exact transaction. Confirm only after reviewing the recipient and amount in the admin panel.'}</p>
   {:else if multisigApprovalRequest && !multisigApprovalSubmitted}
