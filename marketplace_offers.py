@@ -20,7 +20,7 @@ from fastapi import APIRouter, Body, Header, HTTPException, Query
 from marketplace import _enforce_user_rate_limit, _verified_asset_actions_enabled, _test_unverified_assets_allowed, _migrate_legacy_marketplace_table_names, _checkout_enabled_for_order
 from database import begin_write, select_for_update, require_sqlite_connection, db as _database_db
 from pydantic import BaseModel, Field, field_validator
-from marketplace_payments import append_escrow_event, list_escrow_events
+from marketplace_payments import list_escrow_events
 
 DB_PATH = os.getenv("HASSLE_NFT_DB_PATH", os.getenv("GIFT_RADAR_DB_PATH", os.getenv("DATABASE_PATH", "./data/gift-radar.sqlite3")))
 
@@ -2050,20 +2050,13 @@ def create_marketplace_offers_router(
             ).fetchone():
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="A payout has already been recorded for this deal")
-            pending_order = conn.execute(
-                """SELECT event_data FROM marketplace_escrow_events
-                   WHERE deal_id=? AND event_type='payout_order_prepared'
-                   ORDER BY created_at DESC LIMIT 1""",
+            pending_reservation = conn.execute(
+                "SELECT expiration_date FROM marketplace_multisig_payout_reservations WHERE deal_id=?",
                 (deal_id,),
             ).fetchone()
-            if pending_order is not None:
-                try:
-                    pending_expiration = int(json.loads(pending_order["event_data"] or "{}").get("expiration_date") or 0)
-                except (TypeError, ValueError):
-                    pending_expiration = now + 1
-                if pending_expiration > now:
-                    conn.rollback()
-                    raise HTTPException(status_code=409, detail="A live multisig payout order already exists for this deal")
+            if pending_reservation is not None and int(pending_reservation["expiration_date"]) > now:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="A live multisig payout order already exists for this deal")
             seller_id = str(deal["listing_owner_id"])
             seller_wallet = conn.execute(
                 """SELECT address FROM verified_wallets
@@ -2152,40 +2145,40 @@ def create_marketplace_offers_router(
             ).fetchone():
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="A payout has already been recorded for this deal")
-            pending_order = conn.execute(
-                """SELECT event_data FROM marketplace_escrow_events
-                   WHERE deal_id=? AND event_type='payout_order_prepared'
-                   ORDER BY created_at DESC LIMIT 1""",
+            pending_reservation = conn.execute(
+                "SELECT expiration_date FROM marketplace_multisig_payout_reservations WHERE deal_id=?",
                 (deal_id,),
             ).fetchone()
-            if pending_order is not None:
-                try:
-                    pending_expiration = int(json.loads(pending_order["event_data"] or "{}").get("expiration_date") or 0)
-                except (TypeError, ValueError):
-                    pending_expiration = now + 1
-                if pending_expiration > now:
+            reservation_values = (
+                prepared["payload_sha256"],
+                prepared["actions_payload_hash"],
+                expiration,
+                memo,
+                seller_raw,
+                str(nano_amount),
+                expected_treasury,
+                admin_id,
+                now,
+            )
+            if pending_reservation is not None:
+                if int(pending_reservation["expiration_date"]) > now:
                     conn.rollback()
                     raise HTTPException(status_code=409, detail="A live multisig payout order already exists for this deal")
-            reservation = append_escrow_event(
-                conn,
-                deal_id=deal_id,
-                actor_user_id=admin_id,
-                event_type="payout_order_prepared",
-                event_key=f"{deal_id}:gram-payout-order:{prepared['payload_sha256'][:32]}",
-                event_data={
-                    "payload_sha256": prepared["payload_sha256"],
-                    "actions_payload_hash": prepared["actions_payload_hash"],
-                    "expiration_date": expiration,
-                    "memo": memo,
-                    "seller_wallet": seller_raw,
-                    "amount_nano": str(nano_amount),
-                    "treasury": expected_treasury,
-                },
-                now=now,
-            )
-            if reservation.get("idempotent_replay"):
-                conn.rollback()
-                raise HTTPException(status_code=409, detail="This exact payout order was already prepared")
+                conn.execute(
+                    """UPDATE marketplace_multisig_payout_reservations
+                       SET payload_sha256=?, actions_payload_hash=?, expiration_date=?,
+                           memo=?, seller_wallet=?, amount_nano=?, treasury=?, created_by=?, created_at=?
+                       WHERE deal_id=?""",
+                    (*reservation_values, deal_id),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO marketplace_multisig_payout_reservations
+                       (deal_id, payload_sha256, actions_payload_hash, expiration_date,
+                        memo, seller_wallet, amount_nano, treasury, created_by, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (deal_id, *reservation_values),
+                )
             conn.commit()
 
         return {
