@@ -46,3 +46,16 @@ gram_deposit_intents stores the one-time request and its lifecycle. gram_deposit
 - Provider account history is used as the source of successful canonical account transactions. A separate configurable multi-confirmation depth has not yet been implemented.
 - Production deposit activation, multisig withdrawals, NFT escrow custody and off-chain Telegram asset custody are separate release gates.
 - This change does not deploy to production or modify Railway environment variables.
+
+
+## GRAM withdrawals
+
+The withdrawal request API is deliberately separate from execution:
+
+- POST /api/payments/gram/withdrawals accepts a decimal GRAM amount, destination wallet address and idempotency key.
+- GET /api/payments/gram/withdrawals lists only the authenticated user's requests.
+- POST /api/payments/gram/withdrawals/{id}/cancel releases a request only while it is still queued. Once it may have entered multisig processing, user cancellation is refused.
+
+Requests require HASSLE_TON_WITHDRAWAL_REQUESTS_ENABLED=1, a configured treasury/network and a fee basis-point value from 0 to 200. The backend validates a workchain-0 TON address, applies configured min/max limits, calculates the fee in integer nano-GRAM and reserves the gross amount atomically from user_balance into withdrawal hold / pending fee ledger accounts.
+
+The request is only queued. It is not a payment and does not cause an outgoing blockchain transaction. The current implementation intentionally has no hot-wallet signer, no automated multisig order approval, and no route that marks a payout confirmed from a client callback. A submitted payout can be settled only by a future server-side chain observer; releasing a submitted request requires independently verified chain failure. Keep the request feature gate off until the 2-of-3 multisig execution and monitoring workflow is operational.
