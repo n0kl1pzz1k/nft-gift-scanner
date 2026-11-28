@@ -116,17 +116,15 @@ def test_confirmed_chain_transfer_credits_ledger_exactly_once():
     conn.close()
 
 
-@pytest.mark.parametrize("change", [
-    {"in_msg": {"destination": "EQother", "value": "1250000000",
-                "decoded_body": {"text": "HASSLE:wrong"}}},
-    {"in_msg": {"destination": "EQtreasury", "value": "1250000001",
-                "decoded_body": {"text": "HASSLE:wrong"}}},
-])
-def test_wrong_recipient_or_amount_never_credits(change):
+@pytest.mark.parametrize("mismatch", ["recipient", "amount"])
+def test_wrong_recipient_or_amount_never_credits(mismatch):
     conn = _connection()
     intent = _intent(conn)
     tx = _transaction(intent)
-    tx["in_msg"].update(change["in_msg"])
+    if mismatch == "recipient":
+        tx["in_msg"]["destination"] = "EQother"
+    else:
+        tx["in_msg"]["value"] = str(intent["amount_nano"] + 1)
     assert confirm_gram_deposit(conn, network="mainnet", transaction=tx, now=1200) is None
     assert conn.execute("SELECT COUNT(*) FROM marketplace_ledger_transactions").fetchone()[0] == 0
     conn.close()
