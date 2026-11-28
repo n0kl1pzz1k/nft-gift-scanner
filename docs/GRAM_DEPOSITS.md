@@ -35,8 +35,9 @@ wallet's network before asking it to sign.
 ## Credit conditions
 
 The indexer only considers successful native \`TonTransfer\` actions in completed
-TONAPI events. It matches the exact treasury address, exact nano amount, unique
-comment, configured network, non-scam status, and non-in-progress event. It then
+TONAPI events. It matches the configured treasury account and exact recipient, exact nano amount, unique
+comment, configured network, explicit non-scam status, and completed event. Before issuing a
+request, the API also verifies through TONAPI that the treasury account is active. It then
 uses one database transaction to:
 
 1. insert a unique chain event;
