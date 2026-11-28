@@ -299,3 +299,17 @@ def expire_gram_deposit_intents(conn: Any, *, now: int | None = None) -> int:
     except BaseException:
         conn.rollback()
         raise
+
+
+def build_ton_connect_comment_payload(comment: str) -> str:
+    """Serialize a standard TON text-comment cell for TON Connect's payload field."""
+    import base64
+    from tonsdk.boc import Cell
+
+    value = str(comment or "")
+    if not value or len(value.encode("utf-8")) > 120:
+        raise GramDepositError("TON comment must contain 1-120 UTF-8 bytes")
+    cell = Cell()
+    cell.bits.write_uint(0, 32)
+    cell.bits.write_string(value)
+    return base64.b64encode(cell.to_boc(False)).decode("ascii")
