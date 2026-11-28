@@ -50,6 +50,10 @@
   let gramBalance = $state('0');
   let gramPendingBalance = $state('0');
   let gramBalanceLoading = $state(false);
+  let gramDepositAmount = $state('1');
+  let gramDepositBusy = $state(false);
+  let gramDepositRequest = $state<{id:string;transaction:{validUntil:number;network:string;messages:Array<{address:string;amount:string;payload?:string}>}} | null>(null);
+  let gramDepositNotice = $state('');
   let marketSearch = $state('');
   let marketplaceLoading = $state(true);
   let marketError = $state('');
@@ -760,6 +764,71 @@
       notice = error instanceof Error ? error.message : String(error);
     } finally { gramBalanceLoading = false; }
   }
+  async function createGramDeposit() {
+    if (!signedIn || !authToken || !walletConnected || gramDepositBusy) {
+      notice = lang === 'ru' ? 'Сначала войди через Telegram и подключи подтверждённый GRAM-кошелёк.' : 'Sign in with Telegram and connect your verified GRAM wallet first.';
+      return;
+    }
+    if (!/^(?:\d+)(?:\.\d{1,9})?$/.test(gramDepositAmount) || Number(gramDepositAmount) <= 0) {
+      notice = lang === 'ru' ? 'Укажи корректную сумму GRAM.' : 'Enter a valid GRAM amount.';
+      return;
+    }
+    gramDepositBusy = true;
+    gramDepositNotice = '';
+    try {
+      const data = await request('/api/payments/gram/deposits', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount_gram: gramDepositAmount, idempotency_key: crypto.randomUUID() }),
+      });
+      if (!data.id || !data.ton_connect?.messages?.length) throw new Error('Сервер не подготовил GRAM-депозит.');
+      gramDepositRequest = { id: String(data.id), transaction: data.ton_connect };
+      gramAction = null;
+      notice = lang === 'ru'
+        ? 'Заявка создана. Проверь адрес и сумму в подключённом кошельке, затем подтверди перевод.'
+        : 'Deposit request created. Check the destination and amount in your connected wallet, then approve the transfer.';
+      haptic('success');
+    } catch (error) {
+      notice = error instanceof Error ? error.message : String(error);
+      haptic('error');
+    } finally {
+      gramDepositBusy = false;
+    }
+  }
+
+  async function pollGramDeposit(depositId: string) {
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      await new Promise(resolve => window.setTimeout(resolve, 5000));
+      try {
+        const data = await request('/api/payments/gram/deposits/' + encodeURIComponent(depositId));
+        if (data.status === 'confirmed') {
+          if (gramDepositRequest?.id === depositId) gramDepositRequest = null;
+          gramDepositNotice = lang === 'ru' ? 'Пополнение GRAM подтверждено блокчейном.' : 'GRAM deposit confirmed on-chain.';
+          notice = gramDepositNotice;
+          haptic('success');
+          await loadGramBalance();
+          return;
+        }
+        if (data.status === 'expired') {
+          if (gramDepositRequest?.id === depositId) gramDepositRequest = null;
+          notice = lang === 'ru' ? 'Срок заявки истёк. Если перевод уже отправлен, дождись сверки сети.' : 'Deposit request expired. If the transfer was already sent, allow time for chain reconciliation.';
+          return;
+        }
+      } catch {
+        // Keep polling after transient API errors; the server indexer is authoritative.
+      }
+    }
+    notice = lang === 'ru'
+      ? 'Перевод отправлен. Ожидаем подтверждение сети, баланс обновится автоматически.'
+      : 'Transfer submitted. Waiting for network confirmation; your balance will update automatically.';
+  }
+
+  async function onGramDepositSent(depositId: string) {
+    gramDepositNotice = lang === 'ru' ? 'Перевод отправлен. Проверяем подтверждение сети…' : 'Transfer submitted. Waiting for network confirmation…';
+    notice = gramDepositNotice;
+    void pollGramDeposit(depositId);
+  }
+
   async function loadSellerProfile() {
     if (!signedIn) { sellerProfile = null; sellerDisplayName = ''; sellerBio = ''; return; }
     try {
@@ -1836,7 +1905,7 @@
           {/if}
           <button class="refresh-button" type="button" onclick={loadTelegramBusinessStatus}>{lang==='ru'?'Проверить подключение':'Check connection'} ↻</button>
         </div>
-        <TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления блокчейна и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for the blockchain to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletAddress=address;walletConnected=Boolean(address);}} />{#if walletConnected}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTonWalletAssets} disabled={tonNftImportBusy}>{tonNftImportBusy?(lang==='ru'?'Проверяем NFT…':'Verifying wallet NFTs…'):(lang==='ru'?'↓ Загрузить NFT из кошелька':'↓ Import NFTs')}</button>{/if}{#if tonNftImportMessage}<p class="ton-wallet-message">{tonNftImportMessage}</p>{/if}</div></div>
+        <TonWalletConnect api={API} authToken={authToken} {lang} deliveryRequest={tonDeliveryRequest} paymentRequest={tonPaymentRequest} depositRequest={gramDepositRequest} onDepositSent={onGramDepositSent} onPaymentSent={confirmTonPayment} onDeliverySent={async (dealId,boc)=>{tonDeliveryRequest=null;view='offers';try{await request('/api/marketplace/deals/'+encodeURIComponent(dealId)+'/ton-nft-delivery/submitted',undefined,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boc})});notice=lang==='ru'?'Транзакция передачи отправлена. Покупатель должен проверить нового владельца.':'NFT transfer submitted. The buyer must verify the new owner.';}catch{notice=lang==='ru'?'Кошелёк отправил транзакцию. Не повторяй перевод, дождись обновления блокчейна и проверь владельца.':'Wallet submitted the transaction. Do not send it again; wait for the blockchain to update and verify ownership.';}await loadOffersAndDeals();}} onVerified={(address)=>{walletAddress=address;walletConnected=Boolean(address);}} />{#if walletConnected}<button class="ton-wallet-button inventory-import-button" type="button" onclick={importTonWalletAssets} disabled={tonNftImportBusy}>{tonNftImportBusy?(lang==='ru'?'Проверяем NFT…':'Verifying wallet NFTs…'):(lang==='ru'?'↓ Загрузить NFT из кошелька':'↓ Import NFTs')}</button>{/if}{#if tonNftImportMessage}<p class="ton-wallet-message">{tonNftImportMessage}</p>{/if}</div></div>
        {#if verifiedAssets.some(asset=>asset.source==='telegram_gift') && !telegramOwnershipSnapshotComplete}<div class="ownership-verification-notice" role="status">{lang==='ru'?'Подарки Telegram временно скрыты: актуальное владение ещё не подтверждено. Нажми «Обновить», чтобы проверить аккаунт.':'Telegram gifts are temporarily hidden because current ownership has not been confirmed. Tap Refresh to verify your account.'}</div>{/if}{#if verifiedAssetsLoading}
          <div class="inventory-empty-state"><span class="state-icon">◌</span><strong>{lang==='ru'?'Проверяем инвентарь…':'Checking inventory…'}</strong></div>
        {:else if visibleVerifiedAssets.length}
@@ -2350,6 +2419,6 @@
 <BottomNav lang={lang} active={view==='favorites'?'orders':view==='seller'?'profile':view==='create'?'profile':view as 'orders'|'auctions'|'offers'|'profile'} onNavigate={(target)=>{if(target==='profile'){openProfile();return;}haptic();view=target;notice='';}} />
 
 {#if showGramInfo}<div class="hassle-sheet-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showGramInfo=false;}}><div class="hassle-info-sheet" role="dialog" aria-modal="true" aria-labelledby="gram-info-title"><button class="sheet-close" type="button" onclick={()=>showGramInfo=false} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button><div class="gram-sheet-icon"><GramToken size={34} class="gram-token-icon" /></div><span class="eyebrow">HASSLE INTERNAL CURRENCY</span><h2 id="gram-info-title">GRAM</h2><p>{lang==='ru'?'Серверный ledger уже учитывает подтверждённые операции. Автоматическое пополнение GRAM и вывод средств пока не подключены, поэтому доступный баланс не пополняется переводами из кошелька.':'The server ledger records confirmed operations. Automatic GRAM deposits and withdrawals are not connected yet, so wallet transfers do not increase the available balance.'}</p><div class="gram-sheet-note"><span>●</span>{lang==='ru'?'Пополнение станет доступно после подключения и проверки автоматического мониторинга депозитов.':'Deposits will become available after the automatic deposit monitor is integrated and verified.'}</div><div class="gram-action-row"><button type="button" onclick={()=>{showGramInfo=false;gramAction='deposit';}}>{lang==='ru'?'Пополнить':'Deposit'}</button><button type="button" onclick={()=>{showGramInfo=false;gramAction='withdraw';}}>{lang==='ru'?'Вывести':'Withdraw'}</button></div><button class="sheet-primary" type="button" onclick={()=>{showGramInfo=false;view='profile';void loadSellerProfile();}}>{lang==='ru'?'Открыть профиль':'Open profile'}</button></div></div>{/if}
-{#if gramAction}<div class="hassle-sheet-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)gramAction=null;}}><div class="hassle-info-sheet gram-action-sheet" role="dialog" aria-modal="true" aria-labelledby="gram-action-title"><button class="sheet-close" type="button" onclick={()=>gramAction=null} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button><div class="gram-sheet-icon"><GramToken size={34} class="gram-token-icon" /></div><span class="eyebrow">GRAM · WALLET</span><h2 id="gram-action-title">{gramAction==='deposit'?(lang==='ru'?'Пополнение GRAM':'Deposit GRAM'):(lang==='ru'?'Вывод GRAM':'Withdraw GRAM')}</h2><p>{lang==='ru'?'Автоматическое пополнение и вывод GRAM пока не включены. Не отправляй средства на адреса HASSLE до появления персональной заявки на депозит.':'Automatic GRAM deposits and withdrawals are not enabled yet. Do not send funds to HASSLE addresses until a personal deposit request is available.'}</p><div class="gram-sheet-note"><span>●</span>{lang==='ru'?'Функция откроется после запуска депозитного мониторинга и безопасного механизма вывода.':'This feature will open after deposit monitoring and a secure withdrawal mechanism are live.'}</div><button class="sheet-primary" type="button" onclick={()=>gramAction=null}>{lang==='ru'?'Понятно':'Got it'}</button></div></div>{/if}
+{#if gramAction}<div class="hassle-sheet-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)gramAction=null;}}><div class="hassle-info-sheet gram-action-sheet" role="dialog" aria-modal="true" aria-labelledby="gram-action-title"><button class="sheet-close" type="button" onclick={()=>gramAction=null} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button><div class="gram-sheet-icon"><GramToken size={34} class="gram-token-icon" /></div><span class="eyebrow">GRAM · WALLET</span><h2 id="gram-action-title">{gramAction==='deposit'?(lang==='ru'?'Пополнение GRAM':'Deposit GRAM'):(lang==='ru'?'Вывод GRAM':'Withdraw GRAM')}</h2>{#if gramAction==='deposit'}<p>{lang==='ru'?'Создай персональную заявку. После отправки кошелёк покажет точный адрес, сумму и комментарий. Баланс пополнится только после проверки транзакции сервером.':'Create a personal request. Your wallet will show the exact destination, amount and comment. Funds are credited only after server-side transaction verification.'}</p><label class="gram-deposit-label" for="gram-deposit-amount">{lang==='ru'?'Сумма':'Amount'} · GRAM</label><input id="gram-deposit-amount" class="gram-deposit-input" inputmode="decimal" autocomplete="off" bind:value={gramDepositAmount} placeholder="1.0" /><button class="sheet-primary" type="button" onclick={createGramDeposit} disabled={gramDepositBusy || !signedIn || !walletConnected}>{gramDepositBusy?'…':(lang==='ru'?'Создать заявку и открыть кошелёк':'Create request')}</button>{#if !walletConnected}<small>{lang==='ru'?'Сначала подключи и подтверди GRAM-кошелёк в профиле.':'Connect and verify your GRAM wallet in the profile first.'}</small>{/if}{:else}<p>{lang==='ru'?'Автоматический вывод пока закрыт. Средства не списываются, пока не готова проверенная схема мультиподписи и подтверждения транзакций.':'Withdrawals remain disabled until the multisig signing and transaction confirmation flow is verified.'}</p><div class="gram-sheet-note"><span>●</span>{lang==='ru'?'Никакие средства сейчас не списываются.':'No funds are being debited.'}</div><button class="sheet-primary" type="button" onclick={()=>gramAction=null}>{lang==='ru'?'Понятно':'Got it'}</button>{/if}</div></div>{/if}
 {#if showAboutModal}<div class="hassle-sheet-backdrop" role="presentation" onclick={(event)=>{if(event.target===event.currentTarget)showAboutModal=false;}}><div class="hassle-info-sheet" role="dialog" aria-modal="true" aria-labelledby="about-hassle-title"><button class="sheet-close" type="button" onclick={()=>showAboutModal=false} aria-label={lang==='ru'?'Закрыть':'Close'}>×</button><div class="gram-sheet-icon">H</div><span class="eyebrow">TELEGRAM NFT MARKETPLACE</span><h2 id="about-hassle-title">HASSLE NFT</h2><p>{lang==='ru'?'Независимый маркетплейс Telegram NFT-подарков, коллекционных имён и номеров. Платформа показывает только подтверждённые активы и не подменяет реальные балансы демонстрационными цифрами.':'An independent marketplace for Telegram NFT gifts, collectible usernames and numbers. The platform displays verified assets and never substitutes real balances with demo values.'}</p><button class="sheet-primary" type="button" onclick={()=>showAboutModal=false}>{lang==='ru'?'Закрыть':'Close'}</button></div></div>{/if}
 {#if showSplash}<div out:fade={{duration:420}}><HassleSplash lang={lang}/></div>{/if}
