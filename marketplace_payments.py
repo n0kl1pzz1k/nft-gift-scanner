@@ -106,6 +106,20 @@ def initialize_sqlite_payment_schema(conn: Any) -> None:
     );
     CREATE INDEX IF NOT EXISTS idx_marketplace_escrow_events_deal_created
         ON marketplace_escrow_events(deal_id, created_at ASC, id ASC);
+    CREATE TABLE IF NOT EXISTS marketplace_multisig_payout_reservations (
+        deal_id TEXT PRIMARY KEY REFERENCES marketplace_deals(id),
+        payload_sha256 TEXT NOT NULL,
+        actions_payload_hash TEXT NOT NULL,
+        expiration_date BIGINT NOT NULL,
+        memo TEXT NOT NULL,
+        seller_wallet TEXT NOT NULL,
+        amount_nano TEXT NOT NULL,
+        treasury TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_marketplace_multisig_payout_reservations_expiration
+        ON marketplace_multisig_payout_reservations(expiration_date);
     CREATE TRIGGER IF NOT EXISTS trg_marketplace_escrow_events_no_update
     BEFORE UPDATE ON marketplace_escrow_events
     BEGIN
@@ -533,7 +547,7 @@ ESCROW_EVENT_TYPES = {
     "payment_confirmed", "escrow_funded", "asset_transfer_requested",
     "asset_transfer_submitted", "asset_transfer_confirmed", "asset_transfer_rejected", "deal_completed",
     "deal_disputed", "refund_requested", "refund_confirmed", "payout_released", "seller_credit_recorded",
-    "deal_cancelled", "deal_expired", "payout_order_prepared", "dispute_resolution_approved",
+    "deal_cancelled", "deal_expired", "dispute_resolution_approved",
     "dispute_resolution_ready",
 }
 
