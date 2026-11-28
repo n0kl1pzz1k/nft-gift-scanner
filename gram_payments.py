@@ -283,8 +283,8 @@ def confirm_gram_deposit_event(
     with _db() as conn:
         candidate = conn.execute(
             """SELECT * FROM gram_deposit_intents
-               WHERE memo=? AND network=? AND status='pending' AND expires_at>=?""",
-            (memo, network, timestamp),
+               WHERE memo=? AND network=? AND status='pending'""",
+            (memo, network),
         ).fetchone()
         if candidate is None:
             return False
@@ -301,8 +301,8 @@ def confirm_gram_deposit_event(
         begin_write(conn, f"gram-deposit:{candidate['id']}", f"gram-user:{candidate['telegram_id']}")
         locked = conn.execute(
             select_for_update(conn, """SELECT * FROM gram_deposit_intents
-               WHERE id=? AND status='pending' AND expires_at>=?"""),
-            (candidate["id"], timestamp),
+               WHERE id=? AND status='pending'"""),
+            (candidate["id"],),
         ).fetchone()
         if locked is None:
             conn.rollback()
