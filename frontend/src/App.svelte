@@ -2488,12 +2488,12 @@
           <button class="sheet-primary" type="button" onclick={createGramDeposit} disabled={gramBalanceLoading || !signedIn}>{gramBalanceLoading?'…':(lang==='ru'?'Создать заявку':'Create deposit request')}</button>
         {:else}
           {#if gramWithdrawal?.status === 'queued_for_multisig'}
-            <p>{lang==='ru'?'Заявка ожидает обработки мультисигом 2 из 3. До отправки транзакции её можно отменить.':'The request is queued for 2-of-3 multisig processing. It can be cancelled before a payout transaction is submitted.'}</p>
+            <p>{lang==='ru'?'Заявка сохранена, сумма зарезервирована. Подписание и отправка выплаты ещё не подключены. До начала исполнения её можно отменить.':'The request is saved and funds are reserved. Multisig signing and payout submission are not connected yet. It can be cancelled before execution starts.'}</p>
             <div class="gram-sheet-note"><span>●</span>{gramWithdrawal.amount} GRAM · {lang==='ru'?'Комиссия':'Fee'} {gramWithdrawal.fee} · {lang==='ru'?'К получению':'To receive'} {gramWithdrawal.net_amount} GRAM</div>
             <small>{String(gramWithdrawal.destination_address || '')}</small>
             <button class="sheet-primary" type="button" onclick={cancelGramWithdrawal} disabled={gramWithdrawalBusy}>{gramWithdrawalBusy?'…':(lang==='ru'?'Отменить и вернуть резерв':'Cancel and release reserve')}</button>
           {:else}
-            <p>{lang==='ru'?'Заявка резервирует сумму на балансе. Отправка средств возможна только после проверки активного казначейства 2 из 3.':'A request reserves the amount in your balance. Funds can be sent only after the active 2-of-3 treasury is verified.'}</p>
+            <p>{lang==='ru'?'Заявка резервирует сумму на балансе. Сам перевод останется закрыт, пока не будет подключено и проверено исполнение ордеров мультисигом 2 из 3.':'A request reserves the amount in your balance. Payouts remain closed until the 2-of-3 multisig order execution flow is connected and verified.'}</p>
             <label class="gram-deposit-field">{lang==='ru'?'Сумма вывода в GRAM':'Withdrawal amount in GRAM'}<input type="number" min="0.1" step="0.000000001" bind:value={gramWithdrawalAmount} inputmode="decimal" /></label>
             <label class="gram-deposit-field">{lang==='ru'?'Адрес кошелька':'Wallet address'}<input type="text" autocomplete="off" spellcheck="false" bind:value={gramWithdrawalAddress} placeholder="UQ…" /></label>
             <button class="sheet-primary" type="button" onclick={createGramWithdrawal} disabled={gramWithdrawalBusy || !signedIn}>{gramWithdrawalBusy?'…':(lang==='ru'?'Создать заявку на вывод':'Create withdrawal request')}</button>
