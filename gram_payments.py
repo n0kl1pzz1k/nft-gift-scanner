@@ -800,24 +800,37 @@ def create_gram_deposit_router(authenticate, rate_limit) -> APIRouter:
         from decimal import Decimal
         with _db() as conn:
             rows = conn.execute(
-                """SELECT direction,amount FROM marketplace_ledger_entries
-                   WHERE account_type='user_balance' AND account_id=? AND currency='TON'""",
-                (str(user["id"]),),
+                """SELECT le.account_type,le.direction,le.amount
+                   FROM marketplace_ledger_entries le
+                   LEFT JOIN gram_withdrawals gw
+                     ON le.account_type='withdrawal_reserved' AND le.account_id=gw.id
+                   WHERE le.currency='TON' AND (
+                     (le.account_type='user_balance' AND le.account_id=?) OR
+                     (le.account_type='withdrawal_reserved' AND gw.telegram_id=?)
+                   )""",
+                (str(user["id"]), str(user["id"])),
             ).fetchall()
         available_gram = Decimal("0")
+        reserved_gram = Decimal("0")
         for row in rows:
             amount = Decimal(str(row["amount"]))
             if not amount.is_finite() or amount <= 0:
                 raise HTTPException(status_code=503, detail="GRAM balance requires reconciliation")
-            available_gram += amount if row["direction"] == "credit" else -amount
-        if available_gram < 0:
+            delta = amount if row["direction"] == "credit" else -amount
+            if row["account_type"] == "user_balance":
+                available_gram += delta
+            else:
+                reserved_gram += delta
+        if available_gram < 0 or reserved_gram < 0:
             raise HTTPException(status_code=503, detail="GRAM balance requires reconciliation")
         available_scaled = available_gram * NANO_PER_GRAM
-        if available_scaled != available_scaled.to_integral_value():
+        reserved_scaled = reserved_gram * NANO_PER_GRAM
+        if available_scaled != available_scaled.to_integral_value() or reserved_scaled != reserved_scaled.to_integral_value():
             raise HTTPException(status_code=503, detail="GRAM balance precision requires reconciliation")
         available = int(available_scaled)
+        reserved = int(reserved_scaled)
         return {"currency": "GRAM", "available_nano": str(available),
-                "reserved_nano": "0", "available": _nano_to_gram_text(available),
-                "reserved": "0"}
+                "reserved_nano": str(reserved), "available": _nano_to_gram_text(available),
+                "reserved": _nano_to_gram_text(reserved)}
 
     return router
