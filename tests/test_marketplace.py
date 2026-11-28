@@ -32,6 +32,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         marketplace.init_marketplace_db()
         marketplace_offers.init_marketplace_offers_db()
         api.init_ton_connect_db()
+        api.init_gram_deposit_schema()
         self.auth_patch = patch.object(
             api,
             "_verify_telegram_init_data",
@@ -1560,6 +1561,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         marketplace.init_marketplace_db()
         marketplace_offers.init_marketplace_offers_db()
         api.init_ton_connect_db()
+        api.init_gram_deposit_schema()
 
         with marketplace._db() as connection:
             violations = connection.execute("PRAGMA foreign_key_check").fetchall()

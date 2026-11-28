@@ -193,6 +193,7 @@ def test_postgres_runtime_smoke_initializes_auth_assets_listing_and_readiness():
     import psycopg
     import database
     import marketplace
+    import gram_payments
     import marketplace_offers
     import ton_connect
     from marketplace import create_marketplace_router
@@ -276,6 +277,8 @@ def test_postgres_runtime_smoke_initializes_auth_assets_listing_and_readiness():
             assert response.status_code == 201, response.text
             assert response.json()["item"]["title"] == "Verified PostgreSQL Gift"
 
+            with patch.object(gram_payments, "_db", side_effect=scoped_connection):
+                gram_payments.init_gram_deposit_schema()
             app_module = __import__("app")
             readiness = asyncio.run(app_module.readiness())
             assert readiness["status"] == "ready"

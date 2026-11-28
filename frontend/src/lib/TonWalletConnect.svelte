@@ -16,9 +16,11 @@
     onDeliverySent?: (dealId: string, boc: string) => Promise<void> | void;
     paymentRequest?: { dealId: string; buyerWallet: string; transaction: { validUntil: number; network: string; messages: Array<{ address: string; amount: string; payload?: string }> } } | null;
     onPaymentSent?: (dealId: string) => Promise<void> | void;
+    depositRequest?: { id: string; amount: string; transaction: { validUntil: number; network: string; messages: Array<{ address: string; amount: string; payload?: string }> } } | null;
+    onDepositSent?: (depositId: string) => Promise<void> | void;
   };
 
-  let { api, authToken, lang, onVerified, deliveryRequest = null, onDeliverySent = () => {}, paymentRequest = null, onPaymentSent = () => {} }: Props = $props();
+  let { api, authToken, lang, onVerified, deliveryRequest = null, onDeliverySent = () => {}, paymentRequest = null, onPaymentSent = () => {}, depositRequest = null, onDepositSent = () => {} }: Props = $props();
   let tonConnect = $state<TonConnectUIInstance | null>(null);
   let busy = $state(false);
   let address = $state('');
@@ -26,9 +28,16 @@
   let status = $state<'idle' | 'connected' | 'verified' | 'error'>('idle');
   let message = $state('');
   let paymentSubmitted = $state(false);
+  let depositSubmitted = $state(false);
+  let lastDepositRequestId = '';
 
   $effect(() => {
     if (!paymentRequest) paymentSubmitted = false;
+    const currentDepositId = depositRequest?.id || '';
+    if (currentDepositId !== lastDepositRequestId) {
+      depositSubmitted = false;
+      lastDepositRequestId = currentDepositId;
+    }
   });
 
   const copy = $derived({
@@ -182,6 +191,34 @@
     }
   }
 
+  async function sendGramDeposit() {
+    if (!tonConnect || !depositRequest || busy || status !== 'verified' || depositSubmitted) return;
+    if (!tonConnect.wallet) {
+      message = lang === 'ru' ? 'Сначала подключи GRAM-кошелёк.' : 'Connect your GRAM wallet first.';
+      return;
+    }
+    if (tonConnect.wallet.account.chain !== depositRequest.transaction.network) {
+      message = lang === 'ru' ? 'Выбери сеть, указанную в заявке на депозит.' : 'Switch to the network shown in the deposit request.';
+      status = 'error';
+      return;
+    }
+    busy = true;
+    message = '';
+    try {
+      await tonConnect.sendTransaction(depositRequest.transaction);
+      depositSubmitted = true;
+      await onDepositSent(depositRequest.id);
+      message = lang === 'ru'
+        ? 'Перевод отправлен. Не отправляй его повторно. HASSLE проверит транзакцию в блокчейне.'
+        : 'Transfer submitted. Do not send it again. HASSLE will verify it on-chain.';
+    } catch (error) {
+      message = error instanceof Error ? error.message : (lang === 'ru' ? 'Кошелёк отклонил или не отправил перевод.' : 'Wallet rejected or failed to submit the transfer.');
+      status = 'error';
+    } finally {
+      busy = false;
+    }
+  }
+
   async function sendTonPayment() {
     if (!tonConnect || !paymentRequest || busy || status !== 'verified') return;
     if (tonConnect.wallet?.account.address !== paymentRequest.buyerWallet) {
@@ -308,6 +345,16 @@
       </button>
     {/if}
     <p class="ton-wallet-message">{lang === 'ru' ? 'Проверь адрес и сумму в кошельке. HASSLE NFT не получает доступ к ключам.' : 'Check the destination and amount in your wallet. HASSLE NFT never receives your keys.'}</p>
+  {/if}
+  {#if depositRequest && status === 'verified' && tonConnect?.wallet}
+    {#if depositSubmitted}
+      <p class="ton-wallet-message">{lang === 'ru' ? 'Депозит отправлен. Ожидаем подтверждение блокчейна…' : 'Deposit submitted. Waiting for blockchain confirmation…'}</p>
+    {:else}
+      <button class="ton-wallet-button inventory-import-button" type="button" onclick={sendGramDeposit} disabled={busy}>
+        <GramToken size={17}/> {busy ? '…' : (lang === 'ru' ? 'Пополнить на ' + depositRequest.amount + ' GRAM' : 'Deposit ' + depositRequest.amount + ' GRAM')}
+      </button>
+    {/if}
+    <p class="ton-wallet-message">{lang === 'ru' ? 'Проверь сумму и адрес в кошельке. Баланс изменится только после проверки входящей транзакции.' : 'Check the amount and address in your wallet. Your balance changes only after the incoming transaction is verified.'}</p>
   {/if}
   {#if deliveryRequest && status === 'verified' && address === deliveryRequest.sellerWallet}
     {#if tonConnect?.wallet}
