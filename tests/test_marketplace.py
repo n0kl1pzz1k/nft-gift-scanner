@@ -2137,6 +2137,75 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(pending_authorizations, 0)
 
 
+    def test_asset_owner_transfer_rolls_back_all_marketplace_changes_on_history_failure(self):
+        external_id = "0:" + "d" * 64
+        asset = marketplace.register_verified_asset(
+            source="ton_nft", external_asset_id=external_id,
+            owner_telegram_id="101", title="Original owner gift", asset_type="gift",
+            image_url="", verification_method="ton_connect_proof",
+            verification_reference="original-owner-verification-reference",
+        )
+        with patch.dict(os.environ, {"HASSLE_TEST_SKIP_TON_OWNER_RECHECK": "true"}):
+            listing = self.client.post(
+                "/api/marketplace/orders",
+                headers={"X-Telegram-Init-Data": "user-a"},
+                json={"kind": "listing", "asset_id": asset["id"], "title": "Ignored", "price": "3", "currency": "TON"},
+            )
+        self.assertEqual(listing.status_code, 201, listing.text)
+        order_id = listing.json()["item"]["id"]
+        offer = self.client.post(
+            "/api/marketplace/offers",
+            headers={"X-Telegram-Init-Data": "user-b"},
+            json={"order_id": order_id, "amount": "2"},
+        )
+        self.assertEqual(offer.status_code, 201, offer.text)
+        offer_id = offer.json()["item"]["id"]
+
+        # Force a failure after the asset-owner UPDATE, at the ownership-history
+        # insert. The entire transfer transaction must roll back, not leave a
+        # new owner with an old active listing or partially cancelled offers.
+        with marketplace._db() as conn:
+            conn.execute("""
+                CREATE TRIGGER test_fail_ownership_history
+                BEFORE INSERT ON asset_ownership_history
+                BEGIN
+                    SELECT RAISE(ABORT, 'injected ownership-history failure');
+                END
+            """)
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            marketplace.register_verified_asset(
+                source="ton_nft", external_asset_id=external_id,
+                owner_telegram_id="202", title="New owner gift", asset_type="gift",
+                image_url="", verification_method="ton_connect_proof",
+                verification_reference="new-owner-verification-reference",
+                allow_owner_transfer=True,
+            )
+
+        with marketplace._db() as conn:
+            stored_asset = conn.execute(
+                "SELECT owner_telegram_id, title, status FROM verified_assets WHERE id = ?",
+                (asset["id"],),
+            ).fetchone()
+            stored_listing = conn.execute(
+                "SELECT status FROM marketplace_orders WHERE id = ?", (order_id,)
+            ).fetchone()
+            stored_offer = conn.execute(
+                "SELECT status FROM marketplace_offers WHERE id = ?", (offer_id,)
+            ).fetchone()
+            history_count = conn.execute(
+                "SELECT COUNT(*) FROM asset_ownership_history WHERE asset_id = ?",
+                (asset["id"],),
+            ).fetchone()[0]
+
+        self.assertEqual(stored_asset["owner_telegram_id"], "101")
+        self.assertEqual(stored_asset["title"], "Original owner gift")
+        self.assertEqual(stored_asset["status"], "verified")
+        self.assertEqual(stored_listing["status"], "active")
+        self.assertEqual(stored_offer["status"], "pending")
+        self.assertEqual(history_count, 0)
+
+
     def test_public_catalog_hides_legacy_unverified_listings_but_keeps_verified_assets(self):
         asset = marketplace.register_verified_asset(
             source="ton_nft", external_asset_id="EQB_catalog_verified",
