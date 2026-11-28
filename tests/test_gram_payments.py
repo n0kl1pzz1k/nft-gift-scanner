@@ -157,3 +157,115 @@ def test_deposits_fail_closed_without_explicit_feature_flag(monkeypatch):
     with pytest.raises(Exception) as error:
         gp.create_gram_deposit("123456", gp.Decimal("1"))
     assert getattr(error.value, "status_code", None) == 503
+
+
+def _seed_user_balance(connection, amount="5"):
+    from marketplace_payments import post_ledger_transaction
+    post_ledger_transaction(
+        connection,
+        idempotency_key="test-seed-user-balance",
+        reference_type="payment_intent",
+        reference_id="test-seed-deposit",
+        currency="TON",
+        debit_account=("chain_clearing", RAW_TREASURY),
+        credit_account=("user_balance", "123456"),
+        debit_amount=amount,
+        credit_amount=amount,
+        now=900,
+    )
+
+
+def _withdrawal_payload(amount="1", key="withdrawal-test-key-001"):
+    return gp.GramWithdrawalRequest(
+        amount=gp.Decimal(amount),
+        destination_address="0:" + "2" * 64,
+        idempotency_key=key,
+    )
+
+
+def _mock_withdrawal_ready(monkeypatch):
+    async def ready():
+        return "mainnet", RAW_TREASURY
+    monkeypatch.setattr(gp, "_require_gram_withdrawals_ready", ready)
+
+
+def test_withdrawal_reserves_balance_atomically_and_calculates_fee(monkeypatch):
+    import asyncio
+    connection = _prepare(monkeypatch)
+    _seed_user_balance(connection)
+    _mock_withdrawal_ready(monkeypatch)
+    monkeypatch.setenv("HASSLE_GRAM_WITHDRAWAL_FEE_BPS", "100")
+    result = asyncio.run(gp.create_gram_withdrawal(
+        "123456", _withdrawal_payload(), now=2000
+    ))
+    assert result["status"] == "queued_for_multisig"
+    assert result["amount"] == "1"
+    assert result["fee"] == "0.01"
+    assert result["net_amount"] == "0.99"
+    assert connection.execute(
+        "SELECT SUM(CASE WHEN direction='credit' THEN CAST(amount AS NUMERIC) ELSE -CAST(amount AS NUMERIC) END) FROM marketplace_ledger_entries WHERE account_type='user_balance' AND account_id='123456' AND currency='TON'"
+    ).fetchone()[0] == 4
+    reserved = connection.execute(
+        "SELECT SUM(CASE WHEN direction='credit' THEN CAST(amount AS NUMERIC) ELSE -CAST(amount AS NUMERIC) END) FROM marketplace_ledger_entries WHERE account_type='withdrawal_reserved' AND account_id=? AND currency='TON'",
+        (result["id"],),
+    ).fetchone()[0]
+    assert reserved == 1
+    assert connection.execute("SELECT COUNT(*) FROM gram_withdrawal_events").fetchone()[0] == 1
+    connection.close()
+
+
+def test_withdrawal_idempotency_key_does_not_reserve_twice(monkeypatch):
+    import asyncio
+    connection = _prepare(monkeypatch)
+    _seed_user_balance(connection)
+    _mock_withdrawal_ready(monkeypatch)
+    payload = _withdrawal_payload()
+    first = asyncio.run(gp.create_gram_withdrawal("123456", payload, now=2000))
+    second = asyncio.run(gp.create_gram_withdrawal("123456", payload, now=2001))
+    assert first["id"] == second["id"]
+    assert connection.execute(
+        "SELECT COUNT(*) FROM marketplace_ledger_transactions WHERE idempotency_key LIKE 'gram-withdrawal-reserve:%'"
+    ).fetchone()[0] == 1
+    connection.close()
+
+
+def test_user_can_cancel_queued_withdrawal_and_release_reserve(monkeypatch):
+    import asyncio
+    connection = _prepare(monkeypatch)
+    _seed_user_balance(connection)
+    _mock_withdrawal_ready(monkeypatch)
+    result = asyncio.run(gp.create_gram_withdrawal(
+        "123456", _withdrawal_payload(), now=2000
+    ))
+    cancelled = gp.cancel_gram_withdrawal("123456", result["id"], now=2100)
+    assert cancelled["status"] == "cancelled"
+    available = connection.execute(
+        "SELECT SUM(CASE WHEN direction='credit' THEN CAST(amount AS NUMERIC) ELSE -CAST(amount AS NUMERIC) END) FROM marketplace_ledger_entries WHERE account_type='user_balance' AND account_id='123456' AND currency='TON'"
+    ).fetchone()[0]
+    assert available == 5
+    assert connection.execute(
+        "SELECT COUNT(*) FROM marketplace_ledger_transactions WHERE idempotency_key=?",
+        (f"gram-withdrawal-release:{result['id']}",),
+    ).fetchone()[0] == 1
+    connection.close()
+
+
+def test_withdrawal_rejects_insufficient_balance_and_treasury_destination(monkeypatch):
+    import asyncio
+    connection = _prepare(monkeypatch)
+    _seed_user_balance(connection, amount="0.5")
+    _mock_withdrawal_ready(monkeypatch)
+    with pytest.raises(Exception) as insufficient:
+        asyncio.run(gp.create_gram_withdrawal(
+            "123456", _withdrawal_payload(amount="1"), now=2000
+        ))
+    assert getattr(insufficient.value, "status_code", None) == 409
+    treasury_payload = gp.GramWithdrawalRequest(
+        amount=gp.Decimal("0.1"),
+        destination_address=RAW_TREASURY,
+        idempotency_key="withdrawal-treasury-key",
+    )
+    with pytest.raises(Exception) as same_treasury:
+        asyncio.run(gp.create_gram_withdrawal("123456", treasury_payload, now=2000))
+    assert getattr(same_treasury.value, "status_code", None) == 422
+    connection.close()
