@@ -264,6 +264,99 @@ def create_marketplace_admin_router(verify_admin):
             ):
                 raise HTTPException(status_code=409, detail="Order is not a fully decoded, policy-compliant HASSLE GRAM payout")
 
+            # Bind the on-chain order to one live, ledger-backed seller payable.
+            # A plausible memo alone must never authorize an arbitrary transfer.
+            import json
+            from decimal import Decimal
+            from ton_nft_inventory import normalise_ton_address
+
+            deal_id = memo.removeprefix("HASSLE NFT payout ").strip()
+            try:
+                with marketplace._db() as conn:
+                    deal = conn.execute(
+                        "SELECT * FROM marketplace_deals WHERE id=?",
+                        (deal_id,),
+                    ).fetchone()
+                    if deal is None or deal["status"] != "completed" or str(deal["currency"]) != "TON":
+                        raise HTTPException(status_code=409, detail="Payout order does not match a completed GRAM deal")
+                    if conn.execute(
+                        "SELECT 1 FROM marketplace_escrow_events WHERE deal_id=? AND event_type='payout_released' LIMIT 1",
+                        (deal_id,),
+                    ).fetchone():
+                        raise HTTPException(status_code=409, detail="This deal has already been paid")
+                    reservation = conn.execute(
+                        """SELECT event_data FROM marketplace_escrow_events
+                           WHERE deal_id=? AND event_type='payout_order_prepared'
+                           ORDER BY created_at DESC LIMIT 1""",
+                        (deal_id,),
+                    ).fetchone()
+                    if reservation is None:
+                        raise HTTPException(status_code=409, detail="No live HASSLE payout reservation exists for this order")
+                    reservation_data = json.loads(reservation["event_data"] or "{}")
+                    if (
+                        int(reservation_data.get("expiration_date") or 0) != expiration
+                        or reservation_data.get("memo") != memo
+                        or reservation_data.get("amount_nano") != amount_nano
+                    ):
+                        raise HTTPException(status_code=409, detail="Order does not match the reserved payout details")
+                    seller_id = str(deal["listing_owner_id"])
+                    seller_wallet = conn.execute(
+                        """SELECT address FROM verified_wallets
+                           WHERE telegram_id=? AND network='-239' AND revoked_at IS NULL
+                           ORDER BY last_verified_at DESC LIMIT 1""",
+                        (seller_id,),
+                    ).fetchone()
+                    payable = conn.execute(
+                        """SELECT lt.amount
+                           FROM marketplace_ledger_transactions lt
+                           JOIN marketplace_ledger_entries le ON le.transaction_id=lt.id
+                           WHERE lt.reference_id=? AND lt.currency='TON'
+                             AND le.account_type='seller_payable' AND le.account_id=?
+                             AND le.direction='credit'
+                           ORDER BY lt.created_at DESC LIMIT 2""",
+                        (deal_id, seller_id),
+                    ).fetchall()
+                    credit_event = conn.execute(
+                        """SELECT 1 FROM marketplace_escrow_events
+                           WHERE deal_id=? AND event_type='seller_credit_recorded' LIMIT 1""",
+                        (deal_id,),
+                    ).fetchone()
+                    payment_intent = conn.execute(
+                        """SELECT * FROM marketplace_payment_intents
+                           WHERE deal_id=? AND provider='ton' AND status='confirmed'
+                           ORDER BY created_at DESC LIMIT 1""",
+                        (deal_id,),
+                    ).fetchone()
+                    if seller_wallet is None or len(payable) != 1 or credit_event is None or payment_intent is None:
+                        raise HTTPException(status_code=409, detail="Seller payable, confirmed payment and active wallet are required")
+                    payment_metadata = json.loads(payment_intent["metadata_json"] or "{}")
+                    seller_raw = normalise_ton_address(str(seller_wallet["address"]))
+                    recipient_raw = normalise_ton_address(recipient)
+                    treasury_raw = normalise_ton_address(expected_address)
+                    paid_treasury_raw = normalise_ton_address(str(payment_metadata.get("treasury") or ""))
+                    reserved_treasury_raw = normalise_ton_address(str(reservation_data.get("treasury") or ""))
+                    payable_amount = Decimal(str(payable[0]["amount"]))
+                    paid_amount = Decimal(str(payment_intent["amount"]))
+                    payable_nano = int(payable_amount * Decimal(1_000_000_000))
+                    if (
+                        seller_raw != recipient_raw
+                        or treasury_raw != paid_treasury_raw
+                        or treasury_raw != reserved_treasury_raw
+                        or payable_amount <= 0
+                        or payable_amount != paid_amount
+                        or Decimal(payable_nano) / Decimal(1_000_000_000) != payable_amount
+                        or payable_nano != int(amount_nano)
+                        or conn.execute(
+                            "SELECT 1 FROM marketplace_ledger_transactions WHERE reference_type='withdrawal' AND reference_id=? LIMIT 1",
+                            (deal_id,),
+                        ).fetchone()
+                    ):
+                        raise HTTPException(status_code=409, detail="On-chain payout does not match the seller's verified GRAM payable")
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=409, detail="Could not bind this order to a verified seller payable") from exc
+
             prepared = build_order_approve_payload(signer_index=signer_index)
             valid_until = min(expiration, now + 300)
             return {
